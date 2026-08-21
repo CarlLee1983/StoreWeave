@@ -53,5 +53,22 @@ ALTER TABLE order_orders ADD CONSTRAINT order_orders_status_check
 CREATE INDEX IF NOT EXISTS order_orders_expiry_idx
   ON order_orders (expires_at) WHERE status IN ('pending', 'payment_processing');
 `),
+    sqlMigration('0003_money_columns', 'expand', `
+ALTER TABLE order_orders ADD COLUMN IF NOT EXISTS discount_cents integer NOT NULL DEFAULT 0;
+ALTER TABLE order_orders DROP CONSTRAINT IF EXISTS order_orders_discount_cents_check;
+ALTER TABLE order_orders ADD CONSTRAINT order_orders_discount_cents_check CHECK (discount_cents >= 0);
+
+ALTER TABLE order_orders ADD COLUMN IF NOT EXISTS shipping_cents integer NOT NULL DEFAULT 0;
+ALTER TABLE order_orders DROP CONSTRAINT IF EXISTS order_orders_shipping_cents_check;
+ALTER TABLE order_orders ADD CONSTRAINT order_orders_shipping_cents_check CHECK (shipping_cents >= 0);
+
+ALTER TABLE order_orders ADD COLUMN IF NOT EXISTS tax_cents integer NOT NULL DEFAULT 0;
+ALTER TABLE order_orders DROP CONSTRAINT IF EXISTS order_orders_tax_cents_check;
+ALTER TABLE order_orders ADD CONSTRAINT order_orders_tax_cents_check CHECK (tax_cents >= 0);
+
+ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS discount_cents integer NOT NULL DEFAULT 0;
+ALTER TABLE order_lines DROP CONSTRAINT IF EXISTS order_lines_discount_cents_check;
+ALTER TABLE order_lines ADD CONSTRAINT order_lines_discount_cents_check CHECK (discount_cents >= 0);
+`),
   ],
 };

@@ -8,6 +8,9 @@ export const orders = pgTable('order_orders', {
   customerEmail: text('customer_email').notNull(),
   subtotalCents: integer('subtotal_cents').notNull(),
   totalCents: integer('total_cents').notNull(),
+  discountCents: integer('discount_cents').notNull().default(0),
+  shippingCents: integer('shipping_cents').notNull().default(0),
+  taxCents: integer('tax_cents').notNull().default(0),
   metadata: jsonb('metadata'),
   placedAt: timestamp('placed_at', { withTimezone: true }).notNull().defaultNow(),
   paidAt: timestamp('paid_at', { withTimezone: true }),
@@ -25,6 +28,7 @@ export const orderLines = pgTable('order_lines', {
   unitPriceCents: integer('unit_price_cents').notNull(),
   quantity: integer('quantity').notNull(),
   lineTotalCents: integer('line_total_cents').notNull(),
+  discountCents: integer('discount_cents').notNull().default(0),
 });
 
 export const orderPayments = pgTable('order_payments', {

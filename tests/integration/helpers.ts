@@ -103,7 +103,11 @@ export async function stockUp(runtime: Runtime, productId: string, delta: number
 }
 
 export async function placeOrder(runtime: Runtime, productId: string, quantity = 1) {
-  return runtime.commands.execute<{ id: string; number: string; status: string; totalCents: number }>(
+  return runtime.commands.execute<{
+    id: string; number: string; status: string; subtotalCents: number; totalCents: number;
+    discountCents: number; shippingCents: number; taxCents: number;
+    lines: { discountCents: number }[];
+  }>(
     'commerce.order.placeOrder',
     { customerEmail: 'buyer@example.com', lines: [{ productId, quantity }] },
     { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() },

@@ -22,6 +22,11 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
 
     expect(order.status).toBe('pending');
     expect(order.totalCents).toBe(7500);
+    expect(order.totalCents).toBe(order.subtotalCents);
+    expect(order.discountCents).toBe(0);
+    expect(order.shippingCents).toBe(0);
+    expect(order.taxCents).toBe(0);
+    expect(order.lines.every((l: any) => l.discountCents === 0)).toBe(true);
     const stock = await h.runtime.queries.execute<any>('commerce.inventory.getStock', { productId: product.id }, { actor: ADMIN_ACTOR });
     expect(stock.onHand).toBe(10);
     expect(stock.reserved).toBe(3);
@@ -51,6 +56,9 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
     const paid = await h.runtime.queries.execute<any>('commerce.order.getOrder', { id: order.id }, { actor: ADMIN_ACTOR });
 
     expect(paid.status).toBe('paid');
+    expect(paid.discountCents).toBe(0);
+    expect(paid.shippingCents).toBe(0);
+    expect(paid.taxCents).toBe(0);
     const stock = await h.runtime.queries.execute<any>('commerce.inventory.getStock', { productId: product.id }, { actor: ADMIN_ACTOR });
     expect(stock).toMatchObject({ onHand: 3, reserved: 0, available: 3 });
     const events = await outboxFor(order.id);

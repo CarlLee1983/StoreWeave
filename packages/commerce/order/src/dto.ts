@@ -11,6 +11,7 @@ export const orderLineDto = z.object({
   unitPriceCents: z.number().int().nonnegative(),
   quantity: z.number().int().positive(),
   lineTotalCents: z.number().int().nonnegative(),
+  discountCents: z.number().int().nonnegative(),
 });
 
 export const orderDto = z.object({
@@ -21,6 +22,9 @@ export const orderDto = z.object({
   customerEmail: z.string().email(),
   subtotalCents: z.number().int().nonnegative(),
   totalCents: z.number().int().nonnegative(),
+  discountCents: z.number().int().nonnegative(),
+  shippingCents: z.number().int().nonnegative(),
+  taxCents: z.number().int().nonnegative(),
   lines: z.array(orderLineDto),
   placedAt: z.coerce.date(),
   paidAt: z.coerce.date().nullable(),
