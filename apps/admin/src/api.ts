@@ -322,6 +322,12 @@ export const api = {
   }) {
     return request<Promotion>('/api/v1/promotions', { method: 'POST', body, idempotent: true });
   },
+  updatePromotion(
+    id: string,
+    body: { name?: string; rule?: PromotionRule; priority?: number; stackable?: boolean; startsAt?: string; endsAt?: string },
+  ) {
+    return request<Promotion>(`/api/v1/promotions/${id}`, { method: 'PATCH', body, idempotent: true });
+  },
   setPromotionStatus(id: string, status: Promotion['status']) {
     return request<Promotion>(`/api/v1/promotions/${id}/status`, {
       method: 'POST',

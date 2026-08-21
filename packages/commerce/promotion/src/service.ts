@@ -25,16 +25,11 @@ export interface QuoteInput {
  */
 export const pricingService = {
   async activePromotions(db: DrizzleDb | Tx, at: Date, logger?: Logger): Promise<Promotion[]> {
-    const { items, total } = await repository.list(db, {
-      status: 'active',
-      activeAt: at,
-      limit: MAX_ACTIVE_PROMOTIONS,
-      offset: 0,
-    });
+    const items = await repository.listActiveAt(db, at, MAX_ACTIVE_PROMOTIONS);
     // 靜默截斷等於有些活動今天生效、明天不生效，而沒有人知道為什麼。
-    if (total > MAX_ACTIVE_PROMOTIONS) {
+    if (items.length > MAX_ACTIVE_PROMOTIONS) {
       throw PlatformError.internal(
-        `${total} promotions are active at once; the pricing engine loads at most ${MAX_ACTIVE_PROMOTIONS}`,
+        `More than ${MAX_ACTIVE_PROMOTIONS} promotions are active at once; the pricing engine loads at most that many`,
       );
     }
 

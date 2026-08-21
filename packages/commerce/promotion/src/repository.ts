@@ -60,6 +60,19 @@ export class PromotionRepository {
     return row ?? null;
   }
 
+  /**
+   * 結帳熱路徑用的載入：不跑 count(*)（那會讓每一張訂單多一次全表統計），
+   * 改成多取一列來判斷有沒有超出上限。
+   */
+  async listActiveAt(db: DrizzleDb | Tx, at: Date, limit: number): Promise<PromotionRow[]> {
+    return db
+      .select()
+      .from(promotions)
+      .where(activeAtCondition(at))
+      .orderBy(asc(promotions.priority), asc(promotions.id))
+      .limit(limit + 1);
+  }
+
   async list(
     db: DrizzleDb | Tx,
     filter: { status?: string; activeAt?: Date; limit: number; offset: number },
