@@ -1,0 +1,207 @@
+import { sql } from 'drizzle-orm';
+import {
+  PlatformError,
+  type Actor,
+  type AuditEntryInput,
+  type CommandContext,
+  type CommandDescriptor,
+  type CommandHandler,
+  type Logger,
+  type Tx,
+} from '@storeweave/contracts';
+import type { Database } from '@storeweave/db';
+import type { AuthorizationService } from '@storeweave/authorization';
+import type { AuditWriter } from '@storeweave/audit';
+import type { OutboxStore } from '@storeweave/outbox';
+import type { JobQueue } from '@storeweave/jobs';
+import type { EventBus } from '@storeweave/event-bus';
+import { requestHash } from './hash';
+
+export interface CommandRegistration {
+  descriptor: CommandDescriptor;
+  handler: CommandHandler;
+  /** core 模組名稱或 extension id，用於 audit 與 introspection。 */
+  owner: string;
+}
+
+export interface ExecuteOptions {
+  actor: Actor;
+  idempotencyKey?: string;
+  correlationId?: string;
+  /** 由呼叫者宣告的介面來源，只寫進 log/audit，不影響授權。 */
+  channel?: 'rest' | 'mcp' | 'cli' | 'admin' | 'internal' | 'worker';
+}
+
+export interface CommandBusDeps {
+  database: Database;
+  authorization: AuthorizationService;
+  audit: AuditWriter;
+  outbox: OutboxStore;
+  jobs: JobQueue;
+  events: EventBus;
+  logger: Logger;
+}
+
+/**
+ * 唯一的寫入入口。REST、MCP、Admin、CLI、Worker 全部經過這裡，
+ * 因此授權、驗證、Idempotency、Audit、Outbox 只有一份實作。
+ */
+export class CommandBus {
+  private readonly registry = new Map<string, CommandRegistration>();
+
+  constructor(private readonly deps: CommandBusDeps) {}
+
+  register(descriptor: CommandDescriptor, handler: CommandHandler, owner: string): void {
+    if (this.registry.has(descriptor.name)) {
+      throw PlatformError.conflict(`Command "${descriptor.name}" already registered by "${this.registry.get(descriptor.name)!.owner}"`);
+    }
+    this.deps.authorization.permissions.assertKnown(descriptor.permission, `command ${descriptor.name}`);
+    this.registry.set(descriptor.name, { descriptor, handler, owner });
+  }
+
+  has(name: string): boolean {
+    return this.registry.has(name);
+  }
+
+  get(name: string): CommandRegistration {
+    const reg = this.registry.get(name);
+    if (!reg) throw PlatformError.notFound('Command', name);
+    return reg;
+  }
+
+  list(): CommandRegistration[] {
+    return [...this.registry.values()].sort((a, b) => a.descriptor.name.localeCompare(b.descriptor.name));
+  }
+
+  async execute<O = unknown>(name: string, rawInput: unknown, options: ExecuteOptions): Promise<O> {
+    const { descriptor, handler, owner } = this.get(name);
+    const correlationId = options.correlationId ?? cryptoRandom();
+    const logger = this.deps.logger.child({ command: name, correlationId, actor: options.actor.id, channel: options.channel ?? 'internal' });
+
+    this.deps.authorization.assert({
+      actor: options.actor,
+      permission: descriptor.permission,
+      resource: { type: descriptor.name.split('.')[1] ?? 'unknown' },
+    });
+
+    const parsed = descriptor.input.safeParse(rawInput);
+    if (!parsed.success) {
+      throw PlatformError.validation(`Invalid input for "${name}"`, parsed.error.issues);
+    }
+    const input = parsed.data;
+
+    if (descriptor.idempotency === 'required' && !options.idempotencyKey) {
+      throw PlatformError.validation(`Command "${name}" requires an idempotency key`);
+    }
+
+    const hash = requestHash(input);
+
+    return this.deps.database.transaction(async (tx) => {
+      if (options.idempotencyKey) {
+        const replay = await this.claimIdempotency(tx, name, options.idempotencyKey, hash, options.actor.id);
+        if (replay.kind === 'replay') {
+          logger.info({ idempotencyKey: options.idempotencyKey }, 'command replayed from idempotency record');
+          return replay.response as O;
+        }
+      }
+
+      const now = new Date();
+      const auditEntries: AuditEntryInput[] = [];
+      const ctx: CommandContext = {
+        actor: options.actor,
+        tx,
+        logger,
+        correlationId,
+        now,
+        publish: async (event) => {
+          const descriptorForEvent = this.deps.events.getEvent(event.name);
+          const payload = descriptorForEvent.payload.safeParse(event.payload);
+          if (!payload.success) {
+            throw PlatformError.internal(`Event "${event.name}" payload failed validation`, payload.error.issues);
+          }
+          await this.deps.outbox.append(tx, {
+            name: descriptorForEvent.name,
+            version: descriptorForEvent.version,
+            payload: payload.data,
+            actorId: options.actor.id,
+            correlationId,
+            occurredAt: now,
+          });
+        },
+        audit: async (entry) => {
+          auditEntries.push(entry);
+          await this.deps.audit.write(tx, { ...entry, actor: options.actor, correlationId });
+        },
+        enqueue: async (job) => {
+          await this.deps.jobs.enqueue(tx, job);
+        },
+      };
+
+      const result = await handler(input, ctx);
+      const outputParsed = descriptor.output.safeParse(result);
+      if (!outputParsed.success) {
+        throw PlatformError.internal(`Command "${name}" produced invalid output`, outputParsed.error.issues);
+      }
+      const output = outputParsed.data;
+
+      if (descriptor.audit && auditEntries.length === 0) {
+        await this.deps.audit.write(tx, {
+          action: descriptor.audit.action,
+          resourceType: descriptor.audit.resourceType,
+          resourceId: descriptor.audit.resourceId?.(input, output),
+          payload: descriptor.audit.redact?.(input),
+          actor: options.actor,
+          correlationId,
+        });
+      }
+
+      if (options.idempotencyKey) {
+        await tx.execute(sql`
+          UPDATE platform_idempotency SET status = 'completed', response = ${JSON.stringify(output ?? null)}::jsonb, completed_at = now()
+          WHERE command_name = ${name} AND key = ${options.idempotencyKey}
+        `);
+      }
+
+      logger.info({ owner }, 'command executed');
+      return output as O;
+    });
+  }
+
+  /**
+   * 在同一個交易內宣告 idempotency key。
+   * 併發的第二個請求會卡在唯一索引上直到第一個 commit，然後讀到已完成的結果 —— 不會重複執行。
+   */
+  private async claimIdempotency(
+    tx: Tx,
+    commandName: string,
+    key: string,
+    hash: string,
+    actorId: string,
+  ): Promise<{ kind: 'claimed' } | { kind: 'replay'; response: unknown }> {
+    const inserted = await tx.execute<{ key: string }>(sql`
+      INSERT INTO platform_idempotency (command_name, key, request_hash, status, actor_id)
+      VALUES (${commandName}, ${key}, ${hash}, 'in_progress', ${actorId})
+      ON CONFLICT (command_name, key) DO NOTHING
+      RETURNING key
+    `);
+    if (inserted.rows.length > 0) return { kind: 'claimed' };
+
+    const existing = await tx.execute<{ request_hash: string; status: string; response: unknown }>(sql`
+      SELECT request_hash, status, response FROM platform_idempotency
+      WHERE command_name = ${commandName} AND key = ${key}
+    `);
+    const row = existing.rows[0];
+    if (!row) throw PlatformError.internal('Idempotency record disappeared');
+    if (row.request_hash !== hash) {
+      throw new PlatformError('IDEMPOTENCY_MISMATCH', `Idempotency key "${key}" was already used with a different payload`);
+    }
+    if (row.status !== 'completed') {
+      throw new PlatformError('IDEMPOTENCY_IN_PROGRESS', `Request with idempotency key "${key}" is still in progress`);
+    }
+    return { kind: 'replay', response: row.response };
+  }
+}
+
+function cryptoRandom(): string {
+  return require('node:crypto').randomUUID();
+}
