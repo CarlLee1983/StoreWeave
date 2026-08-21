@@ -31,6 +31,7 @@ packages/platform/
   audit/                Audit Log 寫入與機密遮蔽
   extension-sdk/        Extension 的唯一公開介面（見 extension-development.md）
   kernel/               組裝：Runtime、ExtensionHost、Worker、健康檢查、Theme 契約
+                        以及平台自身的維運模組（platform.jobs.* 死信佇列，見 ADR 0011）
   bundle/               這個 Commerce Release 編進了哪些模組、Extension 與 Theme
 
 packages/commerce/      第一個產品（Commerce Core）：catalog / inventory / order

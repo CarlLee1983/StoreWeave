@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 全部的 job 都用同一組 toolchain 版本，與 package.json 的 engines / packageManager 對齊。
+  NODE_VERSION: '22.17.1'
+
+jobs:
+  # 不需要 Docker 的快檢查：型別與單元 / 架構測試。
+  check:
+    name: typecheck + unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm typecheck:admin
+      - run: pnpm test
+
+  # Testcontainers 會自己起 PostgreSQL，runner 內建的 Docker 就夠。
+  integration:
+    name: integration (postgres)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:integration
+
+  # 映像在 Docker 內建置，所以這裡不需要 pnpm install；
+  # 但 smoke.sh 的 jqr() 用 node 解析回應，runner 上仍要有 node。
+  smoke-docker:
+    name: smoke (docker compose)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: bash scripts/smoke-docker.sh
+
+  # 在乾淨的 Debian 容器裡裝 tarball 跑完三條流程。
+  # 這個 job 會自己建 release：CI 上永遠是全新 checkout，不會重用過期產物。
+  smoke-native:
+    name: smoke (native tarball)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # 固定版本的 Node runtime 會被下載進 .cache，跨次執行快取起來。
+      - uses: actions/cache@v4
+        with:
+          path: .cache
+          key: node-runtime-${{ env.NODE_VERSION }}-x64
+      - run: pnpm smoke:native

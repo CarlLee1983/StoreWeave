@@ -12,5 +12,6 @@
 | [0008](0008-build-tooling-and-migrations.md) | 以 esbuild 打包、SQL migration 內嵌於 TypeScript | accepted |
 | [0009](0009-async-payment-and-inventory-reservation.md) | 非同步付款與庫存預留 | accepted |
 | [0010](0010-platform-is-domain-agnostic.md) | 平台對領域中立，Commerce 是產品不是 kernel | accepted |
+| [0011](0011-platform-ops-module.md) | 死信佇列由平台維運模組公開，重送與 requeue 分家 | accepted |
 
 寫法：`**Falsified if:**` 段落裡用反引號標出這個決策所依賴的檔案，那些檔案就是這個決策的邊界清單。

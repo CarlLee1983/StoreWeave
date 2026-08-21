@@ -14,6 +14,18 @@ export interface EnqueueInput {
   maxAttempts?: number;
 }
 
+export interface DeadJobRow {
+  [key: string]: unknown;
+  id: string;
+  type: string;
+  payload: unknown;
+  attempts: number;
+  max_attempts: number;
+  dedupe_key: string | null;
+  last_error: string | null;
+  updated_at: Date;
+}
+
 export interface JobRow {
   [key: string]: unknown;
   id: string;
@@ -106,6 +118,21 @@ export class JobQueue {
     if (res.rows.length === 0) throw PlatformError.notFound('Job', id);
   }
 
+  /**
+   * 死信專用的重送：只放行 status = 'dead' 的工作。
+   * 與 requeue 分開是刻意的 —— 對 completed 的工作重送會再產生一次外部副作用。
+   */
+  async retryDead(db: DrizzleDb, id: string): Promise<void> {
+    const res = await db.execute<{ id: string }>(sql`
+      UPDATE platform_jobs
+      SET status = 'pending', run_at = now(), attempts = 0, last_error = NULL,
+          locked_at = NULL, locked_by = NULL, completed_at = NULL, updated_at = now()
+      WHERE id = ${id} AND status = 'dead'
+      RETURNING id
+    `);
+    if (res.rows.length === 0) throw PlatformError.notFound('Dead job', id);
+  }
+
   /** 釋放被 crash 的 worker 卡住的工作。 */
   async reclaimStale(db: DrizzleDb, olderThanSeconds: number): Promise<number> {
     const res = await db.execute<{ id: string }>(sql`
@@ -123,6 +150,20 @@ export class JobQueue {
     const out: Record<string, number> = { pending: 0, running: 0, completed: 0, dead: 0 };
     for (const r of res.rows) out[r.status] = Number(r.count);
     return out;
+  }
+
+  /** 列出耗盡重試而進入死信佇列的工作，最近失敗的排在前面。 */
+  async listDead(db: DrizzleDb, options: { limit: number; offset: number }): Promise<{ items: DeadJobRow[]; total: number }> {
+    const res = await db.execute<DeadJobRow>(sql`
+      SELECT id, type, payload, attempts, max_attempts, dedupe_key, last_error, updated_at
+      FROM platform_jobs WHERE status = 'dead'
+      ORDER BY updated_at DESC
+      LIMIT ${options.limit} OFFSET ${options.offset}
+    `);
+    const count = await db.execute<{ count: string }>(
+      sql`SELECT count(*)::text AS count FROM platform_jobs WHERE status = 'dead'`,
+    );
+    return { items: res.rows, total: Number(count.rows[0]?.count ?? 0) };
   }
 
   async findByDedupeKey(db: DrizzleDb, key: string): Promise<(JobRow & { status: string; last_error: string | null }) | null> {

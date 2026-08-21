@@ -9,6 +9,7 @@ import { HealthController } from './controllers/health.controller';
 import { InventoryController } from './controllers/inventory.controller';
 import { MetaController } from './controllers/meta.controller';
 import { OrderController } from './controllers/order.controller';
+import { SystemController } from './controllers/system.controller';
 import { McpController } from './mcp/mcp.controller';
 import { StorefrontController } from './storefront/storefront.controller';
 import { RELEASE, RUNTIME, THEME, type ReleaseInfo, type Runtime, type StorefrontTheme } from './tokens';
@@ -17,7 +18,7 @@ import { RELEASE, RUNTIME, THEME, type ReleaseInfo, type Runtime, type Storefron
 export class AppModule {
   static forRuntime(runtime: Runtime, theme: StorefrontTheme, release: ReleaseInfo): DynamicModule {
     const controllers = [
-      HealthController, MetaController, CatalogController, InventoryController,
+      HealthController, MetaController, CatalogController, InventoryController, SystemController,
       OrderController, AnalyticsController, ExtensionsController, StorefrontController,
     ];
     if (runtime.config.mcp.enabled) controllers.push(McpController as never);

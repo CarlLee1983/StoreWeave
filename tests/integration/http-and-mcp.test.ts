@@ -199,3 +199,31 @@ describe('MCP 介面', () => {
     expect(item).not.toHaveProperty('price_cents');
   });
 });
+
+describe('死信佇列 HTTP 端點', () => {
+  it('未帶 token 會被擋', async () => {
+    const res = await inject({ method: 'GET', url: '/api/v1/system/jobs/dead' });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('admin token 可以列出死信工作', async () => {
+    const res = await inject({
+      method: 'GET',
+      url: '/api/v1/system/jobs/dead',
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.data).toMatchObject({ items: expect.any(Array), total: expect.any(Number) });
+  });
+
+  it('重送需要 idempotency key', async () => {
+    const res = await inject({
+      method: 'POST',
+      url: '/api/v1/system/jobs/dead/00000000-0000-4000-8000-000000000000/retry',
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});

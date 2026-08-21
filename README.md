@@ -50,7 +50,7 @@ pnpm "dev:worker"
 | [docs/deployment-docker.md](docs/deployment-docker.md) | Docker 安裝與維運 |
 | [docs/deployment-native.md](docs/deployment-native.md) | 原生 Ubuntu / Debian 安裝、升級與回退 |
 | [docs/operations.md](docs/operations.md) | `commerce` CLI、健康端點、備份還原 |
-| [docs/adr/](docs/adr/) | 架構決策紀錄（8 篇） |
+| [docs/adr/](docs/adr/) | 架構決策紀錄（11 篇） |
 
 ## 三條垂直流程
 
@@ -68,6 +68,7 @@ pnpm "dev:worker"
 | 指令 | 內容 |
 | --- | --- |
 | `pnpm test` | 單元 + 架構測試（不需要 Docker） |
+| `pnpm test:admin` | 管理後台的 React 元件測試（jsdom） |
 | `pnpm test:integration` | PostgreSQL 整合測試（Testcontainers，需要 Docker） |
 | `pnpm test:all` | 以上兩者 |
 | `pnpm smoke:docker` | Docker Compose 端到端 smoke test |
@@ -81,4 +82,5 @@ pnpm "dev:worker"
 - MCP 工具的型別只能指向 Command 或 Query —— 直接存取資料庫是「寫不出來」，不是「不該做」。
 - 公開契約一律是 DTO + Zod schema，ORM entity 不外流。
 
-`tests/architecture/boundaries.test.ts` 會逐項檢查以上規則。
+`tests/architecture/boundaries.test.ts` 會逐項檢查以上規則，
+`.github/workflows/ci.yml` 則在每次 push 與 PR 上跑完型別檢查、四組測試與兩條部署路徑的 smoke test。

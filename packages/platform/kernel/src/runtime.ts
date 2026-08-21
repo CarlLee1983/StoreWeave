@@ -17,6 +17,7 @@ import { JobRegistry } from './job-registry';
 import { McpToolRegistry } from './mcp-registry';
 import { EVENT_DELIVERY_JOB, createEventDeliveryHandler } from './event-delivery';
 import type { PlatformModule } from './module';
+import { createOpsModule } from './ops-module';
 
 export interface RuntimeOptions {
   config: CommerceConfig;
@@ -80,13 +81,16 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
 
   const migrations: MigrationSet[] = [platformMigrations];
 
-  for (const mod of options.modules) {
+  // 平台自身的維運模組永遠在，與這個 Release 編進哪些產品模組無關。
+  const allModules: readonly PlatformModule[] = [createOpsModule(jobs), ...options.modules];
+
+  for (const mod of allModules) {
     if (mod.migrations) migrations.push(mod.migrations);
     authorization.permissions.registerMany(mod.permissions ?? []);
     events.registerEvents(mod.events ?? []);
   }
   // 權限全部註冊完才註冊 command/query，避免順序依賴
-  for (const mod of options.modules) {
+  for (const mod of allModules) {
     for (const c of mod.commands ?? []) commands.register(c.descriptor, c.handler, mod.name);
     for (const q of mod.queries ?? []) queries.register(q.descriptor, q.handler, mod.name);
     for (const j of mod.jobs ?? []) jobRegistry.register(j.type, j.handler, mod.name);

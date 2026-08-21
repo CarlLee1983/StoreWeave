@@ -25,6 +25,15 @@ export default defineConfig({
           fileParallelism: false,
         },
       },
+      {
+        plugins: [tsconfigPaths()],
+        test: {
+          name: 'admin',
+          include: ['apps/admin/**/*.test.tsx'],
+          environment: 'jsdom',
+          setupFiles: ['apps/admin/vitest.setup.ts'],
+        },
+      },
     ],
   },
 });

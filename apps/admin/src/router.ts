@@ -1,9 +1,9 @@
 // 極簡 hash router：只解析 #/xxx 的第一段路徑，不做巢狀或參數比對。
 import { useEffect, useState } from 'react';
 
-export type Route = 'products' | 'orders' | 'erp' | 'system';
+export type Route = 'products' | 'orders' | 'erp' | 'system' | 'dlq';
 
-const ROUTES: Route[] = ['products', 'orders', 'erp', 'system'];
+const ROUTES: Route[] = ['products', 'orders', 'erp', 'system', 'dlq'];
 const DEFAULT_ROUTE: Route = 'products';
 
 function parseHash(): Route {

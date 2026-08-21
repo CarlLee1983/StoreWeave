@@ -91,6 +91,16 @@ export type Delivery = {
 /** 依目前 ERP 設定產生、下一次重送會使用的 JSON body（不含 HTTP headers 或 API key）。 */
 export type DeliveryPayload = { orderId: string; payload: Record<string, unknown> };
 
+export type DeadJob = {
+  id: string;
+  type: string;
+  attempts: number;
+  maxAttempts: number;
+  dedupeKey: string | null;
+  lastError: string | null;
+  failedAt: string;
+};
+
 export type HealthCheck = { name: string; status: string; detail?: string };
 export type HealthReport = { status: string; checks: HealthCheck[] };
 
@@ -279,6 +289,15 @@ export const api = {
   },
   healthDependencies() {
     return request<HealthReport>('/health/dependencies', { withAuth: false, raw: true });
+  },
+  listDeadJobs(params: { limit?: number; offset?: number }) {
+    return request<Paged<DeadJob>>(`/api/v1/system/jobs/dead${toQuery(params)}`);
+  },
+  retryDeadJob(jobId: string) {
+    return request<{ jobId: string; status: string }>(
+      `/api/v1/system/jobs/dead/${jobId}/retry`,
+      { method: 'POST', body: {}, idempotent: true },
+    );
   },
 };
 
