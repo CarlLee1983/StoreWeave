@@ -38,6 +38,7 @@
       "@storeweave/catalog": ["packages/commerce/catalog/src/index.ts"],
       "@storeweave/inventory": ["packages/commerce/inventory/src/index.ts"],
       "@storeweave/order": ["packages/commerce/order/src/index.ts"],
+      "@storeweave/promotion": ["packages/commerce/promotion/src/index.ts"],
       "@storeweave/ext-mock-payment": ["packages/extensions/mock-payment/src/index.ts"],
       "@storeweave/ext-demo-erp": ["packages/extensions/demo-erp/src/index.ts"],
       "@storeweave/ext-mcp": ["packages/extensions/mcp/src/index.ts"],
