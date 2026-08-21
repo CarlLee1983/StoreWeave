@@ -34,12 +34,28 @@ async function setPlacedAt(orderId: string, at: string) {
   );
 }
 
+/**
+ * 等到訂單真的變成 paid。
+ *
+ * 付款工作以 `run_at <= now()` 認領，run_at 由 Node 產生而 now() 來自 Postgres，
+ * 兩者之間的時鐘偏移會讓單獨一輪 runJobs() 撲空。輪詢到狀態轉換為止才是穩定的做法。
+ */
+async function settlePayment(orderId: string) {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    await h.worker.runJobs();
+    const order = await h.runtime.queries.execute<any>('commerce.order.getOrder', { id: orderId }, { actor: ADMIN_ACTOR });
+    if (order.status === 'paid') return order;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`訂單 ${orderId} 在時限內沒有變成 paid`);
+}
+
 async function paidOrder(priceCents: number, quantity: number) {
   const product = await createProduct(h.runtime, { priceCents });
   await stockUp(h.runtime, product.id, quantity + 5);
   const order = await placeOrder(h.runtime, product.id, quantity);
   await payOrder(h.runtime, order.id);
-  await h.worker.runJobs();
+  await settlePayment(order.id);
   return { product, order };
 }
 
