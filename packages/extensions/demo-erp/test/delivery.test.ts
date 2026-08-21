@@ -122,6 +122,23 @@ describe('demo-erp 投遞流程', () => {
     expect(record?.manualResends).toBe(1);
   });
 
+  it('已送達訂單的人工重送會重新呼叫 ERP', async () => {
+    const { ctx, registration, jobHandlers } = await setup();
+    await registration.events![0].handler(paidEvent as any, ctx);
+    const before = await ctx.store.get<DeliveryRecord>(deliveryKey(orderId));
+    await ctx.store.set(deliveryKey(orderId), { ...before!, status: 'sent', remoteId: 'already-sent' });
+
+    await registration.commands![0].handler({ orderId }, ctx as any);
+    const queued = await ctx.store.get<DeliveryRecord>(deliveryKey(orderId));
+    expect(queued?.status).toBe('pending');
+    await ctx.drainJobs(jobHandlers as any);
+
+    const after = await ctx.store.get<DeliveryRecord>(deliveryKey(orderId));
+    expect(after).toMatchObject({ status: 'sent', manualResends: 1 });
+    expect(after?.remoteId).not.toBe('already-sent');
+    expect(after?.attempts).toBe((before?.attempts ?? 0) + 1);
+  });
+
   it('對不存在的訂單重送會回 NOT_FOUND', async () => {
     const { ctx, registration } = await setup();
     const resend = registration.commands![0].handler;
@@ -135,5 +152,32 @@ describe('demo-erp 投遞流程', () => {
     const list = await registration.queries![0].handler({ limit: 50 }, ctx as any);
     expect(list.items).toHaveLength(1);
     expect(list.items[0].orderNumber).toBe('SW-1001');
+  });
+
+  it('payload inspector 回傳下一次重送會使用的 HTTP ERP body，且不洩漏 API key', async () => {
+    const { ctx, registration } = await setup();
+    await registration.events![0].handler(paidEvent as any, ctx);
+    const inspect = registration.queries!.find((query) => query.descriptor.name === 'ext.demo-erp.inspectDeliveryPayload')!.handler;
+
+    const result = await inspect({ orderId }, ctx as any);
+
+    expect(result).toMatchObject({
+      orderId,
+      payload: {
+        documentType: 'SALES_ORDER',
+        reference: 'SO-SW-1001',
+        CustomerRef: 'buyer@example.com',
+        PaymentRef: 'mock_abc',
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('DEMO_ERP_API_KEY');
+    expect(JSON.stringify(result)).not.toContain('"k"');
+  });
+
+  it('payload inspector 對沒有快照的訂單回 NOT_FOUND', async () => {
+    const { ctx, registration } = await setup();
+    const inspect = registration.queries!.find((query) => query.descriptor.name === 'ext.demo-erp.inspectDeliveryPayload')!.handler;
+
+    await expect(inspect({ orderId: '99999999-9999-4999-8999-999999999999' }, ctx as any)).rejects.toThrow(/not found/i);
   });
 });

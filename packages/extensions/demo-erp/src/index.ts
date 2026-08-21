@@ -2,8 +2,9 @@ import { defineExtension } from '@storeweave/extension-sdk';
 import { DEMO_ERP_API_KEY, PUSH_ORDER_JOB, demoErpConfig, type DemoErpConfig } from './config';
 import { createDemoErpProvider } from './erp-client';
 import {
-  createListDeliveriesHandler, createOrderPaidHandler, createPushOrderJob, createResendHandler,
-  listDeliveriesQuery, resendOrderCommand,
+  createInspectDeliveryPayloadHandler, createListDeliveriesHandler, createOrderPaidHandler,
+  createPushOrderJob, createResendHandler, inspectDeliveryPayloadQuery, listDeliveriesQuery,
+  resendOrderCommand,
 } from './handlers';
 import type { DeliveryRecord } from './state';
 
@@ -23,7 +24,7 @@ export const demoErpExtension = defineExtension<DemoErpConfig>({
     configuration: demoErpConfig,
     subscribedEvents: ['commerce.order.paid.v1'],
     registeredCommands: [resendOrderCommand.name],
-    registeredQueries: [listDeliveriesQuery.name],
+    registeredQueries: [listDeliveriesQuery.name, inspectDeliveryPayloadQuery.name],
     registeredProviders: [{ kind: 'erp', id: 'demo-erp', isDefault: true }],
   },
   setup(ctx) {
@@ -32,7 +33,10 @@ export const demoErpExtension = defineExtension<DemoErpConfig>({
       events: [{ event: 'commerce.order.paid.v1', handler: createOrderPaidHandler(), maxAttempts: 8 }],
       jobs: [{ type: PUSH_ORDER_JOB, handler: createPushOrderJob() }],
       commands: [{ descriptor: resendOrderCommand, handler: createResendHandler() }],
-      queries: [{ descriptor: listDeliveriesQuery, handler: createListDeliveriesHandler() }],
+      queries: [
+        { descriptor: listDeliveriesQuery, handler: createListDeliveriesHandler() },
+        { descriptor: inspectDeliveryPayloadQuery, handler: createInspectDeliveryPayloadHandler() },
+      ],
     };
   },
   async healthCheck(ctx) {

@@ -89,10 +89,18 @@ check "ERP 投遞成功" "$DELIVERED" "sent"
 REMOTE_ID=$(jqr "(j.data.items.find(i=>i.orderId==='$ORDER_ID')||{}).remoteId" < /tmp/smoke_body)
 [ -n "$REMOTE_ID" ] && { echo "  ok   取得 ERP remoteId=$REMOTE_ID"; PASS=$((PASS+1)); } || { echo "  FAIL 沒有 remoteId"; FAIL=$((FAIL+1)); }
 
+api GET "/api/v1/extensions/demo-erp/queries/ext.demo-erp.inspectDeliveryPayload?orderId=$ORDER_ID" >/dev/null
+check "ERP payload inspector 回傳實際 reference" "$(jqr 'j.data.payload.reference' < /tmp/smoke_body)" "SO-$ORDER_NUMBER"
+check "ERP payload inspector 使用 ERP 文件格式" "$(jqr 'j.data.payload.documentType' < /tmp/smoke_body)" "SALES_ORDER"
+if [ -n "${DEMO_ERP_API_KEY:-}" ]; then
+  check "ERP payload inspector 不含 API key" "$(jqr '!JSON.stringify(j.data.payload).includes(process.env.DEMO_ERP_API_KEY)' < /tmp/smoke_body)" "true"
+fi
+
 check "人工重送" "$(api POST /api/v1/extensions/demo-erp/commands/ext.demo-erp.resendOrder "{\"orderId\":\"$ORDER_ID\"}" "smoke-resend-$SKU")" "200"
 sleep 3
 api GET "/api/v1/extensions/demo-erp/queries/ext.demo-erp.listDeliveries?limit=50" >/dev/null
 check "重送後遠端 id 不變（沒有重複建單）" "$(jqr "(j.data.items.find(i=>i.orderId==='$ORDER_ID')||{}).remoteId" < /tmp/smoke_body)" "$REMOTE_ID"
+check "重送會再次處理 ERP" "$(jqr "(j.data.items.find(i=>i.orderId==='$ORDER_ID')||{}).attempts>=2" < /tmp/smoke_body)" "true"
 
 MCP_CALL() {
   curl -sS -o /tmp/smoke_body -w '%{http_code}' -X POST "$BASE_URL/mcp" \

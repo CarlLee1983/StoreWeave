@@ -5,7 +5,7 @@ import type {
 } from '@storeweave/extension-sdk';
 import { PUSH_ORDER_JOB, type DemoErpConfig } from './config';
 import { deliveryKey, deliveryRecord, erpReference, type DeliveryRecord } from './state';
-import { toErpDocument, type PaidOrderEventPayload } from './transform';
+import { toErpDocument, toErpHttpPayload, type PaidOrderEventPayload } from './transform';
 
 const pushJobPayload = z.object({ orderId: z.string().uuid() });
 
@@ -134,7 +134,9 @@ export function createResendHandler() {
 
     await ctx.store.set<DeliveryRecord>(key, {
       ...record,
-      status: record.status === 'sent' ? 'sent' : 'pending',
+      // 已送達的紀錄也必須回到可執行狀態，否則 job 會在 createPushOrderJob
+      // 的 sent guard 提前返回，造成「重送」看似成功但完全沒有呼叫 ERP。
+      status: 'pending',
       manualResends: record.manualResends + 1,
       jobId,
       updatedAt: now,
@@ -155,6 +157,18 @@ export const listDeliveriesQuery = defineQuery({
   permission: 'erp:read',
 });
 
+/**
+ * 供 Admin 預覽依目前 ERP 設定產生的 HTTP JSON body。這是由 extension 保存的
+ * 訂單快照即時計算而來，不會把含客戶資料的 payload 再複製到 audit 或另一份持久化資料。
+ */
+export const inspectDeliveryPayloadQuery = defineQuery({
+  name: 'ext.demo-erp.inspectDeliveryPayload',
+  summary: '檢視 ERP 投遞的 HTTP JSON payload',
+  input: z.object({ orderId: z.string().uuid() }),
+  output: z.object({ orderId: z.string().uuid(), payload: z.record(z.unknown()) }),
+  permission: 'erp:read',
+});
+
 export function createListDeliveriesHandler() {
   return async (input: { status?: string; limit: number }, rawCtx: any) => {
     const ctx = rawCtx as ExtensionContext<DemoErpConfig>;
@@ -163,5 +177,15 @@ export function createListDeliveriesHandler() {
       .map((e) => e.value)
       .filter((v) => (input.status ? v.status === input.status : true));
     return { items };
+  };
+}
+
+export function createInspectDeliveryPayloadHandler() {
+  return async (input: { orderId: string }, rawCtx: any) => {
+    const ctx = rawCtx as ExtensionContext<DemoErpConfig>;
+    const snapshot = await ctx.store.get<PaidOrderEventPayload>(`order-snapshot:${input.orderId}`);
+    if (!snapshot) throw PlatformError.notFound('ERP delivery payload', input.orderId);
+
+    return { orderId: input.orderId, payload: toErpHttpPayload(toErpDocument(snapshot, ctx.config)) };
   };
 }

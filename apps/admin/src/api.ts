@@ -88,6 +88,9 @@ export type Delivery = {
   updatedAt: string;
 };
 
+/** 依目前 ERP 設定產生、下一次重送會使用的 JSON body（不含 HTTP headers 或 API key）。 */
+export type DeliveryPayload = { orderId: string; payload: Record<string, unknown> };
+
 export type HealthCheck = { name: string; status: string; detail?: string };
 export type HealthReport = { status: string; checks: HealthCheck[] };
 
@@ -261,6 +264,11 @@ export const api = {
   listDeliveries(limit = 50) {
     return request<{ items: Delivery[] }>(
       `/api/v1/extensions/demo-erp/queries/ext.demo-erp.listDeliveries?limit=${limit}`,
+    );
+  },
+  inspectDeliveryPayload(orderId: string) {
+    return request<DeliveryPayload>(
+      `/api/v1/extensions/demo-erp/queries/ext.demo-erp.inspectDeliveryPayload${toQuery({ orderId })}`,
     );
   },
   resendOrder(orderId: string) {

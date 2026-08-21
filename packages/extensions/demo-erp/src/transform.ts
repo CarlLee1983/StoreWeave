@@ -52,6 +52,16 @@ export function toErpDocument(payload: PaidOrderEventPayload, config: DemoErpCon
   };
 }
 
+/**
+ * 實際交給 HTTP ERP `/documents` 的 JSON 本體。
+ *
+ * 這個投影同時供 provider 和受 `erp:read` 保護的營運檢視使用，避免 inspector
+ * 與實際送出的欄位逐漸分岔。它不包含 ERP API key 或任何 HTTP header。
+ */
+export function toErpHttpPayload(document: ErpDocument): Record<string, unknown> {
+  return { documentType: document.documentType, reference: document.reference, ...document.body };
+}
+
 function centsToAmount(cents: number): number {
   return Math.round(cents) / 100;
 }

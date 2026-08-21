@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { ErpDocument, ErpProvider, ExtensionContext } from '@storeweave/extension-sdk';
 import { DEMO_ERP_API_KEY, ERP_PROVIDER_ID, type DemoErpConfig } from './config';
+import { toErpHttpPayload } from './transform';
 
 interface RemoteRecord {
   remoteId: string;
@@ -66,7 +67,8 @@ async function pushToHttp(ctx: ExtensionContext<DemoErpConfig>, doc: ErpDocument
   const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...authHeaders(ctx) },
-    body: JSON.stringify({ documentType: doc.documentType, reference: doc.reference, ...doc.body }),
+    // 和 Admin payload inspector 共用同一個投影，確保畫面上的 JSON 就是 HTTP body。
+    body: JSON.stringify(toErpHttpPayload(doc)),
   }, ctx.config.timeoutMs);
 
   if (!response.ok) {
