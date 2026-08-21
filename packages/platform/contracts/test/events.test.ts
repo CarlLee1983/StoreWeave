@@ -18,4 +18,11 @@ describe('defineEvent', () => {
     }
     expect(EVENT_NAME_PATTERN.test('Commerce.Order.Paid.v1')).toBe(false);
   });
+
+  it('不限制 bounded context 必須是 commerce', () => {
+    expect(EVENT_NAME_PATTERN.test('cms.post.published.v1')).toBe(true);
+    expect(EVENT_NAME_PATTERN.test('booking.slot.reserved.v1')).toBe(true);
+    const e = defineEvent({ name: 'cms.post.published.v1', payload: z.object({}) });
+    expect(e.version).toBe(1);
+  });
 });

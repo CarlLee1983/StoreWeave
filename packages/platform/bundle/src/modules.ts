@@ -8,7 +8,8 @@ import { demoErpExtension } from '@storeweave/ext-demo-erp';
 import { mcpExtension } from '@storeweave/ext-mcp';
 
 /**
- * Release Bundle：這個版本編進去有哪些 Core 模組與哪些可用的 Extension。
+ * Commerce Release Bundle：這個版本編成哪些產品模組與可用 Extension。
+ * Kernel 不綁這份清單；換成別的產品 = 換成別的模組集合。
  * Extension 是建置時組裝的 —— 正式主機不會、也不能在執行期上傳新的 Extension。
  */
 export function coreModules(options: {

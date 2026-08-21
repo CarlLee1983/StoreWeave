@@ -1,5 +1,15 @@
 # 架構
 
+## 平台與產品
+
+`packages/platform` 是領域中立的應用平台。它只認得 Command、Query、Event、Job、Permission、Extension、Theme，不認識商品、庫存或訂單。
+
+`packages/commerce` 是這個平台上的第一個產品。`packages/platform/bundle` 把那些模組編成「這個 Release」。換產品 = 換 Bundle 組裝的模組清單，不是重寫 kernel。
+
+`commerce.order.placeOrder` 這類名稱屬於 commerce 模組的公開契約，不是 kernel 的限制。事件格式只要求 `<context>.<aggregate>.<action>.vN`，`cms.post.published.v1` 與 `booking.slot.reserved.v1` 都能掛上同一套 Bus。
+
+設定檔、CLI、Admin、Storefront 目前仍是商店產品的介面（見 ADR 0010）。通用殼不在 kernel 範圍內。
+
 ## 目錄結構
 
 ```
@@ -10,7 +20,7 @@ apps/
 
 packages/platform/
   contracts/            Actor、Command/Query descriptor、DomainEvent、錯誤型別（無相依）
-  config/               commerce.yaml schema、載入器、Secret Provider
+  config/               設定檔 schema、載入器、Secret Provider（第一版檔名仍是 commerce.yaml）
   db/                   Database（Drizzle + pg）、migration runner、平台資料表
   command-bus/          唯一寫入入口：授權 → 驗證 → Idempotency → 交易 → Audit → Outbox
   query-bus/            唯一讀取入口
@@ -21,9 +31,9 @@ packages/platform/
   audit/                Audit Log 寫入與機密遮蔽
   extension-sdk/        Extension 的唯一公開介面（見 extension-development.md）
   kernel/               組裝：Runtime、ExtensionHost、Worker、健康檢查、Theme 契約
-  bundle/               這個 Release 編進了哪些模組、Extension 與 Theme
+  bundle/               這個 Commerce Release 編進了哪些模組、Extension 與 Theme
 
-packages/commerce/      Commerce Core：catalog / inventory / order
+packages/commerce/      第一個產品（Commerce Core）：catalog / inventory / order
 packages/extensions/    mock-payment / demo-erp / mcp
 packages/themes/default 預設 Storefront Theme（SSR + 選用的 HTMX）
 tools/cli/              commerce CLI
@@ -82,7 +92,7 @@ Extension 的錯誤只會讓那一筆工作失敗重試，核心訂單交易早�
 
 ## 模組邊界
 
-- Core 模組各自擁有自己的資料表與 migration（`catalog_*`、`inventory_*`、`order_*`）。
+- 每個平台模組各自擁有自己的資料表與 migration。Commerce Core 的是 `catalog_*`、`inventory_*`、`order_*`。
 - 模組之間**只能**呼叫對方匯出的 service：`order` 扣庫存呼叫 `inventoryService.adjust(ctx, ...)`，
   取得商品呼叫 `catalogService.requireActiveProduct(tx, id)`。這兩個函式接受呼叫端的交易，
   因此跨模組操作仍在同一個交易內。

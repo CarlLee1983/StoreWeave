@@ -14,7 +14,7 @@ export interface DomainEventDescriptor<P = unknown> {
 
 export function defineEvent<P>(def: { name: string; payload: EventSchema<P>; summary?: string }): DomainEventDescriptor<P> {
   if (!EVENT_NAME_PATTERN.test(def.name)) {
-    throw new Error(`Invalid event name "${def.name}"; expected e.g. commerce.order.paid.v1`);
+    throw new Error(`Invalid event name "${def.name}"; expected <context>.<aggregate>.<action>.vN (e.g. commerce.order.paid.v1)`);
   }
   const version = Number(def.name.slice(def.name.lastIndexOf('.v') + 2));
   return { name: def.name, version, payload: def.payload, summary: def.summary };

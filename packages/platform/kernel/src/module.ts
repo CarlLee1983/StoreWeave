@@ -4,7 +4,7 @@ import type { PermissionDefinition, PolicyDefinition } from '@storeweave/authori
 import type { JobHandler } from '@storeweave/jobs';
 
 /**
- * Commerce Core 模組的組裝契約。
+ * 平台模組的組裝契約。領域由模組自己決定；Commerce Core 是第一組實作，不是唯一合法集合。
  * 模組之間只透過彼此匯出的 service 函式互動，絕不直接讀寫對方的資料表。
  */
 export interface PlatformModule {
