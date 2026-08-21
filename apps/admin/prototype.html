@@ -1,0 +1,1280 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StoreWeave Admin Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* ==========================================================================
+       DUAL-THEME DESIGN TOKENS
+       ========================================================================== */
+    :root[data-theme="dark"] {
+      --bg-app: #09090b;
+      --bg-surface: #121215;
+      --bg-surface-subtle: #18181b;
+      --bg-surface-hover: #222226;
+      --bg-sidebar: #0d0d10;
+      --bg-code: #060608;
+
+      --border-subtle: #1f1f23;
+      --border-default: #27272a;
+      --border-strong: #3f3f46;
+      --border-focus: #3b82f6;
+
+      --text-primary: #fafafa;
+      --text-secondary: #a1a1aa;
+      --text-muted: #71717a;
+      --text-inverse: #09090b;
+
+      --btn-primary-bg: #fafafa;
+      --btn-primary-text: #09090b;
+      --btn-primary-hover: #e4e4e7;
+
+      --status-success-bg: rgba(16, 185, 129, 0.1);
+      --status-success-border: rgba(16, 185, 129, 0.25);
+      --status-success-text: #34d399;
+
+      --status-warning-bg: rgba(245, 158, 11, 0.1);
+      --status-warning-border: rgba(245, 158, 11, 0.25);
+      --status-warning-text: #fbbf24;
+
+      --status-error-bg: rgba(239, 68, 68, 0.1);
+      --status-error-border: rgba(239, 68, 68, 0.25);
+      --status-error-text: #f87171;
+
+      --status-neutral-bg: rgba(113, 113, 122, 0.1);
+      --status-neutral-border: rgba(113, 113, 122, 0.2);
+      --status-neutral-text: #a1a1aa;
+    }
+
+    :root[data-theme="light"] {
+      --bg-app: #f8fafc;
+      --bg-surface: #ffffff;
+      --bg-surface-subtle: #f1f5f9;
+      --bg-surface-hover: #e2e8f0;
+      --bg-sidebar: #ffffff;
+      --bg-code: #0f172a;
+
+      --border-subtle: #f1f5f9;
+      --border-default: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --border-focus: #2563eb;
+
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --text-inverse: #ffffff;
+
+      --btn-primary-bg: #0f172a;
+      --btn-primary-text: #ffffff;
+      --btn-primary-hover: #1e293b;
+
+      --status-success-bg: #ecfdf5;
+      --status-success-border: #a7f3d0;
+      --status-success-text: #065f46;
+
+      --status-warning-bg: #fffbeb;
+      --status-warning-border: #fde68a;
+      --status-warning-text: #92400e;
+
+      --status-error-bg: #fef2f2;
+      --status-error-border: #fecaca;
+      --status-error-text: #991b1b;
+
+      --status-neutral-bg: #f1f5f9;
+      --status-neutral-border: #e2e8f0;
+      --status-neutral-text: #475569;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang TC", "Noto Sans TC", sans-serif;
+      background-color: var(--bg-app);
+      color: var(--text-primary);
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum" 1;
+      transition: background-color 150ms ease, color 150ms ease;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 240px;
+      background-color: var(--bg-sidebar);
+      border-right: 1px solid var(--border-default);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      user-select: none;
+      transition: background-color 150ms ease, border-color 150ms ease;
+    }
+
+    .sidebar-header {
+      height: 56px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--border-default);
+    }
+
+    .sidebar-logo {
+      width: 24px;
+      height: 24px;
+      background: var(--text-primary);
+      color: var(--text-inverse);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sidebar-title {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    .sidebar-nav {
+      flex: 1;
+      padding: 16px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+    }
+
+    .nav-section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0 10px 6px;
+    }
+
+    .nav-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 120ms ease;
+      border: 1px solid transparent;
+    }
+
+    .nav-link:hover {
+      background-color: var(--bg-surface-hover);
+      color: var(--text-primary);
+    }
+
+    .nav-link.active {
+      background-color: var(--bg-surface-subtle);
+      color: var(--text-primary);
+      font-weight: 600;
+      border-color: var(--border-default);
+    }
+
+    .nav-link svg {
+      width: 16px;
+      height: 16px;
+      stroke-width: 1.75;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .nav-link.active svg {
+      color: var(--text-primary);
+    }
+
+    .nav-badge {
+      margin-left: auto;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 500;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: var(--bg-surface-subtle);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-default);
+    }
+
+    .nav-badge.danger {
+      background: var(--status-error-bg);
+      color: var(--status-error-text);
+      border-color: var(--status-error-border);
+    }
+
+    .sidebar-footer {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border-default);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+
+    /* Main Container */
+    .main-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Topbar */
+    .topbar {
+      height: 56px;
+      background-color: var(--bg-surface);
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      flex-shrink: 0;
+      transition: background-color 150ms ease, border-color 150ms ease;
+    }
+
+    .topbar-search {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-app);
+      border: 1px solid var(--border-default);
+      border-radius: 6px;
+      padding: 5px 10px;
+      width: 280px;
+      color: var(--text-secondary);
+      font-size: 12.5px;
+    }
+
+    .topbar-search input {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text-primary);
+      font-size: 12.5px;
+      width: 100%;
+    }
+
+    .kbd {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-default);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Language Switcher */
+    .lang-switcher {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-app);
+      border: 1px solid var(--border-default);
+      border-radius: 6px;
+      padding: 3px 8px;
+    }
+
+    .lang-switcher svg {
+      width: 14px;
+      height: 14px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .lang-select {
+      background: transparent;
+      border: none;
+      color: var(--text-primary);
+      font-size: 12px;
+      font-weight: 500;
+      outline: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .btn-theme-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-app);
+      border: 1px solid var(--border-default);
+      color: var(--text-secondary);
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 120ms ease;
+    }
+
+    .btn-theme-toggle:hover {
+      background: var(--bg-surface-hover);
+      color: var(--text-primary);
+    }
+
+    .token-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-app);
+      border: 1px solid var(--border-default);
+      border-radius: 6px;
+      padding: 3px 6px 3px 10px;
+    }
+
+    .token-control span {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .token-control input {
+      background: transparent;
+      border: none;
+      outline: none;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      color: var(--text-primary);
+      width: 120px;
+    }
+
+    /* Content Area */
+    .content-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .page-title {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+
+    .page-subtitle {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 120ms ease;
+      border: 1px solid transparent;
+      font-family: inherit;
+    }
+
+    .btn-primary {
+      background-color: var(--btn-primary-bg);
+      color: var(--btn-primary-text);
+      border-color: var(--btn-primary-bg);
+    }
+
+    .btn-primary:hover {
+      background-color: var(--btn-primary-hover);
+    }
+
+    .btn-secondary {
+      background-color: var(--bg-surface-subtle);
+      border-color: var(--border-default);
+      color: var(--text-primary);
+    }
+
+    .btn-secondary:hover {
+      background-color: var(--bg-surface-hover);
+      border-color: var(--border-strong);
+    }
+
+    .btn-danger {
+      background-color: var(--status-error-bg);
+      border-color: var(--status-error-border);
+      color: var(--status-error-text);
+    }
+
+    .btn-danger:hover {
+      background-color: rgba(239, 68, 68, 0.15);
+    }
+
+    .btn-sm {
+      padding: 4px 8px;
+      font-size: 11.5px;
+      border-radius: 4px;
+    }
+
+    /* Pipeline Status Strip */
+    .pipeline-strip {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: 8px;
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .pipeline-step {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .step-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .step-metric {
+      font-size: 15px;
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .pipeline-divider {
+      color: var(--border-strong);
+      display: flex;
+      align-items: center;
+    }
+
+    /* Metric Grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .metric-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: 8px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .metric-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .metric-value {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .metric-foot {
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+
+    /* Table Component */
+    .table-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .table-toolbar {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border-default);
+      background: var(--bg-surface-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .table-filter-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .table-input {
+      background: var(--bg-app);
+      border: 1px solid var(--border-default);
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 12px;
+      color: var(--text-primary);
+      outline: none;
+    }
+
+    .table-input:focus {
+      border-color: var(--border-focus);
+    }
+
+    .table-select {
+      background: var(--bg-app);
+      border: 1px solid var(--border-default);
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      outline: none;
+      cursor: pointer;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+
+    thead th {
+      padding: 9px 16px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border-default);
+      background: var(--bg-surface-subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid var(--border-default);
+      transition: background-color 100ms ease;
+    }
+
+    tbody tr:last-child {
+      border-bottom: none;
+    }
+
+    tbody tr:hover {
+      background-color: var(--bg-surface-hover);
+    }
+
+    tbody td {
+      padding: 12px 16px;
+      font-size: 13px;
+      color: var(--text-primary);
+      vertical-align: middle;
+    }
+
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+    }
+
+    /* SVG Status Badge */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      font-size: 11.5px;
+      font-weight: 500;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      white-space: nowrap;
+      line-height: 1;
+    }
+
+    .status-badge svg {
+      width: 13px;
+      height: 13px;
+      stroke-width: 2;
+      flex-shrink: 0;
+    }
+
+    .status-success {
+      background: var(--status-success-bg);
+      border-color: var(--status-success-border);
+      color: var(--status-success-text);
+    }
+
+    .status-warning {
+      background: var(--status-warning-bg);
+      border-color: var(--status-warning-border);
+      color: var(--status-warning-text);
+    }
+
+    .status-error {
+      background: var(--status-error-bg);
+      border-color: var(--status-error-border);
+      color: var(--status-error-text);
+    }
+
+    .status-neutral {
+      background: var(--status-neutral-bg);
+      border-color: var(--status-neutral-border);
+      color: var(--status-neutral-text);
+    }
+
+    /* Drawer */
+    .drawer-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(2px);
+      z-index: 50;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 180ms ease;
+    }
+
+    .drawer-overlay.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .drawer {
+      position: fixed;
+      top: 0;
+      right: -520px;
+      width: 520px;
+      height: 100vh;
+      background: var(--bg-surface);
+      border-left: 1px solid var(--border-default);
+      z-index: 51;
+      display: flex;
+      flex-direction: column;
+      transition: right 220ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .drawer.open {
+      right: 0;
+    }
+
+    .drawer-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .drawer-header h3 {
+      font-size: 15px;
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .drawer-body {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .code-block {
+      background: var(--bg-code);
+      border: 1px solid var(--border-default);
+      border-radius: 6px;
+      padding: 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: #e4e4e7;
+      line-height: 1.5;
+      overflow-x: auto;
+    }
+
+    .drawer-footer {
+      padding: 14px 20px;
+      border-top: 1px solid var(--border-default);
+      background: var(--bg-surface-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+      </div>
+      <span class="sidebar-title">StoreWeave Admin</span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div>
+        <div class="nav-section-title" data-i18n="nav.commerce">電商管理</div>
+        <ul class="nav-list">
+          <li class="nav-link active" onclick="switchNav(this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>
+            <span data-i18n="nav.orders">訂單管理</span>
+            <span class="nav-badge">128</span>
+          </li>
+          <li class="nav-link" onclick="switchNav(this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            <span data-i18n="nav.products">商品目錄</span>
+          </li>
+        </ul>
+      </div>
+
+      <div>
+        <div class="nav-section-title" data-i18n="nav.integrations">系統整合</div>
+        <ul class="nav-list">
+          <li class="nav-link" onclick="switchNav(this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+            <span data-i18n="nav.erp">ERP 投遞佇列</span>
+            <span class="nav-badge danger">1 DLQ</span>
+          </li>
+          <li class="nav-link" onclick="switchNav(this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+            <span data-i18n="nav.system">系統狀態</span>
+          </li>
+        </ul>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <span class="font-mono">v0.1.0</span>
+      <span class="status-badge status-success" style="padding: 2px 6px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <span data-i18n="status.ready">連線就緒</span>
+      </span>
+    </div>
+  </aside>
+
+  <!-- Main Viewport -->
+  <div class="main-container">
+    <header class="topbar">
+      <div class="topbar-search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="input-search" placeholder="搜尋訂單 ID / 顧客 / SKU..." />
+        <span class="kbd">⌘K</span>
+      </div>
+
+      <div class="topbar-actions">
+        <!-- Language Switcher -->
+        <div class="lang-switcher">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          <select class="lang-select" id="lang-select" onchange="changeLanguage(this.value)">
+            <option value="zh-TW">繁體中文</option>
+            <option value="en-US">English</option>
+            <option value="ja-JP">日本語</option>
+          </select>
+        </div>
+
+        <!-- SVG Theme Toggle -->
+        <button class="btn-theme-toggle" onclick="toggleTheme()">
+          <svg id="theme-icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+          <svg id="theme-icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+          <span id="theme-text" data-i18n="topbar.themeLight">切換淺色</span>
+        </button>
+
+        <div class="token-control">
+          <span>API TOKEN</span>
+          <input type="password" value="sw_live_sec_991823a" />
+          <button class="btn btn-secondary btn-sm" data-i18n="common.save" onclick="alert('API Token 設定已更新')">儲存</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="content-area">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title" data-i18n="orders.title">訂單管理 (Orders)</h1>
+          <p class="page-subtitle" data-i18n="orders.subtitle">檢視即時交易明細與 ERP 投遞鏈路狀態</p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-secondary" onclick="alert('匯出 CSV 檔案中...')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <span data-i18n="orders.export">匯出資料</span>
+          </button>
+          <button class="btn btn-primary" onclick="alert('手動建單對話框')">
+            <span data-i18n="orders.create">+ 建立訂單</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Realtime Pipeline Strip -->
+      <div class="pipeline-strip">
+        <div class="pipeline-step">
+          <span class="step-title" data-i18n="pipeline.step1">1. Commerce Ingest</span>
+          <div class="step-metric">1,280 <span style="font-size: 11px; color: var(--text-muted); font-weight: normal;" data-i18n="pipeline.perDay">筆/日</span></div>
+        </div>
+        <div class="pipeline-divider">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </div>
+        <div class="pipeline-step">
+          <span class="step-title" data-i18n="pipeline.step2">2. In-Memory Queue</span>
+          <div class="step-metric">0 <span style="font-size: 11px; color: var(--status-success-text); font-weight: normal;" data-i18n="pipeline.noLag">無積壓</span></div>
+        </div>
+        <div class="pipeline-divider">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </div>
+        <div class="pipeline-step">
+          <span class="step-title" data-i18n="pipeline.step3">3. Dispatcher Worker</span>
+          <div class="step-metric">99.92% <span style="font-size: 11px; color: var(--text-muted); font-weight: normal;" data-i18n="pipeline.successRate">成功率</span></div>
+        </div>
+        <div class="pipeline-divider">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </div>
+        <div class="pipeline-step">
+          <span class="step-title" style="color: var(--status-error-text);" data-i18n="pipeline.step4">4. Dead Letter (DLQ)</span>
+          <div class="step-metric" style="color: var(--status-error-text);">1 <span style="font-size: 11px; font-weight: normal;" data-i18n="pipeline.pending">待處理</span></div>
+        </div>
+      </div>
+
+      <!-- Metrics Grid -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <span class="metric-label" data-i18n="metrics.gmv">今日交易額 (GMV)</span>
+          <span class="metric-value">NT$ 184,920</span>
+          <span class="metric-foot" data-i18n="metrics.gmvFoot">共 128 筆訂單</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-label" data-i18n="metrics.pendingShipment">待出貨訂單</span>
+          <span class="metric-value">32</span>
+          <span class="metric-foot" data-i18n="metrics.pendingShipmentFoot">一般 28 / 急件 4</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-label" data-i18n="metrics.erpLatency">ERP 投遞平均延遲</span>
+          <span class="metric-value">18 ms</span>
+          <span class="metric-foot">P99: 45 ms</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-label" data-i18n="metrics.dlq">死信佇列 (DLQ)</span>
+          <span class="metric-value" style="color: var(--status-error-text);">1</span>
+          <span class="metric-foot" style="color: var(--status-error-text);" data-i18n="metrics.dlqFoot">需工程重放</span>
+        </div>
+      </div>
+
+      <!-- Table Card with Semantic SVG Badges -->
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div class="table-filter-group">
+            <input type="text" class="table-input" id="table-filter-input" placeholder="過濾編號 / 顧客信箱..." style="width: 220px;" />
+            <select class="table-select" id="table-status-select">
+              <option data-i18n="filter.all">全狀態 (All States)</option>
+              <option data-i18n="filter.delivered">已發送至 ERP (Delivered)</option>
+              <option data-i18n="filter.retrying">重試佇列中 (Retrying)</option>
+              <option data-i18n="filter.deadLetter">死信佇列 (DeadLetter)</option>
+            </select>
+          </div>
+          <button class="btn btn-secondary btn-sm" data-i18n="common.refresh" onclick="location.reload()">重新整理</button>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th data-i18n="table.orderId">訂單編號</th>
+              <th data-i18n="table.customer">顧客資訊</th>
+              <th data-i18n="table.itemsCount">項目數量</th>
+              <th data-i18n="table.amount">金額 (TWD)</th>
+              <th data-i18n="table.orderStatus">訂單狀態</th>
+              <th data-i18n="table.erpStatus">ERP 狀態</th>
+              <th data-i18n="table.createdAt">建立時間</th>
+              <th data-i18n="table.actions">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="font-mono">#ORD-2026-0982</td>
+              <td>林志豪 <span style="color: var(--text-muted); font-size: 12px;">(carl@example.com)</span></td>
+              <td>2</td>
+              <td class="font-mono" style="font-weight: 600;">NT$ 4,980</td>
+              <td>
+                <span class="status-badge status-success">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  <span data-i18n="status.paid">已付款</span>
+                </span>
+              </td>
+              <td>
+                <span class="status-badge status-success">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  <span>DELIVERED</span>
+                </span>
+              </td>
+              <td class="font-mono" style="color: var(--text-muted);">16:58:20</td>
+              <td>
+                <button class="btn btn-secondary btn-sm" data-i18n="actions.viewPayload" onclick="openDrawer('#ORD-2026-0982', '林志豪', 4980, 'DELIVERED', 1)">檢視 Payload</button>
+              </td>
+            </tr>
+            <tr>
+              <td class="font-mono">#ORD-2026-0981</td>
+              <td>陳雅婷 <span style="color: var(--text-muted); font-size: 12px;">(yating@agency.io)</span></td>
+              <td>1</td>
+              <td class="font-mono" style="font-weight: 600;">NT$ 1,600</td>
+              <td>
+                <span class="status-badge status-warning">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  <span data-i18n="status.processing">處理中</span>
+                </span>
+              </td>
+              <td>
+                <span class="status-badge status-warning">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  <span>RETRYING (2/3)</span>
+                </span>
+              </td>
+              <td class="font-mono" style="color: var(--text-muted);">16:54:12</td>
+              <td>
+                <button class="btn btn-secondary btn-sm" data-i18n="actions.viewPayload" onclick="openDrawer('#ORD-2026-0981', '陳雅婷', 1600, 'RETRYING', 2)">檢視 Payload</button>
+              </td>
+            </tr>
+            <tr>
+              <td class="font-mono" style="color: var(--status-error-text);">#ORD-2026-0980</td>
+              <td>王大衛 <span style="color: var(--text-muted); font-size: 12px;">(david.wang@corp.tw)</span></td>
+              <td>6</td>
+              <td class="font-mono" style="font-weight: 600;">NT$ 28,400</td>
+              <td>
+                <span class="status-badge status-error">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  <span data-i18n="status.failed">同步失敗</span>
+                </span>
+              </td>
+              <td>
+                <span class="status-badge status-error">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  <span>DEAD_LETTER</span>
+                </span>
+              </td>
+              <td class="font-mono" style="color: var(--text-muted);">16:40:02</td>
+              <td>
+                <button class="btn btn-danger btn-sm" data-i18n="actions.retryRepair" onclick="openDrawer('#ORD-2026-0980', '王大衛', 28400, 'DEAD_LETTER', 3)">重試修復</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <!-- Drawer -->
+  <div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+  <aside class="drawer" id="drawer">
+    <div class="drawer-header">
+      <h3 id="drawer-title">Payload Inspector</h3>
+      <button class="btn btn-secondary btn-sm" onclick="closeDrawer()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    <div class="drawer-body">
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <span style="font-size: 11.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase;" data-i18n="drawer.rawTitle">Raw Event Payload</span>
+        <button class="btn btn-secondary btn-sm" id="btn-copy" data-i18n="drawer.copy" onclick="copyJson()">複製 JSON</button>
+      </div>
+      <pre class="code-block" id="json-code"></pre>
+    </div>
+    <div class="drawer-footer">
+      <span style="font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">TraceID: trc_sw_882910</span>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn btn-secondary btn-sm" data-i18n="common.close" onclick="closeDrawer()">關閉</button>
+        <button class="btn btn-primary btn-sm" data-i18n="drawer.replay" onclick="alert('已手動重新排程 ERP 投遞任務'); closeDrawer();">重新投遞任務</button>
+      </div>
+    </div>
+  </aside>
+
+  <script>
+    // i18n Dictionaries
+    const i18n = {
+      'zh-TW': {
+        'nav.commerce': '電商管理',
+        'nav.orders': '訂單管理',
+        'nav.products': '商品目錄',
+        'nav.integrations': '系統整合',
+        'nav.erp': 'ERP 投遞佇列',
+        'nav.system': '系統狀態',
+        'status.ready': '連線就緒',
+        'status.paid': '已付款',
+        'status.processing': '處理中',
+        'status.failed': '同步失敗',
+        'topbar.themeLight': '切換淺色',
+        'topbar.themeDark': '切換深色',
+        'common.save': '儲存',
+        'common.refresh': '重新整理',
+        'common.close': '關閉',
+        'orders.title': '訂單管理 (Orders)',
+        'orders.subtitle': '檢視即時交易明細與 ERP 投遞鏈路狀態',
+        'orders.export': '匯出資料',
+        'orders.create': '+ 建立訂單',
+        'pipeline.step1': '1. Commerce Ingest',
+        'pipeline.step2': '2. In-Memory Queue',
+        'pipeline.step3': '3. Dispatcher Worker',
+        'pipeline.step4': '4. Dead Letter (DLQ)',
+        'pipeline.perDay': '筆/日',
+        'pipeline.noLag': '無積壓',
+        'pipeline.successRate': '成功率',
+        'pipeline.pending': '待處理',
+        'metrics.gmv': '今日交易額 (GMV)',
+        'metrics.gmvFoot': '共 128 筆訂單',
+        'metrics.pendingShipment': '待出貨訂單',
+        'metrics.pendingShipmentFoot': '一般 28 / 急件 4',
+        'metrics.erpLatency': 'ERP 投遞平均延遲',
+        'metrics.dlq': '死信佇列 (DLQ)',
+        'metrics.dlqFoot': '需工程重放',
+        'filter.all': '全狀態 (All States)',
+        'filter.delivered': '已發送至 ERP (Delivered)',
+        'filter.retrying': '重試佇列中 (Retrying)',
+        'filter.deadLetter': '死信佇列 (DeadLetter)',
+        'table.orderId': '訂單編號',
+        'table.customer': '顧客資訊',
+        'table.itemsCount': '項目數量',
+        'table.amount': '金額 (TWD)',
+        'table.orderStatus': '訂單狀態',
+        'table.erpStatus': 'ERP 狀態',
+        'table.createdAt': '建立時間',
+        'table.actions': '操作',
+        'actions.viewPayload': '檢視 Payload',
+        'actions.retryRepair': '重試修復',
+        'drawer.rawTitle': 'Raw Event Payload',
+        'drawer.copy': '複製 JSON',
+        'drawer.copied': '已複製',
+        'drawer.replay': '重新投遞任務',
+        'search.placeholder': '搜尋訂單 ID / 顧客 / SKU...'
+      },
+      'en-US': {
+        'nav.commerce': 'COMMERCE',
+        'nav.orders': 'Orders',
+        'nav.products': 'Products',
+        'nav.integrations': 'INTEGRATIONS',
+        'nav.erp': 'ERP Dispatch Queue',
+        'nav.system': 'System Health',
+        'status.ready': 'Online',
+        'status.paid': 'Paid',
+        'status.processing': 'Processing',
+        'status.failed': 'Sync Failed',
+        'topbar.themeLight': 'Light Mode',
+        'topbar.themeDark': 'Dark Mode',
+        'common.save': 'Save',
+        'common.refresh': 'Refresh',
+        'common.close': 'Close',
+        'orders.title': 'Order Management',
+        'orders.subtitle': 'Real-time transaction stream & ERP delivery pipeline',
+        'orders.export': 'Export Data',
+        'orders.create': '+ Create Order',
+        'pipeline.step1': '1. Commerce Ingest',
+        'pipeline.step2': '2. In-Memory Queue',
+        'pipeline.step3': '3. Dispatcher Worker',
+        'pipeline.step4': '4. Dead Letter (DLQ)',
+        'pipeline.perDay': 'orders/day',
+        'pipeline.noLag': 'Zero Lag',
+        'pipeline.successRate': 'Success Rate',
+        'pipeline.pending': 'Action Required',
+        'metrics.gmv': "Today's Volume (GMV)",
+        'metrics.gmvFoot': '128 orders total',
+        'metrics.pendingShipment': 'Pending Fulfillment',
+        'metrics.pendingShipmentFoot': 'Standard 28 / Express 4',
+        'metrics.erpLatency': 'Avg ERP Latency',
+        'metrics.dlq': 'Dead Letter Queue',
+        'metrics.dlqFoot': 'Manual replay needed',
+        'filter.all': 'All States',
+        'filter.delivered': 'Delivered to ERP',
+        'filter.retrying': 'Retrying in Queue',
+        'filter.deadLetter': 'Dead Letter (DLQ)',
+        'table.orderId': 'Order ID',
+        'table.customer': 'Customer Info',
+        'table.itemsCount': 'Items',
+        'table.amount': 'Amount (TWD)',
+        'table.orderStatus': 'Order Status',
+        'table.erpStatus': 'ERP Pipeline',
+        'table.createdAt': 'Created At',
+        'table.actions': 'Actions',
+        'actions.viewPayload': 'View Payload',
+        'actions.retryRepair': 'Replay & Fix',
+        'drawer.rawTitle': 'Raw Event Payload',
+        'drawer.copy': 'Copy JSON',
+        'drawer.copied': 'Copied!',
+        'drawer.replay': 'Replay Event Task',
+        'search.placeholder': 'Search Order ID / Customer / SKU...'
+      },
+      'ja-JP': {
+        'nav.commerce': 'EC 管理',
+        'nav.orders': '注文管理',
+        'nav.products': '商品カタログ',
+        'nav.integrations': 'システム連携',
+        'nav.erp': 'ERP 配信キュー',
+        'nav.system': 'システム状態',
+        'status.ready': '接続完了',
+        'status.paid': '支払済',
+        'status.processing': '処理中',
+        'status.failed': '同期失敗',
+        'topbar.themeLight': 'ライト切替',
+        'topbar.themeDark': 'ダーク切替',
+        'common.save': '保存',
+        'common.refresh': '更新',
+        'common.close': '閉じる',
+        'orders.title': '注文管理 (Orders)',
+        'orders.subtitle': 'リアルタイム取引および ERP 配信パイプラインの監視',
+        'orders.export': 'エクスポート',
+        'orders.create': '+ 新規注文',
+        'pipeline.step1': '1. Commerce Ingest',
+        'pipeline.step2': '2. In-Memory Queue',
+        'pipeline.step3': '3. Dispatcher Worker',
+        'pipeline.step4': '4. Dead Letter (DLQ)',
+        'pipeline.perDay': '件/日',
+        'pipeline.noLag': '遅延なし',
+        'pipeline.successRate': '成功率',
+        'pipeline.pending': '要対応',
+        'metrics.gmv': '本日の売上 (GMV)',
+        'metrics.gmvFoot': '合計 128 件の注文',
+        'metrics.pendingShipment': '未発送注文',
+        'metrics.pendingShipmentFoot': '通常 28 / お急ぎ 4',
+        'metrics.erpLatency': 'ERP 配信平均遅延',
+        'metrics.dlq': 'デッドレターキュー',
+        'metrics.dlqFoot': '手動再実行が必要',
+        'filter.all': 'すべてのステータス',
+        'filter.delivered': 'ERP 配信完了',
+        'filter.retrying': 'キュー再試行中',
+        'filter.deadLetter': 'デッドレター (DLQ)',
+        'table.orderId': '注文番号',
+        'table.customer': '顧客情報',
+        'table.itemsCount': '数量',
+        'table.amount': '金額 (TWD)',
+        'table.orderStatus': '注文ステータス',
+        'table.erpStatus': 'ERP ステータス',
+        'table.createdAt': '作成日時',
+        'table.actions': '操作',
+        'actions.viewPayload': 'Payload 確認',
+        'actions.retryRepair': '再試行修復',
+        'drawer.rawTitle': 'Raw Event Payload',
+        'drawer.copy': 'JSON をコピー',
+        'drawer.copied': 'コピー完了',
+        'drawer.replay': '配信タスクを再実行',
+        'search.placeholder': '注文ID / 顧客 / SKU を検索...'
+      }
+    };
+
+    let currentLang = 'zh-TW';
+
+    function changeLanguage(lang) {
+      currentLang = lang;
+      const dict = i18n[lang];
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (dict[key]) {
+          el.innerText = dict[key];
+        }
+      });
+      document.getElementById('input-search').placeholder = dict['search.placeholder'];
+      document.getElementById('table-filter-input').placeholder = lang === 'en-US' ? 'Filter by ID / Customer...' : (lang === 'ja-JP' ? '注文ID / 顧客で絞り込み...' : '過濾編號 / 顧客信箱...');
+    }
+
+    function toggleTheme() {
+      const html = document.documentElement;
+      const isDark = html.getAttribute('data-theme') === 'dark';
+      const next = isDark ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+
+      document.getElementById('theme-icon-sun').style.display = isDark ? 'inline' : 'none';
+      document.getElementById('theme-icon-moon').style.display = isDark ? 'none' : 'inline';
+      const themeKey = isDark ? 'topbar.themeDark' : 'topbar.themeLight';
+      document.getElementById('theme-text').innerText = i18n[currentLang][themeKey];
+    }
+
+    function switchNav(el) {
+      document.querySelectorAll('.nav-link').forEach(i => i.classList.remove('active'));
+      el.classList.add('active');
+    }
+
+    function openDrawer(id, name, amount, status, attempts) {
+      document.getElementById('drawer-title').innerText = `${id} — Payload`;
+      const payload = {
+        meta: {
+          traceId: "trc_" + Math.random().toString(36).substr(2, 9),
+          dispatchedAt: new Date().toISOString(),
+          version: "1.0",
+          locale: currentLang
+        },
+        order: {
+          id: id,
+          customer: name,
+          amountTotal: amount,
+          currency: "TWD"
+        },
+        erpDelivery: {
+          endpoint: "https://erp.internal.storeweave.io/v1/orders",
+          state: status,
+          retryCount: attempts,
+          lastError: status === 'DEAD_LETTER' ? "ETIMEDOUT: ERP Gateway timed out after 5000ms" : null
+        }
+      };
+      document.getElementById('json-code').innerText = JSON.stringify(payload, null, 2);
+      document.getElementById('drawer').classList.add('open');
+      document.getElementById('drawer-overlay').classList.add('open');
+    }
+
+    function closeDrawer() {
+      document.getElementById('drawer').classList.remove('open');
+      document.getElementById('drawer-overlay').classList.remove('open');
+    }
+
+    function copyJson() {
+      const text = document.getElementById('json-code').innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('btn-copy');
+        const orig = btn.innerText;
+        btn.innerText = i18n[currentLang]['drawer.copied'];
+        setTimeout(() => { btn.innerText = orig; }, 1500);
+      });
+    }
+  </script>
+</body>
+</html>
