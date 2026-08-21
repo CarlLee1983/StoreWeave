@@ -23,4 +23,9 @@
 
 ## Falsified if
 
-付款 provider 可證明在 Command transaction 中安全、低延遲且可原子確認，或庫存不再需要在付款前保留。
+`packages/commerce/order/src/commands.ts` 的 `payOrder` 不再把訂單轉為 `payment_processing`
+而是在交易內直接呼叫 provider，或 `packages/commerce/inventory/src/service.ts`
+不再以 `on_hand - reserved` 驗證可售量而是下單即扣 `on_hand`。
+
+前者代表付款 provider 已可證明在 Command transaction 中安全、低延遲且可原子確認，
+後者代表庫存不再需要在付款前保留 —— 兩者任一成立，這個決策的前提就不在了。
