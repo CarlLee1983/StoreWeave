@@ -5,10 +5,11 @@ import { PlatformError, defineCommand, type CommandContext } from '@storeweave/c
 import type { ProviderRegistry, PaymentProvider } from '@storeweave/extension-sdk';
 import { catalogService } from '@storeweave/catalog';
 import { inventoryService } from '@storeweave/inventory';
+import { pricingService } from '@storeweave/promotion';
 import { cancelOrderInput, markPaidInput, orderDto, payOrderInput, placeOrderInput, type OrderDto } from './dto';
 import { OrderRepository, toOrderDto } from './repository';
 import { orderCancelledV1, orderPaidV1, orderPaidV2, orderPlacedV1, orderPlacedV2, orderPlacedV3 } from './events';
-import { orderLines, orderPayments, orders } from './schema';
+import { orderAdjustments, orderLines, orderPayments, orders } from './schema';
 
 const repository = new OrderRepository();
 
@@ -66,7 +67,19 @@ export function createPlaceOrderHandler(deps: OrderModuleDeps) {
       });
     }
 
-    const subtotal = lines.reduce((sum, l) => sum + l.lineTotalCents, 0);
+    // 定價與訂單建立在同一個交易內：折扣依據的活動狀態與寫進訂單的金額必定一致。
+    const pricing = await pricingService.quote(ctx.tx, {
+      lines: lines.map((l) => ({
+        lineId: l.id!,
+        productId: l.productId,
+        unitPriceCents: l.unitPriceCents,
+        quantity: l.quantity,
+      })),
+      now: ctx.now,
+    });
+    const discountByLine = new Map(pricing.lines.map((l) => [l.lineId, l.discountCents]));
+    for (const line of lines) line.discountCents = discountByLine.get(line.id!) ?? 0;
+
     const expiresAt = new Date(ctx.now.getTime() + RESERVATION_MINUTES * 60_000);
     const [orderRow] = await ctx.tx.insert(orders).values({
       id: orderId,
@@ -74,16 +87,28 @@ export function createPlaceOrderHandler(deps: OrderModuleDeps) {
       status: 'pending',
       currency,
       customerEmail: input.customerEmail,
-      subtotalCents: subtotal,
-      totalCents: subtotal,
+      subtotalCents: pricing.subtotalCents,
+      discountCents: pricing.discountCents,
+      totalCents: pricing.totalCents,
       metadata: input.metadata ?? null,
       placedAt: ctx.now,
       expiresAt,
       updatedAt: ctx.now,
     }).returning();
     const lineRows = await ctx.tx.insert(orderLines).values(lines).returning();
+    const adjustmentRows = pricing.adjustments.length === 0 ? [] : await ctx.tx.insert(orderAdjustments).values(
+      pricing.adjustments.map((adjustment, index) => ({
+        id: randomUUID(),
+        orderId,
+        source: adjustment.source,
+        sourceId: adjustment.sourceId,
+        name: adjustment.name,
+        amountCents: adjustment.amountCents,
+        sortOrder: index,
+      })),
+    ).returning();
 
-    const dto = toOrderDto(orderRow, lineRows);
+    const dto = toOrderDto(orderRow, lineRows, adjustmentRows);
     await ctx.enqueue({ type: EXPIRE_ORDER_JOB, payload: { orderId }, dedupeKey: `order:expire:${orderId}`, runAt: expiresAt });
     await ctx.publish({
       name: orderPlacedV1.name,
@@ -110,7 +135,7 @@ export function createPlaceOrderHandler(deps: OrderModuleDeps) {
       payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency,
         placedAt: dto.placedAt, expiresAt: expiresAt,
         subtotalCents: dto.subtotalCents, discountCents: dto.discountCents, shippingCents: dto.shippingCents,
-        taxCents: dto.taxCents, totalCents: dto.totalCents, adjustments: [],
+        taxCents: dto.taxCents, totalCents: dto.totalCents, adjustments: dto.adjustments,
         lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents }) => ({
           productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents, netCents: lineTotalCents - discountCents,
         })), },
@@ -189,14 +214,14 @@ export function createMarkPaidHandler() {
     await ctx.tx.insert(orderPayments).values({ id: randomUUID(), orderId: order.id, provider: input.provider, providerRef: input.providerRef, amountCents: order.totalCents, status: 'succeeded', createdAt: ctx.now });
     for (const line of lines) await inventoryService.commitReservation(ctx, { productId: line.productId, quantity: line.quantity, reference: order.number });
     const [updated] = await ctx.tx.update(orders).set({ status: 'paid', paidAt: ctx.now, updatedAt: ctx.now }).where(eq(orders.id, order.id)).returning();
-    const dto = toOrderDto(updated, lines);
+    const dto = toOrderDto(updated, lines, await repository.adjustmentsFor(ctx.tx, order.id));
     await ctx.publish({ name: orderPaidV1.name, payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency, totalCents: dto.totalCents, paidAt: dto.paidAt!, paymentProvider: input.provider, paymentRef: input.providerRef, lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents }) => ({ productId, sku, name, quantity, unitPriceCents, lineTotalCents })) } });
     await ctx.publish({
       name: orderPaidV2.name,
       payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency,
         paidAt: dto.paidAt!, paymentProvider: input.provider, paymentRef: input.providerRef,
         subtotalCents: dto.subtotalCents, discountCents: dto.discountCents, shippingCents: dto.shippingCents,
-        taxCents: dto.taxCents, totalCents: dto.totalCents, adjustments: [],
+        taxCents: dto.taxCents, totalCents: dto.totalCents, adjustments: dto.adjustments,
         lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents }) => ({
           productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents, netCents: lineTotalCents - discountCents,
         })), },

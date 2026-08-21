@@ -1,9 +1,9 @@
 import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
 import type { DrizzleDb, Tx } from '@storeweave/contracts';
-import { orderLines, orders, type OrderLineRow, type OrderRow } from './schema';
+import { orderAdjustments, orderLines, orders, type OrderAdjustmentRow, type OrderLineRow, type OrderRow } from './schema';
 import type { OrderDto } from './dto';
 
-export function toOrderDto(row: OrderRow, lines: OrderLineRow[]): OrderDto {
+export function toOrderDto(row: OrderRow, lines: OrderLineRow[], adjustments: OrderAdjustmentRow[] = []): OrderDto {
   return {
     id: row.id,
     number: row.number,
@@ -24,6 +24,12 @@ export function toOrderDto(row: OrderRow, lines: OrderLineRow[]): OrderDto {
       quantity: l.quantity,
       lineTotalCents: l.lineTotalCents,
       discountCents: l.discountCents,
+    })),
+    adjustments: adjustments.map((a) => ({
+      source: a.source as 'promotion',
+      sourceId: a.sourceId,
+      name: a.name,
+      amountCents: a.amountCents,
     })),
     placedAt: row.placedAt,
     paidAt: row.paidAt,
@@ -54,6 +60,14 @@ export class OrderRepository {
   async findByNumber(db: DrizzleDb | Tx, number: string): Promise<OrderRow | null> {
     const [row] = await db.select().from(orders).where(eq(orders.number, number)).limit(1);
     return row ?? null;
+  }
+
+  async adjustmentsFor(db: DrizzleDb | Tx, orderId: string): Promise<OrderAdjustmentRow[]> {
+    return db
+      .select()
+      .from(orderAdjustments)
+      .where(eq(orderAdjustments.orderId, orderId))
+      .orderBy(orderAdjustments.sortOrder);
   }
 
   async linesFor(db: DrizzleDb | Tx, orderId: string): Promise<OrderLineRow[]> {

@@ -31,6 +31,19 @@ export const orderLines = pgTable('order_lines', {
   discountCents: integer('discount_cents').notNull().default(0),
 });
 
+/** 這張訂單套用了哪些活動、各折多少。它同時是行銷分析的事實來源之一。 */
+export const orderAdjustments = pgTable('order_adjustments', {
+  id: uuid('id').primaryKey(),
+  orderId: uuid('order_id').notNull(),
+  source: text('source').notNull(),
+  sourceId: text('source_id').notNull(),
+  name: text('name').notNull(),
+  /** 折扣為負數，與 Adjustment 的定義一致。 */
+  amountCents: integer('amount_cents').notNull(),
+  /** 套用順序，重播時才知道當時的先後。 */
+  sortOrder: integer('sort_order').notNull(),
+});
+
 export const orderPayments = pgTable('order_payments', {
   id: uuid('id').primaryKey(),
   orderId: uuid('order_id').notNull(),
@@ -43,3 +56,4 @@ export const orderPayments = pgTable('order_payments', {
 
 export type OrderRow = typeof orders.$inferSelect;
 export type OrderLineRow = typeof orderLines.$inferSelect;
+export type OrderAdjustmentRow = typeof orderAdjustments.$inferSelect;

@@ -14,6 +14,14 @@ export const orderLineDto = z.object({
   discountCents: z.number().int().nonnegative(),
 });
 
+export const orderAdjustmentDto = z.object({
+  source: z.literal('promotion'),
+  sourceId: z.string(),
+  name: z.string(),
+  /** 折扣為負數。訂單總額 = 小計 + 所有 Adjustment。 */
+  amountCents: z.number().int(),
+});
+
 export const orderDto = z.object({
   id: z.string().uuid(),
   number: z.string(),
@@ -26,6 +34,7 @@ export const orderDto = z.object({
   shippingCents: z.number().int().nonnegative(),
   taxCents: z.number().int().nonnegative(),
   lines: z.array(orderLineDto),
+  adjustments: z.array(orderAdjustmentDto),
   placedAt: z.coerce.date(),
   paidAt: z.coerce.date().nullable(),
   cancelledAt: z.coerce.date().nullable(),

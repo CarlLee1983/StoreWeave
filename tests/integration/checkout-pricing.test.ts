@@ -1,0 +1,128 @@
+import { randomUUID } from 'node:crypto';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { sql } from 'drizzle-orm';
+import { ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
+
+let h: TestHarness;
+beforeAll(async () => { h = await createHarness(); }, 300_000);
+afterAll(async () => { await h?.close(); });
+
+const createPromotion = (input: Record<string, unknown>) =>
+  h.runtime.commands.execute<any>('commerce.promotion.createPromotion', input, { actor: ADMIN_ACTOR });
+
+const order = (productId: string, quantity = 1) =>
+  h.runtime.commands.execute<any>('commerce.order.placeOrder',
+    { customerEmail: 'buyer@example.com', lines: [{ productId, quantity }] },
+    { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+
+async function sellableProduct(sku: string, priceCents: number) {
+  const product = await createProduct(h.runtime, { sku, name: sku, priceCents });
+  await stockUp(h.runtime, product.id, 50);
+  return product;
+}
+
+describe('下單套用定價引擎', () => {
+  it('沒有任何活動時，訂單金額與現況完全相同', async () => {
+    const product = await sellableProduct('PRICE-NONE', 30_000);
+    const placed = await order(product.id, 2);
+
+    expect(placed.subtotalCents).toBe(60_000);
+    expect(placed.discountCents).toBe(0);
+    expect(placed.totalCents).toBe(60_000);
+    expect(placed.adjustments).toEqual([]);
+    expect(placed.lines[0].discountCents).toBe(0);
+  });
+
+  it('活動成立時折扣算進總額、分攤到商品行，並記下用了哪些活動', async () => {
+    const promotion = await createPromotion({
+      name: '滿千折百',
+      rule: { type: 'threshold_fixed_amount', thresholdCents: 100_000, discountCents: 10_000 },
+    });
+    const product = await sellableProduct('PRICE-FIXED', 50_000);
+
+    const placed = await order(product.id, 3);
+
+    expect(placed.subtotalCents).toBe(150_000);
+    expect(placed.discountCents).toBe(10_000);
+    expect(placed.totalCents).toBe(140_000);
+    expect(placed.adjustments).toEqual([
+      { source: 'promotion', sourceId: promotion.id, name: '滿千折百', amountCents: -10_000 },
+    ]);
+    expect(placed.lines[0].discountCents).toBe(10_000);
+
+    // 折扣與明細落在資料庫，不只是回傳值
+    const rows = await h.runtime.database.db.execute<{ discount_cents: number; total_cents: number }>(sql`
+      SELECT discount_cents, total_cents FROM order_orders WHERE id = ${placed.id}
+    `);
+    expect(rows.rows[0].discount_cents).toBe(10_000);
+    expect(rows.rows[0].total_cents).toBe(140_000);
+
+    await h.runtime.commands.execute('commerce.promotion.setPromotionStatus',
+      { id: promotion.id, status: 'disabled' }, { actor: ADMIN_ACTOR });
+  });
+
+  it('停用的活動不再影響新訂單', async () => {
+    const promotion = await createPromotion({
+      name: '要被停用的九折',
+      rule: { type: 'order_percentage', percentOffBasisPoints: 1_000 },
+    });
+    await h.runtime.commands.execute('commerce.promotion.setPromotionStatus',
+      { id: promotion.id, status: 'disabled' }, { actor: ADMIN_ACTOR });
+
+    const product = await sellableProduct('PRICE-DISABLED', 20_000);
+    const placed = await order(product.id);
+
+    expect(placed.discountCents).toBe(0);
+    expect(placed.totalCents).toBe(20_000);
+  });
+
+  it('新版事件帶出正確的調整明細，舊版仍是折扣前後一致的總額語意', async () => {
+    const promotion = await createPromotion({
+      name: '全站九折',
+      rule: { type: 'order_percentage', percentOffBasisPoints: 1_000 },
+    });
+    const product = await sellableProduct('PRICE-EVENT', 10_000);
+
+    const placed = await order(product.id);
+
+    const rows = await h.runtime.database.db.execute<{ event_name: string; payload: any }>(sql`
+      SELECT event_name, payload FROM platform_outbox
+      WHERE payload->>'orderId' = ${placed.id} AND event_name LIKE 'commerce.order.placed%'
+      ORDER BY event_name
+    `);
+    const byName = Object.fromEntries(rows.rows.map((r) => [r.event_name, r.payload]));
+
+    expect(byName['commerce.order.placed.v3'].discountCents).toBe(1_000);
+    expect(byName['commerce.order.placed.v3'].totalCents).toBe(9_000);
+    expect(byName['commerce.order.placed.v3'].adjustments).toEqual([
+      { source: 'promotion', sourceId: promotion.id, name: '全站九折', amountCents: -1_000 },
+    ]);
+    expect(byName['commerce.order.placed.v3'].lines[0].netCents).toBe(9_000);
+    // 舊版沒有折扣欄位，它的 totalCents 一律是這張訂單的應付金額
+    expect(byName['commerce.order.placed.v1'].totalCents).toBe(9_000);
+    expect(byName['commerce.order.placed.v1']).not.toHaveProperty('discountCents');
+
+    await h.runtime.commands.execute('commerce.promotion.setPromotionStatus',
+      { id: promotion.id, status: 'disabled' }, { actor: ADMIN_ACTOR });
+  });
+
+  it('定價與訂單建立在同一個交易內：下單失敗時不留下任何調整明細', async () => {
+    const promotion = await createPromotion({
+      name: '交易測試用九折',
+      rule: { type: 'order_percentage', percentOffBasisPoints: 1_000 },
+    });
+    const product = await sellableProduct('PRICE-ROLLBACK', 10_000);
+
+    // 庫存不足會讓整筆下單回滾
+    await expect(order(product.id, 999)).rejects.toThrow();
+
+    const rows = await h.runtime.database.db.execute<{ count: string }>(sql`
+      SELECT count(*)::text AS count FROM order_adjustments
+      WHERE source_id = ${promotion.id}
+    `);
+    expect(rows.rows[0].count).toBe('0');
+
+    await h.runtime.commands.execute('commerce.promotion.setPromotionStatus',
+      { id: promotion.id, status: 'disabled' }, { actor: ADMIN_ACTOR });
+  });
+});

@@ -22,7 +22,7 @@ export const getOrderHandler = async (input: z.infer<typeof getOrderInput>, ctx:
     ? await repository.findById(ctx.db, input.id)
     : await repository.findByNumber(ctx.db, input.number!);
   if (!row) throw PlatformError.notFound('Order', input.id ?? input.number);
-  return toOrderDto(row, await repository.linesFor(ctx.db, row.id));
+  return toOrderDto(row, await repository.linesFor(ctx.db, row.id), await repository.adjustmentsFor(ctx.db, row.id));
 };
 
 export const listOrdersQuery = defineQuery({
@@ -37,7 +37,7 @@ export const listOrdersHandler = async (input: z.infer<typeof listOrdersInput>, 
   const { rows, total } = await repository.list(ctx.db, input);
   const items = [];
   for (const row of rows) {
-    items.push(toOrderDto(row, await repository.linesFor(ctx.db, row.id)));
+    items.push(toOrderDto(row, await repository.linesFor(ctx.db, row.id), await repository.adjustmentsFor(ctx.db, row.id)));
   }
   return { items, total };
 };

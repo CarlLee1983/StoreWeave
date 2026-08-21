@@ -70,5 +70,19 @@ ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS discount_cents integer NOT NULL
 ALTER TABLE order_lines DROP CONSTRAINT IF EXISTS order_lines_discount_cents_check;
 ALTER TABLE order_lines ADD CONSTRAINT order_lines_discount_cents_check CHECK (discount_cents >= 0);
 `),
+    sqlMigration('0004_order_adjustments', 'expand', `
+CREATE TABLE IF NOT EXISTS order_adjustments (
+  id           uuid PRIMARY KEY,
+  order_id     uuid NOT NULL REFERENCES order_orders(id) ON DELETE CASCADE,
+  source       text NOT NULL,
+  source_id    text NOT NULL,
+  name         text NOT NULL,
+  amount_cents integer NOT NULL,
+  sort_order   integer NOT NULL
+);
+CREATE INDEX IF NOT EXISTS order_adjustments_order_idx ON order_adjustments (order_id, sort_order);
+-- 行銷分析要問的是「這檔活動折掉了多少」。
+CREATE INDEX IF NOT EXISTS order_adjustments_source_idx ON order_adjustments (source, source_id);
+`),
   ],
 };
