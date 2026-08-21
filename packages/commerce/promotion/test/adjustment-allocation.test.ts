@@ -26,7 +26,7 @@ describe('allocateByAmount', () => {
   });
 
   it('餘數大於一分時整批給同一行', () => {
-    // 各行 floor 後合計 96，餘 4 全部給金額最高的第二行
+    // 剛好整除，沒有餘數可分
     expect(allocateByAmount([100, 700, 100, 100], 10)).toEqual([1, 7, 1, 1]);
     const shares = allocateByAmount([333, 333, 333, 1], 10);
     expect(shares.reduce((a, b) => a + b, 0)).toBe(10);

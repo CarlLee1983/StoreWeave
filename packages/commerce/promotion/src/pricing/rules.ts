@@ -25,7 +25,11 @@ function capped(discountCents: number, maxDiscountCents: number | null | undefin
   return Math.min(discountCents, maxDiscountCents);
 }
 
-const evaluators: Record<string, RuleEvaluator> = {
+/**
+ * 型別化的分派表：漏掉新型別在編譯期就爆。執行期遇到不認得的型別則丟例外——
+ * 靜默回 0 的結果是顧客少折了錢而系統一聲不吭。要容錯就在載入活動那一層決定。
+ */
+const evaluators: Record<PromotionRule['type'], RuleEvaluator> = {
   threshold_fixed_amount: ({ rule, subtotalCents }) => {
     if (rule.type !== 'threshold_fixed_amount') return 0;
     if (subtotalCents < rule.thresholdCents) return 0;
@@ -44,9 +48,14 @@ const evaluators: Record<string, RuleEvaluator> = {
   },
 };
 
-/** 新增規則型別只需要在這裡多一個 evaluator，引擎的流程不動。 */
+/** 新增規則型別只需要在 evaluators 多一個 entry，引擎的流程不動。 */
 export function evaluateRule(input: RuleInput): number {
   const evaluator = evaluators[input.rule.type];
-  if (!evaluator) return 0;
-  return Math.max(0, Math.trunc(evaluator(input)));
+  if (!evaluator) throw new Error(`Unknown promotion rule type "${input.rule.type}"`);
+  const value = evaluator(input);
+  // NaN 會一路傳染到訂單總額，而且 `NaN <= 0` 是 false，下游每一道守門都會放行。
+  if (!Number.isFinite(value)) {
+    throw new Error(`Promotion rule "${input.rule.type}" produced a non-finite discount`);
+  }
+  return Math.max(0, Math.trunc(value));
 }

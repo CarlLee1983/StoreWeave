@@ -27,8 +27,12 @@ export type PromotionRule =
 export interface Promotion {
   id: string;
   name: string;
-  /** 數字小的先套用。 */
+  /** 數字小的先套用；相同時以活動 id 決定，輸出因此與輸入陣列的排列無關。 */
   priority: number;
+  /**
+   * 只約束彼此：不可疊加的活動被套用後，後續**不可疊加**的活動不再套用。
+   * 可疊加的活動在它前後都照常套用——這不是「不能與任何活動並存」。
+   */
   stackable: boolean;
   startsAt: Date | null;
   endsAt: Date | null;
@@ -43,7 +47,11 @@ export interface PricingContext {
   promotions: Promotion[];
   /** 會員等級。未登入時為 null。 */
   membershipTier?: string | null;
-  [key: string]: unknown;
+  /**
+   * 開放結構的延伸欄位。用具名欄位而不是索引簽章，
+   * 是為了讓 `promotinos` 這種拼錯被型別擋下而不是靜默變成「沒有活動」。
+   */
+  extra?: Record<string, unknown>;
 }
 
 export interface PricingInput {

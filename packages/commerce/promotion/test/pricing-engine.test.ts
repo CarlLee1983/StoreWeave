@@ -61,20 +61,19 @@ describe('calculatePricing — 骨架', () => {
     expect(JSON.stringify({ lines, context })).toBe(snapshot);
   });
 
-  it('未知的規則型別被忽略而不是讓整個引擎爆炸', () => {
+  it('未知的規則型別會出聲——靜默略過等於顧客少折錢而系統不吭聲', () => {
     const unknown = thresholdFixed({
       id: 'promo-unknown',
       rule: { type: 'buy_x_get_y' } as never,
     });
 
-    const result = calculatePricing({
-      lines: [line({ unitPriceCents: 120_000 })],
-      context: { promotions: [unknown] },
-      now: AT,
-    });
-
-    expect(result.totalCents).toBe(120_000);
-    expect(result.appliedPromotions).toEqual([]);
+    expect(() =>
+      calculatePricing({
+        lines: [line({ unitPriceCents: 120_000 })],
+        context: { promotions: [unknown] },
+        now: AT,
+      }),
+    ).toThrow(/buy_x_get_y/);
   });
 });
 

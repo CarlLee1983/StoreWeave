@@ -1,4 +1,5 @@
 import { allocateByAmount } from './allocation';
+import { assertValidPricingInput } from './input';
 import { evaluateRule } from './rules';
 import type {
   Adjustment,
@@ -34,6 +35,8 @@ function inApplicationOrder(promotions: readonly Promotion[]): Promotion[] {
  * 純函式：不碰資料庫、不讀時鐘、不修改輸入。
  */
 export function calculatePricing(input: PricingInput): PricingResult {
+  assertValidPricingInput(input);
+
   const subtotalCents = subtotalOf(input.lines);
   const shippingCents = input.shippingCents ?? 0;
   const taxCents = input.taxCents ?? 0;
@@ -77,6 +80,8 @@ export function calculatePricing(input: PricingInput): PricingResult {
     });
 
     // 訂單層的折扣一定攤回商品行——沒有它，第一次部分退貨就算不回來。
+    // 比例的基準是原始行金額而不是當下實收：分攤比例因此不隨套用順序改變，
+    // 「這一行佔訂單多少」永遠是同一個答案。容量才用當下實收，讓沒有一行被折成負數。
     const shares = allocateByAmount(
       lineTotals,
       granted,

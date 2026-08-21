@@ -11,6 +11,12 @@ export function allocateByAmount(
   /** 每一行最多能吸收多少。預設是自己的金額，實收因此不會為負。 */
   capacitiesCents: readonly number[] = amountsCents,
 ): number[] {
+  if (capacitiesCents.length !== amountsCents.length) {
+    throw new Error(
+      `allocateByAmount: capacities length ${capacitiesCents.length} does not match amounts length ${amountsCents.length}`,
+    );
+  }
+
   const shares = amountsCents.map(() => 0);
   const base = amountsCents.reduce((sum, amount) => sum + amount, 0);
   if (base <= 0 || totalToAllocateCents <= 0) return shares;
@@ -38,6 +44,11 @@ export function allocateByAmount(
     const take = Math.min(room, remainder);
     shares[index] += take;
     remainder -= take;
+  }
+
+  // 分不完代表呼叫端給的容量不足。靜默少分會產生一筆對不起來的帳，寧可出聲。
+  if (remainder > 0) {
+    throw new Error(`allocateByAmount: cannot allocate ${remainder} cents; capacities are exhausted`);
   }
 
   return shares;
