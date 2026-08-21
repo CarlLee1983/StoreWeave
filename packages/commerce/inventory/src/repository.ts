@@ -45,6 +45,16 @@ export class StockRepository {
     return { productId: row.product_id, onHand: row.on_hand, reserved: row.reserved, updatedAt: row.updated_at };
   }
 
+  async applyReservation(tx: Tx, productId: string, delta: number): Promise<StockSnapshot> {
+    const res = await tx.execute<{ product_id: string; on_hand: number; reserved: number; updated_at: Date }>(sql`
+      UPDATE inventory_stock SET reserved = reserved + ${delta}, updated_at = now()
+      WHERE product_id = ${productId}
+      RETURNING product_id, on_hand, reserved, updated_at
+    `);
+    const row = res.rows[0];
+    return { productId: row.product_id, onHand: row.on_hand, reserved: row.reserved, updatedAt: row.updated_at };
+  }
+
   async recordMovement(
     tx: Tx,
     input: { productId: string; delta: number; reason: string; reference?: string | null; actorId: string },

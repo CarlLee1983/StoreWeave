@@ -4,6 +4,7 @@ import { PermanentJobError, type JobRow } from '@storeweave/jobs';
 import { toDomainEvent } from '@storeweave/outbox';
 import type { Runtime } from './runtime';
 import { EVENT_DELIVERY_JOB } from './event-delivery';
+import { SYSTEM_ACTOR } from '@storeweave/contracts';
 
 export interface WorkerOptions {
   concurrency?: number;
@@ -80,7 +81,11 @@ export class Worker {
         const logger = this.runtime.logger.child({ jobId: job.id, jobType: job.type, attempt: job.attempts });
         try {
           const handler = this.runtime.jobRegistry.get(job.type);
-          await handler(job.payload, { logger, attempt: job.attempts, jobId: job.id });
+          await handler(job.payload, {
+            logger, attempt: job.attempts, jobId: job.id,
+            executeCommand: (name: string, input: unknown, idempotencyKey: string) => this.runtime.commands.execute(name, input, { actor: SYSTEM_ACTOR, idempotencyKey, channel: 'worker' }),
+            executeQuery: (name: string, input: unknown) => this.runtime.queries.execute(name, input, { actor: SYSTEM_ACTOR, channel: 'worker' }),
+          } as any);
           await this.runtime.jobs.complete(this.runtime.database.db, job.id);
           processed += 1;
         } catch (err) {

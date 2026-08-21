@@ -24,6 +24,7 @@ export function toOrderDto(row: OrderRow, lines: OrderLineRow[]): OrderDto {
     placedAt: row.placedAt,
     paidAt: row.paidAt,
     cancelledAt: row.cancelledAt,
+    expiresAt: row.expiresAt,
     metadata: (row.metadata as Record<string, unknown> | null) ?? null,
   };
 }
@@ -79,6 +80,8 @@ function mapOrderRow(r: Record<string, any>): OrderRow {
     placedAt: r.placed_at,
     paidAt: r.paid_at,
     cancelledAt: r.cancelled_at,
+    // Raw `tx.execute` rows expose timestamptz as strings, unlike Drizzle selects.
+    expiresAt: r.expires_at ? new Date(r.expires_at) : null,
     updatedAt: r.updated_at,
   };
 }

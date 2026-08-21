@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const orderStatus = z.enum(['pending', 'paid', 'cancelled']);
+export const orderStatus = z.enum(['pending', 'payment_processing', 'paid', 'cancelled', 'expired']);
 export type OrderStatus = z.infer<typeof orderStatus>;
 
 export const orderLineDto = z.object({
@@ -25,6 +25,7 @@ export const orderDto = z.object({
   placedAt: z.coerce.date(),
   paidAt: z.coerce.date().nullable(),
   cancelledAt: z.coerce.date().nullable(),
+  expiresAt: z.coerce.date().nullable(),
   metadata: z.record(z.unknown()).nullable(),
 });
 export type OrderDto = z.infer<typeof orderDto>;
@@ -43,6 +44,12 @@ export const payOrderInput = z.object({
   orderId: z.string().uuid(),
   /** 不指定就用預設的 payment provider。 */
   provider: z.string().optional(),
+});
+
+export const markPaidInput = z.object({
+  orderId: z.string().uuid(),
+  provider: z.string(),
+  providerRef: z.string(),
 });
 
 export const cancelOrderInput = z.object({

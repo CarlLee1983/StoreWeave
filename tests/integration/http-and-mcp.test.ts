@@ -135,7 +135,7 @@ describe('Storefront SSR', () => {
     expect(res.body).toContain('404');
   });
 
-  it('結帳會建立並付款一張訂單', async () => {
+  it('結帳會建立付款處理中的訂單並立即導向訂單頁', async () => {
     const product = await createProduct(h.runtime, { sku: 'SSR-3', name: '下單測試', priceCents: 1500 });
     await stockUp(h.runtime, product.id, 5);
     const res = await inject({
@@ -146,7 +146,8 @@ describe('Storefront SSR', () => {
     expect(res.statusCode).toBe(303);
     const location = res.headers.location as string;
     const orderPage = await inject({ method: 'GET', url: location });
-    expect(orderPage.body).toContain('paid');
+    expect(orderPage.body).toContain('payment_processing');
+    expect(orderPage.body).toContain('付款處理中');
     expect(orderPage.body).toContain('ssr@example.com');
   });
 });

@@ -24,6 +24,17 @@ export const orderPlacedV1 = defineEvent({
   }),
 });
 
+/** v1 曾被部署描述為「已扣庫存」；v2 明確承諾的是預留，保留 v1 供既有訂閱者遷移。 */
+export const orderPlacedV2 = defineEvent({
+  name: 'commerce.order.placed.v2',
+  summary: '訂單成立並預留庫存',
+  payload: z.object({
+    orderId: z.string().uuid(), orderNumber: z.string(), customerEmail: z.string().email(),
+    currency: z.string().length(3), totalCents: z.number().int().nonnegative(), placedAt: z.coerce.date(),
+    expiresAt: z.coerce.date(), lines: z.array(lineSchema),
+  }),
+});
+
 export const orderPaidV1 = defineEvent({
   name: 'commerce.order.paid.v1',
   summary: '訂單付款成功',
@@ -52,4 +63,4 @@ export const orderCancelledV1 = defineEvent({
   }),
 });
 
-export const orderEvents = [orderPlacedV1, orderPaidV1, orderCancelledV1];
+export const orderEvents = [orderPlacedV1, orderPlacedV2, orderPaidV1, orderCancelledV1];

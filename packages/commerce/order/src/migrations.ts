@@ -45,5 +45,13 @@ CREATE TABLE IF NOT EXISTS order_payments (
   UNIQUE (provider, provider_ref)
 );
 `),
+    sqlMigration('0002_payment_reservations', 'expand', `
+ALTER TABLE order_orders ADD COLUMN IF NOT EXISTS expires_at timestamptz;
+ALTER TABLE order_orders DROP CONSTRAINT IF EXISTS order_orders_status_check;
+ALTER TABLE order_orders ADD CONSTRAINT order_orders_status_check
+  CHECK (status IN ('pending', 'payment_processing', 'paid', 'cancelled', 'expired'));
+CREATE INDEX IF NOT EXISTS order_orders_expiry_idx
+  ON order_orders (expires_at) WHERE status IN ('pending', 'payment_processing');
+`),
   ],
 };

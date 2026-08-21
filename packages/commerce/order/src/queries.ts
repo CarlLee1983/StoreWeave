@@ -73,7 +73,7 @@ export const salesSummaryHandler = async (
   for (const row of totals.rows) {
     const count = Number(row.count);
     if (row.status === 'paid') { paid = count; gross = Number(row.revenue); currency = row.currency ?? currency; }
-    else if (row.status === 'pending') pending = count;
+    else if (row.status === 'pending' || row.status === 'payment_processing') pending += count;
     else if (row.status === 'cancelled') cancelled = count;
   }
 

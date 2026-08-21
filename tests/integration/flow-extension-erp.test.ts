@@ -18,6 +18,7 @@ async function paidOrder(harness: TestHarness) {
   await stockUp(harness.runtime, product.id, 10);
   const order = await placeOrder(harness.runtime, product.id, 2);
   await payOrder(harness.runtime, order.id);
+  await harness.worker.runJobs();
   return order;
 }
 

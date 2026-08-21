@@ -33,7 +33,7 @@ export type OrderLine = {
 export type Order = {
   id: string;
   number: string;
-  status: 'pending' | 'paid' | 'cancelled';
+  status: 'pending' | 'payment_processing' | 'paid' | 'cancelled' | 'expired';
   currency: string;
   customerEmail: string;
   subtotalCents: number;
@@ -42,6 +42,7 @@ export type Order = {
   placedAt: string;
   paidAt: string | null;
   cancelledAt: string | null;
+  expiresAt: string | null;
 };
 
 export type SalesSummary = {

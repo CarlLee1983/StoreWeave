@@ -55,10 +55,24 @@ ORDER_ID=$(jqr 'j.data.id' < /tmp/smoke_body)
 ORDER_NUMBER=$(jqr 'j.data.number' < /tmp/smoke_body)
 echo "  orderId=$ORDER_ID number=$ORDER_NUMBER"
 api GET "/api/v1/inventory/$PRODUCT_ID" >/dev/null
-check "下單後庫存扣為 8" "$(jqr 'j.data.onHand' < /tmp/smoke_body)" "8"
+check "下單後實體庫存仍為 10" "$(jqr 'j.data.onHand' < /tmp/smoke_body)" "10"
+check "下單後預留庫存為 2" "$(jqr 'j.data.reserved' < /tmp/smoke_body)" "2"
 check "庫存不足會被擋" "$(api POST /api/v1/orders "{\"customerEmail\":\"smoke@example.com\",\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":999}]}" "smoke-oversell-$SKU")" "409"
 check "標記付款" "$(api POST "/api/v1/orders/$ORDER_ID/pay" '{}' "smoke-pay-$SKU")" "200"
-check "訂單狀態為 paid" "$(jqr 'j.data.status' < /tmp/smoke_body)" "paid"
+check "付款請求進入處理中" "$(jqr 'j.data.status' < /tmp/smoke_body)" "payment_processing"
+printf '  等待付款 worker'
+PAYMENT_STATUS=""
+for _ in $(seq 1 30); do
+  api GET "/api/v1/orders/$ORDER_ID" >/dev/null
+  PAYMENT_STATUS=$(jqr 'j.data.status' < /tmp/smoke_body)
+  [ "$PAYMENT_STATUS" = "paid" ] && break
+  printf '.'; sleep 1
+done
+printf '\n'
+check "付款完成後訂單為 paid" "$PAYMENT_STATUS" "paid"
+api GET "/api/v1/inventory/$PRODUCT_ID" >/dev/null
+check "付款完成後實體庫存扣為 8" "$(jqr 'j.data.onHand' < /tmp/smoke_body)" "8"
+check "付款完成後預留庫存清空" "$(jqr 'j.data.reserved' < /tmp/smoke_body)" "0"
 check "重複付款是冪等的" "$(api POST "/api/v1/orders/$ORDER_ID/pay" '{}' "smoke-pay-$SKU")" "200"
 
 say "流程三：Extension（Demo ERP 與 MCP）"
@@ -102,7 +116,7 @@ say "自省與 Extension 清單"
 check "/api/v1/extensions" "$(api GET /api/v1/extensions)" "200"
 check "掛載 3 個 Extension" "$(jqr 'j.data.items.length' < /tmp/smoke_body)" "3"
 check "/api/v1/meta/events" "$(api GET /api/v1/meta/events)" "200"
-check "6 個版本化事件" "$(jqr 'j.data.items.length' < /tmp/smoke_body)" "6"
+check "7 個版本化事件" "$(jqr 'j.data.items.length' < /tmp/smoke_body)" "7"
 
 printf '\n== 結果：%d 通過，%d 失敗\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

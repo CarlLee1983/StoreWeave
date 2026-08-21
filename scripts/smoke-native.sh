@@ -39,7 +39,8 @@ echo "==> starting clean debian host (no Node.js installed)"
 docker run -d --name "$APP" --network "$NET" --platform linux/amd64 -p 3210:3000 \
   debian:bookworm-slim sleep infinity >/dev/null
 
-docker exec "$APP" sh -c 'apt-get update -qq && apt-get install -y -qq curl postgresql-client systemd >/dev/null 2>&1 || apt-get install -y -qq curl postgresql-client >/dev/null'
+# 容器內用 pid file 模式，無須安裝（也不能啟動）systemd。
+docker exec "$APP" sh -c 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq curl postgresql-client >/dev/null'
 echo "==> confirming the host really has no node"
 docker exec "$APP" sh -c 'command -v node && { echo "node should not be preinstalled"; exit 1; } || echo "    ok: no node on PATH"'
 

@@ -2,8 +2,8 @@ import { defineModule, type PlatformModule } from '@storeweave/kernel';
 import { orderMigrations } from './migrations';
 import { orderEvents } from './events';
 import {
-  cancelOrderCommand, createCancelOrderHandler, createPayOrderHandler, createPlaceOrderHandler,
-  payOrderCommand, placeOrderCommand, type OrderModuleDeps,
+  cancelOrderCommand, createCancelOrderHandler, createExpireOrderHandler, createExpireReservationJob, createMarkPaidHandler, createPayOrderHandler, createPlaceOrderHandler, createProcessPaymentJob,
+  expireOrderCommand, markPaidCommand, payOrderCommand, placeOrderCommand, EXPIRE_ORDER_JOB, PROCESS_PAYMENT_JOB, type OrderModuleDeps,
 } from './commands';
 import {
   getOrderHandler, getOrderQuery, listOrdersHandler, listOrdersQuery,
@@ -26,7 +26,13 @@ export function createOrderModule(deps: OrderModuleDeps): PlatformModule {
     commands: [
       { descriptor: placeOrderCommand, handler: createPlaceOrderHandler(deps) },
       { descriptor: payOrderCommand, handler: createPayOrderHandler(deps) },
+      { descriptor: markPaidCommand, handler: createMarkPaidHandler() },
+      { descriptor: expireOrderCommand, handler: createExpireOrderHandler() },
       { descriptor: cancelOrderCommand, handler: createCancelOrderHandler(deps) },
+    ],
+    jobs: [
+      { type: PROCESS_PAYMENT_JOB, handler: createProcessPaymentJob(deps) },
+      { type: EXPIRE_ORDER_JOB, handler: createExpireReservationJob() },
     ],
     queries: [
       { descriptor: getOrderQuery, handler: getOrderHandler },

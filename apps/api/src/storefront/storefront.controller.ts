@@ -85,7 +85,7 @@ export class StorefrontController {
     }
   }
 
-  /** 最小結帳：下單 → 以預設 payment provider 收款 → 導向訂單頁。 */
+  /** 下單後立即排入付款工作，訂單頁呈現處理中的狀態。 */
   @Post('checkout')
   async checkout(@Body() body: Record<string, string>, @Res() reply: FastifyReply) {
     try {

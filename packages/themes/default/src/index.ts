@@ -63,9 +63,13 @@ export const defaultTheme: StorefrontTheme = {
         <td>${l.quantity}</td>
         <td>${formatMoney(l.lineTotalCents, order.currency, ctx.locale)}</td>
       </tr>`).join('');
+    const paymentNotice = order.status === 'payment_processing'
+      ? '<p class="muted">付款處理中；此頁會在重新整理後顯示最新結果。</p>'
+      : order.status === 'expired' ? '<p class="muted">付款逾時，已釋放保留庫存。</p>' : '';
     const body = `
       <h1>訂單 ${escapeHtml(order.number)}</h1>
       <p><span class="badge">${escapeHtml(order.status)}</span></p>
+      ${paymentNotice}
       <p class="muted">${escapeHtml(order.customerEmail)}</p>
       <table>
         <thead><tr><th>商品</th><th>SKU</th><th>數量</th><th>小計</th></tr></thead>

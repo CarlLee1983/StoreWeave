@@ -38,8 +38,10 @@ export function OrdersPage() {
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">全部狀態</option>
           <option value="pending">待付款</option>
+          <option value="payment_processing">付款處理中</option>
           <option value="paid">已付款</option>
           <option value="cancelled">已取消</option>
+          <option value="expired">付款逾時</option>
         </select>
       </div>
 
@@ -157,10 +159,10 @@ function OrderRow({
                 </tbody>
               </table>
 
-              {order.status === 'pending' && (
+              {(order.status === 'pending' || order.status === 'payment_processing') && (
                 <div className="inline-form">
                   <button type="button" disabled={submitting} onClick={handlePay}>
-                    標記付款
+                    要求付款
                   </button>
                   <input placeholder="取消原因" value={reason} onChange={(e) => setReason(e.target.value)} />
                   <button type="button" disabled={submitting} onClick={handleCancel}>
