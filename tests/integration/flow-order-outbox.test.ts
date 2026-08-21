@@ -30,7 +30,22 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
     const stock = await h.runtime.queries.execute<any>('commerce.inventory.getStock', { productId: product.id }, { actor: ADMIN_ACTOR });
     expect(stock.onHand).toBe(10);
     expect(stock.reserved).toBe(3);
-    expect((await outboxFor(order.id)).map((r) => r.event_name)).toEqual(['commerce.order.placed.v1', 'commerce.order.placed.v2']);
+    expect((await outboxFor(order.id)).map((r) => r.event_name)).toEqual([
+      'commerce.order.placed.v1', 'commerce.order.placed.v2', 'commerce.order.placed.v3',
+    ]);
+
+    const payloads = await h.runtime.database.db.execute<{ event_name: string; payload: any }>(sql`
+      SELECT event_name, payload FROM platform_outbox WHERE payload->>'orderId' = ${order.id} ORDER BY event_name
+    `);
+    const byName = Object.fromEntries(payloads.rows.map((r) => [r.event_name, r.payload]));
+    expect(byName['commerce.order.placed.v1']).toMatchObject({ orderId: order.id, totalCents: 7500 });
+    expect(byName['commerce.order.placed.v1'].expiresAt).toBeUndefined();
+    expect(byName['commerce.order.placed.v2']).toMatchObject({ orderId: order.id, totalCents: 7500 });
+    expect(byName['commerce.order.placed.v2'].expiresAt).toBeDefined();
+    expect(byName['commerce.order.placed.v3']).toMatchObject({
+      orderId: order.id, subtotalCents: 7500, discountCents: 0, shippingCents: 0, taxCents: 0, totalCents: 7500, adjustments: [],
+    });
+    expect(byName['commerce.order.placed.v3'].lines[0]).toMatchObject({ discountCents: 0, netCents: byName['commerce.order.placed.v3'].lines[0].lineTotalCents });
   });
 
   it('庫存不足時整筆訂單回滾，不留下訂單也不動庫存', async () => {
@@ -62,8 +77,11 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
     const stock = await h.runtime.queries.execute<any>('commerce.inventory.getStock', { productId: product.id }, { actor: ADMIN_ACTOR });
     expect(stock).toMatchObject({ onHand: 3, reserved: 0, available: 3 });
     const events = await outboxFor(order.id);
-    expect(events.map((e) => e.event_name)).toEqual(['commerce.order.placed.v1', 'commerce.order.placed.v2', 'commerce.order.paid.v1']);
-    expect(events).toHaveLength(3);
+    expect(events.map((e) => e.event_name)).toEqual([
+      'commerce.order.placed.v1', 'commerce.order.placed.v2', 'commerce.order.placed.v3',
+      'commerce.order.paid.v1', 'commerce.order.paid.v2',
+    ]);
+    expect(events).toHaveLength(5);
 
     const payload = await h.runtime.database.db.execute<{ payload: any }>(sql`
       SELECT payload FROM platform_outbox WHERE event_name = 'commerce.order.paid.v1' AND payload->>'orderId' = ${order.id}
@@ -71,6 +89,15 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
     expect(payload.rows[0].payload.paymentProvider).toBe('mock-payment');
     expect(payload.rows[0].payload.totalCents).toBe(2400);
     expect(payload.rows[0].payload.lines).toHaveLength(1);
+
+    const paidV2 = await h.runtime.database.db.execute<{ payload: any }>(sql`
+      SELECT payload FROM platform_outbox WHERE event_name = 'commerce.order.paid.v2' AND payload->>'orderId' = ${order.id}
+    `);
+    expect(paidV2.rows[0].payload).toMatchObject({
+      orderId: order.id, subtotalCents: 2400, discountCents: 0, shippingCents: 0, taxCents: 0, totalCents: 2400,
+      adjustments: [], paymentProvider: 'mock-payment',
+    });
+    expect(paidV2.rows[0].payload.lines[0]).toMatchObject({ discountCents: 0, netCents: paidV2.rows[0].payload.lines[0].lineTotalCents });
   });
 
   it('付款失敗時訂單維持 pending，且不會有 paid 事件', async () => {

@@ -45,8 +45,10 @@ describe('Release bundle', () => {
       'commerce.inventory.adjusted.v1',
       'commerce.order.cancelled.v1',
       'commerce.order.paid.v1',
+      'commerce.order.paid.v2',
       'commerce.order.placed.v1',
       'commerce.order.placed.v2',
+      'commerce.order.placed.v3',
       'commerce.product.created.v1',
       'commerce.product.updated.v1',
     ]);

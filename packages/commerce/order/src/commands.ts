@@ -7,7 +7,7 @@ import { catalogService } from '@storeweave/catalog';
 import { inventoryService } from '@storeweave/inventory';
 import { cancelOrderInput, markPaidInput, orderDto, payOrderInput, placeOrderInput, type OrderDto } from './dto';
 import { OrderRepository, toOrderDto } from './repository';
-import { orderCancelledV1, orderPaidV1, orderPlacedV1, orderPlacedV2 } from './events';
+import { orderCancelledV1, orderPaidV1, orderPaidV2, orderPlacedV1, orderPlacedV2, orderPlacedV3 } from './events';
 import { orderLines, orderPayments, orders } from './schema';
 
 const repository = new OrderRepository();
@@ -105,6 +105,16 @@ export function createPlaceOrderHandler(deps: OrderModuleDeps) {
         totalCents: dto.totalCents, placedAt: dto.placedAt, expiresAt: expiresAt,
         lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents }) => ({ productId, sku, name, quantity, unitPriceCents, lineTotalCents })), },
     });
+    await ctx.publish({
+      name: orderPlacedV3.name,
+      payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency,
+        placedAt: dto.placedAt, expiresAt: expiresAt,
+        subtotalCents: dto.subtotalCents, discountCents: dto.discountCents, shippingCents: dto.shippingCents,
+        taxCents: dto.taxCents, totalCents: dto.totalCents, adjustments: [],
+        lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents }) => ({
+          productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents, netCents: lineTotalCents - discountCents,
+        })), },
+    });
     return dto;
   };
 }
@@ -181,6 +191,16 @@ export function createMarkPaidHandler() {
     const [updated] = await ctx.tx.update(orders).set({ status: 'paid', paidAt: ctx.now, updatedAt: ctx.now }).where(eq(orders.id, order.id)).returning();
     const dto = toOrderDto(updated, lines);
     await ctx.publish({ name: orderPaidV1.name, payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency, totalCents: dto.totalCents, paidAt: dto.paidAt!, paymentProvider: input.provider, paymentRef: input.providerRef, lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents }) => ({ productId, sku, name, quantity, unitPriceCents, lineTotalCents })) } });
+    await ctx.publish({
+      name: orderPaidV2.name,
+      payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency,
+        paidAt: dto.paidAt!, paymentProvider: input.provider, paymentRef: input.providerRef,
+        subtotalCents: dto.subtotalCents, discountCents: dto.discountCents, shippingCents: dto.shippingCents,
+        taxCents: dto.taxCents, totalCents: dto.totalCents, adjustments: [],
+        lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents }) => ({
+          productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents, netCents: lineTotalCents - discountCents,
+        })), },
+    });
     return dto;
   };
 }
