@@ -1,0 +1,41 @@
+[Unit]
+Description=StoreWeave Commerce API
+Documentation=https://github.com/carl/StoreWeave
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=commerce
+Group=commerce
+# current 是 symlink：升級只換 symlink，回退也只換 symlink
+WorkingDirectory=/opt/commerce/current
+Environment=NODE_ENV=production
+Environment=COMMERCE_CONFIG=/etc/commerce/commerce.yaml
+Environment=COMMERCE_HOME=/opt/commerce
+Environment=COMMERCE_ADMIN_DIR=/opt/commerce/current/admin
+EnvironmentFile=-/etc/commerce/commerce.env
+ExecStart=/opt/commerce/current/runtime/bin/node /opt/commerce/current/app/api.js
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# 記錄走 journald（journalctl -u commerce-api）
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=commerce-api
+
+# 最小權限
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/commerce /var/log/commerce
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

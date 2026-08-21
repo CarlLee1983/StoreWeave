@@ -1,0 +1,70 @@
+# 一條指令啟動完整環境：
+#   docker compose up -d
+# 內含 PostgreSQL、API（含 Storefront / Admin / MCP）與 Worker。
+name: storeweave
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: commerce
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-commerce-dev-password}
+      POSTGRES_DB: commerce
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U commerce -d commerce"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: storeweave/commerce:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://commerce:${POSTGRES_PASSWORD:-commerce-dev-password}@postgres:5432/commerce
+      COMMERCE_PUBLIC_URL: ${COMMERCE_PUBLIC_URL:-http://localhost:3000}
+      COMMERCE_ADMIN_TOKEN: ${COMMERCE_ADMIN_TOKEN:-dev-admin-token-change-me-please}
+      COMMERCE_MCP_TOKEN: ${COMMERCE_MCP_TOKEN:-dev-mcp-token-change-me-please}
+      DEMO_ERP_API_KEY: ${DEMO_ERP_API_KEY:-dev-erp-api-key}
+      COMMERCE_AUTO_MIGRATE: "true"
+    volumes:
+      - ./deployments/example-store/commerce.yaml:/etc/commerce/commerce.yaml:ro
+      - commerce-data:/var/lib/commerce
+    ports:
+      - "${COMMERCE_PORT:-3000}:3000"
+    command: ["api"]
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  worker:
+    image: storeweave/commerce:local
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://commerce:${POSTGRES_PASSWORD:-commerce-dev-password}@postgres:5432/commerce
+      COMMERCE_PUBLIC_URL: ${COMMERCE_PUBLIC_URL:-http://localhost:3000}
+      COMMERCE_ADMIN_TOKEN: ${COMMERCE_ADMIN_TOKEN:-dev-admin-token-change-me-please}
+      COMMERCE_MCP_TOKEN: ${COMMERCE_MCP_TOKEN:-dev-mcp-token-change-me-please}
+      DEMO_ERP_API_KEY: ${DEMO_ERP_API_KEY:-dev-erp-api-key}
+    volumes:
+      - ./deployments/example-store/commerce.yaml:/etc/commerce/commerce.yaml:ro
+      - commerce-data:/var/lib/commerce
+    command: ["worker"]
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  commerce-data:

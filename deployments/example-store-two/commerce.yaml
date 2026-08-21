@@ -1,0 +1,75 @@
+# 第二家範例商店。
+# 與 example-store 使用「完全相同」的 Application Artifact：
+# 差異只有設定、Theme 選項與啟用的 Extension —— Commerce Core 沒有任何客戶判斷。
+version: 1
+
+store:
+  id: aurora-books
+  name: Aurora 書店
+  currency: TWD
+  locale: zh-TW
+  timezone: Asia/Taipei
+  supportEmail: hello@aurora.example
+
+http:
+  host: 0.0.0.0
+  port: 3100
+  publicUrl: ${COMMERCE_PUBLIC_URL:-http://localhost:3100}
+
+database:
+  url: ${DATABASE_URL}
+  poolSize: 5
+
+worker:
+  enabled: true
+  concurrency: 2
+
+theme:
+  id: default
+  options:
+    accentColor: "#7c3aed"
+    tagline: 每週選書與獨立出版
+    showSku: false
+
+admin:
+  enabled: true
+  basePath: /admin
+
+mcp:
+  enabled: true
+
+auth:
+  tokens:
+    - name: admin-console
+      role: admin
+      secretRef: COMMERCE_ADMIN_TOKEN
+
+extensions:
+  # 這家店不接 ERP，也只開放唯讀的 MCP 工具
+  - id: mock-payment
+    enabled: true
+    config:
+      autoApprove: true
+  - id: demo-erp
+    enabled: false
+    config: {}
+  - id: mcp
+    enabled: true
+    config:
+      serverName: aurora-books-commerce
+      enabledTools:
+        - search_products
+        - get_order
+        - get_sales_summary
+
+logging:
+  level: info
+  destination: stdout
+
+paths:
+  dataDir: /var/lib/commerce
+  backupDir: /var/lib/commerce/backups
+
+secrets:
+  provider: file
+  file: /etc/commerce/commerce.env

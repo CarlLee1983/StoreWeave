@@ -1,0 +1,322 @@
+{
+  "$ref": "#/definitions/CommerceConfig",
+  "definitions": {
+    "CommerceConfig": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "store": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "currency": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 3,
+              "default": "TWD"
+            },
+            "locale": {
+              "type": "string",
+              "default": "zh-TW"
+            },
+            "timezone": {
+              "type": "string",
+              "default": "Asia/Taipei"
+            },
+            "supportEmail": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "http": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "type": "string",
+              "default": "0.0.0.0"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "default": 3000
+            },
+            "publicUrl": {
+              "type": "string",
+              "format": "uri",
+              "default": "http://localhost:3000"
+            },
+            "trustProxy": {
+              "type": "boolean",
+              "default": false
+            },
+            "bodyLimitBytes": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "default": 1048576
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "database": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1
+            },
+            "poolSize": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10
+            },
+            "ssl": {
+              "type": "boolean",
+              "default": false
+            },
+            "autoMigrate": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        "worker": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "concurrency": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64,
+              "default": 4
+            },
+            "pollIntervalMs": {
+              "type": "integer",
+              "minimum": 50,
+              "default": 1000
+            },
+            "outboxBatchSize": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            },
+            "staleLockSeconds": {
+              "type": "integer",
+              "minimum": 10,
+              "default": 300
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "theme": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "default": "default"
+            },
+            "options": {
+              "type": "object",
+              "additionalProperties": {},
+              "default": {}
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "admin": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "basePath": {
+              "type": "string",
+              "pattern": "^\\/",
+              "default": "/admin"
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "mcp": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^\\/",
+              "default": "/mcp"
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "auth": {
+          "type": "object",
+          "properties": {
+            "tokens": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "role": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "secretRef": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "name",
+                  "role",
+                  "secretRef"
+                ],
+                "additionalProperties": false
+              },
+              "default": []
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{2,63}$"
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "config": {
+                "type": "object",
+                "additionalProperties": {},
+                "default": {}
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "default": []
+        },
+        "logging": {
+          "type": "object",
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "trace",
+                "debug",
+                "info",
+                "warn",
+                "error"
+              ],
+              "default": "info"
+            },
+            "destination": {
+              "type": "string",
+              "enum": [
+                "stdout",
+                "file"
+              ],
+              "default": "stdout"
+            },
+            "file": {
+              "type": "string",
+              "default": "/var/log/commerce/commerce.log"
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "paths": {
+          "type": "object",
+          "properties": {
+            "dataDir": {
+              "type": "string",
+              "default": "/var/lib/commerce"
+            },
+            "backupDir": {
+              "type": "string",
+              "default": "/var/lib/commerce/backups"
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "secrets": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "env",
+                "file"
+              ],
+              "default": "env"
+            },
+            "file": {
+              "type": "string",
+              "default": "/etc/commerce/commerce.env"
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        }
+      },
+      "required": [
+        "version",
+        "store",
+        "database"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "StoreWeave commerce.yaml",
+  "description": "單站電商平台的設定檔結構。機密不放在這裡，一律用 ${ENV_VAR} 參照。"
+}

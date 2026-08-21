@@ -1,0 +1,90 @@
+# StoreWeave 單站設定檔。
+# 機密一律不寫在這裡：用 ${VAR} 參照環境變數，值放在 commerce.env 或 Secret Provider。
+version: 1
+
+store:
+  id: example-store
+  name: 範例商店
+  currency: TWD
+  locale: zh-TW
+  timezone: Asia/Taipei
+  supportEmail: support@example.com
+
+http:
+  host: 0.0.0.0
+  port: 3000
+  publicUrl: ${COMMERCE_PUBLIC_URL:-http://localhost:3000}
+  trustProxy: false
+
+database:
+  url: ${DATABASE_URL}
+  poolSize: 10
+  ssl: false
+  # 正式環境建議關閉，改由 `commerce migrate` 明確執行
+  autoMigrate: false
+
+worker:
+  enabled: true
+  concurrency: 4
+  pollIntervalMs: 1000
+  outboxBatchSize: 100
+  staleLockSeconds: 300
+
+theme:
+  id: default
+  options:
+    accentColor: "#0f766e"
+    tagline: 台灣在地選物
+    showSku: true
+
+admin:
+  enabled: true
+  basePath: /admin
+
+mcp:
+  enabled: true
+  path: /mcp
+
+auth:
+  tokens:
+    - name: admin-console
+      role: admin
+      secretRef: COMMERCE_ADMIN_TOKEN
+    - name: mcp-client
+      role: mcp
+      secretRef: COMMERCE_MCP_TOKEN
+
+extensions:
+  - id: mock-payment
+    enabled: true
+    config:
+      autoApprove: true
+      declineAboveCents: 0
+  - id: demo-erp
+    enabled: true
+    config:
+      endpoint: mock://demo-erp
+      companyCode: DEMO
+      warehouseCode: MAIN
+      maxAttempts: 5
+  - id: mcp
+    enabled: true
+    config:
+      serverName: example-store-commerce
+      enabledTools:
+        - search_products
+        - get_order
+        - get_sales_summary
+        - adjust_inventory
+
+logging:
+  level: info
+  destination: stdout
+
+paths:
+  dataDir: /var/lib/commerce
+  backupDir: /var/lib/commerce/backups
+
+secrets:
+  provider: file
+  file: /etc/commerce/commerce.env
