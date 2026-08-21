@@ -14,6 +14,9 @@
 | [0010](0010-platform-is-domain-agnostic.md) | 平台對領域中立，Commerce 是產品不是 kernel | accepted |
 | [0011](0011-platform-ops-module.md) | 死信佇列由平台維運模組公開，重送與 requeue 分家 | accepted |
 | [0012](0012-operator-identity.md) | 後台操作者身分：自管帳號、cookie session，M2M token 維持現狀 | accepted |
+| [0013](0013-marketing-is-a-commerce-module.md) | 行銷功能是 Commerce 模組，不是 Extension | accepted |
+| [0014](0014-customer-identity.md) | 顧客身分：認證共用平台，顧客資料歸 Commerce | accepted |
+| [0015](0015-order-money-model.md) | 訂單金額模型：Adjustment 必定分攤到 line，金額欄位一次補齊 | accepted |
 
 寫法：每篇結尾用 `## Falsified if` 這個標題起一段，段落裡以反引號標出這個決策所依賴的檔案；
 那些檔案就是這個決策的邊界清單，條件本身要寫成某個東西可以檢查的形式。

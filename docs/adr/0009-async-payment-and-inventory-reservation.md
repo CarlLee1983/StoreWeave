@@ -15,6 +15,18 @@
 
 `commerce.order.placed.v1` 持續發布一個 minor 週期；新增 `commerce.order.placed.v2` 明確描述預留與 `expiresAt`。
 
+## 補充（2026-08-22）：Cart 不預留庫存
+
+引入 Cart 之後，預留的起點仍然是 `placeOrder`，不是加入購物車。放進 Cart 不保證買得到，
+可售量的驗證與失敗都發生在結帳當下。
+
+理由有兩層。其一，Cart 預留會讓 `on_hand - reserved` 被無人結帳的殭屍購物車吃光，
+而購物車的滯留時間以天計、訂單的預留以 15 分鐘計，兩者不能共用同一個計數器。
+其二，`inventory_stock` 目前只有 product 層級的 `on_hand` / `reserved` 兩個計數器，
+沒有 reservation 明細表；訂單與預留之間唯一的關聯是寫進 `inventory_movements.reference`
+的訂單號。要支援 Cart 層級的預留（能查、能部分釋放、能設不同期限），必須先把 inventory
+改成有明細的 reservation 模型 —— 那是獨立的一批工作，不因為 Cart 落地而順便發生。
+
 ## 後果
 
 - Storefront 在付款請求後立刻前往訂單頁，顯示付款處理中。
