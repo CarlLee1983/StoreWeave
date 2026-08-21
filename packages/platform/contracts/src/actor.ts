@@ -1,7 +1,11 @@
 /** 呼叫者身分。所有 Command / Query 都必須帶。 */
 export interface Actor {
   readonly id: string;
-  readonly type: 'user' | 'service' | 'extension' | 'system';
+  /**
+   * `user` 是後台操作者，`customer` 是前台顧客。兩者共用同一套帳號與 session，
+   * 但身分型別分開，稽核紀錄與資料範圍才分得出誰是誰。
+   */
+  readonly type: 'user' | 'customer' | 'service' | 'extension' | 'system';
   readonly displayName?: string;
   readonly permissions: readonly string[];
   /** extension actor 才會有；用於 audit 與權限縮限 */
