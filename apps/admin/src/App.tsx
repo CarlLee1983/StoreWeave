@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { getToken, setDisplayLocale, setToken } from './api';
+import { getToken, setToken } from './api';
+import { LOCALES, useI18n } from './i18n';
 import { navigate, useRoute, type Route } from './router';
 import { ProductsPage } from './pages/ProductsPage';
 import { OrdersPage } from './pages/OrdersPage';
@@ -8,25 +9,18 @@ import { SystemPage } from './pages/SystemPage';
 
 type IconName = 'box' | 'receipt' | 'activity' | 'database' | 'search' | 'sun' | 'moon' | 'key' | 'chevron';
 
-const NAV_ITEMS: { route: Route; label: string; icon: IconName; section: 'commerce' | 'integrations'; badge?: string }[] = [
-  { route: 'orders', label: '訂單', icon: 'receipt', section: 'commerce', badge: 'LIVE' },
-  { route: 'products', label: '商品', icon: 'box', section: 'commerce' },
-  { route: 'erp', label: 'ERP 佇列', icon: 'database', section: 'integrations', badge: 'DLQ' },
-  { route: 'system', label: '系統健康度', icon: 'activity', section: 'integrations' },
+const NAV_ITEMS: { route: Route; label: 'orders' | 'products' | 'erpQueue' | 'systemHealth'; icon: IconName; section: 'commerce' | 'integrations'; badge?: string }[] = [
+  { route: 'orders', label: 'orders', icon: 'receipt', section: 'commerce', badge: 'LIVE' },
+  { route: 'products', label: 'products', icon: 'box', section: 'commerce' },
+  { route: 'erp', label: 'erpQueue', icon: 'database', section: 'integrations', badge: 'DLQ' },
+  { route: 'system', label: 'systemHealth', icon: 'activity', section: 'integrations' },
 ];
 
-const PAGE_COPY: Record<Route, { title: string; subtitle: string; action?: string }> = {
-  orders: { title: '訂單管理', subtitle: '即時交易流與 ERP 投遞管線' },
-  products: { title: '商品管理', subtitle: '管理商品目錄、售價與可用庫存', action: '建立商品' },
-  erp: { title: 'ERP 投遞', subtitle: '追蹤訂單事件、重試與 Dead Letter Queue' },
-  system: { title: '系統狀態', subtitle: '服務相依性、擴充套件與銷售匯總' },
-};
-
 export function App() {
+  const { locale, setLocale, t } = useI18n();
   const route = useRoute();
   const [tokenVersion, setTokenVersion] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('storeweave.admin.theme') as 'dark' | 'light') || 'dark');
-  const [locale, setLocale] = useState('zh-TW');
   const [commandOpen, setCommandOpen] = useState(false);
   const [tokenOpen, setTokenOpen] = useState(false);
 
@@ -34,8 +28,6 @@ export function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem('storeweave.admin.theme', theme);
   }, [theme]);
-
-  useEffect(() => { document.documentElement.lang = locale; setDisplayLocale(locale); }, [locale]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -46,28 +38,33 @@ export function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  const currentPage = PAGE_COPY[route];
+  const currentPage = {
+    orders: { title: t('ordersTitle'), subtitle: t('ordersSubtitle') },
+    products: { title: t('productsTitle'), subtitle: t('productsSubtitle'), action: t('createProduct') },
+    erp: { title: t('erpTitle'), subtitle: t('erpSubtitle') },
+    system: { title: t('systemTitle'), subtitle: t('systemSubtitle') },
+  }[route];
   const go = (nextRoute: Route) => { navigate(nextRoute); setCommandOpen(false); };
 
   return <div className="app-shell">
-    <aside className="sidebar" aria-label="主要導覽">
+    <aside className="sidebar" aria-label={t('navigation')}>
       <div className="brand"><span className="brand__mark" aria-hidden="true"><Icon name="box" /></span><span>StoreWeave</span></div>
       <nav className="sidebar__nav">
         {(['commerce', 'integrations'] as const).map((section) => <div className="nav-group" key={section}>
-          <p className="nav-group__label">{section === 'commerce' ? 'Commerce' : 'Integrations'}</p>
-          {NAV_ITEMS.filter((item) => item.section === section).map((item) => <button key={item.route} type="button" aria-label={item.label} className={`nav-link ${route === item.route ? 'nav-link--active' : ''}`} onClick={() => go(item.route)}>
-            <Icon name={item.icon} /><span>{item.label}</span>{item.badge ? <span className={`nav-badge ${item.badge === 'DLQ' ? 'nav-badge--error' : ''}`}>{item.badge}</span> : null}
+          <p className="nav-group__label">{t(section)}</p>
+          {NAV_ITEMS.filter((item) => item.section === section).map((item) => <button key={item.route} type="button" aria-label={t(item.label)} className={`nav-link ${route === item.route ? 'nav-link--active' : ''}`} onClick={() => go(item.route)}>
+            <Icon name={item.icon} /><span>{t(item.label)}</span>{item.badge ? <span className={`nav-badge ${item.badge === 'DLQ' ? 'nav-badge--error' : ''}`}>{item.badge}</span> : null}
           </button>)}
         </div>)}
       </nav>
-      <div className="sidebar__footer"><span className="connection-indicator" />v0.1.0 <span>Online</span></div>
+      <div className="sidebar__footer"><span className="connection-indicator" />v0.1.0 <span>{t('online')}</span></div>
     </aside>
     <div className="workspace">
       <header className="topbar">
-        <button type="button" className="command-trigger" onClick={() => setCommandOpen(true)} aria-label="開啟命令選單"><Icon name="search" /><span>搜尋頁面或操作</span><kbd>⌘ K</kbd></button>
+        <button type="button" className="command-trigger" onClick={() => setCommandOpen(true)} aria-label={t('openCommand')}><Icon name="search" /><span>{t('searchActions')}</span><kbd>⌘ K</kbd></button>
         <div className="topbar__utilities">
-          <label className="locale-select" title="語言"><span className="sr-only">語言</span><select value={locale} onChange={(event) => setLocale(event.target.value)}><option value="zh-TW">繁中</option><option value="en-US">EN</option><option value="ja-JP">日本語</option></select></label>
-          <button type="button" className="icon-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="切換明暗主題" title="切換明暗主題"><Icon name={theme === 'dark' ? 'sun' : 'moon'} /></button>
+          <label className="locale-select" title={t('language')}><span className="sr-only">{t('language')}</span><select value={locale} onChange={(event) => setLocale(event.target.value as typeof locale)}>{LOCALES.map((value) => <option key={value} value={value}>{value === 'zh-TW' ? '繁中' : value === 'en-US' ? 'EN' : '日本語'}</option>)}</select></label>
+          <button type="button" className="icon-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={t('toggleTheme')} title={t('toggleTheme')}><Icon name={theme === 'dark' ? 'sun' : 'moon'} /></button>
           <button type="button" className={`token-trigger ${getToken() ? 'token-trigger--set' : ''}`} onClick={() => setTokenOpen(!tokenOpen)} aria-expanded={tokenOpen}><Icon name="key" />API Token</button>
           {tokenOpen ? <TokenPanel onTokenChange={() => setTokenVersion((value) => value + 1)} onClose={() => setTokenOpen(false)} /> : null}
         </div>
@@ -82,18 +79,20 @@ export function App() {
 }
 
 function TokenPanel({ onTokenChange, onClose }: { onTokenChange: () => void; onClose: () => void }) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState(getToken());
   const save = () => { setToken(draft); onTokenChange(); onClose(); };
   const clear = () => { setToken(''); setDraft(''); onTokenChange(); };
-  return <div className="token-panel" role="dialog" aria-label="API Token 設定"><p>API Token</p><span>憑證只儲存在此瀏覽器。</span><input autoFocus type="password" placeholder="輸入 API token" value={draft} onChange={(event) => setDraft(event.target.value)} /><div><button type="button" className="button button--quiet" onClick={clear}>清除</button><button type="button" className="button button--primary" onClick={save}>儲存</button></div></div>;
+  return <div className="token-panel" role="dialog" aria-label={t('apiTokenSettings')}><p>API Token</p><span>{t('tokenStored')}</span><input autoFocus type="password" placeholder={t('enterToken')} value={draft} onChange={(event) => setDraft(event.target.value)} /><div><button type="button" className="button button--quiet" onClick={clear}>{t('clear')}</button><button type="button" className="button button--primary" onClick={save}>{t('save')}</button></div></div>;
 }
 
 function CommandPalette({ onNavigate, onClose }: { onNavigate: (route: Route) => void; onClose: () => void }) {
+  const { t } = useI18n();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
-  const matches = NAV_ITEMS.filter((item) => item.label.toLowerCase().includes(query.toLowerCase()));
+  const matches = NAV_ITEMS.filter((item) => t(item.label).toLowerCase().includes(query.toLowerCase()));
   const choose = (index: number) => matches[index] && onNavigate(matches[index].route);
-  return <div className="command-overlay" role="presentation" onMouseDown={onClose}><div className="command-palette" role="dialog" aria-modal="true" aria-label="命令選單" onMouseDown={(event) => event.stopPropagation()}><div className="command-palette__search"><Icon name="search" /><input autoFocus placeholder="搜尋頁面…" value={query} onChange={(event) => { setQuery(event.target.value); setActive(0); }} onKeyDown={(event) => { if (event.key === 'ArrowDown') { event.preventDefault(); setActive((value) => Math.min(value + 1, matches.length - 1)); } if (event.key === 'ArrowUp') { event.preventDefault(); setActive((value) => Math.max(value - 1, 0)); } if (event.key === 'Enter') choose(active); }} /></div><p>前往</p>{matches.map((item, index) => <button key={item.route} type="button" className={index === active ? 'command-palette__option--active' : ''} onClick={() => onNavigate(item.route)}><Icon name={item.icon} /><span>{item.label}</span><Icon name="chevron" /></button>)}<footer><span>使用 ↑ ↓ 瀏覽</span><kbd>Esc</kbd> 關閉</footer></div></div>;
+  return <div className="command-overlay" role="presentation" onMouseDown={onClose}><div className="command-palette" role="dialog" aria-modal="true" aria-label={t('commandMenu')} onMouseDown={(event) => event.stopPropagation()}><div className="command-palette__search"><Icon name="search" /><input autoFocus placeholder={t('searchPages')} value={query} onChange={(event) => { setQuery(event.target.value); setActive(0); }} onKeyDown={(event) => { if (event.key === 'ArrowDown') { event.preventDefault(); setActive((value) => Math.min(value + 1, matches.length - 1)); } if (event.key === 'ArrowUp') { event.preventDefault(); setActive((value) => Math.max(value - 1, 0)); } if (event.key === 'Enter') choose(active); }} /></div><p>{t('goTo')}</p>{matches.map((item, index) => <button key={item.route} type="button" className={index === active ? 'command-palette__option--active' : ''} onClick={() => onNavigate(item.route)}><Icon name={item.icon} /><span>{t(item.label)}</span><Icon name="chevron" /></button>)}<footer><span>{t('navigateHint')}</span><kbd>Esc</kbd> {t('close')}</footer></div></div>;
 }
 
 export function Icon({ name }: { name: IconName }): ReactNode {

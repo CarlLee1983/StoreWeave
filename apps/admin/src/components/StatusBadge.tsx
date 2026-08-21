@@ -9,8 +9,9 @@ function toneFor(value: string): Tone {
 }
 
 export function StatusBadge({ value }: { value: string }) {
+  const { statusLabel } = useI18n();
   const tone = toneFor(value);
-  return <span className={`status-pill status-pill--${tone}`}><StatusIcon tone={tone} />{value}</span>;
+  return <span className={`status-pill status-pill--${tone}`}><StatusIcon tone={tone} />{statusLabel(value)}</span>;
 }
 
 function StatusIcon({ tone }: { tone: Tone }) {
@@ -19,3 +20,4 @@ function StatusIcon({ tone }: { tone: Tone }) {
   if (tone === 'fail') return <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>;
   return <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>;
 }
+import { useI18n } from '../i18n';

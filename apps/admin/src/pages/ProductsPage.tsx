@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { api, formatMoney, type Product, type Stock } from '../api';
+import { api, type Product, type Stock } from '../api';
+import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
 
 export function ProductsPage() {
+  const { t } = useI18n();
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
@@ -48,12 +50,9 @@ export function ProductsPage() {
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
 
       <div className="toolbar">
-        <input placeholder="搜尋商品名稱或 SKU" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input placeholder={t('searchProducts')} value={q} onChange={(e) => setQ(e.target.value)} />
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">全部狀態</option>
-          <option value="draft">草稿</option>
-          <option value="active">上架中</option>
-          <option value="archived">已下架</option>
+          <option value="">{t('allStatuses')}</option><option value="draft">{t('draft')}</option><option value="active">{t('active')}</option><option value="archived">{t('archived')}</option>
         </select>
       </div>
 
@@ -66,11 +65,7 @@ export function ProductsPage() {
           <thead>
             <tr>
               <th>SKU</th>
-              <th>名稱</th>
-              <th>價格</th>
-              <th>狀態</th>
-              <th>庫存（可用 / 保留 / 現有）</th>
-              <th>調整庫存</th>
+              <th>{t('name')}</th><th>{t('price')}</th><th>{t('status')}</th><th>{t('inventory')}</th><th>{t('adjustInventory')}</th>
             </tr>
           </thead>
           <tbody>
@@ -93,6 +88,7 @@ function ProductRow({
   stock: Stock | undefined;
   onAdjusted: () => void;
 }) {
+  const { t, formatMoney } = useI18n();
   const [delta, setDelta] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -101,7 +97,7 @@ function ProductRow({
   const handleAdjust = async () => {
     const deltaNum = Number(delta);
     if (!Number.isInteger(deltaNum) || deltaNum === 0 || !reason.trim()) {
-      setError(new Error('請輸入非零整數的調整量與原因'));
+      setError(new Error(t('invalidInventory')));
       return;
     }
     setSubmitting(true);
@@ -127,10 +123,10 @@ function ProductRow({
       <td className="mono">{stock ? `${stock.available} / ${stock.reserved} / ${stock.onHand}` : '—'}</td>
       <td>
         <div className="inline-form">
-          <input placeholder="調整量" value={delta} onChange={(e) => setDelta(e.target.value)} />
-          <input placeholder="原因" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <input placeholder={t('adjustment')} value={delta} onChange={(e) => setDelta(e.target.value)} />
+          <input placeholder={t('reason')} value={reason} onChange={(e) => setReason(e.target.value)} />
           <button className="button" type="button" disabled={submitting} onClick={handleAdjust}>
-            調整
+            {t('adjust')}
           </button>
         </div>
         {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
@@ -140,6 +136,7 @@ function ProductRow({
 }
 
 function CreateProductForm({ onCreated }: { onCreated: () => void }) {
+  const { t } = useI18n();
   const [sku, setSku] = useState('');
   const [name, setName] = useState('');
   const [priceCents, setPriceCents] = useState('');
@@ -151,7 +148,7 @@ function CreateProductForm({ onCreated }: { onCreated: () => void }) {
   const handleSubmit = async () => {
     const price = Number(priceCents);
     if (!sku.trim() || !name.trim() || !Number.isInteger(price) || price < 0) {
-      setError(new Error('請填寫 SKU、名稱，以及非負整數的價格（cents）'));
+      setError(new Error(t('invalidProduct')));
       return;
     }
     setSubmitting(true);
@@ -171,20 +168,18 @@ function CreateProductForm({ onCreated }: { onCreated: () => void }) {
 
   return (
     <fieldset id="create-product" className="form-panel">
-      <legend>建立商品</legend>
+      <legend>{t('createProduct')}</legend>
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
       <div className="inline-form">
         <input placeholder="SKU" value={sku} onChange={(e) => setSku(e.target.value)} />
-        <input placeholder="名稱" value={name} onChange={(e) => setName(e.target.value)} />
-        <input placeholder="價格（cents）" value={priceCents} onChange={(e) => setPriceCents(e.target.value)} />
-        <input placeholder="幣別" value={currency} onChange={(e) => setCurrency(e.target.value)} />
+        <input placeholder={t('name')} value={name} onChange={(e) => setName(e.target.value)} />
+        <input placeholder={t('priceCents')} value={priceCents} onChange={(e) => setPriceCents(e.target.value)} />
+        <input placeholder={t('currency')} value={currency} onChange={(e) => setCurrency(e.target.value)} />
         <select value={status} onChange={(e) => setStatus(e.target.value as Product['status'])}>
-          <option value="draft">草稿</option>
-          <option value="active">上架中</option>
-          <option value="archived">已下架</option>
+          <option value="draft">{t('draft')}</option><option value="active">{t('active')}</option><option value="archived">{t('archived')}</option>
         </select>
         <button className="button button--primary" type="button" disabled={submitting} onClick={handleSubmit}>
-          建立
+          {t('create')}
         </button>
       </div>
     </fieldset>

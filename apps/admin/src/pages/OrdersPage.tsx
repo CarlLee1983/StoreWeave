@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { api, formatMoney, getDisplayLocale, type Order } from '../api';
+import { api, type Order } from '../api';
+import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
 
 export function OrdersPage() {
+  const { t, formatMoney } = useI18n();
   const [status, setStatus] = useState('');
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,24 +39,16 @@ export function OrdersPage() {
     <section>
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
 
-      <div className="pipeline" aria-label="ERP 處理管線">
+      <div className="pipeline" aria-label={t('erpPipeline')}>
         <span>Ingest</span><b>{orders.length}</b><i>→</i><span>Queue</span><b>{pending.length}</b><i>→</i><span>Worker</span><b>Active</b><i>→</i><span>DLQ</span><b className="pipeline__alert">{orders.filter((order) => order.status === 'cancelled').length}</b>
       </div>
       <div className="summary-cards summary-cards--orders">
-        <Metric label="交易總額" value={formatMoney(gmv, orders[0]?.currency ?? 'TWD')} />
-        <Metric label="待處理訂單" value={String(pending.length)} />
-        <Metric label="已完成訂單" value={String(paid.length)} />
-        <Metric label="目前顯示" value={String(orders.length)} />
+        <Metric label={t('transactionTotal')} value={formatMoney(gmv, orders[0]?.currency ?? 'TWD')} /><Metric label={t('pendingOrders')} value={String(pending.length)} /><Metric label={t('completedOrders')} value={String(paid.length)} /><Metric label={t('currentlyShown')} value={String(orders.length)} />
       </div>
 
       <div className="toolbar">
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">全部狀態</option>
-          <option value="pending">待付款</option>
-          <option value="payment_processing">付款處理中</option>
-          <option value="paid">已付款</option>
-          <option value="cancelled">已取消</option>
-          <option value="expired">付款逾時</option>
+          <option value="">{t('allStatuses')}</option><option value="pending">{t('pending')}</option><option value="payment_processing">{t('payment_processing')}</option><option value="paid">{t('paid')}</option><option value="cancelled">{t('cancelled')}</option><option value="expired">{t('expired')}</option>
         </select>
       </div>
 
@@ -64,11 +58,7 @@ export function OrdersPage() {
         <div className="table-wrap"><table className="data-table">
           <thead>
             <tr>
-              <th>訂單編號</th>
-              <th>客戶</th>
-              <th>狀態</th>
-              <th>總金額</th>
-              <th>下單時間</th>
+              <th>{t('orderNumber')}</th><th>{t('customer')}</th><th>{t('status')}</th><th>{t('total')}</th><th>{t('orderedAt')}</th>
               <th />
             </tr>
           </thead>
@@ -104,6 +94,7 @@ function OrderRow({
   onToggle: () => void;
   onChanged: () => void;
 }) {
+  const { t, formatMoney, formatDateTime } = useI18n();
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -123,7 +114,7 @@ function OrderRow({
 
   const handleCancel = async () => {
     if (!reason.trim()) {
-      setError(new Error('請輸入取消原因'));
+      setError(new Error(t('invalidCancelReason')));
       return;
     }
     setSubmitting(true);
@@ -145,8 +136,7 @@ function OrderRow({
         <td>{order.customerEmail}</td>
         <td><StatusBadge value={order.status} /></td>
         <td className="mono">{formatMoney(order.totalCents, order.currency)}</td>
-        <td className="mono">{new Intl.DateTimeFormat(getDisplayLocale(), { dateStyle: 'short', timeStyle: 'short' }).format(new Date(order.placedAt))}</td>
-        <td>{expanded ? '收合' : '檢視'}</td>
+        <td className="mono">{formatDateTime(order.placedAt)}</td><td>{expanded ? t('collapse') : t('view')}</td>
       </tr>
       {expanded && (
         <tr>
@@ -157,10 +147,7 @@ function OrderRow({
                 <thead>
                   <tr>
                     <th>SKU</th>
-                    <th>名稱</th>
-                    <th>單價</th>
-                    <th>數量</th>
-                    <th>小計</th>
+                    <th>{t('name')}</th><th>{t('unitPrice')}</th><th>{t('quantity')}</th><th>{t('subtotal')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -179,11 +166,11 @@ function OrderRow({
               {(order.status === 'pending' || order.status === 'payment_processing') && (
                 <div className="inline-form">
                   <button id="order-actions" className="button button--primary" type="button" disabled={submitting} onClick={handlePay}>
-                    要求付款
+                    {t('requestPayment')}
                   </button>
-                  <input placeholder="取消原因" value={reason} onChange={(e) => setReason(e.target.value)} />
+                  <input placeholder={t('cancellationReason')} value={reason} onChange={(e) => setReason(e.target.value)} />
                   <button className="button" type="button" disabled={submitting} onClick={handleCancel}>
-                    取消訂單
+                    {t('cancelOrder')}
                   </button>
                 </div>
               )}

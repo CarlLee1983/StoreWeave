@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api, type Delivery, type DeliveryPayload } from '../api';
+import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
 
 export function ErpPage() {
+  const { t } = useI18n();
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -39,13 +41,7 @@ export function ErpPage() {
         <div className="table-wrap"><table className="data-table">
           <thead>
             <tr>
-              <th>訂單編號</th>
-              <th>參考碼</th>
-              <th>狀態</th>
-              <th>嘗試次數</th>
-              <th>手動重送次數</th>
-              <th>最後錯誤</th>
-              <th>遠端 ID</th>
+              <th>{t('orderNumber')}</th><th>{t('reference')}</th><th>{t('status')}</th><th>{t('attempts')}</th><th>{t('manualResends')}</th><th>{t('lastError')}</th><th>{t('remoteId')}</th>
               <th />
             </tr>
           </thead>
@@ -68,6 +64,7 @@ export function ErpPage() {
 }
 
 function DeliveryRow({ delivery, onInspect, onResent }: { delivery: Delivery; onInspect: (delivery: Delivery) => void; onResent: () => void }) {
+  const { t } = useI18n();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -95,10 +92,10 @@ function DeliveryRow({ delivery, onInspect, onResent }: { delivery: Delivery; on
       <td>{delivery.remoteId ?? '—'}</td>
       <td>
         <button className="button button--quiet" type="button" onClick={() => onInspect(delivery)}>
-          Payload
+          {t('payload')}
         </button>
         <button className="button" type="button" disabled={submitting} onClick={handleResend}>
-          重送
+          {t('resend')}
         </button>
         {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
       </td>
@@ -107,6 +104,7 @@ function DeliveryRow({ delivery, onInspect, onResent }: { delivery: Delivery; on
 }
 
 function PayloadDrawer({ delivery, onClose, onResent }: { delivery: Delivery; onClose: () => void; onResent: () => void }) {
+  const { t } = useI18n();
   const [result, setResult] = useState<DeliveryPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -149,12 +147,12 @@ function PayloadDrawer({ delivery, onClose, onResent }: { delivery: Delivery; on
 
   return (
     <div className="payload-overlay" role="presentation" onMouseDown={onClose}>
-      <aside className="payload-drawer" role="dialog" aria-modal="true" aria-label={`ERP payload：${delivery.orderNumber}`} onMouseDown={(event) => event.stopPropagation()}>
-        <header><div><h2>ERP Payload</h2><p>{delivery.orderNumber} · {delivery.reference}</p></div><button className="icon-button" type="button" onClick={onClose} aria-label="關閉 Payload">×</button></header>
-        <p className="payload-drawer__notice">此預覽由目前 ERP 設定產生，下一次重送會使用相同 HTTP JSON body；不包含 API key。</p>
+      <aside className="payload-drawer" role="dialog" aria-modal="true" aria-label={`${t('payloadDialog')}: ${delivery.orderNumber}`} onMouseDown={(event) => event.stopPropagation()}>
+        <header><div><h2>{t('payloadDialog')}</h2><p>{delivery.orderNumber} · {delivery.reference}</p></div><button className="icon-button" type="button" onClick={onClose} aria-label={t('closePayload')}>×</button></header>
+        <p className="payload-drawer__notice">{t('payloadNotice')}</p>
         {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
         {loading ? <Loading /> : <pre>{result ? JSON.stringify(result.payload, null, 2) : ''}</pre>}
-        <footer><button className="button button--quiet" type="button" disabled={!result} onClick={copy}>{copyState === 'copied' ? '已複製' : '複製 JSON'}</button><button className="button button--primary" type="button" disabled={resending} onClick={resend}>{resending ? '重送中…' : '重送至 ERP'}</button></footer>
+        <footer><button className="button button--quiet" type="button" disabled={!result} onClick={copy}>{copyState === 'copied' ? t('copied') : t('copyJson')}</button><button className="button button--primary" type="button" disabled={resending} onClick={resend}>{resending ? t('resending') : t('resendToErp')}</button></footer>
       </aside>
     </div>
   );
