@@ -1,0 +1,200 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { NestFastifyApplication } from '@nestjs/platform-fastify';
+import { createServer } from '@storeweave/api';
+import { defaultTheme } from '@storeweave/theme-default';
+import { createHarness, createProduct, stockUp, type TestHarness } from './helpers';
+
+const ADMIN_TOKEN = 'test-admin-token-abcdefghijklmnop';
+const MCP_TOKEN = 'test-mcp-token-abcdefghijklmnop';
+
+let h: TestHarness;
+let app: NestFastifyApplication;
+
+beforeAll(async () => {
+  h = await createHarness();
+  // 直接把 token 設定注入 runtime，模擬 commerce.yaml 的 auth.tokens
+  (h.runtime.config.auth.tokens as unknown[]).push(
+    { name: 'admin', role: 'admin', secretRef: 'ADMIN_TOKEN' },
+    { name: 'mcp', role: 'mcp', secretRef: 'MCP_TOKEN' },
+  );
+  (h.runtime as { secrets: any }).secrets = {
+    get: (n: string) => ({ ADMIN_TOKEN, MCP_TOKEN, DEMO_ERP_API_KEY: 'test-key' } as Record<string, string>)[n],
+    has: (n: string) => Boolean(({ ADMIN_TOKEN, MCP_TOKEN, DEMO_ERP_API_KEY: 'k' } as Record<string, string>)[n]),
+    listNames: () => [],
+  };
+  app = await createServer({
+    runtime: h.runtime,
+    theme: defaultTheme,
+    release: { version: 'test', configPath: '<test>' },
+  });
+}, 300_000);
+
+afterAll(async () => {
+  await app?.close();
+  await h?.close();
+});
+
+function inject(options: Parameters<NestFastifyApplication['inject']>[0]) {
+  return app.inject(options);
+}
+
+const auth = (token = ADMIN_TOKEN) => ({ authorization: `Bearer ${token}` });
+
+describe('REST 介面', () => {
+  it('沒有 token 會回 401，錯誤信封一致', async () => {
+    const res = await inject({ method: 'GET', url: '/api/v1/products' });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toMatchObject({ success: false, error: { code: 'UNAUTHENTICATED' } });
+  });
+
+  it('錯誤的 token 也是 401', async () => {
+    const res = await inject({ method: 'GET', url: '/api/v1/products', headers: auth('wrong-token-value-x') });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('健康端點不需要 token', async () => {
+    for (const path of ['/health/live', '/health/ready', '/health/dependencies']) {
+      const res = await inject({ method: 'GET', url: path });
+      expect(res.statusCode).toBeLessThan(400);
+    }
+  });
+
+  it('成功回應使用統一信封', async () => {
+    const res = await inject({ method: 'GET', url: '/api/v1/products', headers: auth() });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.success).toBe(true);
+    expect(Array.isArray(body.data.items)).toBe(true);
+  });
+
+  it('寫入端點缺 Idempotency-Key 會被拒', async () => {
+    const res = await inject({
+      method: 'POST', url: '/api/v1/inventory/adjust', headers: auth(),
+      payload: { productId: '00000000-0000-4000-8000-000000000000', delta: 1, reason: 'restock' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('REST 與 Command Bus 走同一條路徑', async () => {
+    const create = await inject({
+      method: 'POST', url: '/api/v1/products',
+      headers: { ...auth(), 'idempotency-key': 'http-create-1' },
+      payload: { sku: 'HTTP-1', name: 'HTTP 商品', priceCents: 3300, currency: 'TWD', status: 'active' },
+    });
+    expect(create.statusCode).toBe(201);
+    const productId = create.json().data.id;
+
+    const viaBus = await h.runtime.queries.execute<any>('commerce.catalog.getProduct', { id: productId },
+      { actor: { id: 'x', type: 'system', permissions: ['*'] } });
+    expect(viaBus.sku).toBe('HTTP-1');
+  });
+
+  it('Extension 的通用橋接只接受屬於該 Extension 的名稱', async () => {
+    const good = await inject({
+      method: 'GET', url: '/api/v1/extensions/demo-erp/queries/ext.demo-erp.listDeliveries?limit=10', headers: auth(),
+    });
+    expect(good.statusCode).toBe(200);
+
+    const bad = await inject({
+      method: 'GET', url: '/api/v1/extensions/demo-erp/queries/commerce.catalog.searchProducts', headers: auth(),
+    });
+    expect(bad.statusCode).toBe(400);
+  });
+
+  it('契約自省列出 Command / Query / Event', async () => {
+    const commands = await inject({ method: 'GET', url: '/api/v1/meta/commands', headers: auth() });
+    const events = await inject({ method: 'GET', url: '/api/v1/meta/events', headers: auth() });
+    expect(commands.json().data.items.map((c: any) => c.name)).toContain('commerce.order.payOrder');
+    expect(events.json().data.items.map((e: any) => e.name)).toContain('commerce.order.paid.v1');
+    expect(events.json().data.items[0].payload).toHaveProperty('type');
+  });
+});
+
+describe('Storefront SSR', () => {
+  it('首頁輸出 Theme 產生的 HTML', async () => {
+    const product = await createProduct(h.runtime, { sku: 'SSR-1', name: 'SSR 商品' });
+    await stockUp(h.runtime, product.id, 3);
+    const res = await inject({ method: 'GET', url: '/' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.body).toContain('SSR 商品');
+    expect(res.body).toContain('Test Store');
+  });
+
+  it('商品頁包含結帳表單', async () => {
+    const product = await createProduct(h.runtime, { sku: 'SSR-2', name: '結帳測試' });
+    await stockUp(h.runtime, product.id, 2);
+    const res = await inject({ method: 'GET', url: `/p/${product.id}` });
+    expect(res.body).toContain('action="/checkout"');
+    expect(res.body).toContain('結帳測試');
+  });
+
+  it('不存在的商品回 404 的 Theme 錯誤頁', async () => {
+    const res = await inject({ method: 'GET', url: '/p/00000000-0000-4000-8000-000000000000' });
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toContain('404');
+  });
+
+  it('結帳會建立並付款一張訂單', async () => {
+    const product = await createProduct(h.runtime, { sku: 'SSR-3', name: '下單測試', priceCents: 1500 });
+    await stockUp(h.runtime, product.id, 5);
+    const res = await inject({
+      method: 'POST', url: '/checkout',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `productId=${product.id}&customerEmail=ssr%40example.com&quantity=2`,
+    });
+    expect(res.statusCode).toBe(303);
+    const location = res.headers.location as string;
+    const orderPage = await inject({ method: 'GET', url: location });
+    expect(orderPage.body).toContain('paid');
+    expect(orderPage.body).toContain('ssr@example.com');
+  });
+});
+
+describe('MCP 介面', () => {
+  const rpc = (body: unknown, token = MCP_TOKEN) =>
+    inject({ method: 'POST', url: '/mcp', headers: { authorization: `Bearer ${token}` }, payload: body as never });
+
+  it('tools/list 只公開設定啟用的工具', async () => {
+    const res = await rpc({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+    const names = res.json().result.tools.map((t: any) => t.name).sort();
+    expect(names).toEqual(['adjust_inventory', 'get_order', 'get_sales_summary', 'search_products']);
+    expect(res.json().result.tools[0].inputSchema).toHaveProperty('type');
+  });
+
+  it('未知方法回 JSON-RPC error', async () => {
+    const res = await rpc({ jsonrpc: '2.0', id: 2, method: 'nope' });
+    expect(res.json().error.code).toBe(-32601);
+  });
+
+  it('MCP 執行的寫入會經過 Command Bus 的權限與 Idempotency 檢查', async () => {
+    const product = await createProduct(h.runtime, { sku: 'MCP-1' });
+    const call = (args: Record<string, unknown>) =>
+      rpc({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'adjust_inventory', arguments: args } });
+
+    const missingKey = await call({ productId: product.id, delta: 5, reason: 'restock' });
+    expect(missingKey.json().result.isError).toBe(true);
+
+    const ok = await call({ productId: product.id, delta: 5, reason: 'restock', idempotencyKey: 'mcp-key-1' });
+    expect(ok.json().result.structuredContent.onHand).toBe(5);
+
+    const replay = await call({ productId: product.id, delta: 5, reason: 'restock', idempotencyKey: 'mcp-key-1' });
+    expect(replay.json().result.structuredContent.onHand).toBe(5);
+  });
+
+  it('MCP token 的角色限制了它能做什麼', async () => {
+    const res = await rpc({
+      jsonrpc: '2.0', id: 4, method: 'tools/call',
+      params: { name: 'get_order', arguments: { orderNumber: 'NOPE-1' } },
+    });
+    expect(res.json().result.isError).toBe(true);
+    expect(res.json().result.content[0].text).toContain('NOT_FOUND');
+  });
+
+  it('MCP 讀取工具回傳的是 DTO，不是資料表列', async () => {
+    const res = await rpc({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'search_products', arguments: { query: 'MCP-1' } } });
+    const item = res.json().result.structuredContent.items[0];
+    expect(item).toHaveProperty('priceCents');
+    expect(item).not.toHaveProperty('price_cents');
+  });
+});
