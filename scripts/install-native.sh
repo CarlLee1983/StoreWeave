@@ -51,7 +51,7 @@ fi
 
 cat <<TXT
 
-安裝完成（$VERSION）。
+安裝完成（${VERSION}）。
 
 下一步：
   1. 編輯 /etc/commerce/commerce.env，填入 DATABASE_URL 與各項 token

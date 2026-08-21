@@ -7,14 +7,32 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 VERSION="$(node -p "require('./package.json').version")"
-TARBALL="release/commerce-$VERSION.tar.gz"
+RELEASE_ROOT="release"
+TARBALL="$RELEASE_ROOT/commerce-$VERSION.tar.gz"
 NET=commerce-native-smoke
 PG=commerce-native-pg
 APP=commerce-native-app
 
-if [ ! -f "$TARBALL" ]; then
+# 只要有任何一個被 git 追蹤的來源檔比 tarball 新，這份 tarball 就過期了。
+# 重用一份過期的產物會讓 smoke test 測到不存在的舊行為，看起來像程式碼壞掉。
+stale_source() {
+  [ -f "$TARBALL" ] || return 0
+  local file
+  while IFS= read -r -d '' file; do
+    if [ "$file" -nt "$TARBALL" ]; then
+      return 0
+    fi
+  done < <(git ls-files -z -- apps packages tools scripts deployments \
+             package.json pnpm-lock.yaml tsconfig.base.json tsconfig.json)
+  return 1
+}
+
+if stale_source; then
   echo "==> building native release"
+  rm -rf "$RELEASE_ROOT"
   COMMERCE_TARGET_ARCH=x64 bash scripts/build-release.sh
+else
+  echo "==> reusing ${TARBALL}（沒有比它更新的來源檔）"
 fi
 
 cleanup() {
