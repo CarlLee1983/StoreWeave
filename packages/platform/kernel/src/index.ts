@@ -6,6 +6,7 @@ export * from './mcp-registry';
 export * from './logger';
 export * from './module';
 export * from './ops-module';
+export * from './recurring';
 export * from './runtime';
 export * from './worker';
 export * from './health';

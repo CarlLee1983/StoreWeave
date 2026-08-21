@@ -7,6 +7,7 @@ import { AuthorizationService, permissionsForRole } from '@storeweave/authorizat
 import { AuditWriter } from '@storeweave/audit';
 import { OutboxStore } from '@storeweave/outbox';
 import { JobQueue } from '@storeweave/jobs';
+import { RecurringScheduler } from './recurring';
 import { EventBus } from '@storeweave/event-bus';
 import { CommandBus } from '@storeweave/command-bus';
 import { QueryBus } from '@storeweave/query-bus';
@@ -47,6 +48,8 @@ export interface Runtime {
   readonly outbox: OutboxStore;
   readonly jobs: JobQueue;
   readonly jobRegistry: JobRegistry;
+  /** 週期性工作的登記處；Worker 每一輪據此確保當下這個切片已排入。 */
+  readonly recurring: RecurringScheduler;
   readonly events: EventBus;
   readonly commands: CommandBus;
   readonly queries: QueryBus;
@@ -79,6 +82,7 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
   const outbox = new OutboxStore();
   const jobs = new JobQueue();
   const jobRegistry = new JobRegistry();
+  const recurring = new RecurringScheduler({ jobs, database, logger });
   const events = new EventBus();
   const providers = options.providers ?? new ProviderRegistry(logger);
   const mcpTools = new McpToolRegistry();
@@ -100,7 +104,10 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
   for (const mod of allModules) {
     for (const c of mod.commands ?? []) commands.register(c.descriptor, c.handler, mod.name);
     for (const q of mod.queries ?? []) queries.register(q.descriptor, q.handler, mod.name);
-    for (const j of mod.jobs ?? []) jobRegistry.register(j.type, j.handler, mod.name);
+    for (const j of mod.jobs ?? []) {
+      jobRegistry.register(j.type, j.handler, mod.name);
+      if (j.schedule) recurring.register({ type: j.type, everyMs: j.schedule.everyMs });
+    }
     for (const p of mod.policies ?? []) authorization.policies.register(p);
   }
 
@@ -127,7 +134,7 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
   }
 
   return {
-    config, secrets, logger, database, authorization, auth, audit, outbox, jobs, jobRegistry,
+    config, secrets, logger, database, authorization, auth, audit, outbox, jobs, jobRegistry, recurring,
     events, commands, queries, providers, mcpTools, extensions, migrations, platformVersion,
     actorForRole(role, id) {
       if (role === 'system') return SYSTEM_ACTOR;

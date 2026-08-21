@@ -91,6 +91,13 @@ ErpProvider.push(doc)   ← 遠端以 reference 去重
 Extension 的錯誤只會讓那一筆工作失敗重試，核心訂單交易早已 commit，
 不可能因為 ERP 掛掉而處於不一致狀態。
 
+## 週期性工作
+
+`JobQueue` 只認得「在這個時間之後執行一次」。要固定週期重複執行，模組在 `PlatformModule.jobs`
+的項目上加一個 `schedule: { everyMs }`：時間被切成固定長度的切片，每個切片對應唯一一個去重鍵，
+Worker 每一輪確保「當下這個切片」已排入。沒有自我續排的鏈，因此工作進了死信也不會讓後續停擺。
+代價是停機期間跨過的切片不追補，且切片邊界對齊 UTC 而非本地時間。見 ADR 0016。
+
 ## 模組邊界
 
 - 每個平台模組各自擁有自己的資料表與 migration。Commerce Core 的是 `catalog_*`、`inventory_*`、`order_*`。

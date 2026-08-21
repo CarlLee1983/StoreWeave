@@ -15,6 +15,8 @@ export interface WorkerOptions {
 }
 
 export interface WorkerTickResult {
+  /** 這一輪補排入的週期性工作次數 */
+  recurringScheduled: number;
   relayed: number;
   deliveriesEnqueued: number;
   jobsProcessed: number;
@@ -116,9 +118,11 @@ export class Worker {
       this.runtime.database.db,
       this.options.staleLockSeconds ?? this.runtime.config.worker.staleLockSeconds,
     );
+    const recurring = await this.runtime.recurring.ensureScheduled();
     const relay = await this.relayOutbox();
     const jobs = await this.runJobs();
     return {
+      recurringScheduled: recurring.enqueued,
       relayed: relay.relayed,
       deliveriesEnqueued: relay.enqueued,
       jobsProcessed: jobs.processed,
@@ -128,9 +132,10 @@ export class Worker {
 
   /** 反覆 tick 直到沒有東西可做（測試與 CLI smoke test 用）。 */
   async drain(maxRounds = 50): Promise<WorkerTickResult> {
-    const total: WorkerTickResult = { relayed: 0, deliveriesEnqueued: 0, jobsProcessed: 0, jobsFailed: 0 };
+    const total: WorkerTickResult = { recurringScheduled: 0, relayed: 0, deliveriesEnqueued: 0, jobsProcessed: 0, jobsFailed: 0 };
     for (let i = 0; i < maxRounds; i += 1) {
       const result = await this.tick();
+      total.recurringScheduled += result.recurringScheduled;
       total.relayed += result.relayed;
       total.deliveriesEnqueued += result.deliveriesEnqueued;
       total.jobsProcessed += result.jobsProcessed;
