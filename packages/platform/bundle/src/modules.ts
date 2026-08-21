@@ -4,6 +4,7 @@ import { catalogModule } from '@storeweave/catalog';
 import { inventoryModule } from '@storeweave/inventory';
 import { createOrderModule } from '@storeweave/order';
 import { mockPaymentExtension } from '@storeweave/ext-mock-payment';
+import { mockNotificationExtension } from '@storeweave/ext-mock-notification';
 import { demoErpExtension } from '@storeweave/ext-demo-erp';
 import { mcpExtension } from '@storeweave/ext-mcp';
 
@@ -30,6 +31,7 @@ export function coreModules(options: {
 
 export const AVAILABLE_EXTENSIONS: Record<string, ExtensionDefinition<any>> = {
   'mock-payment': mockPaymentExtension,
+  'mock-notification': mockNotificationExtension,
   'demo-erp': demoErpExtension,
   mcp: mcpExtension,
 };

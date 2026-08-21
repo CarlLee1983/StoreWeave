@@ -4,9 +4,9 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 通知成為第四種 Provider 種類，宣告與取用都走既有的 Provider 機制
-- [ ] 有一個開發用的通知實作，會記錄寄出的內容供測試斷言
-- [ ] 通過既有的擴充套件契約檢查工具
-- [ ] 核心沒有任何 SMTP 或特定服務商的相依
+- [x] 通知成為第四種 Provider 種類，宣告與取用都走既有的 Provider 機制
+- [x] 有一個開發用的通知實作，會記錄寄出的內容供測試斷言
+- [x] 通過既有的擴充套件契約檢查工具
+- [x] 核心沒有任何 SMTP 或特定服務商的相依
