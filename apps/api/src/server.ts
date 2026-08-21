@@ -39,26 +39,43 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
   // 記憶體困難的 scrypt —— 未授權請求會變成 CPU 與記憶體的放大攻擊面。
   // 計數存在行程記憶體裡：單站部署只有一個 API 行程，這與 Redis 選配的前提一致（ADR 0003）。
   await app.register(fastifyRateLimit, { global: false });
-  const loginLimiter = app.getHttpAdapter().getInstance().createRateLimit({
+  const LOGIN_ROUTE = '/api/v1/auth/login';
+
+  // 兩層節流。第一層綁帳號：擋針對特定帳號的爆破。
+  const perAccountLimiter = app.getHttpAdapter().getInstance().createRateLimit({
     max: 10,
     timeWindow: '1 minute',
     keyGenerator: (request) => {
       const body = request.body as { email?: unknown } | undefined;
       const email = typeof body?.email === 'string' ? body.email.toLowerCase() : '';
-      // 同時綁 IP 與帳號：換 IP 換不掉對單一帳號的節流，反之亦然。
-      return `${request.ip}|${email}`;
+      return `login:${request.ip}|${email}`;
     },
   });
+  // 第二層只綁 IP：每次嘗試都逼伺服器跑一次記憶體困難的 scrypt，
+  // 只綁帳號的話，攻擊者每次換一個隨機 email 就換一個桶，放大攻擊面等於沒關。
+  const perIpLimiter = app.getHttpAdapter().getInstance().createRateLimit({
+    max: 60,
+    timeWindow: '1 minute',
+    keyGenerator: (request) => `login-ip:${request.ip}`,
+  });
+
   app.getHttpAdapter().getInstance().addHook('preHandler', async (request, reply) => {
-    if (request.method !== 'POST' || !request.url.startsWith('/api/v1/auth/login')) return;
-    const result = await loginLimiter(request);
-    // isAllowed 只有 allowList 命中時才是 true；一般路徑一律回 false，要看的是 isExceeded。
-    if (!result.isAllowed && result.isExceeded) {
-      reply.header('retry-after', String(result.ttlInSeconds));
-      await reply.status(429).send({
-        success: false,
-        error: { code: 'RATE_LIMITED', message: 'Too many login attempts, please try again later' },
-      });
+    // 比對正規化後的路由，不是原始 URL：request.url 保留百分比編碼，
+    // 而 Fastify 是解碼後才比對路由，因此 /api/v1/auth/%6cogin 會打到 login
+    // 卻繞過任何用 startsWith(request.url) 寫成的條件。
+    if (request.method !== 'POST' || request.routeOptions?.url !== LOGIN_ROUTE) return;
+
+    for (const limiter of [perIpLimiter, perAccountLimiter]) {
+      const result = await limiter(request);
+      // isAllowed 只有 allowList 命中時才是 true；一般路徑一律回 false，要看的是 isExceeded。
+      if (!result.isAllowed && result.isExceeded) {
+        reply.header('retry-after', String(result.ttlInSeconds));
+        await reply.status(429).send({
+          success: false,
+          error: { code: 'RATE_LIMITED', message: 'Too many login attempts, please try again later' },
+        });
+        return;
+      }
     }
   });
 

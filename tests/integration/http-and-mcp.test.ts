@@ -52,11 +52,21 @@ describe('REST 介面', () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it('健康端點不需要 token', async () => {
-    for (const path of ['/health/live', '/health/ready', '/health/dependencies']) {
+  it('探針端點不需要 token', async () => {
+    // 負載平衡器與 systemd 只需要知道活著與可服務，不需要看見內部細節
+    for (const path of ['/health/live', '/health/ready']) {
       const res = await inject({ method: 'GET', url: path });
       expect(res.statusCode).toBeLessThan(400);
     }
+  });
+
+  it('依賴健康需要授權，且不對外洩漏內部細節', async () => {
+    const anonymous = await inject({ method: 'GET', url: '/health/dependencies' });
+    expect(anonymous.statusCode).toBe(401);
+
+    const authorized = await inject({ method: 'GET', url: '/health/dependencies', headers: auth() });
+    expect(authorized.statusCode).toBeLessThan(400);
+    expect(authorized.json().checks.some((c: { name: string }) => c.name === 'postgres')).toBe(true);
   });
 
   it('成功回應使用統一信封', async () => {

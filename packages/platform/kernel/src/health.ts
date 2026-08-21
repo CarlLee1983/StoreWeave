@@ -24,10 +24,14 @@ export async function liveness(): Promise<{ status: 'ok'; uptimeSeconds: number 
 export async function readiness(runtime: Runtime): Promise<DependencyHealth> {
   const checks: Check[] = [];
   const ping = await runtime.database.ping();
+  if (!ping.ok) {
+    // readiness 是公開端點：連線錯誤原文通常帶有主機名與使用者名，只進 log。
+    runtime.logger.error({ error: ping.error }, 'postgres readiness check failed');
+  }
   checks.push({
     name: 'postgres',
     status: ping.ok ? 'pass' : 'fail',
-    detail: ping.ok ? `${ping.latencyMs}ms` : ping.error,
+    detail: ping.ok ? `${ping.latencyMs}ms` : 'connection failed; see server logs',
   });
 
   if (ping.ok) {

@@ -54,7 +54,11 @@ Command Bus 與 Query Bus 只認這個型別，`apps/api/src/http/auth.ts` 是�
 - audit log 的 actor 從 `token:admin-console` 變成 `user:<uuid>`，內稽核終於問得出「誰改的」。
 - 靜態 admin token 仍然有效，兩條路徑並存。這不是過渡期的權宜：
   人用帳號、機器用 token，本來就是兩種不同的東西。
-- 登入端點以 IP + email 為鍵節流（10 次 / 分鐘）。計數存在行程記憶體：
+- 登入端點兩層節流：IP + email 10 次 / 分鐘擋針對特定帳號的爆破，
+  純 IP 60 次 / 分鐘擋「每次換一個隨機 email 就換一個桶」的 scrypt 放大攻擊。
+  節流條件比對的是正規化後的路由而不是原始 URL——`/api/v1/auth/%6cogin`
+  會被解碼後打到同一個 handler，用 `request.url.startsWith()` 寫的條件看不出來。
+  計數存在行程記憶體：
   單站部署只有一個 API 行程，這與「Redis 是選配」的前提一致（ADR 0003）。
   沒有它，scrypt 會反過來變成放大攻擊面——每次未授權嘗試都逼伺服器做一次記憶體困難運算。
 - 未實作的部分要誠實記著：密碼重設、帳號停用介面、二階段驗證、
@@ -69,4 +73,16 @@ Command Bus 與 Query Bus 只認這個型別，`apps/api/src/http/auth.ts` 是�
 `packages/platform/authorization/src/roles.ts` 的 `BUILT_IN_ROLES` 不再是常數（決定 2 被推翻），
 或 `packages/platform/identity/src/password.ts` 不再使用 `node:crypto` 的 scrypt（附帶決定被推翻），
 或 `packages/platform/identity/src/auth-service.ts` 的 `authenticate` 被改成註冊在 Command Bus 上的
-handler（認證不是 Command 這條被推翻）。
+handler（認證不是 Command 這條被推翻），
+或 `apps/api/src/server.ts` 的登入節流條件改回比對 `request.url`（編碼繞過會再度打開）。
+
+## 未閉合、已知的殘留
+
+- 調高 `packages/platform/identity/src/password.ts` 的 `COST` 之後，舊雜湊的使用者會比
+  用新參數的 `DUMMY_HASH` 明顯快，等於出現新的帳號枚舉訊號。調參數時必須同時做
+  「登入成功後偵測舊參數並 rehash」，讓母體收斂到同一組成本。
+- CSRF token 在整個 session 期間固定，一旦連同 header 被第三方工具側錄，12 小時內都可用。
+- `logout` 是公開端點因此不受 CSRF 檢查。SameSite=Strict 讓跨站請求根本不帶 session cookie，
+  所以實際影響接近零，但這是刻意放寬的一層。
+- `http.trustProxy` 目前預設 false，`request.ip` 可信。日後若開啟而反向代理沒有清掉
+  `X-Forwarded-For`，來源 IP 可偽造，兩層節流會同時失效。

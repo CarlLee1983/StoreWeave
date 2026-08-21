@@ -27,7 +27,8 @@ api() { # method path body [idempotency-key]
 say "健康檢查"
 check "/health/live" "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/health/live")" "200"
 check "/health/ready" "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/health/ready")" "200"
-check "/health/dependencies" "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/health/dependencies")" "200"
+check "/health/dependencies 需要授權" "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/health/dependencies")" "401"
+check "/health/dependencies（帶 token）" "$(api GET /health/dependencies)" "200"
 
 say "流程一：商品與庫存"
 check "未帶 token 會被擋" "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/products")" "401"

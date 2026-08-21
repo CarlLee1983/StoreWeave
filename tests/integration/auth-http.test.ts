@@ -185,8 +185,9 @@ describe('登入 / 登出 / session cookie', () => {
     const email = 'bruteforce@example.com';
     await createOperator(email, 'correct horse battery staple');
 
+    // 節流以 IP 為鍵，因此每個節流測試都用自己的來源 IP，免得吃掉別的測試的額度
     const attempt = () => inject({
-      method: 'POST', url: '/api/v1/auth/login',
+      method: 'POST', url: '/api/v1/auth/login', remoteAddress: '10.0.0.1',
       payload: { email, password: 'wrong-guess' },
     });
 
@@ -197,11 +198,40 @@ describe('登入 / 登出 / session cookie', () => {
     expect(codes.at(-1)).toBe(429);
     // 節流後正確密碼也一樣被擋，否則就不是節流
     const blocked = await inject({
-      method: 'POST', url: '/api/v1/auth/login',
+      method: 'POST', url: '/api/v1/auth/login', remoteAddress: '10.0.0.1',
       payload: { email, password: 'correct horse battery staple' },
     });
     expect(blocked.statusCode).toBe(429);
     expect(blocked.headers['retry-after']).toBeDefined();
+  });
+
+  it('百分比編碼的登入路徑一樣受節流（否則節流形同虛設）', async () => {
+    const email = 'encoded@example.com';
+    await createOperator(email, 'correct horse battery staple');
+
+    const codes: number[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      // /api/v1/auth/%6cogin 會被 Fastify 解碼後打到同一個 handler，
+      // 但用 request.url 寫的條件看不出來
+      const res = await inject({
+        method: 'POST', url: '/api/v1/auth/%6cogin', remoteAddress: '10.0.0.2',
+        payload: { email, password: 'wrong-guess' },
+      });
+      codes.push(res.statusCode);
+    }
+    expect(codes.at(-1)).toBe(429);
+  });
+
+  it('每次換一個 email 也會被 IP 層節流（scrypt 放大攻擊面）', async () => {
+    const codes: number[] = [];
+    for (let i = 0; i < 62; i += 1) {
+      const res = await inject({
+        method: 'POST', url: '/api/v1/auth/login', remoteAddress: '10.0.0.3',
+        payload: { email: `random-${i}@example.com`, password: 'wrong-guess' },
+      });
+      codes.push(res.statusCode);
+    }
+    expect(codes.at(-1)).toBe(429);
   });
 
   it('GET /api/v1/auth/me 未登入回 401', async () => {

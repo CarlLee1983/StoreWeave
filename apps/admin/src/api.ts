@@ -302,7 +302,7 @@ export const api = {
     );
   },
   healthDependencies() {
-    return request<HealthReport>('/health/dependencies', { withAuth: false, raw: true });
+    return request<HealthReport>('/health/dependencies', { raw: true });
   },
   listDeadJobs(params: { limit?: number; offset?: number }) {
     return request<Paged<DeadJob>>(`/api/v1/system/jobs/dead${toQuery(params)}`);

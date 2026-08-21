@@ -48,4 +48,15 @@ describe('密碼雜湊', () => {
     // 兩條路徑都要真的跑 scrypt；先前的差距是四個數量級
     expect(dummyMs).toBeGreaterThan(realMs / 5);
   });
+
+  it('超出範圍的成本參數視為驗證失敗，不會讓登入變成幾秒的運算或 500', async () => {
+    const real = await hashPassword('correct horse battery staple');
+    const [, , , , salt, key] = real.split(':');
+
+    // N=1048576 會要求約 2GB 記憶體並跑數秒
+    await expect(verifyPassword('correct horse battery staple', `scrypt:1048576:8:1:${salt}:${key}`)).resolves.toBe(false);
+    // 非法值在 Node 會丟 ERR_CRYPTO_INVALID_SCRYPT_PARAMS
+    await expect(verifyPassword('correct horse battery staple', `scrypt:3:8:1:${salt}:${key}`)).resolves.toBe(false);
+    await expect(verifyPassword('correct horse battery staple', `scrypt:0:0:0:${salt}:${key}`)).resolves.toBe(false);
+  });
 });

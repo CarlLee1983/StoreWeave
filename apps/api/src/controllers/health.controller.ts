@@ -21,7 +21,8 @@ export class HealthController {
     void reply.status(result.status === 'ok' ? 200 : 503).send(result);
   }
 
-  @Public()
+  // 這支不是 @Public()：它會回傳 provider 與 extension 的錯誤訊息、佇列深度與 worker id，
+  // 那是維運視圖而不是負載平衡器需要的東西。live / ready 才是給探針用的。
   @Get('dependencies')
   async deps(@Res() reply: FastifyReply) {
     const result = await dependencies(this.runtime);
