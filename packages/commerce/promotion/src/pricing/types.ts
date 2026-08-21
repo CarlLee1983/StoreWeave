@@ -71,6 +71,17 @@ export interface AppliedPromotion {
   discountCents: number;
 }
 
+export interface PricedLine {
+  lineId: string;
+  lineTotalCents: number;
+  /** 這一行實際被折抵的金額，正數。 */
+  discountCents: number;
+  /** 這一行的實收金額，保證不為負。開發票與部分退貨看的是它。 */
+  netCents: number;
+  /** 訂單層的每一筆調整攤到這一行的份額。 */
+  adjustments: Adjustment[];
+}
+
 export interface PricingResult {
   subtotalCents: number;
   /** 所有折扣的絕對值合計，保證不超過 subtotalCents。 */
@@ -80,4 +91,6 @@ export interface PricingResult {
   totalCents: number;
   adjustments: Adjustment[];
   appliedPromotions: AppliedPromotion[];
+  /** 與輸入的商品行同順序。 */
+  lines: PricedLine[];
 }

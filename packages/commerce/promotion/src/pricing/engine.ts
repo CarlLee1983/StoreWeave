@@ -1,5 +1,14 @@
+import { allocateByAmount } from './allocation';
 import { evaluateRule } from './rules';
-import type { Adjustment, AppliedPromotion, PricingInput, PricingLineInput, PricingResult, Promotion } from './types';
+import type {
+  Adjustment,
+  AppliedPromotion,
+  PricedLine,
+  PricingInput,
+  PricingLineInput,
+  PricingResult,
+  Promotion,
+} from './types';
 
 export function lineTotalCents(line: PricingLineInput): number {
   return line.unitPriceCents * line.quantity;
@@ -29,6 +38,15 @@ export function calculatePricing(input: PricingInput): PricingResult {
   const shippingCents = input.shippingCents ?? 0;
   const taxCents = input.taxCents ?? 0;
 
+  const lineTotals = input.lines.map(lineTotalCents);
+  const pricedLines: PricedLine[] = input.lines.map((line, index) => ({
+    lineId: line.lineId,
+    lineTotalCents: lineTotals[index],
+    discountCents: 0,
+    netCents: lineTotals[index],
+    adjustments: [],
+  }));
+
   const adjustments: Adjustment[] = [];
   const appliedPromotions: AppliedPromotion[] = [];
   let discountCents = 0;
@@ -57,6 +75,25 @@ export function calculatePricing(input: PricingInput): PricingResult {
       name: promotion.name,
       amountCents: -granted,
     });
+
+    // 訂單層的折扣一定攤回商品行——沒有它，第一次部分退貨就算不回來。
+    const shares = allocateByAmount(
+      lineTotals,
+      granted,
+      pricedLines.map((line) => line.netCents),
+    );
+    shares.forEach((share, index) => {
+      if (share <= 0) return;
+      const line = pricedLines[index];
+      line.discountCents += share;
+      line.netCents -= share;
+      line.adjustments.push({
+        source: 'promotion',
+        sourceId: promotion.id,
+        name: promotion.name,
+        amountCents: -share,
+      });
+    });
     appliedPromotions.push({ promotionId: promotion.id, name: promotion.name, discountCents: granted });
   }
 
@@ -68,5 +105,6 @@ export function calculatePricing(input: PricingInput): PricingResult {
     totalCents: subtotalCents - discountCents + shippingCents + taxCents,
     adjustments,
     appliedPromotions,
+    lines: pricedLines,
   };
 }
