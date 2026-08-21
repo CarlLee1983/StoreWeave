@@ -29,7 +29,7 @@ describe('customer 角色', () => {
   });
 
   it('沒有後台的任何權限', () => {
-    for (const forbidden of ['catalog:write', 'inventory:write', 'users:read', 'users:write', 'analytics:read', 'jobs:read', 'erp:read']) {
+    for (const forbidden of ['catalog:write', 'inventory:write', 'users:read', 'users:write', 'analytics:read', 'jobs:read', 'erp:read', 'promotion:read', 'promotion:write']) {
       expect(holds(customer, forbidden)).toBe(false);
     }
   });
