@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type Delivery } from '../api';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
+import { StatusBadge } from '../components/StatusBadge';
 
 export function ErpPage() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
@@ -29,13 +30,12 @@ export function ErpPage() {
 
   return (
     <section>
-      <h2>ERP 投遞狀態</h2>
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
 
       {loading ? (
         <Loading />
       ) : (
-        <table className="data-table">
+        <div className="table-wrap"><table className="data-table">
           <thead>
             <tr>
               <th>訂單編號</th>
@@ -53,7 +53,7 @@ export function ErpPage() {
               <DeliveryRow key={delivery.orderId} delivery={delivery} onResent={reload} />
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </section>
   );
@@ -80,13 +80,13 @@ function DeliveryRow({ delivery, onResent }: { delivery: Delivery; onResent: () 
     <tr>
       <td>{delivery.orderNumber}</td>
       <td>{delivery.reference}</td>
-      <td>{delivery.status}</td>
-      <td>{delivery.attempts}</td>
-      <td>{delivery.manualResends}</td>
+      <td><StatusBadge value={delivery.status} /></td>
+      <td className="mono">{delivery.attempts}</td>
+      <td className="mono">{delivery.manualResends}</td>
       <td>{delivery.lastError ?? '—'}</td>
       <td>{delivery.remoteId ?? '—'}</td>
       <td>
-        <button type="button" disabled={submitting} onClick={handleResend}>
+        <button className="button" type="button" disabled={submitting} onClick={handleResend}>
           重送
         </button>
         {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}

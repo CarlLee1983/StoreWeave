@@ -95,6 +95,15 @@ export type Paged<T> = { items: T[]; total: number };
 
 /** localStorage 儲存 token 的 key */
 export const TOKEN_STORAGE_KEY = 'commerce.admin.token';
+let displayLocale = 'zh-TW';
+
+export function setDisplayLocale(locale: string): void {
+  displayLocale = locale;
+}
+
+export function getDisplayLocale(): string {
+  return displayLocale;
+}
 
 export function getToken(): string {
   return localStorage.getItem(TOKEN_STORAGE_KEY) ?? '';
@@ -267,5 +276,5 @@ export const api = {
 
 /** 依 currency 格式化 cents 金額 */
 export function formatMoney(cents: number, currency: string): string {
-  return new Intl.NumberFormat('zh-TW', { style: 'currency', currency }).format(cents / 100);
+  return new Intl.NumberFormat(displayLocale, { style: 'currency', currency }).format(cents / 100);
 }

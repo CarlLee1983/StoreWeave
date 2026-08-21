@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { api, formatMoney, type Order } from '../api';
+import { api, formatMoney, getDisplayLocale, type Order } from '../api';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
+import { StatusBadge } from '../components/StatusBadge';
 
 export function OrdersPage() {
   const [status, setStatus] = useState('');
@@ -28,11 +29,23 @@ export function OrdersPage() {
   }, [status, reloadKey]);
 
   const reload = () => setReloadKey((k) => k + 1);
+  const paid = orders.filter((order) => order.status === 'paid');
+  const pending = orders.filter((order) => order.status === 'pending' || order.status === 'payment_processing');
+  const gmv = paid.reduce((total, order) => total + order.totalCents, 0);
 
   return (
     <section>
-      <h2>訂單管理</h2>
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+
+      <div className="pipeline" aria-label="ERP 處理管線">
+        <span>Ingest</span><b>{orders.length}</b><i>→</i><span>Queue</span><b>{pending.length}</b><i>→</i><span>Worker</span><b>Active</b><i>→</i><span>DLQ</span><b className="pipeline__alert">{orders.filter((order) => order.status === 'cancelled').length}</b>
+      </div>
+      <div className="summary-cards summary-cards--orders">
+        <Metric label="交易總額" value={formatMoney(gmv, orders[0]?.currency ?? 'TWD')} />
+        <Metric label="待處理訂單" value={String(pending.length)} />
+        <Metric label="已完成訂單" value={String(paid.length)} />
+        <Metric label="目前顯示" value={String(orders.length)} />
+      </div>
 
       <div className="toolbar">
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -48,7 +61,7 @@ export function OrdersPage() {
       {loading ? (
         <Loading />
       ) : (
-        <table className="data-table">
+        <div className="table-wrap"><table className="data-table">
           <thead>
             <tr>
               <th>訂單編號</th>
@@ -70,10 +83,14 @@ export function OrdersPage() {
               />
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </section>
   );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return <div className="summary-card"><span className="summary-card__label">{label}</span><span className="summary-card__value">{value}</span></div>;
 }
 
 function OrderRow({
@@ -126,10 +143,10 @@ function OrderRow({
       <tr className="clickable" onClick={onToggle}>
         <td>{order.number}</td>
         <td>{order.customerEmail}</td>
-        <td>{order.status}</td>
-        <td>{formatMoney(order.totalCents, order.currency)}</td>
-        <td>{new Date(order.placedAt).toLocaleString('zh-TW')}</td>
-        <td>{expanded ? '收合 ▲' : '展開 ▼'}</td>
+        <td><StatusBadge value={order.status} /></td>
+        <td className="mono">{formatMoney(order.totalCents, order.currency)}</td>
+        <td className="mono">{new Intl.DateTimeFormat(getDisplayLocale(), { dateStyle: 'short', timeStyle: 'short' }).format(new Date(order.placedAt))}</td>
+        <td>{expanded ? '收合' : '檢視'}</td>
       </tr>
       {expanded && (
         <tr>
@@ -161,11 +178,11 @@ function OrderRow({
 
               {(order.status === 'pending' || order.status === 'payment_processing') && (
                 <div className="inline-form">
-                  <button type="button" disabled={submitting} onClick={handlePay}>
+                  <button id="order-actions" className="button button--primary" type="button" disabled={submitting} onClick={handlePay}>
                     要求付款
                   </button>
                   <input placeholder="取消原因" value={reason} onChange={(e) => setReason(e.target.value)} />
-                  <button type="button" disabled={submitting} onClick={handleCancel}>
+                  <button className="button" type="button" disabled={submitting} onClick={handleCancel}>
                     取消訂單
                   </button>
                 </div>

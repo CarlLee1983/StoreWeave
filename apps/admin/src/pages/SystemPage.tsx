@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, formatMoney, type ExtensionInfo, type HealthReport, type SalesSummary } from '../api';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
+import { StatusBadge } from '../components/StatusBadge';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -12,7 +13,6 @@ function toDateInput(date: Date): string {
 export function SystemPage() {
   return (
     <section>
-      <h2>系統狀態</h2>
       <HealthSection />
       <ExtensionsSection />
       <SalesSummarySection />
@@ -35,7 +35,7 @@ function HealthSection() {
 
   return (
     <div className="panel">
-      <h3>依賴健康檢查</h3>
+      <div className="panel__header"><h3>依賴健康檢查</h3></div><div className="panel__body">
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
       {loading ? (
         <Loading />
@@ -54,7 +54,7 @@ function HealthSection() {
                 <tr key={check.name}>
                   <td>{check.name}</td>
                   <td>
-                    <span className={`status-pill status-pill--${statusClass(check.status)}`}>{check.status}</span>
+                    <StatusBadge value={check.status} />
                   </td>
                   <td>{check.detail ?? '—'}</td>
                 </tr>
@@ -63,7 +63,7 @@ function HealthSection() {
           </table>
         )
       )}
-    </div>
+    </div></div>
   );
 }
 
@@ -89,7 +89,7 @@ function ExtensionsSection() {
 
   return (
     <div className="panel">
-      <h3>已安裝擴充套件</h3>
+      <div className="panel__header"><h3>已安裝擴充套件</h3></div><div className="panel__body">
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
       {loading ? (
         <Loading />
@@ -121,7 +121,7 @@ function ExtensionsSection() {
           ))}
         </ul>
       )}
-    </div>
+    </div></div>
   );
 }
 
@@ -150,7 +150,7 @@ function SalesSummarySection() {
 
   return (
     <div className="panel">
-      <h3>銷售摘要</h3>
+      <div className="panel__header"><h3>銷售摘要</h3></div><div className="panel__body">
       <div className="toolbar">
         <label>
           從
@@ -197,7 +197,7 @@ function SalesSummarySection() {
           </>
         )
       )}
-    </div>
+    </div></div>
   );
 }
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, formatMoney, type Product, type Stock } from '../api';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
+import { StatusBadge } from '../components/StatusBadge';
 
 export function ProductsPage() {
   const [q, setQ] = useState('');
@@ -44,7 +45,6 @@ export function ProductsPage() {
 
   return (
     <section>
-      <h2>商品管理</h2>
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
 
       <div className="toolbar">
@@ -62,7 +62,7 @@ export function ProductsPage() {
       {loading ? (
         <Loading />
       ) : (
-        <table className="data-table">
+        <div className="table-wrap"><table className="data-table">
           <thead>
             <tr>
               <th>SKU</th>
@@ -78,7 +78,7 @@ export function ProductsPage() {
               <ProductRow key={product.id} product={product} stock={stocks[product.id]} onAdjusted={reload} />
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </section>
   );
@@ -122,14 +122,14 @@ function ProductRow({
     <tr>
       <td>{product.sku}</td>
       <td>{product.name}</td>
-      <td>{formatMoney(product.priceCents, product.currency)}</td>
-      <td>{product.status}</td>
-      <td>{stock ? `${stock.available} / ${stock.reserved} / ${stock.onHand}` : '—'}</td>
+      <td className="mono">{formatMoney(product.priceCents, product.currency)}</td>
+      <td><StatusBadge value={product.status} /></td>
+      <td className="mono">{stock ? `${stock.available} / ${stock.reserved} / ${stock.onHand}` : '—'}</td>
       <td>
         <div className="inline-form">
           <input placeholder="調整量" value={delta} onChange={(e) => setDelta(e.target.value)} />
           <input placeholder="原因" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <button type="button" disabled={submitting} onClick={handleAdjust}>
+          <button className="button" type="button" disabled={submitting} onClick={handleAdjust}>
             調整
           </button>
         </div>
@@ -170,7 +170,7 @@ function CreateProductForm({ onCreated }: { onCreated: () => void }) {
   };
 
   return (
-    <fieldset className="form-panel">
+    <fieldset id="create-product" className="form-panel">
       <legend>建立商品</legend>
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
       <div className="inline-form">
@@ -183,7 +183,7 @@ function CreateProductForm({ onCreated }: { onCreated: () => void }) {
           <option value="active">上架中</option>
           <option value="archived">已下架</option>
         </select>
-        <button type="button" disabled={submitting} onClick={handleSubmit}>
+        <button className="button button--primary" type="button" disabled={submitting} onClick={handleSubmit}>
           建立
         </button>
       </div>

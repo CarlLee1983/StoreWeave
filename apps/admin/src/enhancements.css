@@ -1,0 +1,8 @@
+.pipeline { display: flex; align-items: center; gap: 7px; overflow: auto; margin-bottom: 12px; padding: 9px 12px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--bg-surface); color: var(--text-muted); font-size: 11.5px; white-space: nowrap; }
+.pipeline b { color: var(--text-primary); font: 600 11.5px 'JetBrains Mono', 'Geist Mono', monospace; }
+.pipeline i { color: var(--text-muted); font-style: normal; }
+.pipeline .pipeline__alert { color: var(--status-error-text); }
+.summary-cards--orders { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
+.command-palette__option--active { background: var(--bg-surface-hover) !important; }
+
+@media (max-width: 760px) { .summary-cards--orders { grid-template-columns: repeat(2, minmax(130px, 1fr)); } }
