@@ -1,0 +1,61 @@
+{
+  "name": "storeweave",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.22.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --project unit",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:all": "vitest run",
+    "build": "node scripts/build.mjs",
+    "build:admin": "vite build --config apps/admin/vite.config.ts",
+    "dev:api": "tsx watch apps/api/src/main.ts",
+    "dev:worker": "tsx watch apps/worker/src/main.ts",
+    "commerce": "tsx tools/cli/src/main.ts",
+    "build:release": "bash scripts/build-release.sh",
+    "config:schema": "tsx scripts/gen-config-schema.ts",
+    "smoke": "bash scripts/smoke.sh",
+    "smoke:docker": "bash scripts/smoke-docker.sh",
+    "smoke:native": "bash scripts/smoke-native.sh",
+    "typecheck:admin": "tsc -p apps/admin/tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-fastify": "^11.0.0",
+    "@fastify/static": "^10.1.2",
+    "commander": "^12.1.0",
+    "drizzle-orm": "^0.38.0",
+    "pg": "^8.13.0",
+    "pino": "^9.5.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "semver": "^7.6.3",
+    "yaml": "^2.6.0",
+    "zod": "^3.24.0",
+    "zod-to-json-schema": "^3.24.0"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^10.16.0",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/semver": "^7.5.8",
+    "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.24.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "testcontainers": "^10.16.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.2.0"
+  }
+}

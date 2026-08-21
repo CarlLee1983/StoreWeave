@@ -1,0 +1,7 @@
+node_modules
+dist
+release
+apps/admin/dist
+.git
+*.log
+.env
