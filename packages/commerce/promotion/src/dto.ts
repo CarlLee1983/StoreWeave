@@ -100,6 +100,7 @@ export const listPromotionsOutput = z.object({
   total: z.number().int().nonnegative(),
 });
 
+/** 上限必須與 `placeOrderInput`（`packages/commerce/order/src/dto.ts`）相同，否則會出現「試算得到、下單被擋」。 */
 export const quoteInput = z.object({
   lines: z.array(z.object({
     productId: z.string().uuid(),

@@ -45,7 +45,7 @@ describe('PromotionsPage', () => {
     const row = screen.getByText('滿千折百').closest('tr')!;
     expect(row).toHaveTextContent('滿額折固定金額');
     expect(row).toHaveTextContent('20');
-    expect(row).toHaveTextContent('上架中');
+    expect(row).toHaveTextContent('進行中');
     expect(row).toHaveTextContent(/2026/);
   });
 

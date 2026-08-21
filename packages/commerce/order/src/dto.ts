@@ -43,6 +43,7 @@ export const orderDto = z.object({
 });
 export type OrderDto = z.infer<typeof orderDto>;
 
+/** 上限必須與 `quoteInput`（`packages/commerce/promotion/src/dto.ts`）相同。 */
 export const placeOrderInput = z.object({
   customerEmail: z.string().email(),
   currency: z.string().length(3).optional(),

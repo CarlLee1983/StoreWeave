@@ -216,7 +216,8 @@ function PromotionRow({ promotion, onChanged }: { promotion: Promotion; onChange
         </td>
         <td className="mono">{promotion.priority}</td>
         <td>{promotion.stackable ? '✓' : '—'}</td>
-        <td><StatusBadge value={promotion.status} /></td>
+        {/* 活動說「上架中」會跟商品混淆，這裡用進行中 */}
+        <td><StatusBadge value={promotion.status === 'active' ? 'running' : 'disabled'} /></td>
         <td>
           <div className="inline-form">
             <button type="button" onClick={() => setEditing((v) => !v)}>
