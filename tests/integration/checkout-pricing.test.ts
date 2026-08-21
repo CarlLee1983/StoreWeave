@@ -126,3 +126,71 @@ describe('下單套用定價引擎', () => {
       { id: promotion.id, status: 'disabled' }, { actor: ADMIN_ACTOR });
   });
 });
+
+describe('結帳前試算', () => {
+  const quote = (lines: { productId: string; quantity: number }[], actor = ADMIN_ACTOR) =>
+    h.runtime.queries.execute<any>('commerce.promotion.quote', { lines }, { actor });
+
+  it('試算與實際下單得到完全相同的調整明細與金額', async () => {
+    const promotion = await createPromotion({
+      name: '試算比對用滿千折百',
+      rule: { type: 'threshold_fixed_amount', thresholdCents: 100_000, discountCents: 10_000 },
+    });
+    const a = await sellableProduct('QUOTE-A', 60_000);
+    const b = await sellableProduct('QUOTE-B', 40_000);
+    const lines = [{ productId: a.id, quantity: 1 }, { productId: b.id, quantity: 1 }];
+
+    const quoted = await quote(lines);
+    const placed = await h.runtime.commands.execute<any>('commerce.order.placeOrder',
+      { customerEmail: 'buyer@example.com', lines },
+      { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+
+    expect(quoted.subtotalCents).toBe(placed.subtotalCents);
+    expect(quoted.discountCents).toBe(placed.discountCents);
+    expect(quoted.totalCents).toBe(placed.totalCents);
+    expect(quoted.adjustments).toEqual(placed.adjustments);
+    expect(quoted.lines.map((l: any) => [l.productId, l.discountCents])).toEqual(
+      placed.lines.map((l: any) => [l.productId, l.discountCents]),
+    );
+
+    await h.runtime.commands.execute('commerce.promotion.setPromotionStatus',
+      { id: promotion.id, status: 'disabled' }, { actor: ADMIN_ACTOR });
+  });
+
+  it('試算不寫入任何資料，也不佔用庫存', async () => {
+    const product = await sellableProduct('QUOTE-NOWRITE', 10_000);
+    const before = await h.runtime.queries.execute<any>('commerce.inventory.getStock',
+      { productId: product.id }, { actor: ADMIN_ACTOR });
+
+    await quote([{ productId: product.id, quantity: 5 }]);
+    await quote([{ productId: product.id, quantity: 5 }]);
+
+    const after = await h.runtime.queries.execute<any>('commerce.inventory.getStock',
+      { productId: product.id }, { actor: ADMIN_ACTOR });
+    expect(after).toEqual(before);
+
+    const orders = await h.runtime.database.db.execute<{ count: string }>(sql`
+      SELECT count(*)::text AS count FROM order_orders WHERE subtotal_cents = 50000
+    `);
+    expect(orders.rows[0].count).toBe('0');
+  });
+
+  it('試算查得到每一行的名稱與單價，前台才顯示得出明細', async () => {
+    const product = await sellableProduct('QUOTE-DETAIL', 12_345);
+    const quoted = await quote([{ productId: product.id, quantity: 2 }]);
+
+    expect(quoted.lines[0]).toMatchObject({
+      productId: product.id,
+      sku: 'QUOTE-DETAIL',
+      unitPriceCents: 12_345,
+      quantity: 2,
+      lineTotalCents: 24_690,
+      netCents: 24_690,
+    });
+  });
+
+  it('下架商品無法試算，與下單的行為一致', async () => {
+    const draft = await createProduct(h.runtime, { sku: 'QUOTE-DRAFT', name: 'draft', status: 'draft' });
+    await expect(quote([{ productId: draft.id, quantity: 1 }])).rejects.toThrow();
+  });
+});

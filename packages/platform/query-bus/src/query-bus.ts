@@ -75,6 +75,7 @@ export class QueryBus {
       db: this.deps.database.db,
       logger: this.deps.logger.child({ query: name, correlationId, channel: options.channel ?? 'internal' }),
       correlationId,
+      now: new Date(),
     };
 
     const result = await handler(parsed.data, ctx);

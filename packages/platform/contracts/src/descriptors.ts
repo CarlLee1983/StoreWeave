@@ -63,6 +63,8 @@ export interface QueryContext {
   readonly db: DrizzleDb;
   readonly logger: Logger;
   readonly correlationId: string;
+  /** 這次查詢的當下時間，與 CommandContext 同樣由 Bus 注入——handler 不自己讀時鐘。 */
+  readonly now: Date;
 }
 
 export type CommandHandler<I = any, O = any> = (input: I, ctx: CommandContext) => Promise<O>;

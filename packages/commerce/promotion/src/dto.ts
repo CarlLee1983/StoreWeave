@@ -97,3 +97,37 @@ export const listPromotionsOutput = z.object({
   items: z.array(promotionDto),
   total: z.number().int().nonnegative(),
 });
+
+export const quoteInput = z.object({
+  lines: z.array(z.object({
+    productId: z.string().uuid(),
+    quantity: z.number().int().min(1).max(999),
+  })).min(1).max(50),
+});
+
+const quoteAdjustment = z.object({
+  source: z.literal('promotion'),
+  sourceId: z.string(),
+  name: z.string(),
+  amountCents: z.number().int(),
+});
+
+export const quoteOutput = z.object({
+  currency: z.string().length(3),
+  subtotalCents: money,
+  discountCents: money,
+  shippingCents: money,
+  taxCents: money,
+  totalCents: money,
+  adjustments: z.array(quoteAdjustment),
+  lines: z.array(z.object({
+    productId: z.string().uuid(),
+    sku: z.string(),
+    name: z.string(),
+    unitPriceCents: money,
+    quantity: z.number().int().positive(),
+    lineTotalCents: money,
+    discountCents: money,
+    netCents: money,
+  })),
+});
