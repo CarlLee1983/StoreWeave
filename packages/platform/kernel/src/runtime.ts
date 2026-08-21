@@ -18,6 +18,10 @@ import { McpToolRegistry } from './mcp-registry';
 import { EVENT_DELIVERY_JOB, createEventDeliveryHandler } from './event-delivery';
 import type { PlatformModule } from './module';
 import { createOpsModule } from './ops-module';
+import { AuthService, identityModule } from '@storeweave/identity';
+
+/** 後台 session 存活時間：12 小時，一個工作天結束就要重新登入。 */
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 export interface RuntimeOptions {
   config: CommerceConfig;
@@ -37,6 +41,8 @@ export interface Runtime {
   readonly logger: Logger;
   readonly database: Database;
   readonly authorization: AuthorizationService;
+  /** 後台操作者的登入與 session 解析。認證發生在 Actor 存在之前，因此不走 Command Bus。 */
+  readonly auth: AuthService;
   readonly audit: AuditWriter;
   readonly outbox: OutboxStore;
   readonly jobs: JobQueue;
@@ -68,6 +74,7 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
     ssl: config.database.ssl,
   });
   const authorization = new AuthorizationService();
+  const auth = new AuthService(SESSION_TTL_MS);
   const audit = new AuditWriter();
   const outbox = new OutboxStore();
   const jobs = new JobQueue();
@@ -82,7 +89,7 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
   const migrations: MigrationSet[] = [platformMigrations];
 
   // 平台自身的維運模組永遠在，與這個 Release 編進哪些產品模組無關。
-  const allModules: readonly PlatformModule[] = [createOpsModule(jobs), ...options.modules];
+  const allModules: readonly PlatformModule[] = [createOpsModule(jobs), identityModule, ...options.modules];
 
   for (const mod of allModules) {
     if (mod.migrations) migrations.push(mod.migrations);
@@ -120,7 +127,7 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
   }
 
   return {
-    config, secrets, logger, database, authorization, audit, outbox, jobs, jobRegistry,
+    config, secrets, logger, database, authorization, auth, audit, outbox, jobs, jobRegistry,
     events, commands, queries, providers, mcpTools, extensions, migrations, platformVersion,
     actorForRole(role, id) {
       if (role === 'system') return SYSTEM_ACTOR;

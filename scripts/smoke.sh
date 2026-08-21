@@ -120,6 +120,34 @@ check "MCP 寫入工具缺 idempotencyKey 會被擋" "$(jqr 'j.result.isError===
 MCP_CALL '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"search_products","arguments":{"query":"Smoke"}}}' >/dev/null
 check "MCP search_products 有結果" "$(jqr 'j.result.structuredContent.total>0' < /tmp/smoke_body)" "true"
 
+# 呼叫端（smoke-docker.sh / smoke-native.sh）先用 CLI 建好帳號才會設這兩個變數。
+if [ -n "${SMOKE_USER_EMAIL:-}" ] && [ -n "${SMOKE_USER_PASSWORD:-}" ]; then
+  say "後台帳號登入"
+  COOKIE_JAR=$(mktemp)
+  login() { # password -> http code
+    curl -sS -c "$COOKIE_JAR" -o /tmp/smoke_body -w '%{http_code}' -X POST "$BASE_URL/api/v1/auth/login" \
+      -H 'content-type: application/json' -d "{\"email\":\"$SMOKE_USER_EMAIL\",\"password\":\"$1\"}"
+  }
+  check "錯誤密碼被擋" "$(login 'definitely-not-the-password')" "401"
+  check "正確帳密登入" "$(login "$SMOKE_USER_PASSWORD")" "200"
+  check "登入回應不含 session token" "$(jqr '!JSON.stringify(j.data).includes("commerce_session")' < /tmp/smoke_body)" "true"
+  check "session cookie 是 HttpOnly" "$(grep -c '^#HttpOnly_.*commerce_session' "$COOKIE_JAR")" "1"
+
+  CSRF=$(awk '/commerce_csrf/{print $7}' "$COOKIE_JAR")
+  cookie_call() { # method path [extra header] -> http code
+    curl -sS -b "$COOKIE_JAR" -o /tmp/smoke_body -w '%{http_code}' -X "$1" "$BASE_URL$2" \
+      -H 'content-type: application/json' -H "idempotency-key: smoke-auth-$SKU-$4" ${3:+-H "$3"} -d '{"productId":"x","delta":1,"reason":"restock"}'
+  }
+  check "session 可以讀取資料" "$(curl -sS -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/products")" "200"
+  check "cookie 寫入缺 CSRF token 會被擋" "$(cookie_call POST /api/v1/inventory/adjust '' nocsrf)" "403"
+  check "cookie 寫入帶正確 CSRF token 會通過驗證" "$(cookie_call POST /api/v1/inventory/adjust "x-csrf-token: $CSRF" withcsrf)" "400"
+  check "/auth/me 回報登入者" "$(curl -sS -b "$COOKIE_JAR" "$BASE_URL/api/v1/auth/me" | jqr 'j.data.email')" "$SMOKE_USER_EMAIL"
+
+  curl -sS -b "$COOKIE_JAR" -c "$COOKIE_JAR" -o /dev/null -X POST "$BASE_URL/api/v1/auth/logout" -H "x-csrf-token: $CSRF"
+  check "登出後 session 失效" "$(curl -sS -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/auth/me")" "401"
+  rm -f "$COOKIE_JAR"
+fi
+
 say "死信佇列（DLQ）"
 check "未帶 token 會被擋" "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/system/jobs/dead")" "401"
 check "死信清單可用" "$(api GET /api/v1/system/jobs/dead)" "200"

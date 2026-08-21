@@ -3,6 +3,7 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ApiTokenGuard } from './http/auth';
 import { PlatformExceptionFilter } from './http/exception.filter';
 import { AnalyticsController } from './controllers/analytics.controller';
+import { AuthController } from './controllers/auth.controller';
 import { CatalogController } from './controllers/catalog.controller';
 import { ExtensionsController } from './controllers/extensions.controller';
 import { HealthController } from './controllers/health.controller';
@@ -18,7 +19,7 @@ import { RELEASE, RUNTIME, THEME, type ReleaseInfo, type Runtime, type Storefron
 export class AppModule {
   static forRuntime(runtime: Runtime, theme: StorefrontTheme, release: ReleaseInfo): DynamicModule {
     const controllers = [
-      HealthController, MetaController, CatalogController, InventoryController, SystemController,
+      HealthController, MetaController, AuthController, CatalogController, InventoryController, SystemController,
       OrderController, AnalyticsController, ExtensionsController, StorefrontController,
     ];
     if (runtime.config.mcp.enabled) controllers.push(McpController as never);

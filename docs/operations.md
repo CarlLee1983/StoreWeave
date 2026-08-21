@@ -16,6 +16,7 @@
 | `commerce restore FILE --yes` | `pg_restore --clean --if-exists`（會覆寫現有資料） |
 | `commerce upgrade --release TARBALL` | 解壓新版 → 用新版跑 migration → 切換 symlink → 重啟 |
 | `commerce rollback [--to VERSION]` | 切回上一版或指定版本並重啟 |
+| `commerce user:create --email E --name N [--role admin]` | 建立後台操作者帳號；密碼由 `COMMERCE_USER_PASSWORD` 環境變數提供 |
 | `commerce extension:list [--json]` | 列出已啟用的 Extension、權限、事件、Command、Query、Provider、MCP 工具 |
 
 `commerce doctor` 檢查項目：
@@ -35,6 +36,29 @@ extension status: mcp       公開了幾個工具
 extension status: demo-erp  投遞成功 / 待處理 / 失敗筆數
 service: commerce-api/worker  行程是否在跑
 ```
+
+## 後台登入與 API token
+
+兩條驗證路徑並存，因為人與機器是不同的東西：
+
+- **人用帳號登入**。第一個管理員用 CLI 產生，密碼走環境變數而不是命令列參數，
+  否則會留在 shell history 與 `ps` 輸出裡：
+
+  ```bash
+  COMMERCE_USER_PASSWORD='一組夠長的密碼' \
+    sudo -u commerce commerce user:create --email ops@example.com --name 維運 --role admin
+  ```
+
+  之後在管理後台用這組帳密登入。session 是 httpOnly cookie，12 小時到期，
+  audit log 會記成 `user:<uuid>`，查得出是誰動的。
+
+- **機器用靜態 token**。`commerce.yaml` 的 `auth.tokens` 那組 bearer token 維持原樣，
+  給 MCP 客戶端與 ERP 這類非瀏覽器呼叫端使用。它們不套用 CSRF 檢查，
+  但也因此**沒有到期、不能個別撤銷**——`COMMERCE_ADMIN_TOKEN` 等於一把萬能鑰匙，
+  正式環境務必換成隨機值並限制知悉範圍，`commerce doctor` 會擋掉預設值。
+
+尚未實作的部分：密碼重設、後台的帳號停用介面、登入失敗鎖定、二階段驗證。
+需要停用某個帳號時，目前只能直接改資料庫的 `platform_users.status`。
 
 ## 健康端點
 
@@ -74,6 +98,7 @@ catalog.product.created     catalog.product.updated
 inventory.stock.adjusted
 order.placed  order.paid  order.cancelled
 erp.delivery.resent
+jobs.retried  user.created
 ```
 
 每筆包含 actor id 與類型、extension id（若由 Extension 觸發）、資源類型與 id、

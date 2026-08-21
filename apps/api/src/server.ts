@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
+import fastifyCookie from '@fastify/cookie';
+import fastifyRateLimit from '@fastify/rate-limit';
 import type { FastifyReply } from 'fastify';
 import type { Runtime, StorefrontTheme } from '@storeweave/kernel';
 import { AppModule } from './app.module';
@@ -29,6 +31,36 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
     adapter,
     { logger: false, bufferLogs: true },
   );
+
+  // Session / CSRF cookie 只做解析與序列化，不簽章——token 本身已經是高熵隨機值。
+  await app.register(fastifyCookie);
+
+  // 只節流登入端點。沒有它，密碼爆破不受限制，而且每次嘗試都逼伺服器跑一次
+  // 記憶體困難的 scrypt —— 未授權請求會變成 CPU 與記憶體的放大攻擊面。
+  // 計數存在行程記憶體裡：單站部署只有一個 API 行程，這與 Redis 選配的前提一致（ADR 0003）。
+  await app.register(fastifyRateLimit, { global: false });
+  const loginLimiter = app.getHttpAdapter().getInstance().createRateLimit({
+    max: 10,
+    timeWindow: '1 minute',
+    keyGenerator: (request) => {
+      const body = request.body as { email?: unknown } | undefined;
+      const email = typeof body?.email === 'string' ? body.email.toLowerCase() : '';
+      // 同時綁 IP 與帳號：換 IP 換不掉對單一帳號的節流，反之亦然。
+      return `${request.ip}|${email}`;
+    },
+  });
+  app.getHttpAdapter().getInstance().addHook('preHandler', async (request, reply) => {
+    if (request.method !== 'POST' || !request.url.startsWith('/api/v1/auth/login')) return;
+    const result = await loginLimiter(request);
+    // isAllowed 只有 allowList 命中時才是 true；一般路徑一律回 false，要看的是 isExceeded。
+    if (!result.isAllowed && result.isExceeded) {
+      reply.header('retry-after', String(result.ttlInSeconds));
+      await reply.status(429).send({
+        success: false,
+        error: { code: 'RATE_LIMITED', message: 'Too many login attempts, please try again later' },
+      });
+    }
+  });
 
   if (runtime.config.admin.enabled && release.adminDir && existsSync(release.adminDir)) {
     const prefix = runtime.config.admin.basePath.endsWith('/')

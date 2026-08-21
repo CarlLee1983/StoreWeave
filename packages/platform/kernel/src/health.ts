@@ -45,7 +45,15 @@ export async function readiness(runtime: Runtime): Promise<DependencyHealth> {
 export async function dependencies(runtime: Runtime): Promise<DependencyHealth> {
   const checks: Check[] = [];
   const ping = await runtime.database.ping();
-  checks.push({ name: 'postgres', status: ping.ok ? 'pass' : 'fail', detail: ping.ok ? `${ping.latencyMs}ms` : ping.error });
+  if (!ping.ok) {
+    // 連線錯誤原文通常帶有主機名與使用者名，而這個端點是公開的：原文只進 log。
+    runtime.logger.error({ error: ping.error }, 'postgres health check failed');
+  }
+  checks.push({
+    name: 'postgres',
+    status: ping.ok ? 'pass' : 'fail',
+    detail: ping.ok ? `${ping.latencyMs}ms` : 'connection failed; see server logs',
+  });
   if (!ping.ok) return summarize(checks);
 
   const outbox = await runtime.outbox.stats(runtime.database.db);

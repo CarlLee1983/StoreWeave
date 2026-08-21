@@ -1,7 +1,7 @@
 # 0012. 後台操作者身分：靜態 API token 是 MVP，多人環境需要帳號驗證
 
-- 狀態：proposed
-- 日期：2026-08-21
+- 狀態：accepted
+- 日期：2026-08-21（proposed）／2026-08-21（accepted）
 
 ## 背景
 
@@ -18,37 +18,55 @@ token 由使用者自己貼進去，存在瀏覽器的 localStorage。
 - **沒有到期，且暴露面大**：token 長期有效地躺在 localStorage，一次 XSS 就整串外流。
 
 `packages/platform/authorization/src/roles.ts` 的註解寫著「MVP 的角色→權限映射」，
-但這個「MVP」先前沒有任何紀錄說明它何時該被換掉——這篇 ADR 就是要把那個未決狀態存起來。
+但這個「MVP」先前沒有任何紀錄說明它何時該被換掉。這篇先以 proposed 記下那個未決狀態，
+四個邊界問題定案後改為 accepted。
 
-## 現況（不是決策，是待決事項）
+## 決策
 
 平台對操作者身分的抽象只有 `Actor`（`id` / `type` / `displayName` / `permissions`）。
 Command Bus 與 Query Bus 只認這個型別，`apps/api/src/http/auth.ts` 是唯一把 HTTP 請求
-變成 Actor 的地方。因此導入帳號機制是替換一個 adapter 加上一個身分模組
-（擁有 `platform_users` 之類的資料表），Commerce Core 不受影響。
-技術路徑不是這篇的難點，以下四個邊界問題才是：
+變成 Actor 的地方，因此導入帳號機制是替換一個 adapter 加上一個身分模組，Commerce Core 不受影響。
+四個邊界問題的決定如下：
 
-1. **角色是寫死還是資料**：`BUILT_IN_ROLES` 目前是常數。要不要變成資料庫裡可編輯的，
-   直接決定權限模型要不要 migration 與管理介面。
-2. **session 形式**：httpOnly cookie 或短期 JWT。前者要處理 CSRF，後者要處理撤銷。
-3. **密碼自管還是 OIDC**：自管要面對雜湊、重設、鎖定、二階段驗證；
-   走 OIDC 則把這些交給客戶既有的 IdP，但單站小客戶未必有 IdP。
-4. **M2M token 的去留**：MCP 與 ERP 用的 token 不是人在用，
-   傾向維持靜態形式，與人的帳號分成兩條路徑。
+1. **自管帳號密碼**，不強制 OIDC。StoreWeave 的客戶是單站小店，大多沒有 IdP；
+   要求 IdP 等於把一部分客戶擋在後台之外。
+2. **角色維持常數 `BUILT_IN_ROLES`**，帳號指向既有的 admin / staff / readonly。
+   權限模型不進資料庫，因此不需要授權快取與角色管理介面。有具體客戶需求再說。
+3. **session 用 httpOnly cookie**（`commerce_session`，SameSite=Strict，12 小時），
+   搭配 double-submit CSRF token（`commerce_csrf`，非 httpOnly）。
+   後台是同源 SPA，短期 JWT 在這裡只換來撤銷困難。
+4. **M2M token 維持現狀**。MCP 與 ERP 用的靜態 bearer token 不是人在用，
+   繼續走 `auth.tokens` 那條路徑，且不套用 CSRF 檢查——它們不是瀏覽器發的。
 
-在這四點定案前不動程式碼。決定後，這篇改為 accepted 或由新的 ADR 取代。
+三個附帶決定：
 
-## 後果（維持現狀期間）
+- **密碼雜湊用 `node:crypto` 的 scrypt，不用 argon2。** argon2 是原生模組，
+  會讓 native release 每個架構都得預先編譯，與「目標主機不需要編譯工具鏈」的
+  部署前提衝突（ADR 0007）。scrypt 是記憶體困難雜湊，對這個威脅模型足夠。
+- **認證本身不是 Command。** 它發生在 Actor 存在之前，沒有權限可以檢查，
+  因此 `AuthService` 由 Interface Adapter 直接呼叫；帳號管理（建立、列出）仍走 Command / Query Bus。
+- **CSRF token 由 session token 推導，不是獨立隨機值。** 獨立隨機值的雙提交只要求
+  「header 等於 cookie」，能對父網域寫 cookie 的攻擊者可以同時決定兩邊而繞過。
+  推導之後他必須先知道受害者的 session token，而那是 httpOnly 的。
 
-- 正式部署必須把 `COMMERCE_ADMIN_TOKEN` 換成足夠長的隨機值並限制知悉範圍；
-  `commerce doctor` 會擋掉預設值。
-- audit log 的 `actor` 欄位在多人共用 token 時不具個人歸屬力，
-  引用它做內稽核之前要知道這個限制。
-- 不要為了「先有登入」而加一層之後要拆掉的暫時性驗證。
-  依 coding-style，stopgap 不是可接受的設計。
+## 後果
+
+- audit log 的 actor 從 `token:admin-console` 變成 `user:<uuid>`，內稽核終於問得出「誰改的」。
+- 靜態 admin token 仍然有效，兩條路徑並存。這不是過渡期的權宜：
+  人用帳號、機器用 token，本來就是兩種不同的東西。
+- 登入端點以 IP + email 為鍵節流（10 次 / 分鐘）。計數存在行程記憶體：
+  單站部署只有一個 API 行程，這與「Redis 是選配」的前提一致（ADR 0003）。
+  沒有它，scrypt 會反過來變成放大攻擊面——每次未授權嘗試都逼伺服器做一次記憶體困難運算。
+- 未實作的部分要誠實記著：密碼重設、帳號停用介面、二階段驗證、
+  改密碼時撤銷既有 session、過期 session 清理、登入失敗鎖定（節流不等於鎖定）都還沒有。
+  另外 `createUser` 允許指定 `admin` 角色，唯一的保護是只有 admin 持有 `users:write`；
+  日後若把 `users:write` 給了較低角色，那會立刻變成提權路徑。
+  這些不影響本決策成立，但在對外宣稱「有完整帳號驗證」之前必須補上。
+- 正式部署仍要把 `COMMERCE_ADMIN_TOKEN` 換成隨機值——它現在等於一把不會過期的萬能鑰匙。
 
 ## Falsified if
 
-`packages/platform/authorization/src/roles.ts` 的 `BUILT_IN_ROLES` 不再是常數，
-或 `apps/api/src/http/auth.ts` 開始從資料庫查詢操作者身分——
-兩者任一發生，代表帳號機制已經落地，這篇必須改狀態或被取代。
+`packages/platform/authorization/src/roles.ts` 的 `BUILT_IN_ROLES` 不再是常數（決定 2 被推翻），
+或 `packages/platform/identity/src/password.ts` 不再使用 `node:crypto` 的 scrypt（附帶決定被推翻），
+或 `packages/platform/identity/src/auth-service.ts` 的 `authenticate` 被改成註冊在 Command Bus 上的
+handler（認證不是 Command 這條被推翻）。

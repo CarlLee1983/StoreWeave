@@ -104,6 +104,8 @@ export type DeadJob = {
 export type HealthCheck = { name: string; status: string; detail?: string };
 export type HealthReport = { status: string; checks: HealthCheck[] };
 
+export type CurrentUser = { id: string; email: string; displayName: string; role: string };
+
 export type Paged<T> = { items: T[]; total: number };
 
 /** localStorage 儲存 token 的 key */
@@ -148,6 +150,12 @@ function isEnvelope(value: unknown): value is Envelope<unknown> {
   return typeof value === 'object' && value !== null && 'success' in value;
 }
 
+/** 從 document.cookie 讀 commerce_csrf；帳號登入路徑靠 cookie 驗證的非 GET 請求需要這個 header。 */
+function getCsrfToken(): string {
+  const match = document.cookie.match(/(?:^|;\s*)commerce_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
 async function request<T>(
   path: string,
   options: { method?: string; body?: unknown; idempotent?: boolean; withAuth?: boolean; raw?: boolean } = {},
@@ -163,6 +171,12 @@ async function request<T>(
   }
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
+  }
+  if (method !== 'GET') {
+    const csrfToken = getCsrfToken();
+    if (csrfToken) {
+      headers['x-csrf-token'] = csrfToken;
+    }
   }
   if (idempotent) {
     headers['Idempotency-Key'] = crypto.randomUUID();
@@ -298,6 +312,15 @@ export const api = {
       `/api/v1/system/jobs/dead/${jobId}/retry`,
       { method: 'POST', body: {}, idempotent: true },
     );
+  },
+  login(email: string, password: string) {
+    return request<CurrentUser>('/api/v1/auth/login', { method: 'POST', body: { email, password }, withAuth: false });
+  },
+  logout() {
+    return request<void>('/api/v1/auth/logout', { method: 'POST', body: {}, withAuth: false });
+  },
+  me() {
+    return request<CurrentUser>('/api/v1/auth/me', { withAuth: false });
   },
 };
 

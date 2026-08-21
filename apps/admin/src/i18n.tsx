@@ -17,6 +17,7 @@ const zhTW = {
   reference: '參考碼', attempts: '嘗試次數', manualResends: '手動重送次數', lastError: '最後錯誤', remoteId: '遠端 ID', payload: 'Payload', resend: '重送', payloadDialog: 'ERP payload', closePayload: '關閉 Payload', payloadNotice: '此預覽由目前 ERP 設定產生，下一次重送會使用相同 HTTP JSON body；不包含 API key。', copied: '已複製', copyJson: '複製 JSON', resending: '重送中…', resendToErp: '重送至 ERP',
   dependencyHealth: '依賴健康檢查', detail: '詳情', installedExtensions: '已安裝擴充套件', platform: '平台', permissions: '權限', subscribedEvents: '訂閱事件', commands: '指令', queries: '查詢', providers: 'Providers', mcpTools: 'MCP 工具', none: '無', salesSummary: '銷售摘要', from: '從', to: '到', paidOrders: '已付款訂單', cancelledOrders: '已取消訂單', grossRevenue: '總營收', averageOrderValue: '平均客單價', productName: '商品名稱', salesQuantity: '銷售數量', revenue: '營收',
   jobType: '工作類型', maxAttempts: '重試上限', failedAt: '失敗時間', noDeadJobs: '目前沒有死信工作。',
+  loginTitle: '登入 StoreWeave', loginSubtitle: '請使用你的帳號密碼登入後台', email: '電子郵件', password: '密碼', login: '登入', loggingIn: '登入中…', logout: '登出',
 } as const;
 
 type MessageKey = keyof typeof zhTW;
@@ -33,6 +34,7 @@ const enUS: Messages = {
   reference: 'Reference', attempts: 'Attempts', manualResends: 'Manual resends', lastError: 'Last error', remoteId: 'Remote ID', payload: 'Payload', resend: 'Resend', payloadDialog: 'ERP payload', closePayload: 'Close payload', payloadNotice: 'This preview uses the current ERP settings. The next resend uses the same HTTP JSON body; API keys are excluded.', copied: 'Copied', copyJson: 'Copy JSON', resending: 'Resending…', resendToErp: 'Resend to ERP',
   dependencyHealth: 'Dependency health checks', detail: 'Detail', installedExtensions: 'Installed extensions', platform: 'Platform', permissions: 'Permissions', subscribedEvents: 'Subscribed events', commands: 'Commands', queries: 'Queries', providers: 'Providers', mcpTools: 'MCP tools', none: 'None', salesSummary: 'Sales summary', from: 'From', to: 'To', paidOrders: 'Paid orders', cancelledOrders: 'Cancelled orders', grossRevenue: 'Gross revenue', averageOrderValue: 'Average order value', productName: 'Product name', salesQuantity: 'Quantity sold', revenue: 'Revenue',
   jobType: 'Job type', maxAttempts: 'Max attempts', failedAt: 'Failed at', noDeadJobs: 'No dead jobs right now.',
+  loginTitle: 'Sign in to StoreWeave', loginSubtitle: 'Sign in with your account to access the admin console', email: 'Email', password: 'Password', login: 'Sign in', loggingIn: 'Signing in…', logout: 'Sign out',
 };
 
 const jaJP: Messages = {
@@ -46,6 +48,7 @@ const jaJP: Messages = {
   reference: '参照コード', attempts: '試行回数', manualResends: '手動再送回数', lastError: '最終エラー', remoteId: 'リモート ID', payload: 'ペイロード', resend: '再送', payloadDialog: 'ERP ペイロード', closePayload: 'ペイロードを閉じる', payloadNotice: 'このプレビューは現在の ERP 設定から生成されます。次回の再送では同じ HTTP JSON 本文を使用し、API キーは含まれません。', copied: 'コピーしました', copyJson: 'JSON をコピー', resending: '再送中…', resendToErp: 'ERP に再送',
   dependencyHealth: '依存関係のヘルスチェック', detail: '詳細', installedExtensions: 'インストール済み拡張機能', platform: 'プラットフォーム', permissions: '権限', subscribedEvents: '購読イベント', commands: 'コマンド', queries: 'クエリ', providers: 'プロバイダー', mcpTools: 'MCP ツール', none: 'なし', salesSummary: '売上概要', from: '開始', to: '終了', paidOrders: '支払い済み注文', cancelledOrders: 'キャンセル済み注文', grossRevenue: '総売上', averageOrderValue: '平均注文額', productName: '商品名', salesQuantity: '販売数量', revenue: '売上',
   jobType: 'ジョブ種別', maxAttempts: '再試行上限', failedAt: '失敗日時', noDeadJobs: '現在デッドレターキューにジョブはありません。',
+  loginTitle: 'StoreWeave にサインイン', loginSubtitle: 'アカウントでサインインして管理画面にアクセスします', email: 'メールアドレス', password: 'パスワード', login: 'サインイン', loggingIn: 'サインイン中…', logout: 'サインアウト',
 };
 
 const catalog: Record<Locale, Messages> = { 'zh-TW': zhTW, 'en-US': enUS, 'ja-JP': jaJP };

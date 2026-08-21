@@ -13,7 +13,7 @@
 | [0009](0009-async-payment-and-inventory-reservation.md) | 非同步付款與庫存預留 | accepted |
 | [0010](0010-platform-is-domain-agnostic.md) | 平台對領域中立，Commerce 是產品不是 kernel | accepted |
 | [0011](0011-platform-ops-module.md) | 死信佇列由平台維運模組公開，重送與 requeue 分家 | accepted |
-| [0012](0012-operator-identity.md) | 後台操作者身分：靜態 API token 是 MVP，多人環境需要帳號驗證 | **proposed** |
+| [0012](0012-operator-identity.md) | 後台操作者身分：自管帳號、cookie session，M2M token 維持現狀 | accepted |
 
 寫法：每篇結尾用 `## Falsified if` 這個標題起一段，段落裡以反引號標出這個決策所依賴的檔案；
 那些檔案就是這個決策的邊界清單，條件本身要寫成某個東西可以檢查的形式。

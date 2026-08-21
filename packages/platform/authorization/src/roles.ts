@@ -8,5 +8,6 @@ export const BUILT_IN_ROLES: Record<string, readonly string[]> = {
 };
 
 export function permissionsForRole(role: string): readonly string[] {
-  return BUILT_IN_ROLES[role] ?? [];
+  // 用 hasOwn 而不是索引取值：`BUILT_IN_ROLES['constructor']` 會回傳 Function 而不是 undefined。
+  return Object.hasOwn(BUILT_IN_ROLES, role) ? BUILT_IN_ROLES[role]! : [];
 }

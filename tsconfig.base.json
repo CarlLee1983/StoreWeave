@@ -29,6 +29,7 @@
       "@storeweave/outbox": ["packages/platform/outbox/src/index.ts"],
       "@storeweave/jobs": ["packages/platform/jobs/src/index.ts"],
       "@storeweave/authorization": ["packages/platform/authorization/src/index.ts"],
+      "@storeweave/identity": ["packages/platform/identity/src/index.ts"],
       "@storeweave/audit": ["packages/platform/audit/src/index.ts"],
       "@storeweave/extension-sdk": ["packages/platform/extension-sdk/src/index.ts"],
       "@storeweave/kernel": ["packages/platform/kernel/src/index.ts"],

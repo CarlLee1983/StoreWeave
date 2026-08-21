@@ -85,10 +85,19 @@ sleep 8
 echo "==> commerce status / doctor"
 docker exec "$APP" sh -c 'set -a; . /etc/commerce/commerce.env; set +a; commerce status; commerce doctor' || true
 
+echo "==> 建立後台帳號（登入流程要用）"
+SMOKE_USER_EMAIL="smoke@example.com"
+SMOKE_USER_PASSWORD="smoke-user-passphrase-2026"
+docker exec "$APP" sh -c "set -a; . /etc/commerce/commerce.env; set +a; \
+  COMMERCE_USER_PASSWORD='$SMOKE_USER_PASSWORD' commerce user:create \
+  --email '$SMOKE_USER_EMAIL' --name 'Smoke 維運' --role admin" >/dev/null
+
 echo "==> smoke test（從主機打進容器）"
 BASE_URL="http://localhost:3210" \
 ADMIN_TOKEN="native-admin-token-0123456789" \
 MCP_TOKEN="native-mcp-token-0123456789" \
+SMOKE_USER_EMAIL="$SMOKE_USER_EMAIL" \
+SMOKE_USER_PASSWORD="$SMOKE_USER_PASSWORD" \
   bash scripts/smoke.sh
 
 echo "==> native release smoke test 通過"

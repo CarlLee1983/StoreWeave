@@ -3,6 +3,7 @@ import { CanActivate, ExecutionContext, Inject, Injectable, SetMetadata } from '
 import { Reflector } from '@nestjs/core';
 import { PlatformError, type Actor } from '@storeweave/contracts';
 import { permissionsForRole } from '@storeweave/authorization';
+import { csrfTokenFor } from '@storeweave/identity';
 import { RUNTIME, type Runtime } from '../tokens';
 
 export const IS_PUBLIC = 'commerce:public';
@@ -11,9 +12,17 @@ export const Public = () => SetMetadata(IS_PUBLIC, true);
 
 export const STOREFRONT_ROLE = 'storefront';
 
+export const SESSION_COOKIE = 'commerce_session';
+export const CSRF_COOKIE = 'commerce_csrf';
+export const CSRF_HEADER = 'x-csrf-token';
+
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
 export interface AuthenticatedRequest {
   actor?: Actor;
   headers: Record<string, string | string[] | undefined>;
+  cookies?: Record<string, string | undefined>;
+  method?: string;
   raw?: unknown;
 }
 
@@ -36,7 +45,7 @@ export class ApiTokenGuard implements CanActivate {
     @Inject(Reflector) private readonly reflector: Reflector,
   ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [
       context.getHandler(),
       context.getClass(),
@@ -55,25 +64,51 @@ export class ApiTokenGuard implements CanActivate {
 
     const header = request.headers.authorization;
     const raw = Array.isArray(header) ? header[0] : header;
-    if (!raw || !raw.toLowerCase().startsWith('bearer ')) {
-      throw new PlatformError('UNAUTHENTICATED', 'Missing bearer token');
-    }
-    const presented = raw.slice(7).trim();
+    if (raw && raw.toLowerCase().startsWith('bearer ')) {
+      const presented = raw.slice(7).trim();
 
-    for (const token of this.runtime.config.auth.tokens) {
-      const expected = this.runtime.secrets.get(token.secretRef);
-      if (!expected) continue;
-      if (safeEquals(presented, expected)) {
-        request.actor = {
-          id: `token:${token.name}`,
-          type: 'service',
-          displayName: token.name,
-          permissions: permissionsForRole(token.role),
-        };
-        return true;
+      for (const token of this.runtime.config.auth.tokens) {
+        const expected = this.runtime.secrets.get(token.secretRef);
+        if (!expected) continue;
+        if (safeEquals(presented, expected)) {
+          request.actor = {
+            id: `token:${token.name}`,
+            type: 'service',
+            displayName: token.name,
+            permissions: permissionsForRole(token.role),
+          };
+          return true;
+        }
       }
+      throw new PlatformError('UNAUTHENTICATED', 'Invalid API token');
     }
-    throw new PlatformError('UNAUTHENTICATED', 'Invalid API token');
+
+    const sessionToken = request.cookies?.[SESSION_COOKIE];
+    if (sessionToken) {
+      const resolved = await this.runtime.auth.resolveSession(this.runtime.database.db, sessionToken);
+      if (!resolved) throw new PlatformError('UNAUTHENTICATED', 'Invalid or expired session');
+      this.assertCsrf(request, sessionToken);
+      request.actor = resolved.actor;
+      return true;
+    }
+
+    throw new PlatformError('UNAUTHENTICATED', 'Missing bearer token');
+  }
+
+  /**
+   * Cookie 通過的請求才做這個檢查——Bearer token 不會被瀏覽器自動帶上，沒有 CSRF 風險。
+   * 比對的是「由這次的 session token 推導出的值」，不是請求自己帶來的 CSRF cookie，
+   * 因此攻擊者就算能覆寫 cookie 也偽造不出來。
+   */
+  private assertCsrf(request: AuthenticatedRequest, sessionToken: string): void {
+    const method = (request.method ?? 'GET').toUpperCase();
+    if (SAFE_METHODS.has(method)) return;
+
+    const header = request.headers[CSRF_HEADER];
+    const headerToken = Array.isArray(header) ? header[0] : header;
+    if (!headerToken || !safeEquals(headerToken, csrfTokenFor(sessionToken))) {
+      throw new PlatformError('FORBIDDEN', 'Missing or invalid CSRF token');
+    }
   }
 }
 

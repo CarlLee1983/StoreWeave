@@ -35,10 +35,18 @@ docker compose exec -T api commerce doctor || true
 echo "==> commerce extension:list"
 docker compose exec -T api commerce extension:list
 
+echo "==> 建立後台帳號（登入流程要用）"
+SMOKE_USER_EMAIL="smoke@example.com"
+SMOKE_USER_PASSWORD="smoke-user-passphrase-2026"
+docker compose exec -T -e COMMERCE_USER_PASSWORD="$SMOKE_USER_PASSWORD" api \
+  commerce user:create --email "$SMOKE_USER_EMAIL" --name "Smoke 維運" --role admin >/dev/null
+
 echo "==> smoke test"
 BASE_URL="http://localhost:$COMMERCE_PORT" \
 ADMIN_TOKEN="$COMMERCE_ADMIN_TOKEN" \
 MCP_TOKEN="$COMMERCE_MCP_TOKEN" \
+SMOKE_USER_EMAIL="$SMOKE_USER_EMAIL" \
+SMOKE_USER_PASSWORD="$SMOKE_USER_PASSWORD" \
   bash scripts/smoke.sh
 
 echo "==> docker compose smoke test 通過"

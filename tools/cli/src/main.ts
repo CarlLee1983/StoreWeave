@@ -236,6 +236,31 @@ program
   });
 
 program
+  .command('user:create')
+  .description('建立後台操作者帳號（第一個管理員由這裡產生）')
+  .requiredOption('--email <email>', '登入用的 email')
+  .requiredOption('--name <name>', '顯示名稱')
+  .option('--role <role>', '角色：admin / staff / readonly', 'admin')
+  .action(async (options: { email: string; name: string; role: string }) => {
+    // 密碼只從環境變數讀：寫在命令列會留在 shell history 與 ps 輸出裡。
+    const password = process.env.COMMERCE_USER_PASSWORD;
+    if (!password) {
+      fail('請用環境變數提供密碼：COMMERCE_USER_PASSWORD=... commerce user:create ...');
+      return;
+    }
+    await withRuntime(async (runtime) => {
+      const user = await runtime.commands.execute<{ id: string; email: string; role: string }>(
+        'platform.identity.createUser',
+        { email: options.email, password, displayName: options.name, role: options.role },
+        { actor: runtime.actorForRole('system'), idempotencyKey: `cli-user-${options.email}` },
+      );
+      heading('已建立帳號');
+      line(`  ${bold(user.email)} ${dim(`role=${user.role} id=${user.id}`)}`);
+      line(dim('  用這組帳密登入管理後台；靜態 API token 仍可供機器對機器使用。'));
+    });
+  });
+
+program
   .command('extension:list')
   .description('列出這個 Release 內建、且已在設定中啟用的 Extension')
   .option('--json', '以 JSON 輸出')

@@ -1,0 +1,99 @@
+import { Body, Controller, HttpCode, Inject, Post, Req, Res, Get } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
+import { PlatformError } from '@storeweave/contracts';
+import { csrfTokenFor } from '@storeweave/identity';
+import { ok } from '../http/envelope';
+import { CSRF_COOKIE, Public, SESSION_COOKIE, type AuthenticatedRequest } from '../http/auth';
+import { RUNTIME, type Runtime } from '../tokens';
+
+interface LoginBody {
+  email?: string;
+  password?: string;
+}
+
+/** 後台登入。認證發生在 Actor 存在之前，因此不經過 Command/Query Bus，直接呼叫 AuthService。 */
+@Controller('api/v1/auth')
+export class AuthController {
+  constructor(@Inject(RUNTIME) private readonly runtime: Runtime) {}
+
+  @Public()
+  @Post('login')
+  @HttpCode(200)
+  async login(
+    @Body() body: LoginBody,
+    @Req() req: AuthenticatedRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    if (!body?.email || !body?.password) {
+      throw new PlatformError('VALIDATION_ERROR', 'email 與 password 為必填');
+    }
+
+    const userAgentHeader = req.headers['user-agent'];
+    const userAgent = Array.isArray(userAgentHeader) ? userAgentHeader[0] : userAgentHeader;
+
+    const session = await this.runtime.auth.authenticate(this.runtime.database.db, {
+      email: body.email,
+      password: body.password,
+      userAgent,
+    });
+
+    this.setSessionCookies(reply, session.token, session.expiresAt);
+
+    return ok({
+      id: session.user.id,
+      email: session.user.email,
+      displayName: session.user.displayName,
+      role: session.user.role,
+    });
+  }
+
+  // 公開端點：session 已過期時也要能清掉 cookie，否則使用者會卡在壞掉的狀態。
+  @Public()
+  @Post('logout')
+  @HttpCode(200)
+  async logout(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) reply: FastifyReply) {
+    const token = req.cookies?.[SESSION_COOKIE];
+    if (token) await this.runtime.auth.revokeSession(this.runtime.database.db, token);
+    this.clearSessionCookies(reply);
+    return ok({ loggedOut: true });
+  }
+
+  @Get('me')
+  async me(@Req() req: AuthenticatedRequest) {
+    const token = req.cookies?.[SESSION_COOKIE];
+    if (!token) throw new PlatformError('UNAUTHENTICATED', 'No active session');
+
+    const resolved = await this.runtime.auth.resolveSession(this.runtime.database.db, token);
+    if (!resolved) throw new PlatformError('UNAUTHENTICATED', 'Invalid or expired session');
+
+    return ok({
+      id: resolved.user.id,
+      email: resolved.user.email,
+      displayName: resolved.user.displayName,
+      role: resolved.user.role,
+    });
+  }
+
+  private setSessionCookies(reply: FastifyReply, token: string, expiresAt: Date): void {
+    const maxAge = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+    // 只有本機開發才允許非 Secure cookie。TLS 由反向代理終止、publicUrl 卻誤寫成 http 時，
+    // 用協定推導會讓 session cookie 靜默地以明文傳送。
+    const { protocol, hostname } = new URL(this.runtime.config.http.publicUrl);
+    const secure = protocol === 'https:' || !['localhost', '127.0.0.1', '::1'].includes(hostname);
+
+    reply.setCookie(SESSION_COOKIE, token, {
+      path: '/', httpOnly: true, sameSite: 'strict', maxAge, secure,
+    });
+    // CSRF cookie 不設 HttpOnly——前端要能讀出來放進 header，做雙提交比對。
+    reply.setCookie(CSRF_COOKIE, csrfTokenFor(token), {
+      path: '/', httpOnly: false, sameSite: 'strict', maxAge, secure,
+    });
+  }
+
+  private clearSessionCookies(reply: FastifyReply): void {
+    const { protocol, hostname } = new URL(this.runtime.config.http.publicUrl);
+    const secure = protocol === 'https:' || !['localhost', '127.0.0.1', '::1'].includes(hostname);
+    reply.clearCookie(SESSION_COOKIE, { path: '/', sameSite: 'strict', secure, httpOnly: true });
+    reply.clearCookie(CSRF_COOKIE, { path: '/', sameSite: 'strict', secure });
+  }
+}
