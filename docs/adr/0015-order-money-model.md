@@ -42,7 +42,8 @@ demo-erp Extension 與 Admin 都在消費它，`salesSummary` 的 `grossRevenueC
 ## 後果
 
 - `commerce.order.placed` 與 `commerce.order.paid` 都要發新的版本號，舊版依 ADR 0006 續發一個 minor 週期。
-  demo-erp 的 transform 與 Admin 的訂單頁是已知的下游。
+  demo-erp 的 transform 與 Admin 的訂單頁是已知的下游。舊版的 `totalCents` 在過渡期會跟著變成
+  折扣後金額，那是刻意的偏離，理由見 ADR 0017。
 - `salesSummary` 的營收語意改變：`grossRevenueCents` 之後是折扣後的實收金額。
   這支 query 與 `SalesSummarySection` 目前完全沒有測試覆蓋，遷移時要先補。
 - 分攤演算法本身是純函式（定價引擎的一部分），可以在不連資料庫的情況下用大量 case 驗證餘數處理。

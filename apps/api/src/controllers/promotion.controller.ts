@@ -17,6 +17,12 @@ export class PromotionController extends BusController {
     }));
   }
 
+  /** 試算是無副作用的查詢，但輸入是一組商品行，只能走 POST body。 */
+  @Post('quote')
+  async quote(@Req() req: AuthenticatedRequest, @Body() body: unknown) {
+    return ok(await this.query(req, 'commerce.promotion.quote', body));
+  }
+
   @Get(':id')
   async get(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     return ok(await this.query(req, 'commerce.promotion.getPromotion', { id }));

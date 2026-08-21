@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
 
@@ -7,8 +7,24 @@ let h: TestHarness;
 beforeAll(async () => { h = await createHarness(); }, 300_000);
 afterAll(async () => { await h?.close(); });
 
-const createPromotion = (input: Record<string, unknown>) =>
-  h.runtime.commands.execute<any>('commerce.promotion.createPromotion', input, { actor: ADMIN_ACTOR });
+/**
+ * 這個檔案共用一個資料庫，活動是全域狀態。統一在 afterEach 停用，
+ * 否則任何一次斷言失敗都會讓殘留的活動污染後面每一個測試。
+ */
+const created: string[] = [];
+
+const createPromotion = async (input: Record<string, unknown>) => {
+  const promotion = await h.runtime.commands.execute<any>('commerce.promotion.createPromotion', input, { actor: ADMIN_ACTOR });
+  created.push(promotion.id);
+  return promotion;
+};
+
+afterEach(async () => {
+  for (const id of created.splice(0)) {
+    await h.runtime.commands.execute('commerce.promotion.setPromotionStatus',
+      { id, status: 'disabled' }, { actor: ADMIN_ACTOR });
+  }
+});
 
 const order = (productId: string, quantity = 1) =>
   h.runtime.commands.execute<any>('commerce.order.placeOrder',
@@ -22,7 +38,11 @@ async function sellableProduct(sku: string, priceCents: number) {
 }
 
 describe('下單套用定價引擎', () => {
-  it('沒有任何活動時，訂單金額與現況完全相同', async () => {
+  it('沒有任何活動成立時，訂單金額與現況完全相同', async () => {
+    await createPromotion({
+      name: '門檻高到不會成立',
+      rule: { type: 'threshold_fixed_amount', thresholdCents: 99_999_999, discountCents: 10_000 },
+    });
     const product = await sellableProduct('PRICE-NONE', 30_000);
     const placed = await order(product.id, 2);
 
@@ -57,8 +77,6 @@ describe('下單套用定價引擎', () => {
     expect(rows.rows[0].discount_cents).toBe(10_000);
     expect(rows.rows[0].total_cents).toBe(140_000);
 
-    await h.runtime.commands.execute('commerce.promotion.setPromotionStatus',
-      { id: promotion.id, status: 'disabled' }, { actor: ADMIN_ACTOR });
   });
 
   it('停用的活動不再影響新訂單', async () => {
@@ -102,8 +120,6 @@ describe('下單套用定價引擎', () => {
     expect(byName['commerce.order.placed.v1'].totalCents).toBe(9_000);
     expect(byName['commerce.order.placed.v1']).not.toHaveProperty('discountCents');
 
-    await h.runtime.commands.execute('commerce.promotion.setPromotionStatus',
-      { id: promotion.id, status: 'disabled' }, { actor: ADMIN_ACTOR });
   });
 
   it('定價與訂單建立在同一個交易內：下單失敗時不留下任何調整明細', async () => {
@@ -122,8 +138,6 @@ describe('下單套用定價引擎', () => {
     `);
     expect(rows.rows[0].count).toBe('0');
 
-    await h.runtime.commands.execute('commerce.promotion.setPromotionStatus',
-      { id: promotion.id, status: 'disabled' }, { actor: ADMIN_ACTOR });
   });
 });
 
@@ -153,8 +167,58 @@ describe('結帳前試算', () => {
       placed.lines.map((l: any) => [l.productId, l.discountCents]),
     );
 
-    await h.runtime.commands.execute('commerce.promotion.setPromotionStatus',
-      { id: promotion.id, status: 'disabled' }, { actor: ADMIN_ACTOR });
+  });
+
+  it('餘數與同額行的分攤，試算與下單逐行相同', async () => {
+    await createPromotion({
+      name: '除不盡的九折',
+      rule: { type: 'order_percentage', percentOffBasisPoints: 1_000 },
+    });
+    // 三行等額：折 10% 後每行 3_333.3，餘數與同額 tie-break 都會被踩到
+    const a = await sellableProduct('QUOTE-TIE-A', 33_333);
+    const b = await sellableProduct('QUOTE-TIE-B', 33_333);
+    const c = await sellableProduct('QUOTE-TIE-C', 33_333);
+    const lines = [
+      { productId: a.id, quantity: 1 },
+      { productId: b.id, quantity: 1 },
+      { productId: c.id, quantity: 1 },
+    ];
+
+    const quoted = await quote(lines);
+    const placed = await h.runtime.commands.execute<any>('commerce.order.placeOrder',
+      { customerEmail: 'buyer@example.com', lines },
+      { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+
+    expect(quoted.discountCents).toBe(10_000);
+    expect(quoted.discountCents).toBe(placed.discountCents);
+    // 逐行比對：餘數落在哪一行，兩邊必須是同一行
+    const byProduct = (rows: any[]) =>
+      Object.fromEntries(rows.map((l: any) => [l.productId, l.discountCents]));
+    expect(byProduct(quoted.lines)).toEqual(byProduct(placed.lines));
+    expect(Object.values(byProduct(placed.lines)).sort()).toEqual([3_333, 3_333, 3_334]);
+  });
+
+  it('同一個商品出現在兩行、以及行順序顛倒時，試算與下單仍然一致', async () => {
+    await createPromotion({
+      name: '重複商品用九折',
+      rule: { type: 'order_percentage', percentOffBasisPoints: 1_000 },
+    });
+    const cheap = await sellableProduct('QUOTE-DUP-A', 1_111);
+    const rich = await sellableProduct('QUOTE-DUP-B', 9_999);
+
+    for (const lines of [
+      [{ productId: cheap.id, quantity: 1 }, { productId: rich.id, quantity: 1 }, { productId: cheap.id, quantity: 2 }],
+      [{ productId: rich.id, quantity: 1 }, { productId: cheap.id, quantity: 3 }],
+    ]) {
+      const quoted = await quote(lines);
+      const placed = await h.runtime.commands.execute<any>('commerce.order.placeOrder',
+        { customerEmail: 'buyer@example.com', lines },
+        { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+
+      expect(quoted.totalCents).toBe(placed.totalCents);
+      expect(quoted.lines.map((l: any) => [l.productId, l.quantity, l.discountCents]))
+        .toEqual(placed.lines.map((l: any) => [l.productId, l.quantity, l.discountCents]));
+    }
   });
 
   it('試算不寫入任何資料，也不佔用庫存', async () => {

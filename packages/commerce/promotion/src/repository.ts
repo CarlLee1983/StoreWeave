@@ -7,18 +7,31 @@ import { promotions, type PromotionRow } from './schema';
  * 規則參數存在 jsonb 裡，讀回來一律重新驗證：資料庫的欄位型別擋不住
  * 舊資料、手動改動或程式改版留下的形狀。
  */
-export function toPromotionDto(row: PromotionRow): PromotionDto {
+/** 解析失敗時回 null，讓呼叫端決定是要擋下還是跳過。 */
+export function tryToPromotionDto(row: PromotionRow): PromotionDto | null {
+  const rule = promotionRule.safeParse({ type: row.ruleType, ...(row.rule as Record<string, unknown>) });
+  if (!rule.success) return null;
+  return { ...toPromotionShell(row), rule: rule.data };
+}
+
+function toPromotionShell(row: PromotionRow): Omit<PromotionDto, 'rule'> {
   return {
     id: row.id,
     name: row.name,
     status: row.status as PromotionDto['status'],
-    rule: promotionRule.parse({ type: row.ruleType, ...(row.rule as Record<string, unknown>) }),
     priority: row.priority,
     stackable: row.stackable,
     startsAt: row.startsAt,
     endsAt: row.endsAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+  };
+}
+
+export function toPromotionDto(row: PromotionRow): PromotionDto {
+  return {
+    ...toPromotionShell(row),
+    rule: promotionRule.parse({ type: row.ruleType, ...(row.rule as Record<string, unknown>) }),
   };
 }
 

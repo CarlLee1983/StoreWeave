@@ -34,7 +34,7 @@ export const orderLines = pgTable('order_lines', {
 /** 這張訂單套用了哪些活動、各折多少。它同時是行銷分析的事實來源之一。 */
 export const orderAdjustments = pgTable('order_adjustments', {
   id: uuid('id').primaryKey(),
-  orderId: uuid('order_id').notNull(),
+  orderId: uuid('order_id').notNull().references(() => orders.id, { onDelete: 'cascade' }),
   source: text('source').notNull(),
   sourceId: text('source_id').notNull(),
   name: text('name').notNull(),

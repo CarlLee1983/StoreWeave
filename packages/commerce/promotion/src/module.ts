@@ -8,9 +8,15 @@ import {
   updatePromotionHandler,
 } from './commands';
 import { promotionMigrations } from './migrations';
-import { getPromotionHandler, getPromotionQuery, listPromotionsHandler, listPromotionsQuery, quoteHandler, quoteQuery } from './queries';
+import { createQuoteHandler, getPromotionHandler, getPromotionQuery, listPromotionsHandler, listPromotionsQuery, quoteQuery } from './queries';
 
-export const promotionModule = defineModule({
+export interface PromotionModuleDeps {
+  /** 試算的幣別判斷要與下單相同，因此和 order 模組吃同一個設定值。 */
+  defaultCurrency: string;
+}
+
+export function createPromotionModule(deps: PromotionModuleDeps) {
+  return defineModule({
   name: 'promotion',
   migrations: promotionMigrations,
   permissions: [
@@ -26,6 +32,7 @@ export const promotionModule = defineModule({
   queries: [
     { descriptor: getPromotionQuery, handler: getPromotionHandler },
     { descriptor: listPromotionsQuery, handler: listPromotionsHandler },
-    { descriptor: quoteQuery, handler: quoteHandler },
+    { descriptor: quoteQuery, handler: createQuoteHandler(deps) },
   ],
-});
+  });
+}

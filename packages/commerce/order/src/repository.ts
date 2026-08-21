@@ -3,7 +3,11 @@ import type { DrizzleDb, Tx } from '@storeweave/contracts';
 import { orderAdjustments, orderLines, orders, type OrderAdjustmentRow, type OrderLineRow, type OrderRow } from './schema';
 import type { OrderDto } from './dto';
 
-export function toOrderDto(row: OrderRow, lines: OrderLineRow[], adjustments: OrderAdjustmentRow[] = []): OrderDto {
+/**
+ * `adjustments` 是必填的：預設空陣列會讓「這張單沒有折扣」與「這裡沒去載」
+ * 在契約上長得一模一樣，付款、取消、逾時那幾條路徑就會安靜地少回折扣明細。
+ */
+export function toOrderDto(row: OrderRow, lines: OrderLineRow[], adjustments: OrderAdjustmentRow[]): OrderDto {
   return {
     id: row.id,
     number: row.number,
@@ -70,8 +74,9 @@ export class OrderRepository {
       .orderBy(orderAdjustments.sortOrder);
   }
 
+  /** 固定排序：事件的 lines 順序決定下游的行號，不能每次重送都不一樣。 */
   async linesFor(db: DrizzleDb | Tx, orderId: string): Promise<OrderLineRow[]> {
-    return db.select().from(orderLines).where(eq(orderLines.orderId, orderId));
+    return db.select().from(orderLines).where(eq(orderLines.orderId, orderId)).orderBy(orderLines.id);
   }
 
   async list(db: DrizzleDb, filter: { status?: string; customerEmail?: string; limit: number; offset: number }) {

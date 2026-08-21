@@ -67,6 +67,7 @@ export const createPromotionInput = z
   })
   .refine(endsAfterStarts, endsAfterStartsMessage);
 
+/** strict：`{"status":"disabled"}` 這種送錯欄位的請求要回 400，不能回 200 又什麼都沒改。 */
 export const updatePromotionInput = z
   .object({
     id: z.string().uuid(),
@@ -76,6 +77,7 @@ export const updatePromotionInput = z
     stackable: z.boolean().optional(),
     ...period,
   })
+  .strict()
   .refine(endsAfterStarts, endsAfterStartsMessage);
 
 export const setPromotionStatusInput = z.object({

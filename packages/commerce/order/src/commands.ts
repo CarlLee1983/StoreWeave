@@ -76,6 +76,7 @@ export function createPlaceOrderHandler(deps: OrderModuleDeps) {
         quantity: l.quantity,
       })),
       now: ctx.now,
+      logger: ctx.logger,
     });
     const discountByLine = new Map(pricing.lines.map((l) => [l.lineId, l.discountCents]));
     for (const line of lines) line.discountCents = discountByLine.get(line.id!) ?? 0;
@@ -159,8 +160,9 @@ export function createPayOrderHandler(deps: OrderModuleDeps) {
     const order = await repository.lockById(ctx.tx, input.orderId);
     if (!order) throw PlatformError.notFound('Order', input.orderId);
     const lineRows = await repository.linesFor(ctx.tx, order.id);
+    const adjustmentRows = await repository.adjustmentsFor(ctx.tx, order.id);
 
-    if (order.status === 'paid' || order.status === 'payment_processing') return toOrderDto(order, lineRows);
+    if (order.status === 'paid' || order.status === 'payment_processing') return toOrderDto(order, lineRows, adjustmentRows);
     if (order.status !== 'pending') {
       throw PlatformError.conflict(`Order ${order.number} cannot be paid (status=${order.status})`);
     }
@@ -170,7 +172,7 @@ export function createPayOrderHandler(deps: OrderModuleDeps) {
       .returning();
     const provider = deps.providers.get<PaymentProvider>('payment', input.provider);
     await ctx.enqueue({ type: PROCESS_PAYMENT_JOB, payload: { orderId: order.id, orderNumber: order.number, amountCents: order.totalCents, currency: order.currency, provider: provider.id }, dedupeKey: `order:pay:${order.id}` });
-    return toOrderDto(updated, lineRows);
+    return toOrderDto(updated, lineRows, adjustmentRows);
   };
 }
 
@@ -191,14 +193,15 @@ export function createExpireOrderHandler() {
     const order = await repository.lockById(ctx.tx, input.orderId);
     if (!order) throw PlatformError.notFound('Order', input.orderId);
     const lines = await repository.linesFor(ctx.tx, order.id);
-    if (order.status === 'expired') return toOrderDto(order, lines);
-    if (order.status === 'paid' || order.status === 'cancelled') return toOrderDto(order, lines);
+    const adjustments = await repository.adjustmentsFor(ctx.tx, order.id);
+    if (order.status === 'expired') return toOrderDto(order, lines, adjustments);
+    if (order.status === 'paid' || order.status === 'cancelled') return toOrderDto(order, lines, adjustments);
     if (!order.expiresAt || order.expiresAt.getTime() > ctx.now.getTime()) {
       throw PlatformError.conflict(`Order ${order.number} has not reached its payment deadline`);
     }
     for (const line of lines) await inventoryService.release(ctx, { productId: line.productId, quantity: line.quantity, reference: order.number });
     const [updated] = await ctx.tx.update(orders).set({ status: 'expired', updatedAt: ctx.now }).where(eq(orders.id, order.id)).returning();
-    return toOrderDto(updated, lines);
+    return toOrderDto(updated, lines, adjustments);
   };
 }
 
@@ -208,13 +211,14 @@ export function createMarkPaidHandler() {
     const order = await repository.lockById(ctx.tx, input.orderId);
     if (!order) throw PlatformError.notFound('Order', input.orderId);
     const lines = await repository.linesFor(ctx.tx, order.id);
-    if (order.status === 'paid') return toOrderDto(order, lines);
+    const adjustments = await repository.adjustmentsFor(ctx.tx, order.id);
+    if (order.status === 'paid') return toOrderDto(order, lines, adjustments);
     if (order.status !== 'payment_processing') throw PlatformError.conflict(`Order ${order.number} cannot be marked paid (status=${order.status})`);
     // 唯一鍵衝突必須使整筆交易回滾：同一 provider ref 絕不能支付兩張訂單。
     await ctx.tx.insert(orderPayments).values({ id: randomUUID(), orderId: order.id, provider: input.provider, providerRef: input.providerRef, amountCents: order.totalCents, status: 'succeeded', createdAt: ctx.now });
     for (const line of lines) await inventoryService.commitReservation(ctx, { productId: line.productId, quantity: line.quantity, reference: order.number });
     const [updated] = await ctx.tx.update(orders).set({ status: 'paid', paidAt: ctx.now, updatedAt: ctx.now }).where(eq(orders.id, order.id)).returning();
-    const dto = toOrderDto(updated, lines, await repository.adjustmentsFor(ctx.tx, order.id));
+    const dto = toOrderDto(updated, lines, adjustments);
     await ctx.publish({ name: orderPaidV1.name, payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency, totalCents: dto.totalCents, paidAt: dto.paidAt!, paymentProvider: input.provider, paymentRef: input.providerRef, lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents }) => ({ productId, sku, name, quantity, unitPriceCents, lineTotalCents })) } });
     await ctx.publish({
       name: orderPaidV2.name,
@@ -276,7 +280,8 @@ export function createCancelOrderHandler(_deps: OrderModuleDeps) {
     const order = await repository.lockById(ctx.tx, input.orderId);
     if (!order) throw PlatformError.notFound('Order', input.orderId);
     const lineRows = await repository.linesFor(ctx.tx, order.id);
-    if (order.status === 'cancelled') return toOrderDto(order, lineRows);
+    const adjustmentRows = await repository.adjustmentsFor(ctx.tx, order.id);
+    if (order.status === 'cancelled') return toOrderDto(order, lineRows, adjustmentRows);
     if (order.status !== 'pending') {
       throw PlatformError.conflict(`Order ${order.number} cannot be cancelled (status=${order.status})`);
     }
@@ -294,7 +299,7 @@ export function createCancelOrderHandler(_deps: OrderModuleDeps) {
       .where(eq(orders.id, order.id))
       .returning();
 
-    const dto = toOrderDto(updated, lineRows);
+    const dto = toOrderDto(updated, lineRows, adjustmentRows);
     await ctx.publish({
       name: orderCancelledV1.name,
       payload: {

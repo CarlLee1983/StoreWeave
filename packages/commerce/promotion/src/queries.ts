@@ -49,34 +49,35 @@ export const quoteQuery = defineQuery({
  * 與結帳走同一個定價引擎與同一份活動載入，差別只在這裡不寫入任何東西、
  * 不預留庫存、不鎖定任何額度——試算看到的金額因此就是實際會扣的金額。
  */
-export const quoteHandler = async (input: z.infer<typeof quoteInput>, ctx: QueryContext) => {
+export function createQuoteHandler(deps: { defaultCurrency: string }) {
+  return async (input: z.infer<typeof quoteInput>, ctx: QueryContext) => {
+  // 幣別的判斷必須與 placeOrder 逐字相同，否則會出現「試算得到、下單被擋」。
+  const currency = deps.defaultCurrency;
   const lines = [];
   for (const [index, line] of input.lines.entries()) {
     const product = await catalogService.requireActiveProduct(ctx.db, line.productId);
+    if (product.currency !== currency) {
+      throw PlatformError.validation(`Product ${product.sku} is priced in ${product.currency}, order is ${currency}`);
+    }
     lines.push({
       lineId: String(index),
       productId: product.id,
       sku: product.sku,
       name: product.name,
-      currency: product.currency,
       unitPriceCents: product.priceCents,
       quantity: line.quantity,
     });
   }
 
-  const currencies = new Set(lines.map((l) => l.currency));
-  if (currencies.size > 1) {
-    throw PlatformError.validation(`Cannot quote lines priced in different currencies: ${[...currencies].join(', ')}`);
-  }
-
   const pricing = await pricingService.quote(ctx.db, {
     lines: lines.map(({ lineId, productId, unitPriceCents, quantity }) => ({ lineId, productId, unitPriceCents, quantity })),
     now: ctx.now,
+    logger: ctx.logger,
   });
   const priced = new Map(pricing.lines.map((l) => [l.lineId, l]));
 
   return {
-    currency: lines[0].currency,
+    currency,
     subtotalCents: pricing.subtotalCents,
     discountCents: pricing.discountCents,
     shippingCents: pricing.shippingCents,
@@ -94,4 +95,5 @@ export const quoteHandler = async (input: z.infer<typeof quoteInput>, ctx: Query
       netCents: priced.get(line.lineId)!.netCents,
     })),
   };
-};
+  };
+}

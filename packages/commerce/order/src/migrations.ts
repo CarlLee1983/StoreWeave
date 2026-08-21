@@ -84,5 +84,18 @@ CREATE INDEX IF NOT EXISTS order_adjustments_order_idx ON order_adjustments (ord
 -- 行銷分析要問的是「這檔活動折掉了多少」。
 CREATE INDEX IF NOT EXISTS order_adjustments_source_idx ON order_adjustments (source, source_id);
 `),
+    sqlMigration('0005_total_matches_parts', 'expand', `
+-- 這批最重要的不變式：總額必須等於小計扣折扣再加運費與稅。
+UPDATE order_orders
+   SET total_cents = subtotal_cents - discount_cents + shipping_cents + tax_cents
+ WHERE total_cents <> subtotal_cents - discount_cents + shipping_cents + tax_cents;
+ALTER TABLE order_orders DROP CONSTRAINT IF EXISTS order_orders_total_matches_parts;
+ALTER TABLE order_orders ADD CONSTRAINT order_orders_total_matches_parts
+  CHECK (total_cents = subtotal_cents - discount_cents + shipping_cents + tax_cents);
+
+ALTER TABLE order_lines DROP CONSTRAINT IF EXISTS order_lines_discount_within_total;
+ALTER TABLE order_lines ADD CONSTRAINT order_lines_discount_within_total
+  CHECK (discount_cents <= line_total_cents);
+`),
   ],
 };

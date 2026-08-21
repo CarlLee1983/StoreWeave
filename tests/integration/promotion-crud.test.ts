@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { PlatformError } from '@storeweave/contracts';
-import { ADMIN_ACTOR, actorWith, createHarness, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, actorWith, createHarness, createProduct, type TestHarness } from './helpers';
 
 let h: TestHarness;
 beforeAll(async () => { h = await createHarness(); }, 300_000);
@@ -159,5 +160,47 @@ describe('促銷活動的建立與管理', () => {
   it('只有讀取權限的人建不了活動', async () => {
     await expect(create({ name: '越權建立', rule: fixedRule }, actorWith(['promotion:read'])))
       .rejects.toThrow(/Forbidden/);
+  });
+});
+
+describe('壞掉的活動資料不該讓整間店關門', () => {
+  it('規則參數不合法的活動被跳過，其他活動照常套用', async () => {
+    const good = await create({
+      name: '正常的九折',
+      rule: { type: 'order_percentage', percentOffBasisPoints: 1_000 },
+    });
+    // 直接寫進資料庫：模擬舊資料、手改、或退版後留下的形狀
+    const broken = randomUUID();
+    await h.runtime.database.db.execute(sql`
+      INSERT INTO promotion_promotions (id, name, status, rule_type, rule, priority, stackable)
+      VALUES (${broken}, '壞掉的活動', 'active', 'order_percentage', '{"percentOffBasisPoints": 0}'::jsonb, -100, true)
+    `);
+
+    const product = await createProduct(h.runtime, { sku: 'BROKEN-RULE', name: '定價測試', priceCents: 10_000 });
+    const quoted = await h.runtime.queries.execute<any>('commerce.promotion.quote',
+      { lines: [{ productId: product.id, quantity: 1 }] }, { actor: ADMIN_ACTOR });
+
+    expect(quoted.discountCents).toBe(1_000);
+    expect(quoted.adjustments.map((a: any) => a.sourceId)).toEqual([good.id]);
+
+    await h.runtime.database.db.execute(sql`DELETE FROM promotion_promotions WHERE id = ${broken}`);
+    await h.runtime.commands.execute('commerce.promotion.setPromotionStatus',
+      { id: good.id, status: 'disabled' }, { actor: ADMIN_ACTOR });
+  });
+});
+
+describe('PATCH 的未知欄位', () => {
+  it('送 status 給 updatePromotion 會被拒絕，而不是回 200 卻什麼都沒改', async () => {
+    const created = await create({ name: '不該用 PATCH 停用', rule: fixedRule });
+
+    await expect(h.runtime.commands.execute('commerce.promotion.updatePromotion',
+      { id: created.id, status: 'disabled' }, { actor: ADMIN_ACTOR })).rejects.toThrow();
+
+    const still = await h.runtime.queries.execute<any>('commerce.promotion.getPromotion',
+      { id: created.id }, { actor: ADMIN_ACTOR });
+    expect(still.status).toBe('active');
+
+    await h.runtime.commands.execute('commerce.promotion.setPromotionStatus',
+      { id: created.id, status: 'disabled' }, { actor: ADMIN_ACTOR });
   });
 });
