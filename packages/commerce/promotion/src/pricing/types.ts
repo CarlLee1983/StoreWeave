@@ -14,7 +14,15 @@ export interface PricingLineInput {
 }
 
 export type PromotionRule =
-  | { type: 'threshold_fixed_amount'; thresholdCents: number; discountCents: number };
+  | { type: 'threshold_fixed_amount'; thresholdCents: number; discountCents: number }
+  | {
+      type: 'threshold_percentage';
+      thresholdCents: number;
+      /** 1_000 = 折 10%。用基點是為了讓「打 99 折」這種小數不必存浮點數。 */
+      percentOffBasisPoints: number;
+      maxDiscountCents?: number | null;
+    }
+  | { type: 'order_percentage'; percentOffBasisPoints: number; maxDiscountCents?: number | null };
 
 export interface Promotion {
   id: string;

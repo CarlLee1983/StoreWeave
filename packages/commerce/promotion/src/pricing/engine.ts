@@ -32,16 +32,25 @@ export function calculatePricing(input: PricingInput): PricingResult {
   const adjustments: Adjustment[] = [];
   const appliedPromotions: AppliedPromotion[] = [];
   let discountCents = 0;
+  let exclusiveApplied = false;
 
   for (const promotion of inApplicationOrder(input.context.promotions)) {
     if (!isActive(promotion, input.now)) continue;
+    // 不可疊加的活動一旦套用，後續不可疊加的活動就出局；可疊加的活動不受影響。
+    if (!promotion.stackable && exclusiveApplied) continue;
 
-    const wanted = evaluateRule({ rule: promotion.rule, lines: input.lines, subtotalCents });
+    const wanted = evaluateRule({
+      rule: promotion.rule,
+      lines: input.lines,
+      subtotalCents,
+      remainingCents: subtotalCents - discountCents,
+    });
     // 折扣總額不得超過商品小計，否則會出現負數訂單。
     const granted = Math.min(wanted, subtotalCents - discountCents);
     if (granted <= 0) continue;
 
     discountCents += granted;
+    if (!promotion.stackable) exclusiveApplied = true;
     adjustments.push({
       source: 'promotion',
       sourceId: promotion.id,
