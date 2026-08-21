@@ -4,8 +4,8 @@ import { demoErpConfig, demoErpExtension, deliveryKey, type DeliveryRecord } fro
 
 const paidEvent = {
   id: '44444444-4444-4444-8444-444444444444',
-  name: 'commerce.order.paid.v1',
-  version: 1,
+  name: 'commerce.order.paid.v2',
+  version: 2,
   occurredAt: new Date(),
   actorId: 'user:1',
   correlationId: 'corr-1',
@@ -14,12 +14,17 @@ const paidEvent = {
     orderNumber: 'SW-1001',
     customerEmail: 'buyer@example.com',
     currency: 'TWD',
+    subtotalCents: 34_500,
+    discountCents: 0,
+    shippingCents: 0,
+    taxCents: 0,
     totalCents: 34_500,
+    adjustments: [],
     paidAt: new Date(),
     paymentProvider: 'mock-payment',
     paymentRef: 'mock_abc',
     lines: [
-      { productId: '33333333-3333-4333-8333-333333333333', sku: 'TEA-001', name: '高山烏龍', quantity: 3, unitPriceCents: 11_500, lineTotalCents: 34_500 },
+      { productId: '33333333-3333-4333-8333-333333333333', sku: 'TEA-001', name: '高山烏龍', quantity: 3, unitPriceCents: 11_500, lineTotalCents: 34_500, discountCents: 0, netCents: 34_500 },
     ],
   },
 };

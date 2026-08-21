@@ -15,9 +15,9 @@ import {
 /**
  * commerce.order.salesSummary 的現況迴歸網（工單 01）。
  *
- * 這支查詢在 Spec 0002 會改變語意（營收變成折扣後實收），在 Spec 0005 會搬到獨立的
- * Analytics 頁。它目前沒有任何測試，因此這個檔案的目的是把「現在的行為」釘住 ——
- * 包含幾個不直覺但確實成立的行為，那些正是遷移時最容易無聲改壞的地方。
+ * 這支查詢在 Spec 0005 會搬到獨立的 Analytics 頁。它原本沒有任何測試，因此這個檔案
+ * 的目的是把行為釘住 —— 包含幾個不直覺但確實成立的行為，那些正是遷移時最容易無聲
+ * 改壞的地方。營收語意已於工單 23 改為折扣後實收，見檔案末段。
  */
 
 let h: TestHarness;
@@ -221,5 +221,30 @@ describe('commerce.order.salesSummary 的現況', () => {
   it('需要 analytics:read 權限', async () => {
     await expect(summary({}, actorWith(['order:read']))).rejects.toThrow();
     await expect(summary({}, actorWith(['analytics:read']))).resolves.toBeTruthy();
+  });
+});
+
+describe('營收是折扣後的實收（工單 23）', () => {
+  it('有活動時，總營收與熱銷商品的營收都扣掉折扣', async () => {
+    const promotion = await h.runtime.commands.execute<any>('commerce.promotion.createPromotion',
+      { name: '營收語意用滿千折百', rule: { type: 'threshold_fixed_amount', thresholdCents: 100_000, discountCents: 10_000 } },
+      { actor: ADMIN_ACTOR });
+
+    const product = await createProduct(h.runtime, { sku: 'REVENUE-NET', name: '折扣後實收', priceCents: 100_000 });
+    await stockUp(h.runtime, product.id, 5);
+    const order = await placeOrder(h.runtime, product.id, 2);
+    expect(order.discountCents).toBe(10_000);
+    await payOrder(h.runtime, order.id);
+    await settlePayment(order.id);
+
+    const result = await summary({ from: '2000-01-01T00:00:00.000Z' });
+    const top = result.topProducts.find((p: any) => p.sku === 'REVENUE-NET');
+
+    // 牌價 200_000，折 10_000，實收 190_000
+    expect(top.revenueCents).toBe(190_000);
+    expect(result.grossRevenueCents).toBeGreaterThanOrEqual(190_000);
+
+    await h.runtime.commands.execute('commerce.promotion.setPromotionStatus',
+      { id: promotion.id, status: 'disabled' }, { actor: ADMIN_ACTOR });
   });
 });

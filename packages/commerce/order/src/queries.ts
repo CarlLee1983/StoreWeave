@@ -80,12 +80,13 @@ export const salesSummaryHandler = async (
   const top = await ctx.db.execute<{ product_id: string; sku: string; name: string; quantity: string; revenue: string }>(sql`
     SELECT l.product_id, l.sku, min(l.name) AS name,
            sum(l.quantity)::text AS quantity,
-           sum(l.line_total_cents)::text AS revenue
+           -- 營收是折扣分攤後的實收，不是牌價；否則報表會比實際入帳虛胖。
+           sum(l.line_total_cents - l.discount_cents)::text AS revenue
     FROM order_lines l
     JOIN order_orders o ON o.id = l.order_id
     WHERE o.status = 'paid' ${fromClause} ${toClause}
     GROUP BY l.product_id, l.sku
-    ORDER BY sum(l.line_total_cents) DESC
+    ORDER BY sum(l.line_total_cents - l.discount_cents) DESC
     LIMIT 10
   `);
 

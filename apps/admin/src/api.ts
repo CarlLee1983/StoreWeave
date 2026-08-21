@@ -28,6 +28,15 @@ export type OrderLine = {
   unitPriceCents: number;
   quantity: number;
   lineTotalCents: number;
+  discountCents: number;
+};
+
+export type OrderAdjustment = {
+  source: 'promotion';
+  sourceId: string;
+  name: string;
+  /** 折扣為負數。 */
+  amountCents: number;
 };
 
 export type Order = {
@@ -37,8 +46,12 @@ export type Order = {
   currency: string;
   customerEmail: string;
   subtotalCents: number;
+  discountCents: number;
+  shippingCents: number;
+  taxCents: number;
   totalCents: number;
   lines: OrderLine[];
+  adjustments: OrderAdjustment[];
   placedAt: string;
   paidAt: string | null;
   cancelledAt: string | null;

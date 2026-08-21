@@ -148,6 +148,7 @@ function OrderRow({
                   <tr>
                     <th>SKU</th>
                     <th>{t('name')}</th><th>{t('unitPrice')}</th><th>{t('quantity')}</th><th>{t('subtotal')}</th>
+                    <th>{t('discount')}</th><th>{t('netAmount')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -158,10 +159,25 @@ function OrderRow({
                       <td>{formatMoney(line.unitPriceCents, order.currency)}</td>
                       <td>{line.quantity}</td>
                       <td>{formatMoney(line.lineTotalCents, order.currency)}</td>
+                      <td className="mono">{line.discountCents > 0 ? `-${formatMoney(line.discountCents, order.currency)}` : '—'}</td>
+                      <td className="mono">{formatMoney(line.lineTotalCents - line.discountCents, order.currency)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+
+              <dl className="order-totals">
+                <dt>{t('subtotal')}</dt>
+                <dd className="mono">{formatMoney(order.subtotalCents, order.currency)}</dd>
+                {order.adjustments.map((adjustment) => (
+                  <div key={`${adjustment.sourceId}-${adjustment.name}`}>
+                    <dt>{adjustment.name}</dt>
+                    <dd className="mono">{formatMoney(adjustment.amountCents, order.currency)}</dd>
+                  </div>
+                ))}
+                <dt>{t('total')}</dt>
+                <dd className="mono">{formatMoney(order.totalCents, order.currency)}</dd>
+              </dl>
 
               {(order.status === 'pending' || order.status === 'payment_processing') && (
                 <div className="inline-form">

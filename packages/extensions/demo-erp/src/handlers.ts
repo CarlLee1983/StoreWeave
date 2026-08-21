@@ -10,7 +10,7 @@ import { toErpDocument, toErpHttpPayload, type PaidOrderEventPayload } from './t
 const pushJobPayload = z.object({ orderId: z.string().uuid() });
 
 /**
- * 訂閱 `commerce.order.paid.v1`。
+ * 訂閱 `commerce.order.paid.v2`。
  * 這裡只做「記錄 + 排入背景工作」；實際外部呼叫在工作裡，
  * 因此 ERP 掛掉不會影響核心訂單交易。
  */

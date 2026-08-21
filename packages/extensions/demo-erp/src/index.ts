@@ -14,7 +14,7 @@ export const demoErpExtension = defineExtension<DemoErpConfig>({
     name: 'Demo ERP Integration',
     version: '1.0.0',
     platformVersion: '^1.0.0',
-    description: '訂閱 commerce.order.paid.v1，轉成 ERP 單據後以背景工作可靠送出。',
+    description: '訂閱 commerce.order.paid.v2，轉成 ERP 單據後以背景工作可靠送出。',
     permissions: ['order:read', 'erp:read', 'erp:write'],
     declaredPermissions: [
       { key: 'erp:read', description: '讀取 ERP 投遞狀態' },
@@ -22,7 +22,7 @@ export const demoErpExtension = defineExtension<DemoErpConfig>({
     ],
     requiredSecrets: [DEMO_ERP_API_KEY],
     configuration: demoErpConfig,
-    subscribedEvents: ['commerce.order.paid.v1'],
+    subscribedEvents: ['commerce.order.paid.v2'],
     registeredCommands: [resendOrderCommand.name],
     registeredQueries: [listDeliveriesQuery.name, inspectDeliveryPayloadQuery.name],
     registeredProviders: [{ kind: 'erp', id: 'demo-erp', isDefault: true }],
@@ -30,7 +30,7 @@ export const demoErpExtension = defineExtension<DemoErpConfig>({
   setup(ctx) {
     return {
       providers: [createDemoErpProvider(ctx)],
-      events: [{ event: 'commerce.order.paid.v1', handler: createOrderPaidHandler(), maxAttempts: 8 }],
+      events: [{ event: 'commerce.order.paid.v2', handler: createOrderPaidHandler(), maxAttempts: 8 }],
       jobs: [{ type: PUSH_ORDER_JOB, handler: createPushOrderJob() }],
       commands: [{ descriptor: resendOrderCommand, handler: createResendHandler() }],
       queries: [
