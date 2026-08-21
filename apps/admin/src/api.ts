@@ -45,6 +45,24 @@ export type Order = {
   expiresAt: string | null;
 };
 
+export type PromotionRule =
+  | { type: 'threshold_fixed_amount'; thresholdCents: number; discountCents: number }
+  | { type: 'threshold_percentage'; thresholdCents: number; percentOffBasisPoints: number; maxDiscountCents?: number | null }
+  | { type: 'order_percentage'; percentOffBasisPoints: number; maxDiscountCents?: number | null };
+
+export type Promotion = {
+  id: string;
+  name: string;
+  status: 'active' | 'disabled';
+  rule: PromotionRule;
+  priority: number;
+  stackable: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type SalesSummary = {
   currency: string;
   paidOrderCount: number;
@@ -275,6 +293,26 @@ export const api = {
     return request<Order>(`/api/v1/orders/${id}/cancel`, {
       method: 'POST',
       body: { reason },
+      idempotent: true,
+    });
+  },
+  listPromotions(params: { status?: string; activeAt?: string; limit?: number; offset?: number }) {
+    return request<Paged<Promotion>>(`/api/v1/promotions${toQuery(params)}`);
+  },
+  createPromotion(body: {
+    name: string;
+    rule: PromotionRule;
+    priority: number;
+    stackable: boolean;
+    startsAt?: string;
+    endsAt?: string;
+  }) {
+    return request<Promotion>('/api/v1/promotions', { method: 'POST', body, idempotent: true });
+  },
+  setPromotionStatus(id: string, status: Promotion['status']) {
+    return request<Promotion>(`/api/v1/promotions/${id}/status`, {
+      method: 'POST',
+      body: { status },
       idempotent: true,
     });
   },

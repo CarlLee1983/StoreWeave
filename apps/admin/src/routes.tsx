@@ -5,6 +5,7 @@ import type { MessageKey } from './i18n';
 import type { IconName } from './components/Icon';
 import { ProductsPage } from './pages/ProductsPage';
 import { OrdersPage } from './pages/OrdersPage';
+import { PromotionsPage } from './pages/PromotionsPage';
 import { ErpPage } from './pages/ErpPage';
 import { SystemPage } from './pages/SystemPage';
 import { DlqPage } from './pages/DlqPage';
@@ -56,6 +57,16 @@ const ENTRIES = [
     subtitle: 'productsSubtitle',
     action: { label: 'createProduct', targetId: 'create-product' },
     render: () => <ProductsPage />,
+  },
+  {
+    path: 'promotions',
+    navLabel: 'promotions',
+    icon: 'box',
+    section: 'commerce',
+    title: 'promotionsTitle',
+    subtitle: 'promotionsSubtitle',
+    action: { label: 'createPromotion', targetId: 'create-promotion' },
+    render: () => <PromotionsPage />,
   },
   {
     path: 'erp',
