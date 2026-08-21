@@ -190,8 +190,13 @@ async function request<T>(
 
   const json: unknown = await res.json().catch(() => null);
 
-  // 健康端點是給負載平衡器與監控用的，回的是原始物件而不是 API 信封
+  // 健康端點回的是原始物件而不是 API 信封，但失敗時仍會回信封（例如 session 過期的 401），
+  // 所以這裡必須看狀態碼——否則錯誤信封會被當成健康報告傳下去，畫面在 render 時才炸。
   if (raw) {
+    if (!res.ok) {
+      const error = isEnvelope(json) && !json.success ? json.error : null;
+      throw new ApiError(error?.code ?? 'UNKNOWN_ERROR', error?.message ?? `HTTP ${res.status}`);
+    }
     if (json === null) {
       throw new ApiError('UNKNOWN_ERROR', `無法解析伺服器回應（HTTP ${res.status}）`);
     }

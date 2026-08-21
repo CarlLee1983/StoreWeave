@@ -86,3 +86,14 @@ handler（認證不是 Command 這條被推翻），
   所以實際影響接近零，但這是刻意放寬的一層。
 - `http.trustProxy` 目前預設 false，`request.ip` 可信。日後若開啟而反向代理沒有清掉
   `X-Forwarded-For`，來源 IP 可偽造，兩層節流會同時失效。
+- 節流條件裡的路由常數（`apps/api/src/server.ts` 的 `LOGIN_ROUTE`）與實際路由字串
+  （`@Controller('api/v1/auth')` + `@Post('login')`）分處兩地，型別上不相依。
+  日後改動控制器路徑或加上 global prefix，節流會**靜默地失效**而不是報錯。
+  目前唯一的守護是整合測試裡那條 429 斷言。
+- `/health/dependencies` 只要求「已通過驗證」，沒有再要求任何 permission，
+  因此 readonly 與 mcp 角色的 token 也讀得到 provider / extension 的例外訊息與 worker id。
+  以維運視圖來說可接受，但這是一個刻意的鬆綁。
+- scrypt 的成本白名單雖然收緊到 `N<=65536, r<=8, p=1`，合法範圍的上緣仍比實際使用的
+  參數重數倍。另一個方向的副作用是：把 `COST.N` **調低**到 16384 以下會讓既有雜湊
+  全部落在範圍外而被判定為密碼錯誤——降低成本是破壞性變更，只有調高是安全的。
+- 密碼只有 12 字元下限，沒有上限、也沒有弱密碼字典檢查；session 沒有單一使用者的併發數上限。

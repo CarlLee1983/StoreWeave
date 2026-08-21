@@ -29,7 +29,7 @@ export default defineConfig({
         plugins: [tsconfigPaths()],
         test: {
           name: 'admin',
-          include: ['apps/admin/**/*.test.tsx'],
+          include: ['apps/admin/**/*.test.ts', 'apps/admin/**/*.test.tsx'],
           environment: 'jsdom',
           setupFiles: ['apps/admin/vitest.setup.ts'],
         },

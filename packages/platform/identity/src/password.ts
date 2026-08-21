@@ -28,10 +28,12 @@ export async function hashPassword(plain: string): Promise<string> {
 }
 
 function isCostInRange(N: number, r: number, p: number): boolean {
+  // 上界貼著實際會用到的參數。放寬到 N=262144,r=16,p=4 時單次驗證要 4.5 秒與約 512MB，
+  // 那是拿到資料庫寫入權限後的 DoS 放大器，而我們從來不需要那組值。
   return (
-    Number.isInteger(N) && N >= 16384 && N <= 262144 && (N & (N - 1)) === 0 &&
-    Number.isInteger(r) && r >= 1 && r <= 16 &&
-    Number.isInteger(p) && p >= 1 && p <= 4
+    Number.isInteger(N) && N >= 16384 && N <= 65536 && (N & (N - 1)) === 0 &&
+    Number.isInteger(r) && r >= 1 && r <= 8 &&
+    p === 1
   );
 }
 
@@ -54,9 +56,11 @@ export async function verifyPassword(plain: string, stored: string): Promise<boo
   try {
     const actual = await scrypt(plain, salt, KEY_BYTES, { N, r, p, maxmem: maxmemFor(N, r) });
     return timingSafeEqual(actual, expected);
-  } catch {
-    // 壞掉的雜湊是驗證失敗，不是伺服器錯誤——否則登入端點會回 500 而不是 401。
-    return false;
+  } catch (err) {
+    // 儲存的雜湊壞掉是驗證失敗，不是伺服器錯誤——否則登入端點會回 500 而不是 401。
+    // 但記憶體不足這類暫時性失敗必須往上拋：把它當成密碼錯誤會讓故障完全無聲。
+    if ((err as NodeJS.ErrnoException).code === 'ERR_CRYPTO_INVALID_SCRYPT_PARAMS') return false;
+    throw err;
   }
 }
 
