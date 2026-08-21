@@ -1,14 +1,13 @@
 // 極簡 hash router：只解析 #/xxx 的第一段路徑，不做巢狀或參數比對。
+// 有哪些路由由 routes.tsx 的路由表決定。
 import { useEffect, useState } from 'react';
+import { DEFAULT_ROUTE, isRoute, type Route } from './routes';
 
-export type Route = 'products' | 'orders' | 'erp' | 'system' | 'dlq';
-
-const ROUTES: Route[] = ['products', 'orders', 'erp', 'system', 'dlq'];
-const DEFAULT_ROUTE: Route = 'products';
+export type { Route };
 
 function parseHash(): Route {
   const raw = window.location.hash.replace(/^#\/?/, '');
-  return (ROUTES as string[]).includes(raw) ? (raw as Route) : DEFAULT_ROUTE;
+  return isRoute(raw) ? raw : DEFAULT_ROUTE;
 }
 
 /** 目前的 hash 路由，並在 hash 變動時自動更新 */

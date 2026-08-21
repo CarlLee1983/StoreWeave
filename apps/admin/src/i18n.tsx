@@ -20,7 +20,7 @@ const zhTW = {
   loginTitle: '登入 StoreWeave', loginSubtitle: '請使用你的帳號密碼登入後台', email: '電子郵件', password: '密碼', login: '登入', loggingIn: '登入中…', logout: '登出',
 } as const;
 
-type MessageKey = keyof typeof zhTW;
+export type MessageKey = keyof typeof zhTW;
 type Messages = Record<MessageKey, string>;
 
 const enUS: Messages = {
