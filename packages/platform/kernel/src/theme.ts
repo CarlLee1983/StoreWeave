@@ -36,6 +36,18 @@ export interface ThemeOrderSummaryView {
   lineCount: number;
 }
 
+export interface ThemeAccountProfileView {
+  displayName: string;
+  phone: string | null;
+  /** 已設定的生日不能自己改，畫面要說得出為什麼。 */
+  birthday: string | null;
+  address: {
+    recipient: string; phone: string; postcode: string; city: string; line1: string; line2: string | null;
+  } | null;
+  saved?: boolean;
+  error?: string;
+}
+
 export interface ThemeAuthView {
   mode: 'login' | 'register';
   /** 完成後要回到哪裡。只接受站內路徑。 */
@@ -77,4 +89,6 @@ export interface StorefrontTheme {
   renderAuth(ctx: ThemeContext, data: ThemeAuthView): string;
   /** 會員中心的訂單清單。 */
   renderAccountOrders(ctx: ThemeContext, data: ThemeAccountOrdersView): string;
+  /** 會員中心的個人資料與收件地址。 */
+  renderAccountProfile(ctx: ThemeContext, data: ThemeAccountProfileView): string;
 }

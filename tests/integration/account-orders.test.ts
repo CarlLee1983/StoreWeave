@@ -103,3 +103,35 @@ describe('我的訂單', () => {
     expect(second.statusCode).toBe(200);
   });
 });
+
+describe('個人資料頁', () => {
+  it('未登入被導去登入', async () => {
+    const res = await inject({ method: 'GET', url: '/account/profile' });
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe(`/login?next=${encodeURIComponent('/account/profile')}`);
+  });
+
+  it('存得起來，而且重新載入還在', async () => {
+    const session = await signUp('profile-page@example.com');
+    const page = await inject({ method: 'GET', url: '/account/profile', cookies: { [SESSION_COOKIE]: session } });
+    const csrf = /name="_csrf" value="([^"]+)"/.exec(page.body)![1];
+
+    const saved = await inject({
+      method: 'POST', url: '/account/profile',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      cookies: { [SESSION_COOKIE]: session },
+      payload: `displayName=${encodeURIComponent('小美')}&phone=0911222333&birthday=1992-03-04`
+        + `&recipient=${encodeURIComponent('小美')}&addressPhone=0911222333&postcode=100&city=${encodeURIComponent('台北市')}`
+        + `&line1=${encodeURIComponent('中正區重慶南路一段 1 號')}&line2=&_csrf=${encodeURIComponent(csrf)}`,
+    });
+
+    expect(saved.statusCode).toBe(200);
+    expect(saved.body).toContain('已儲存');
+
+    const again = await inject({ method: 'GET', url: '/account/profile', cookies: { [SESSION_COOKIE]: session } });
+    expect(again.body).toContain('小美');
+    expect(again.body).toContain('中正區重慶南路一段 1 號');
+    // 生日設定後不能自己改：欄位變成唯讀
+    expect(again.body).toContain('生日設定後不能自行修改');
+  });
+});

@@ -28,7 +28,7 @@ function accountNav(ctx: ThemeContext): string {
   if (!ctx.customerName) {
     return `<a href="/login">登入</a> · <a href="/register">註冊</a>`;
   }
-  return `<a href="/account/orders">我的訂單</a> · <span class="muted">${escapeHtml(ctx.customerName)}</span>
+  return `<a href="/account/orders">我的訂單</a> · <a href="/account/profile">個人資料</a> · <span class="muted">${escapeHtml(ctx.customerName)}</span>
     <form method="post" action="/logout" class="inline">
       <button type="submit" class="linklike">登出</button>
     </form>`;

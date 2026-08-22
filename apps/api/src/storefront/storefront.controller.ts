@@ -116,6 +116,66 @@ export class StorefrontController {
     }
   }
 
+  @Get('account/profile')
+  async profilePage(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    const actor = actorOf(req);
+    if (actor.type !== 'customer') {
+      void reply.status(303).header('location', `/login?next=${encodeURIComponent('/account/profile')}`).send();
+      return;
+    }
+    await this.renderProfile(req, reply, {});
+  }
+
+  @Post('account/profile')
+  async saveProfile(@Req() req: AuthenticatedRequest, @Body() body: Record<string, string>, @Res() reply: FastifyReply) {
+    const actor = actorOf(req);
+    if (actor.type !== 'customer') {
+      void reply.status(303).header('location', `/login?next=${encodeURIComponent('/account/profile')}`).send();
+      return;
+    }
+
+    const address = body.line1?.trim()
+      ? {
+          recipient: body.recipient ?? '',
+          phone: body.addressPhone ?? '',
+          postcode: body.postcode ?? '',
+          city: body.city ?? '',
+          line1: body.line1,
+          line2: body.line2?.trim() ? body.line2 : null,
+        }
+      : undefined;
+
+    try {
+      await this.runtime.commands.execute('commerce.customer.updateMyProfile', {
+        displayName: body.displayName || undefined,
+        phone: body.phone?.trim() ? body.phone : undefined,
+        birthday: body.birthday?.trim() ? body.birthday : undefined,
+        address,
+      }, { actor, channel: 'rest' });
+      await this.renderProfile(req, reply, { saved: true });
+    } catch (err) {
+      const message = err instanceof PlatformError && err.httpStatus < 500 ? err.message : '儲存失敗，請稍後再試。';
+      await this.renderProfile(req, reply, { error: message });
+    }
+  }
+
+  private async renderProfile(
+    req: AuthenticatedRequest,
+    reply: FastifyReply,
+    extra: { saved?: boolean; error?: string },
+  ) {
+    const profile = await this.runtime.queries.execute<any>(
+      'commerce.customer.getMyProfile', {}, { actor: actorOf(req), channel: 'rest' },
+    );
+    this.html(reply, 200, this.theme.renderAccountProfile(this.themeContext(req), {
+      displayName: profile.displayName,
+      phone: profile.phone,
+      birthday: profile.birthday,
+      address: profile.address,
+      ...extra,
+    }));
+  }
+
   @Get('orders/:number')
   async order(@Req() req: AuthenticatedRequest, @Param('number') number: string, @Res() reply: FastifyReply) {
     const actor = actorOf(req);

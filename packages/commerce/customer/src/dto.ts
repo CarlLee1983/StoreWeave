@@ -1,11 +1,24 @@
 import { z } from 'zod';
 
+export const addressDto = z.object({
+  recipient: z.string().min(1).max(120),
+  phone: z.string().min(1).max(40),
+  postcode: z.string().min(1).max(20),
+  city: z.string().min(1).max(80),
+  line1: z.string().min(1).max(200),
+  line2: z.string().max(200).nullable().default(null),
+});
+
+/** 生日只存日期，不存時刻——它是禮券的依據，不是時間戳。 */
+const birthday = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'birthday must be YYYY-MM-DD');
+
 export const customerDto = z.object({
   id: z.string().uuid(),
   accountId: z.string().uuid(),
   displayName: z.string(),
   birthday: z.string().nullable(),
   phone: z.string().nullable(),
+  address: addressDto.nullable(),
   status: z.enum(['active', 'disabled']),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
@@ -26,4 +39,16 @@ export const registerCustomerOutput = z.object({
   customer: customerDto,
   accountId: z.string().uuid(),
   email: z.string().email(),
+});
+
+export const updateMyProfileInput = z.object({
+  displayName: z.string().min(1).max(120).optional(),
+  phone: z.string().min(1).max(40).optional(),
+  birthday: birthday.optional(),
+  address: addressDto.optional(),
+}).strict();
+
+export const setCustomerBirthdayInput = z.object({
+  customerId: z.string().uuid(),
+  birthday,
 });

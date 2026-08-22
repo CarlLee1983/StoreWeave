@@ -113,6 +113,37 @@ export const defaultTheme: StorefrontTheme = {
     return layout({ title: '我的訂單', body, ctx });
   },
 
+  renderAccountProfile(ctx, { displayName, phone, birthday, address, saved, error }) {
+    const field = (label: string, name: string, value: string | null, extra = '') =>
+      `<label>${label}<input name="${name}" value="${escapeHtml(value ?? '')}" ${extra}></label>`;
+    const body = `
+      <h1>個人資料</h1>
+      ${saved ? '<p class="muted">已儲存。</p>' : ''}
+      ${error ? `<div class="error"><p>${escapeHtml(error)}</p></div>` : ''}
+      <form method="post" action="/account/profile">
+        ${csrfField(ctx)}
+        ${field('顯示名稱', 'displayName', displayName, 'required maxlength="120"')}
+        ${field('聯絡電話', 'phone', phone, 'maxlength="40"')}
+        ${birthday
+          ? `<label>生日<input value="${escapeHtml(birthday)}" disabled></label>
+             <p class="muted">生日設定後不能自行修改，需要更正請聯絡客服。</p>`
+          : `<label>生日<input type="date" name="birthday"></label>
+             <p class="muted">生日只能設定一次，之後要更正需要聯絡客服。</p>`}
+        <fieldset>
+          <legend>收件地址</legend>
+          ${field('收件人', 'recipient', address?.recipient ?? null, 'maxlength="120"')}
+          ${field('收件電話', 'addressPhone', address?.phone ?? null, 'maxlength="40"')}
+          ${field('郵遞區號', 'postcode', address?.postcode ?? null, 'maxlength="20"')}
+          ${field('縣市', 'city', address?.city ?? null, 'maxlength="80"')}
+          ${field('地址', 'line1', address?.line1 ?? null, 'maxlength="200"')}
+          ${field('地址第二行', 'line2', address?.line2 ?? null, 'maxlength="200"')}
+        </fieldset>
+        <button type="submit">儲存</button>
+      </form>
+      <p><a href="/account/orders">我的訂單</a></p>`;
+    return layout({ title: '個人資料', body, ctx });
+  },
+
   renderAuth(ctx, { mode, next, error }) {
     const login = mode === 'login';
     const body = `

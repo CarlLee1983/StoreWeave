@@ -1,7 +1,7 @@
 /** MVP 的角色→權限映射，由設定檔的 API token 指向角色。 */
 export const BUILT_IN_ROLES: Record<string, readonly string[]> = {
   admin: ['*'],
-  staff: ['catalog:read', 'catalog:write', 'inventory:read', 'inventory:write', 'order:read', 'order:write', 'promotion:read', 'promotion:write', 'promotion:quote', 'erp:read', 'erp:write'],
+  staff: ['catalog:read', 'catalog:write', 'inventory:read', 'inventory:write', 'order:read', 'order:write', 'promotion:read', 'promotion:write', 'promotion:quote', 'customers:manage', 'erp:read', 'erp:write'],
   readonly: ['catalog:read', 'inventory:read', 'order:read', 'promotion:read', 'erp:read'],
   mcp: ['catalog:read', 'inventory:read', 'inventory:write', 'order:read', 'analytics:read'],
   // 匿名訪客。刻意沒有 order:read：無範圍的訂單讀取等於任何人猜到訂單號就能讀別人的

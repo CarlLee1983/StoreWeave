@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Inject, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Patch, Post, Req, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { BusController } from './base';
 import { ok } from '../http/envelope';
@@ -52,5 +52,15 @@ export class CustomerController extends BusController {
       email: registered.email,
       displayName: registered.customer.displayName,
     });
+  }
+
+  @Get('me')
+  async me(@Req() req: AuthenticatedRequest) {
+    return ok(await this.query(req, 'commerce.customer.getMyProfile', {}));
+  }
+
+  @Patch('me')
+  async updateMe(@Req() req: AuthenticatedRequest, @Body() body: unknown) {
+    return ok(await this.command(req, 'commerce.customer.updateMyProfile', body));
   }
 }

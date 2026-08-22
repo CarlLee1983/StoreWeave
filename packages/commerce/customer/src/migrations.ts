@@ -15,5 +15,13 @@ CREATE TABLE IF NOT EXISTS customer_customers (
   updated_at   timestamptz NOT NULL DEFAULT now()
 );
 `),
+    sqlMigration('0002_shipping_address', 'expand', `
+ALTER TABLE customer_customers ADD COLUMN IF NOT EXISTS address_recipient text;
+ALTER TABLE customer_customers ADD COLUMN IF NOT EXISTS address_phone text;
+ALTER TABLE customer_customers ADD COLUMN IF NOT EXISTS address_postcode text;
+ALTER TABLE customer_customers ADD COLUMN IF NOT EXISTS address_city text;
+ALTER TABLE customer_customers ADD COLUMN IF NOT EXISTS address_line1 text;
+ALTER TABLE customer_customers ADD COLUMN IF NOT EXISTS address_line2 text;
+`),
   ],
 };

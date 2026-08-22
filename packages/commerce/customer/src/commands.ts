@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { defineCommand, type CommandContext } from '@storeweave/contracts';
+import { PlatformError, defineCommand, type CommandContext } from '@storeweave/contracts';
 import { CUSTOMER_ROLE, accountService } from '@storeweave/identity';
-import { registerCustomerInput, registerCustomerOutput } from './dto';
+import { customerDto, registerCustomerInput, registerCustomerOutput, setCustomerBirthdayInput, updateMyProfileInput } from './dto';
 import { CustomerRepository, toCustomerDto } from './repository';
+import { customerService } from './service';
 
 const repository = new CustomerRepository();
 
@@ -47,4 +48,76 @@ export const registerCustomerHandler = async (
   });
 
   return { customer: toCustomerDto(row), accountId: account.id, email: account.email };
+};
+
+export const updateMyProfileCommand = defineCommand({
+  name: 'commerce.customer.updateMyProfile',
+  summary: '維護自己的個人資料與收件地址',
+  input: updateMyProfileInput,
+  output: customerDto,
+  permission: 'customer:write',
+  idempotency: 'optional',
+  audit: {
+    action: 'customer.profile-updated',
+    resourceType: 'customer',
+    resourceId: (_i, o: z.infer<typeof customerDto>) => o.id,
+    // 只記「改了哪些欄位」，不記內容：電話與地址是個資，稽核紀錄不該變成第二份個資庫。
+    redact: (i: z.infer<typeof updateMyProfileInput>) => ({ fields: Object.keys(i).sort() }),
+  },
+});
+
+export const updateMyProfileHandler = async (
+  input: z.infer<typeof updateMyProfileInput>,
+  ctx: CommandContext,
+) => {
+  const me = await customerService.requireByActor(ctx.tx, ctx.actor);
+  const current = await repository.findById(ctx.tx, me.customerId);
+  if (!current) throw PlatformError.notFound('Customer', me.customerId);
+
+  if (input.birthday !== undefined && current.birthday !== null && current.birthday !== input.birthday) {
+    // 生日是生日禮券的依據。放任自行修改等於讓人每個月換一次生日領一次券。
+    throw PlatformError.validation('birthday can only be set once; contact support to correct it');
+  }
+
+  const row = await repository.update(ctx.tx, me.customerId, {
+    ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
+    ...(input.phone === undefined ? {} : { phone: input.phone }),
+    ...(input.birthday === undefined ? {} : { birthday: input.birthday }),
+    ...(input.address === undefined ? {} : {
+      addressRecipient: input.address.recipient,
+      addressPhone: input.address.phone,
+      addressPostcode: input.address.postcode,
+      addressCity: input.address.city,
+      addressLine1: input.address.line1,
+      addressLine2: input.address.line2,
+    }),
+    updatedAt: ctx.now,
+  });
+  if (!row) throw PlatformError.notFound('Customer', me.customerId);
+  return toCustomerDto(row);
+};
+
+export const setCustomerBirthdayCommand = defineCommand({
+  name: 'commerce.customer.setCustomerBirthday',
+  summary: '客服代為修正會員生日',
+  input: setCustomerBirthdayInput,
+  output: customerDto,
+  // 顧客自己沒有這個權限：這正是「要改得找客服」的實作方式。
+  permission: 'customers:manage',
+  idempotency: 'optional',
+  audit: {
+    action: 'customer.birthday-corrected',
+    resourceType: 'customer',
+    resourceId: (i: z.infer<typeof setCustomerBirthdayInput>) => i.customerId,
+    redact: () => ({}),
+  },
+});
+
+export const setCustomerBirthdayHandler = async (
+  input: z.infer<typeof setCustomerBirthdayInput>,
+  ctx: CommandContext,
+) => {
+  const row = await repository.update(ctx.tx, input.customerId, { birthday: input.birthday, updatedAt: ctx.now });
+  if (!row) throw PlatformError.notFound('Customer', input.customerId);
+  return toCustomerDto(row);
 };
