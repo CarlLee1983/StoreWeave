@@ -81,6 +81,10 @@ export class StorefrontController {
   @Get('orders/:number')
   async order(@Req() req: AuthenticatedRequest, @Param('number') number: string, @Res() reply: FastifyReply) {
     const actor = actorOf(req);
+    if (actor.type !== 'customer') {
+      void reply.status(303).header('location', `/login?next=${encodeURIComponent(`/orders/${number}`)}`).send();
+      return;
+    }
     try {
       const order = await this.runtime.queries.execute<any>(
         'commerce.order.getOrder', { number }, { actor, channel: 'rest' },

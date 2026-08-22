@@ -5,6 +5,7 @@ import {
   getOrderInput, listOrdersInput, listOrdersOutput, orderDto,
   salesSummaryInput, salesSummaryOutput,
 } from './dto';
+import { customerService } from '@storeweave/customer';
 import { OrderRepository, toOrderDto } from './repository';
 
 const repository = new OrderRepository();
@@ -17,11 +18,24 @@ export const getOrderQuery = defineQuery({
   permission: 'order:read',
 });
 
+/**
+ * 「只能看自己的」由 query handler 依 actor 過濾，不進授權層——授權層維持只比對
+ * 權限字串（Spec 0001）。顧客身分一律加上自己的條件，後台角色不加。
+ */
+async function scopedCustomerId(ctx: QueryContext): Promise<string | null> {
+  if (ctx.actor.type !== 'customer') return null;
+  return (await customerService.requireByActor(ctx.db, ctx.actor)).customerId;
+}
+
 export const getOrderHandler = async (input: z.infer<typeof getOrderInput>, ctx: QueryContext) => {
+  const customerId = await scopedCustomerId(ctx);
   const row = input.id
     ? await repository.findById(ctx.db, input.id)
     : await repository.findByNumber(ctx.db, input.number!);
-  if (!row) throw PlatformError.notFound('Order', input.id ?? input.number);
+  // 別人的訂單一律回「找不到」而不是「不准看」：後者等於用訂單號枚舉別人的訂單。
+  if (!row || (customerId !== null && row.customerId !== customerId)) {
+    throw PlatformError.notFound('Order', input.id ?? input.number);
+  }
   return toOrderDto(row, await repository.linesFor(ctx.db, row.id), await repository.adjustmentsFor(ctx.db, row.id));
 };
 
@@ -34,7 +48,8 @@ export const listOrdersQuery = defineQuery({
 });
 
 export const listOrdersHandler = async (input: z.infer<typeof listOrdersInput>, ctx: QueryContext) => {
-  const { rows, total } = await repository.list(ctx.db, input);
+  const customerId = await scopedCustomerId(ctx);
+  const { rows, total } = await repository.list(ctx.db, { ...input, customerId: customerId ?? undefined });
   const items = [];
   for (const row of rows) {
     items.push(toOrderDto(row, await repository.linesFor(ctx.db, row.id), await repository.adjustmentsFor(ctx.db, row.id)));

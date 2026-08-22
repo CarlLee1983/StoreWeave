@@ -80,10 +80,11 @@ export class OrderRepository {
     return db.select().from(orderLines).where(eq(orderLines.orderId, orderId)).orderBy(orderLines.id);
   }
 
-  async list(db: DrizzleDb, filter: { status?: string; customerEmail?: string; limit: number; offset: number }) {
+  async list(db: DrizzleDb, filter: { status?: string; customerEmail?: string; customerId?: string; limit: number; offset: number }) {
     const conditions: SQL[] = [];
     if (filter.status) conditions.push(eq(orders.status, filter.status));
     if (filter.customerEmail) conditions.push(eq(orders.customerEmail, filter.customerEmail));
+    if (filter.customerId) conditions.push(eq(orders.customerId, filter.customerId));
     const where = conditions.length ? and(...conditions)! : sql`true`;
     const rows = await db.select().from(orders).where(where).orderBy(desc(orders.placedAt)).limit(filter.limit).offset(filter.offset);
     const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(orders).where(where);

@@ -40,9 +40,13 @@ describe('customer 角色', () => {
   });
 });
 
-// 匿名 storefront 仍持有無範圍的 order:read，那是工單 12 的範圍，這裡只釘住它其餘的權限。
 describe('storefront 角色', () => {
   const storefront = actorWithRole('storefront', 'service');
+
+  it('不再持有無範圍的訂單讀取權限', () => {
+    expect(permissionsForRole('storefront')).not.toContain('order:read');
+    expect(holds(storefront, 'order:read')).toBe(false);
+  });
 
   it('仍然逛得了商品與庫存、下得了單', () => {
     expect(holds(storefront, 'catalog:read')).toBe(true);
