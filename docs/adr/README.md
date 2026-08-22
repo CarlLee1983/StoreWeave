@@ -20,6 +20,8 @@
 | [0016](0016-recurring-jobs-by-time-buckets.md) | 週期性工作用時間切片，不用自我續排的鏈 | accepted |
 | [0017](0017-legacy-order-events-carry-net-total.md) | 舊版訂單事件在過渡期帶折扣後金額 | accepted |
 | [0018](0018-csrf-on-anonymous-write-endpoints.md) | 強制匿名的寫入端點以 Origin 檢查代替 CSRF token | accepted |
+| [0019](0019-ledger-derived-balances.md) | 購物金與等級積分是分批帳本，餘額與等級是推導值 | accepted |
+| [0020](0020-core-modules-subscribe-to-events.md) | Core 模組可以訂閱其他模組的事件 | accepted |
 
 寫法：每篇結尾用 `## Falsified if` 這個標題起一段，段落裡以反引號標出這個決策所依賴的檔案；
 那些檔案就是這個決策的邊界清單，條件本身要寫成某個東西可以檢查的形式。
