@@ -143,3 +143,22 @@ export const attributionSummaryOutput = z.object({
     discountCents: z.number().int().nonnegative(),
   })),
 });
+
+export const listMyCouponsInput = z.object({
+  /** 只列還能用的。預設全部，讓顧客也看得到用掉的那些。 */
+  usableOnly: z.boolean().default(false),
+}).strict();
+
+export const myCouponDto = z.object({
+  code: z.string(),
+  promotionName: z.string(),
+  status: couponStatus,
+  /** 這張券折什麼。前台要說得出面額，不能只給一個活動 id。 */
+  description: z.string(),
+  endsAt: z.coerce.date().nullable(),
+  /** 到期日在七天內。前台把它凸顯出來。 */
+  expiringSoon: z.boolean(),
+  usable: z.boolean(),
+});
+
+export const listMyCouponsOutput = z.object({ items: z.array(myCouponDto) });

@@ -100,7 +100,7 @@ describe('MCP 不得繞過 Application Layer', () => {
   it('MCP 的每個工具目標都真的註冊在 Bus 上', async () => {
     const { ALL_MCP_TOOLS } = await import('@storeweave/ext-mcp');
     const { coreModules } = await import('@storeweave/bundle');
-    const modules = coreModules({ providers: { list: () => [] } as never, defaultCurrency: 'TWD', orderNumberPrefix: 'SW', timezone: 'Asia/Taipei' });
+    const modules = coreModules({ providers: { list: () => [] } as never, defaultCurrency: 'TWD', orderNumberPrefix: 'SW', timezone: 'Asia/Taipei', locale: 'zh-TW' });
     const commandNames = modules.flatMap((m) => (m.commands ?? []).map((c) => c.descriptor.name));
     const queryNames = modules.flatMap((m) => (m.queries ?? []).map((q) => q.descriptor.name));
     for (const tool of ALL_MCP_TOOLS) {
@@ -143,7 +143,7 @@ describe('公開契約不外洩 ORM Entity', () => {
 
   it('每個 Command / Query 的 input 與 output 都是 Zod schema', async () => {
     const { coreModules } = await import('@storeweave/bundle');
-    const modules = coreModules({ providers: { list: () => [] } as never, defaultCurrency: 'TWD', orderNumberPrefix: 'SW', timezone: 'Asia/Taipei' });
+    const modules = coreModules({ providers: { list: () => [] } as never, defaultCurrency: 'TWD', orderNumberPrefix: 'SW', timezone: 'Asia/Taipei', locale: 'zh-TW' });
     for (const mod of modules) {
       for (const { descriptor } of [...(mod.commands ?? []), ...(mod.queries ?? [])]) {
         expect(typeof descriptor.input.safeParse).toBe('function');

@@ -1,6 +1,7 @@
 export * from './dto';
 export * from './birthday';
 export * from './code';
+export * from './describe';
 export * from './jobs';
 export * from './commands';
 export * from './migrations';

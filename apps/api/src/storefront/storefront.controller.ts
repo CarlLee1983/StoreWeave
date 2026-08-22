@@ -261,6 +261,50 @@ export class StorefrontController {
     });
   }
 
+  /** 折扣碼：套用或移除。這條路由與 REST 端點同樣受節流保護（掃碼機器人）。 */
+  @Post('cart/coupon')
+  async cartCoupon(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: Record<string, string>,
+    @Res() reply: FastifyReply,
+  ) {
+    if (body.remove) {
+      await this.cartCommand(req, reply, 'commerce.cart.removeCoupon', {});
+      return;
+    }
+    // 無效的碼不是錯誤頁：把原因留在購物車頁上，顧客才改得了。
+    try {
+      await this.runtime.commands.execute('commerce.cart.applyCoupon', {
+        code: (body.code ?? '').trim(),
+        guestToken: guestTokenFor(req, reply, this.runtime.config.http.publicUrl),
+      }, { actor: actorOf(req), idempotencyKey: randomUUID(), channel: 'rest' });
+      void reply.status(303).header('location', '/cart').send();
+    } catch (err) {
+      const message = err instanceof PlatformError && err.httpStatus < 500 ? err.message : '這組折扣碼無法使用。';
+      this.html(reply, 400, this.theme.renderCart(this.themeContext(req, reply), {
+        ...await this.cartView(req, reply),
+        couponError: message,
+      }));
+    }
+  }
+
+  @Get('account/coupons')
+  async accountCoupons(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    const actor = actorOf(req);
+    if (actor.type !== 'customer') {
+      void reply.status(303).header('location', `/login?next=${encodeURIComponent('/account/coupons')}`).send();
+      return;
+    }
+    try {
+      const result = await this.runtime.queries.execute<{ items: any[] }>(
+        'commerce.coupon.listMyCoupons', {}, { actor, channel: 'rest' },
+      );
+      this.html(reply, 200, this.theme.renderAccountCoupons(this.themeContext(req, reply), { coupons: result.items }));
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
+  }
+
   /** 確認頁。內容不能在這裡改，否則「確認的東西」與「結出來的單」會是兩份。 */
   @Get('checkout')
   async checkoutPage(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
@@ -475,6 +519,8 @@ export class StorefrontController {
       totalCents: cart.totalCents,
       adjustments: cart.adjustments,
       nextThreshold: cart.nextThreshold,
+      coupon: cart.coupon,
+      couponError: cart.couponError,
     };
   }
 

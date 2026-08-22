@@ -28,7 +28,7 @@ function accountNav(ctx: ThemeContext): string {
   if (!ctx.customerName) {
     return `<a href="/login">登入</a> · <a href="/register">註冊</a>`;
   }
-  return `<a href="/account/orders">我的訂單</a> · <a href="/account/profile">個人資料</a> · <span class="muted">${escapeHtml(ctx.customerName)}</span>
+  return `<a href="/account/orders">我的訂單</a> · <a href="/account/coupons">我的券</a> · <a href="/account/profile">個人資料</a> · <span class="muted">${escapeHtml(ctx.customerName)}</span>
     <form method="post" action="/logout" class="inline">
       <button type="submit" class="linklike">登出</button>
     </form>`;
@@ -91,6 +91,8 @@ button[disabled] { opacity: .5; cursor: not-allowed; }
 table { width: 100%; border-collapse: collapse; margin-top: 16px; }
 th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); font-size: 14px; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
+.coupon { margin: 16px 0; }
+.expiring { color: var(--accent); font-weight: 600; }
 .cta { display: inline-block; padding: 10px 16px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; text-decoration: none; }
 .inline { display: inline; margin: 0; max-width: none; grid-auto-flow: column; gap: 4px; align-items: center; }
 .inline input[type=number] { width: 5rem; }

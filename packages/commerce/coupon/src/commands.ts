@@ -27,6 +27,9 @@ export interface CouponModuleDeps {
   providers: ProviderRegistry;
   /** 「生日當天」是店鋪時區的當天，不是 UTC 的當天。 */
   timezone: string;
+  /** 券的面額要說給顧客聽，因此需要幣別與地區格式。 */
+  currency: string;
+  locale: string;
 }
 
 export const createCouponCommand = defineCommand({

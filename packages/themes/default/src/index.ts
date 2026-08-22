@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import type { StorefrontTheme, ThemeAuthView, ThemeCartView, ThemeContext } from '@storeweave/kernel';
+import type {
+  StorefrontTheme, ThemeAccountCouponsView, ThemeAuthView, ThemeCartView, ThemeContext,
+} from '@storeweave/kernel';
 import { escapeHtml, formatMoney, layout } from './layout';
 
 /** 忘記密碼與重設密碼：兩張表單長得夠像，共用一支。 */
@@ -77,11 +79,49 @@ function cartTable(ctx: ThemeContext, view: ThemeCartView, editable: boolean): s
     </table>`;
 }
 
+/**
+ * 折扣碼的輸入與移除。套用中的碼顯示成「已套用 + 移除」，
+ * 而不是把輸入框清空——顧客要看得到自己現在用的是哪一組。
+ */
+function couponBox(ctx: ThemeContext, view: ThemeCartView): string {
+  if (view.coupon) {
+    return `
+      <div class="coupon">
+        <p>已套用折扣碼 <strong>${escapeHtml(view.coupon.code)}</strong>
+           ${view.coupon.discountCents > 0
+             ? `（折 ${formatMoney(view.coupon.discountCents, view.currency, ctx.locale)}）`
+             : '（目前不符合條件，金額沒有變化）'}</p>
+        <form method="post" action="/cart/coupon" class="inline">
+          ${csrfField(ctx)}
+          <input type="hidden" name="remove" value="1">
+          <button type="submit" class="linklike">移除</button>
+        </form>
+      </div>`;
+  }
+  return `
+    <div class="coupon">
+      ${view.couponError ? `<div class="error"><p>${escapeHtml(view.couponError)}</p></div>` : ''}
+      <form method="post" action="/cart/coupon" class="inline">
+        ${csrfField(ctx)}
+        <label>折扣碼<input name="code" maxlength="40" placeholder="輸入折扣碼"></label>
+        <button type="submit">套用</button>
+      </form>
+    </div>`;
+}
+
 /** 門檻活動唯一的行銷價值就是這句話：還差多少。 */
 function thresholdHint(ctx: ThemeContext, view: ThemeCartView): string {
   if (!view.nextThreshold) return '';
   const amount = formatMoney(view.nextThreshold.remainingCents, view.currency, ctx.locale);
   return `<p class="notice">再買 ${amount} 就達到「${escapeHtml(view.nextThreshold.name)}」。</p>`;
+}
+
+/** 即將到期要說得出來——顧客沒用掉的券，多半是因為忘了它存在。 */
+function couponStateText(coupon: ThemeAccountCouponsView['coupons'][number]): string {
+  if (coupon.status === 'used') return '<span class="badge">已使用</span>';
+  if (coupon.status === 'void') return '<span class="badge">已停用</span>';
+  if (!coupon.usable) return '<span class="badge">已過期</span>';
+  return coupon.expiringSoon ? '<span class="badge expiring">即將到期</span>' : '<span class="badge">可使用</span>';
 }
 
 /** 伺服器渲染的表單以隱藏欄位做 CSRF 雙提交——瀏覽器的原生表單送不出自訂 header。 */
@@ -148,6 +188,7 @@ export const defaultTheme: StorefrontTheme = {
         ? `<p class="muted">購物車是空的。<a href="/">去逛逛</a></p>`
         : `${cartTable(ctx, view, true)}
            ${thresholdHint(ctx, view)}
+           ${couponBox(ctx, view)}
            <p><a class="cta" href="/checkout">${ctx.customerName ? '前往結帳' : '登入後結帳'}</a></p>
            <p><a href="/">繼續購物</a></p>`}`;
     return layout({ title: '購物車', body, ctx });
@@ -167,6 +208,27 @@ export const defaultTheme: StorefrontTheme = {
       </form>
       <p><a href="/cart">回購物車</a></p>`;
     return layout({ title: '確認訂單', body, ctx });
+  },
+
+  renderAccountCoupons(ctx, { coupons }) {
+    const rows = coupons.map((coupon) => `
+      <tr class="${coupon.expiringSoon ? 'expiring' : ''}">
+        <td><code>${escapeHtml(coupon.code)}</code></td>
+        <td>${escapeHtml(coupon.promotionName)}<br><span class="muted">${escapeHtml(coupon.description)}</span></td>
+        <td>${coupon.endsAt ? escapeHtml(coupon.endsAt.toLocaleDateString(ctx.locale)) : '無期限'}</td>
+        <td>${couponStateText(coupon)}</td>
+      </tr>`).join('');
+
+    const body = coupons.length === 0
+      ? `<h1>我的券</h1><p class="muted">你目前沒有任何券。<a href="/">去逛逛</a></p>`
+      : `
+      <h1>我的券</h1>
+      <table>
+        <thead><tr><th>折扣碼</th><th>優惠</th><th>使用期限</th><th>狀態</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p class="muted">結帳前在購物車輸入折扣碼即可使用。</p>`;
+    return layout({ title: '我的券', body, ctx });
   },
 
   renderOrder(ctx, { order }) {

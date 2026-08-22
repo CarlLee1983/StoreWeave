@@ -92,7 +92,24 @@ export interface ThemeCartView {
   adjustments: { name: string; amountCents: number }[];
   /** 差一點就達成的門檻活動；沒有就是 null。 */
   nextThreshold: { name: string; remainingCents: number } | null;
+  /** 本次套用的券。券不生效時 `discountCents` 是 0。 */
+  coupon: { code: string; discountCents: number } | null;
+  /** 券失效或輸入錯誤的原因。留著訊息而不是靜靜拿掉，顧客才知道發生了什麼。 */
+  couponError: string | null;
   error?: string;
+}
+
+export interface ThemeAccountCouponsView {
+  coupons: {
+    code: string;
+    promotionName: string;
+    /** 這張券折什麼，已經是可以直接顯示的句子。 */
+    description: string;
+    status: 'issued' | 'used' | 'void';
+    endsAt: Date | null;
+    expiringSoon: boolean;
+    usable: boolean;
+  }[];
 }
 
 export interface ThemeCheckoutView extends ThemeCartView {
@@ -143,6 +160,8 @@ export interface StorefrontTheme {
    */
   renderCart(ctx: ThemeContext, data: ThemeCartView): string;
   renderCheckout(ctx: ThemeContext, data: ThemeCheckoutView): string;
+  /** 會員中心的我的券。 */
+  renderAccountCoupons(ctx: ThemeContext, data: ThemeAccountCouponsView): string;
   /** 會員中心的訂單清單。 */
   renderAccountOrders(ctx: ThemeContext, data: ThemeAccountOrdersView): string;
   /** 會員中心的個人資料與收件地址。 */

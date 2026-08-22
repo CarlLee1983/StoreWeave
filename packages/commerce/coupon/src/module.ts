@@ -11,6 +11,7 @@ import { couponMigrations } from './migrations';
 import {
   attributionSummaryHandler, attributionSummaryQuery,
   getCouponHandler, getCouponQuery, listCouponsHandler, listCouponsQuery,
+  createListMyCouponsHandler, listMyCouponsQuery,
 } from './queries';
 
 export function createCouponModule(deps: CouponModuleDeps): PlatformModule {
@@ -58,6 +59,7 @@ export function createCouponModule(deps: CouponModuleDeps): PlatformModule {
     { descriptor: getCouponQuery, handler: getCouponHandler },
     { descriptor: listCouponsQuery, handler: listCouponsHandler },
     { descriptor: attributionSummaryQuery, handler: attributionSummaryHandler },
+    { descriptor: listMyCouponsQuery, handler: createListMyCouponsHandler(deps) },
   ],
   });
 }

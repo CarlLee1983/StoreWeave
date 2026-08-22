@@ -80,7 +80,7 @@ export async function createHarness(options: TestRuntimeOptions = {}): Promise<T
     secrets,
     logger: noopLogger,
     providers,
-    modules: coreModules({ providers, defaultCurrency: config.store.currency, orderNumberPrefix: 'TST', timezone: config.store.timezone }),
+    modules: coreModules({ providers, defaultCurrency: config.store.currency, orderNumberPrefix: 'TST', timezone: config.store.timezone, locale: config.store.locale }),
     availableExtensions: AVAILABLE_EXTENSIONS,
   });
   await runtime.migrate();
