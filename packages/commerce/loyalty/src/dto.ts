@@ -8,6 +8,8 @@ export const rewardSettingsDto = z.object({
   accrualBasisPoints: z.number().int().min(0).max(10_000),
   effectiveAfterDays: z.number().int().min(0).max(365),
   expiresAfterDays: z.number().int().positive().max(3_650).nullable(),
+  /** 到期前幾天寄通知。 */
+  expiryNoticeDays: z.number().int().positive().max(365),
   updatedAt: z.coerce.date(),
 });
 
@@ -15,6 +17,7 @@ export const updateRewardSettingsInput = z.object({
   accrualBasisPoints: z.number().int().min(0).max(10_000).optional(),
   effectiveAfterDays: z.number().int().min(0).max(365).optional(),
   expiresAfterDays: z.number().int().positive().max(3_650).nullable().optional(),
+  expiryNoticeDays: z.number().int().positive().max(365).optional(),
 }).strict();
 
 export const rewardEntryDto = z.object({
@@ -120,4 +123,14 @@ export const customerLoyaltyOutput = z.object({
   tierName: z.string(),
   tierPoints: z.number().int().nonnegative(),
   entries: z.array(rewardEntryDto),
+});
+
+export const notifyExpiringRewardsInput = z.object({
+  /** 以哪一個時刻判斷「快到期」。省略就是現在——測試靠它驗邊界。 */
+  at: z.coerce.date().optional(),
+}).strict();
+
+export const notifyExpiringRewardsOutput = z.object({
+  notified: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
 });

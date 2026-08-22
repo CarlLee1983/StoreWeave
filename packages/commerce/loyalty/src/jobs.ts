@@ -21,3 +21,13 @@ export function createRecalculateTiersJob() {
     await ctx.executeCommand('commerce.loyalty.recalculateTiers', {}, `recalculate-tiers:${ctx.jobId}`);
   };
 }
+
+export const NOTIFY_EXPIRING_REWARDS_JOB = 'commerce.loyalty.notify-expiring-rewards';
+
+/** 每日一次的到期通知。同一批只通知一次由領域自己保證，與切片機制各管各的。 */
+export function createNotifyExpiringRewardsJob() {
+  return async (_payload: unknown, rawCtx: unknown): Promise<void> => {
+    const ctx = rawCtx as CoreJobContext;
+    await ctx.executeCommand('commerce.loyalty.notifyExpiringRewards', {}, `reward-expiry:${ctx.jobId}`);
+  };
+}

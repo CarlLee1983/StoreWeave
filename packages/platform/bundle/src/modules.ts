@@ -6,7 +6,7 @@ import { createOrderModule } from '@storeweave/order';
 import { customerModule } from '@storeweave/customer';
 import { createCart } from '@storeweave/cart';
 import { createCouponModule } from '@storeweave/coupon';
-import { loyaltyModule } from '@storeweave/loyalty';
+import { createLoyaltyModule } from '@storeweave/loyalty';
 import { createPromotionModule } from '@storeweave/promotion';
 import { mockPaymentExtension } from '@storeweave/ext-mock-payment';
 import { mockNotificationExtension } from '@storeweave/ext-mock-notification';
@@ -38,7 +38,7 @@ export function coreModules(options: {
       currency: options.defaultCurrency,
       locale: options.locale,
     }),
-    loyaltyModule,
+    createLoyaltyModule({ providers: options.providers }),
     createOrderModule({
       providers: options.providers,
       defaultCurrency: options.defaultCurrency,

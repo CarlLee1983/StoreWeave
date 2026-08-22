@@ -1,12 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext } from '@storeweave/contracts';
+import type { NotificationProvider, ProviderRegistry } from '@storeweave/extension-sdk';
+import { customerService } from '@storeweave/customer';
 import {
-  adjustRewardsInput, adjustTierPointsInput, listTiersOutput, recalculateTiersInput, recalculateTiersOutput,
+  adjustRewardsInput,
+  notifyExpiringRewardsInput,
+  notifyExpiringRewardsOutput, adjustTierPointsInput, listTiersOutput, recalculateTiersInput, recalculateTiersOutput,
   removeTierInput, rewardEntryDto, rewardSettingsDto, saveTierInput, tierDto, updateRewardSettingsInput,
 } from './dto';
 import { LoyaltyRepository } from './repository';
-import { tierService } from './service';
+import { deriveRewardBalance } from './balance';
+import { rewardService, tierService } from './service';
+
+export interface LoyaltyModuleDeps {
+  providers: ProviderRegistry;
+}
 
 const repository = new LoyaltyRepository();
 
@@ -35,12 +44,14 @@ export const updateRewardSettingsHandler = async (
     ...(input.accrualBasisPoints === undefined ? {} : { accrualBasisPoints: input.accrualBasisPoints }),
     ...(input.effectiveAfterDays === undefined ? {} : { effectiveAfterDays: input.effectiveAfterDays }),
     ...(input.expiresAfterDays === undefined ? {} : { expiresAfterDays: input.expiresAfterDays }),
+    ...(input.expiryNoticeDays === undefined ? {} : { expiryNoticeDays: input.expiryNoticeDays }),
     updatedAt: ctx.now,
   });
   return {
     accrualBasisPoints: row.accrualBasisPoints,
     effectiveAfterDays: row.effectiveAfterDays,
     expiresAfterDays: row.expiresAfterDays,
+    expiryNoticeDays: row.expiryNoticeDays,
     updatedAt: row.updatedAt,
   };
 };
@@ -231,3 +242,106 @@ export const recalculateTiersHandler = async (
   ctx.logger.info({ evaluated: customerIds.length, changed, upgraded, downgraded }, 'recalculated member tiers');
   return { evaluated: customerIds.length, changed, upgraded, downgraded };
 };
+
+export const notifyExpiringRewardsCommand = defineCommand({
+  name: 'commerce.loyalty.notifyExpiringRewards',
+  summary: '通知購物金即將到期的顧客',
+  input: notifyExpiringRewardsInput,
+  output: notifyExpiringRewardsOutput,
+  permission: 'customers:manage',
+  idempotency: 'required',
+  audit: {
+    action: 'loyalty.expiry-notified',
+    resourceType: 'loyalty-settings',
+    resourceId: () => 'expiry-notice',
+    redact: () => ({}),
+  },
+});
+
+/**
+ * 到期通知。
+ *
+ * 只通知「還有剩」的批次：餘額被用完的人不該收到一封說他要失去什麼的信。
+ * 剩多少要由帳本推導——批次的原始金額不等於它現在還剩多少。
+ *
+ * 同一批只通知一次，靠自己的紀錄表而不是 Provider 的冪等：
+ * 「這一批通知過了嗎」是領域問題，換一個 Provider 不該讓顧客被通知兩次。
+ */
+export function createNotifyExpiringRewardsHandler(deps: LoyaltyModuleDeps) {
+  return async (
+    input: z.infer<typeof notifyExpiringRewardsInput>,
+    ctx: CommandContext,
+  ): Promise<z.infer<typeof notifyExpiringRewardsOutput>> => {
+    const at = input.at ?? ctx.now;
+    const settings = await repository.settings(ctx.tx);
+    const to = new Date(at.getTime() + settings.expiryNoticeDays * DAY_MS);
+
+    const batches = await repository.expiringBatches(ctx.tx, { from: at, to });
+    const alreadyNotified = await repository.notifiedEntryIds(ctx.tx, batches.map((row) => row.id));
+
+    let notified = 0;
+    let skipped = 0;
+
+    for (const batch of batches) {
+      if (alreadyNotified.has(batch.id)) {
+        skipped += 1;
+        continue;
+      }
+      // 剩多少要由帳本推導：這一批可能早就被花掉了。
+      const entries = await repository.rewardEntriesFor(ctx.tx, batch.customerId);
+      const balance = deriveRewardBalance(
+        entries.map((row) => ({
+          id: row.id, amountCents: row.amountCents, effectiveAt: row.effectiveAt,
+          expiresAt: row.expiresAt, createdAt: row.createdAt,
+        })),
+        at,
+      );
+      const remaining = balance.batches.find((candidate) => candidate.id === batch.id)?.remainingCents ?? 0;
+      if (remaining <= 0) {
+        skipped += 1;
+        continue;
+      }
+
+      const claimed = await repository.markNotified(ctx.tx, {
+        entryId: batch.id,
+        customerId: batch.customerId,
+        notifiedAt: ctx.now,
+      });
+      if (!claimed) {
+        skipped += 1;
+        continue;
+      }
+      await sendExpiryNotice(deps, ctx, {
+        customerId: batch.customerId,
+        entryId: batch.id,
+        amountCents: remaining,
+        expiresAt: batch.expiresAt!,
+      });
+      notified += 1;
+    }
+
+    ctx.logger.info({ notified, skipped, until: to }, 'notified expiring rewards');
+    return { notified, skipped };
+  };
+}
+
+/** 寄不出去不該讓整批通知失敗：下一輪還會再遇到它。 */
+async function sendExpiryNotice(
+  deps: LoyaltyModuleDeps,
+  ctx: CommandContext,
+  input: { customerId: string; entryId: string; amountCents: number; expiresAt: Date },
+): Promise<void> {
+  try {
+    const customer = await customerService.contactFor(ctx.tx, input.customerId);
+    if (!customer) return;
+    const provider = deps.providers.get<NotificationProvider>('notification');
+    await provider.send({
+      template: 'customer.reward-expiring',
+      to: { email: customer.email, name: customer.displayName },
+      variables: { amountCents: input.amountCents, expiresAt: input.expiresAt.toISOString() },
+      reference: `reward-expiry:${input.entryId}`,
+    });
+  } catch (err) {
+    ctx.logger.error({ error: (err as Error).message, customerId: input.customerId }, 'reward expiry notice failed');
+  }
+}

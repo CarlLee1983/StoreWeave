@@ -1,7 +1,7 @@
-import { and, asc, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { DrizzleDb, Tx } from '@storeweave/contracts';
 import {
-  customerTiers, loyaltySettings, rewardEntries, tierEntries, tiers,
+  customerTiers, loyaltySettings, rewardEntries, rewardExpiryNotices, tierEntries, tiers,
   type CustomerTierRow, type LoyaltySettingsRow, type RewardEntryRow, type TierEntryRow, type TierRow,
 } from './schema';
 
@@ -140,6 +140,22 @@ export class LoyaltyRepository {
       .from(tierEntries)
       .orderBy(asc(tierEntries.customerId));
     return rows.map((row) => row.customerId);
+  }
+
+  /** 已經通知過的批次。回傳的是「這些不必再通知」。 */
+  async notifiedEntryIds(db: DrizzleDb | Tx, entryIds: readonly string[]): Promise<Set<string>> {
+    if (entryIds.length === 0) return new Set();
+    const rows = await db
+      .select({ entryId: rewardExpiryNotices.entryId })
+      .from(rewardExpiryNotices)
+      .where(inArray(rewardExpiryNotices.entryId, [...entryIds]));
+    return new Set(rows.map((row) => row.entryId));
+  }
+
+  /** 記下通知過的批次。撞上就當作已經通知過——併發的第二次不該再寄一封。 */
+  async markNotified(tx: Tx, values: typeof rewardExpiryNotices.$inferInsert): Promise<boolean> {
+    const [row] = await tx.insert(rewardExpiryNotices).values(values).onConflictDoNothing().returning();
+    return row !== undefined;
   }
 
   /** 快到期而且還沒用掉的批次。到期通知掃它（工單 48）。 */

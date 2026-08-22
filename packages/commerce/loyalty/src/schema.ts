@@ -32,6 +32,8 @@ export const loyaltySettings = pgTable('loyalty_settings', {
   effectiveAfterDays: integer('effective_after_days').notNull(),
   /** 發放後幾天到期；null 是不過期。 */
   expiresAfterDays: integer('expires_after_days'),
+  /** 到期前幾天寄通知。 */
+  expiryNoticeDays: integer('expiry_notice_days').notNull().default(14),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -82,3 +84,15 @@ export const customerTiers = pgTable('loyalty_customer_tiers', {
 export type TierEntryRow = typeof tierEntries.$inferSelect;
 export type TierRow = typeof tiers.$inferSelect;
 export type CustomerTierRow = typeof customerTiers.$inferSelect;
+
+/**
+ * 已經寄過到期通知的批次。
+ *
+ * 用自己的表而不是相信 Provider 的冪等：Provider 的 reference 去重是投遞層的
+ * 保證，而「這一批通知過了嗎」是領域問題——換一個 Provider 不該讓顧客被通知兩次。
+ */
+export const rewardExpiryNotices = pgTable('loyalty_reward_expiry_notices', {
+  entryId: uuid('entry_id').primaryKey(),
+  customerId: uuid('customer_id').notNull(),
+  notifiedAt: timestamp('notified_at', { withTimezone: true }).notNull(),
+});

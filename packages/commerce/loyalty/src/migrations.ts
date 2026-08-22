@@ -85,5 +85,16 @@ CREATE TABLE IF NOT EXISTS loyalty_customer_tiers (
 -- 重算要找「最久沒算過的那一批」。
 CREATE INDEX IF NOT EXISTS loyalty_customer_tiers_stale_idx ON loyalty_customer_tiers (recalculated_at);
 `),
+    sqlMigration('0003_expiry_notice', 'expand', `
+ALTER TABLE loyalty_settings ADD COLUMN IF NOT EXISTS expiry_notice_days integer NOT NULL DEFAULT 14;
+
+-- 已經寄過到期通知的批次。用自己的表而不是相信 Provider 的冪等：
+-- 「這一批通知過了嗎」是領域問題，換一個 Provider 不該讓顧客被通知兩次。
+CREATE TABLE IF NOT EXISTS loyalty_reward_expiry_notices (
+  entry_id    uuid PRIMARY KEY,
+  customer_id uuid NOT NULL,
+  notified_at timestamptz NOT NULL
+);
+`),
   ],
 };
