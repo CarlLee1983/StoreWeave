@@ -6,6 +6,7 @@ import type { IconName } from './components/Icon';
 import { ProductsPage } from './pages/ProductsPage';
 import { OrdersPage } from './pages/OrdersPage';
 import { PromotionsPage } from './pages/PromotionsPage';
+import { CouponsPage } from './pages/CouponsPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { ErpPage } from './pages/ErpPage';
 import { SystemPage } from './pages/SystemPage';
@@ -68,6 +69,16 @@ const ENTRIES = [
     subtitle: 'promotionsSubtitle',
     action: { label: 'createPromotion', targetId: 'create-promotion' },
     render: () => <PromotionsPage />,
+  },
+  {
+    path: 'coupons',
+    navLabel: 'coupons',
+    icon: 'box',
+    section: 'commerce',
+    title: 'couponsTitle',
+    subtitle: 'couponsSubtitle',
+    action: { label: 'createCoupon', targetId: 'create-coupon' },
+    render: () => <CouponsPage />,
   },
   {
     path: 'customers',

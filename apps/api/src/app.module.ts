@@ -13,6 +13,7 @@ import { CartController } from './controllers/cart.controller';
 import { CustomerController } from './controllers/customer.controller';
 import { OrderController } from './controllers/order.controller';
 import { PromotionController } from './controllers/promotion.controller';
+import { CouponController } from './controllers/coupon.controller';
 import { SystemController } from './controllers/system.controller';
 import { McpController } from './mcp/mcp.controller';
 import { StorefrontController } from './storefront/storefront.controller';
@@ -23,7 +24,7 @@ export class AppModule {
   static forRuntime(runtime: Runtime, theme: StorefrontTheme, release: ReleaseInfo): DynamicModule {
     const controllers = [
       HealthController, MetaController, AuthController, CatalogController, InventoryController, SystemController,
-      OrderController, PromotionController, CustomerController, CartController, AnalyticsController, ExtensionsController, StorefrontController,
+      OrderController, PromotionController, CouponController, CustomerController, CartController, AnalyticsController, ExtensionsController, StorefrontController,
     ];
     if (runtime.config.mcp.enabled) controllers.push(McpController as never);
 

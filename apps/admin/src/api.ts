@@ -1,5 +1,30 @@
 // API 型別與 fetch wrapper。所有請求集中在這裡，畫面元件不直接呼叫 fetch。
 
+export type Coupon = {
+  id: string;
+  code: string;
+  promotionId: string;
+  status: 'issued' | 'used' | 'void';
+  /** null 代表共用碼：誰都能用。 */
+  customerId: string | null;
+  partnerCode: string | null;
+  maxRedemptions: number | null;
+  redeemedCount: number;
+  perCustomerLimit: number | null;
+  source: string;
+  batchId: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IssueResult = {
+  batchId: string;
+  issued: number;
+  skipped: number;
+};
+
 export type Product = {
   id: string;
   sku: string;
@@ -70,6 +95,10 @@ export type Promotion = {
   rule: PromotionRule;
   priority: number;
   stackable: boolean;
+  /** 需要券才套用；這種活動不會人人適用。 */
+  requiresCoupon: boolean;
+  autoIssue: 'signup' | 'birthday' | null;
+  autoIssueValidDays: number | null;
   startsAt: string | null;
   endsAt: string | null;
   createdAt: string;
@@ -336,6 +365,7 @@ export const api = {
     rule: PromotionRule;
     priority: number;
     stackable: boolean;
+    requiresCoupon?: boolean;
     startsAt?: string;
     endsAt?: string;
   }) {
@@ -353,6 +383,26 @@ export const api = {
       body: { status },
       idempotent: true,
     });
+  },
+  listCoupons(params: { status?: string; promotionId?: string; limit?: number; offset?: number }) {
+    return request<Paged<Coupon>>(`/api/v1/coupons${toQuery(params)}`);
+  },
+  createCoupon(body: {
+    code: string;
+    promotionId: string;
+    partnerCode?: string;
+    maxRedemptions?: number;
+    perCustomerLimit: number | null;
+    startsAt?: string;
+    endsAt?: string;
+  }) {
+    return request<Coupon>('/api/v1/coupons', { method: 'POST', body, idempotent: true });
+  },
+  issueCoupons(body: { promotionId: string; codePrefix?: string; expiresInDays?: number }) {
+    return request<IssueResult>('/api/v1/coupons/issue', { method: 'POST', body, idempotent: true });
+  },
+  setCouponStatus(id: string, status: Coupon['status']) {
+    return request<Coupon>(`/api/v1/coupons/${id}/status`, { method: 'POST', body: { status }, idempotent: true });
   },
   listCustomers(params: { q?: string; status?: string; limit?: number; offset?: number }) {
     return request<Paged<AdminCustomer>>(`/api/v1/customers${toQuery(params)}`);

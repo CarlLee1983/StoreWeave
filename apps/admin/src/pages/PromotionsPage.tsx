@@ -29,6 +29,7 @@ interface FormState {
   maxDiscountCents: string;
   priority: string;
   stackable: boolean;
+  requiresCoupon: boolean;
   startsAt: string;
   endsAt: string;
 }
@@ -42,6 +43,7 @@ const EMPTY_FORM: FormState = {
   maxDiscountCents: '',
   priority: '0',
   stackable: true,
+  requiresCoupon: false,
   startsAt: '',
   endsAt: '',
 };
@@ -60,6 +62,7 @@ function formStateOf(promotion: Promotion): FormState {
         : '',
     priority: String(promotion.priority),
     stackable: promotion.stackable,
+    requiresCoupon: promotion.requiresCoupon,
     startsAt: toLocalInput(promotion.startsAt),
     endsAt: toLocalInput(promotion.endsAt),
   };
@@ -70,6 +73,7 @@ export interface PromotionPayload {
   rule: PromotionRule;
   priority: number;
   stackable: boolean;
+  requiresCoupon: boolean;
   startsAt?: string;
   endsAt?: string;
 }
@@ -110,6 +114,7 @@ function toPayload(form: FormState, t: (key: MessageKey) => string): PromotionPa
     rule,
     priority,
     stackable: form.stackable,
+    requiresCoupon: form.requiresCoupon,
     startsAt: form.startsAt ? new Date(form.startsAt).toISOString() : undefined,
     endsAt: form.endsAt ? new Date(form.endsAt).toISOString() : undefined,
   };
@@ -305,6 +310,11 @@ function PromotionFields({
       <label className="checkbox">
         <input type="checkbox" checked={form.stackable} onChange={(e) => onChange({ stackable: e.target.checked })} />
         {t('stackable')}
+      </label>
+      {/* 需要券的活動不會人人適用——沒有這個開關，建一張券就等於全站打折 */}
+      <label className="checkbox">
+        <input type="checkbox" checked={form.requiresCoupon} onChange={(e) => onChange({ requiresCoupon: e.target.checked })} />
+        {t('requiresCoupon')}
       </label>
     </div>
   );
