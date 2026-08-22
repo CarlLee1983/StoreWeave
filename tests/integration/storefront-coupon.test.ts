@@ -162,3 +162,20 @@ describe('我的券', () => {
     expect(page.body).toContain('你目前沒有任何券');
   });
 });
+
+describe('猜碼的節流', () => {
+  it('前台的折扣碼路由與 API 一樣受節流保護', async () => {
+    const product = await sellable('SFC-BRUTE');
+    const cookies = await guestCartWith(product.id);
+
+    const statuses: number[] = [];
+    for (let i = 0; i < 25; i += 1) {
+      const res = await inject({ method: 'POST', url: '/cart/coupon', cookies, payload: { code: `SFGUESS${i}` } });
+      statuses.push(res.statusCode);
+    }
+
+    // 路由字串打錯就會整段失效，因此這條測試驗的是「那一條路由真的在名單上」。
+    expect(statuses).toContain(429);
+    expect(statuses[0]).toBe(400);
+  });
+});
