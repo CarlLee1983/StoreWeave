@@ -17,7 +17,7 @@ export const createCouponCommand = defineCommand({
     action: 'coupon.created',
     resourceType: 'coupon',
     resourceId: (_i, o: CouponDto) => o.id,
-    redact: (i) => ({ code: i.code, promotionId: i.promotionId }),
+    redact: (i) => ({ code: i.code, promotionId: i.promotionId, maxRedemptions: i.maxRedemptions }),
   },
 });
 
@@ -36,6 +36,9 @@ export const createCouponHandler = async (
     status: 'issued',
     customerId: input.customerId ?? null,
     partnerCode: input.partnerCode ?? null,
+    maxRedemptions: input.maxRedemptions ?? null,
+    redeemedCount: 0,
+    perCustomerLimit: input.perCustomerLimit,
     startsAt: input.startsAt ?? null,
     endsAt: input.endsAt ?? null,
     createdAt: ctx.now,

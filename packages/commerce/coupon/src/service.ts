@@ -14,7 +14,9 @@ export type CouponRejection =
   | 'expired'
   | 'void'
   | 'used'
-  | 'not_eligible';
+  | 'not_eligible'
+  | 'used_up'
+  | 'already_redeemed';
 
 const MESSAGES: Record<CouponRejection, string> = {
   not_found: '找不到這組折扣碼。',
@@ -23,6 +25,10 @@ const MESSAGES: Record<CouponRejection, string> = {
   void: '這組折扣碼已經停用。',
   used: '這張券已經使用過了。',
   not_eligible: '這組折扣碼不適用於這個帳號。',
+  // 試算不鎖券，因此「剛剛還看得到折扣」與「現在沒了」都是真的。訊息要講出這件事，
+  // 而不是讓顧客以為自己看錯了。
+  used_up: '這組折扣碼的數量剛剛用完了（試算時不會保留額度）。請移除後再結帳。',
+  already_redeemed: '這檔優惠你已經用過了。',
 };
 
 export type CouponResolution =
@@ -30,11 +36,11 @@ export type CouponResolution =
   | { ok: false; reason: CouponRejection; message: string };
 
 export function couponError(reason: CouponRejection): PlatformError {
-  return new PlatformError(
-    reason === 'not_found' ? 'NOT_FOUND' : 'VALIDATION_ERROR',
-    MESSAGES[reason],
-    { reason },
-  );
+  const code = reason === 'not_found'
+    ? 'NOT_FOUND'
+    // 搶輸與重複使用是狀態衝突，不是輸入錯誤：同一個請求晚一點送可能就成立了。
+    : reason === 'used_up' || reason === 'already_redeemed' ? 'CONFLICT' : 'VALIDATION_ERROR';
+  return new PlatformError(code, MESSAGES[reason], { reason });
 }
 
 /**
@@ -70,6 +76,31 @@ export const couponService = {
     if (coupon.endsAt && input.now.getTime() >= coupon.endsAt.getTime()) return reject('expired');
     // 實發券綁定擁有者：別人猜中碼也用不了。
     if (coupon.customerId && coupon.customerId !== input.customerId) return reject('not_eligible');
+    // 總量在這裡只是「看得出來已經沒了」。真正的權威是結帳時的條件更新——
+    // 讀到還有剩不代表扣得到。
+    if (coupon.maxRedemptions !== null && coupon.redeemedCount >= coupon.maxRedemptions) return reject('used_up');
+    return { ok: true, coupon };
+  },
+
+  /**
+   * 核銷時的額度扣減。與 `check` 分開：`check` 沒有副作用、試算也走它，
+   * 這一支只在結帳的交易內呼叫一次。
+   *
+   * 順序是先驗每人次數、再扣總量：反過來的話搶輸的人會白扣掉一個名額。
+   */
+  async consume(
+    tx: Tx,
+    coupon: CouponRow,
+    input: { customerId: string; now: Date },
+  ): Promise<CouponResolution> {
+    if (coupon.perCustomerLimit !== null) {
+      const used = await repository.redemptionCountFor(tx, coupon.promotionId, input.customerId);
+      if (used >= coupon.perCustomerLimit) {
+        return { ok: false, reason: 'already_redeemed', message: MESSAGES.already_redeemed };
+      }
+    }
+    const consumed = await repository.consume(tx, coupon.id, input.now);
+    if (!consumed) return { ok: false, reason: 'used_up', message: MESSAGES.used_up };
     return { ok: true, coupon };
   },
 };

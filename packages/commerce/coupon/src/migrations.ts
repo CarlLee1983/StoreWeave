@@ -40,5 +40,17 @@ CREATE INDEX IF NOT EXISTS coupon_redemptions_promotion_idx ON coupon_redemption
 CREATE INDEX IF NOT EXISTS coupon_redemptions_partner_idx ON coupon_redemptions (partner_code, redeemed_at)
   WHERE partner_code IS NOT NULL;
 `),
+    sqlMigration('0002_limits', 'expand', `
+-- 限量與每人限用。總量以條件更新扣減（見 CouponRepository.consume），
+-- 每人次數在鎖住券那一列之後以計數判斷——兩者都不靠應用層先讀後寫。
+ALTER TABLE coupon_coupons ADD COLUMN IF NOT EXISTS max_redemptions integer;
+ALTER TABLE coupon_coupons ADD COLUMN IF NOT EXISTS redeemed_count integer NOT NULL DEFAULT 0;
+ALTER TABLE coupon_coupons ADD COLUMN IF NOT EXISTS per_customer_limit integer;
+ALTER TABLE coupon_coupons DROP CONSTRAINT IF EXISTS coupon_redeemed_count_valid;
+ALTER TABLE coupon_coupons ADD CONSTRAINT coupon_redeemed_count_valid
+  CHECK (redeemed_count >= 0 AND (max_redemptions IS NULL OR redeemed_count <= max_redemptions));
+CREATE INDEX IF NOT EXISTS coupon_redemptions_customer_idx
+  ON coupon_redemptions (promotion_id, customer_id);
+`),
   ],
 };

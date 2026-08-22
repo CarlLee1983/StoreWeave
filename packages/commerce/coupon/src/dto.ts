@@ -19,6 +19,9 @@ export const couponDto = z.object({
   /** null 代表共用碼：誰都能用。 */
   customerId: z.string().uuid().nullable(),
   partnerCode: z.string().nullable(),
+  maxRedemptions: z.number().int().positive().nullable(),
+  redeemedCount: z.number().int().nonnegative(),
+  perCustomerLimit: z.number().int().positive().nullable(),
   startsAt: z.coerce.date().nullable(),
   endsAt: z.coerce.date().nullable(),
   createdAt: z.coerce.date(),
@@ -42,6 +45,13 @@ export const createCouponInput = z
     /** 指定擁有者就是實發券；省略是共用碼。 */
     customerId: z.string().uuid().optional(),
     partnerCode: z.string().trim().min(1).max(60).optional(),
+    /** 總使用次數上限。省略是不限量。 */
+    maxRedemptions: z.number().int().positive().max(1_000_000).optional(),
+    /**
+     * 每個會員最多用幾次。預設 1——一組碼被同一個人洗完是最常見的損失，
+     * 讓它需要明確地被關掉，而不是需要明確地被打開。
+     */
+    perCustomerLimit: z.number().int().positive().max(1_000).nullable().default(1),
     ...period,
   })
   .strict()

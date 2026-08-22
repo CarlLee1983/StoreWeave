@@ -16,6 +16,12 @@ export const coupons = pgTable('coupon_coupons', {
   customerId: uuid('customer_id'),
   /** 歸因對象。一張訂單最多只能有一個帶歸因的券。 */
   partnerCode: text('partner_code'),
+  /** 總使用次數上限。null 是不限量。 */
+  maxRedemptions: integer('max_redemptions'),
+  /** 已核銷次數。以條件更新扣減，是限量的唯一權威。 */
+  redeemedCount: integer('redeemed_count').notNull().default(0),
+  /** 每個會員最多用幾次。null 是不限。 */
+  perCustomerLimit: integer('per_customer_limit'),
   startsAt: timestamp('starts_at', { withTimezone: true }),
   endsAt: timestamp('ends_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

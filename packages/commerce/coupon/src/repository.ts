@@ -12,6 +12,9 @@ export function toCouponDto(row: CouponRow): CouponDto {
     status: row.status as CouponDto['status'],
     customerId: row.customerId,
     partnerCode: row.partnerCode,
+    maxRedemptions: row.maxRedemptions,
+    redeemedCount: row.redeemedCount,
+    perCustomerLimit: row.perCustomerLimit,
     startsAt: row.startsAt,
     endsAt: row.endsAt,
     createdAt: row.createdAt,
@@ -70,6 +73,39 @@ export class CouponRepository {
       .offset(filter.offset);
     const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(coupons).where(where);
     return { items, total: Number(count) };
+  }
+
+  /**
+   * 扣一次額度。**條件更新**：只在還有剩餘時扣得動，扣不到就回 false。
+   * 先讀後寫在併發下會超發，而超發的是店家的錢。
+   */
+  async consume(tx: Tx, couponId: string, now: Date): Promise<boolean> {
+    const updated = await tx
+      .update(coupons)
+      .set({ redeemedCount: sql`${coupons.redeemedCount} + 1`, updatedAt: now })
+      .where(and(
+        eq(coupons.id, couponId),
+        sql`(${coupons.maxRedemptions} IS NULL OR ${coupons.redeemedCount} < ${coupons.maxRedemptions})`,
+      )!)
+      .returning({ id: coupons.id });
+    return updated.length > 0;
+  }
+
+  /** 回補一次額度。訂單取消時用（工單 37）。 */
+  async release(tx: Tx, couponId: string, now: Date): Promise<void> {
+    await tx
+      .update(coupons)
+      .set({ redeemedCount: sql`greatest(${coupons.redeemedCount} - 1, 0)`, updatedAt: now })
+      .where(eq(coupons.id, couponId));
+  }
+
+  /** 這位顧客核銷過這條規則幾次。「每人限用一次」看的是規則，不是券。 */
+  async redemptionCountFor(db: DrizzleDb | Tx, promotionId: string, customerId: string): Promise<number> {
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(couponRedemptions)
+      .where(and(eq(couponRedemptions.promotionId, promotionId), eq(couponRedemptions.customerId, customerId))!);
+    return Number(count);
   }
 
   async recordRedemption(

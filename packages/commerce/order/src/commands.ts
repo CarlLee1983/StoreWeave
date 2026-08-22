@@ -8,7 +8,7 @@ import { inventoryService } from '@storeweave/inventory';
 import { customerService } from '@storeweave/customer';
 import { pricingService } from '@storeweave/promotion';
 import { CartRepository } from '@storeweave/cart';
-import { CouponRepository, couponError, couponService } from '@storeweave/coupon';
+import { CouponRepository, couponError, couponService, type CouponRow } from '@storeweave/coupon';
 import { cancelOrderInput, checkoutCartInput, markPaidInput, orderDto, payOrderInput, placeOrderInput, type OrderDto } from './dto';
 import { OrderRepository, toOrderDto } from './repository';
 import { orderCancelledV1, orderPaidV1, orderPaidV2, orderPlacedV1, orderPlacedV2, orderPlacedV3 } from './events';
@@ -268,7 +268,7 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
  */
 async function redeemCoupon(
   ctx: CommandContext,
-  coupon: { id: string; code: string; promotionId: string; partnerCode: string | null; customerId: string | null },
+  coupon: CouponRow,
   order: OrderDto,
   customerId: string,
 ): Promise<void> {
@@ -276,6 +276,11 @@ async function redeemCoupon(
     .filter((adjustment) => adjustment.sourceId === coupon.promotionId)
     .reduce((sum, adjustment) => sum - adjustment.amountCents, 0);
   if (discountCents <= 0) return;
+
+  // 額度在這裡才扣。搶輸就整筆結帳失敗——顧客看到的金額與實際成交金額
+  // 因此永遠一致，代價是要重按一次（使用者 2026-08-22 拍板）。
+  const consumed = await couponService.consume(ctx.tx, coupon, { customerId, now: ctx.now });
+  if (!consumed.ok) throw couponError(consumed.reason);
 
   await couponRepository.recordRedemption(ctx.tx, {
     couponId: coupon.id,
