@@ -7,6 +7,7 @@ import {
   saveTierCommand, saveTierHandler,
   updateRewardSettingsCommand, updateRewardSettingsHandler,
 } from './commands';
+import { RECALCULATE_TIERS_JOB, createRecalculateTiersJob } from './jobs';
 import { loyaltyMigrations } from './migrations';
 import {
   getMyRewardsHandler, getMyRewardsQuery,
@@ -26,6 +27,14 @@ export const loyaltyModule: PlatformModule = defineModule({
     { descriptor: removeTierCommand, handler: removeTierHandler },
     { descriptor: adjustTierPointsCommand, handler: adjustTierPointsHandler },
     { descriptor: recalculateTiersCommand, handler: recalculateTiersHandler },
+  ],
+  jobs: [
+    {
+      type: RECALCULATE_TIERS_JOB,
+      handler: createRecalculateTiersJob(),
+      // 一天一次。等級是帳本的推導值，快取晚幾小時更新不影響正確性。
+      schedule: { everyMs: 24 * 60 * 60 * 1000 },
+    },
   ],
   queries: [
     { descriptor: getMyRewardsQuery, handler: getMyRewardsHandler },
