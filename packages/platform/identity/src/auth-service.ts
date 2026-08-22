@@ -145,9 +145,12 @@ export class AuthService {
     `);
 
     const token = randomBytes(32).toString('base64url');
+    // 後台帳號改得了設定、看得到所有訂單。它的重設連結是一條接管後台的路徑，
+    // 時效因此壓到四分之一——同一條流程，不同的暴露窗口。
+    const ttlMs = user.role === CUSTOMER_ROLE ? input.ttlMs : Math.min(input.ttlMs, 15 * 60_000);
     await db.execute(sql`
       INSERT INTO platform_password_resets (id, user_id, token_hash, expires_at)
-      VALUES (${randomUUID()}, ${user.id}, ${hashToken(token)}, ${new Date(Date.now() + input.ttlMs).toISOString()})
+      VALUES (${randomUUID()}, ${user.id}, ${hashToken(token)}, ${new Date(Date.now() + ttlMs).toISOString()})
     `);
     return { token, user: toUserDto(user) };
   }
