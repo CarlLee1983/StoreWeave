@@ -2,8 +2,8 @@ import { Body, Controller, HttpCode, Inject, Post, Req, Res, Get } from '@nestjs
 import type { FastifyReply } from 'fastify';
 import { PlatformError } from '@storeweave/contracts';
 import { ok } from '../http/envelope';
-import { Anonymous, Public, SESSION_COOKIE, type AuthenticatedRequest } from '../http/auth';
-import { clearSessionCookies } from '../http/session-cookies';
+import { Anonymous, Public, type AuthenticatedRequest } from '../http/auth';
+import { clearSessionCookies, sessionTokenOf } from '../http/session-cookies';
 import { startSession } from '../http/session-start';
 import { RUNTIME, type Runtime } from '../tokens';
 
@@ -57,7 +57,7 @@ export class AuthController {
   @Post('logout')
   @HttpCode(200)
   async logout(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) reply: FastifyReply) {
-    const token = req.cookies?.[SESSION_COOKIE];
+    const token = sessionTokenOf(req, this.runtime.config.http.publicUrl);
     if (token) await this.runtime.auth.revokeSession(this.runtime.database.db, token);
     clearSessionCookies(reply, this.runtime.config.http.publicUrl);
     return ok({ loggedOut: true });
@@ -105,7 +105,7 @@ export class AuthController {
    * 遲早會有一份的訊息或條件走鐘。
    */
   private async sessionOf(req: AuthenticatedRequest) {
-    const token = req.cookies?.[SESSION_COOKIE];
+    const token = sessionTokenOf(req, this.runtime.config.http.publicUrl);
     if (!token) throw new PlatformError('UNAUTHENTICATED', 'No active session');
     const resolved = await this.runtime.auth.resolveSession(this.runtime.database.db, token);
     if (!resolved) throw new PlatformError('UNAUTHENTICATED', 'Invalid or expired session');

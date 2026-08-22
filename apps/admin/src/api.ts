@@ -274,10 +274,20 @@ function isEnvelope(value: unknown): value is Envelope<unknown> {
   return typeof value === 'object' && value !== null && 'success' in value;
 }
 
-/** 從 document.cookie 讀 commerce_csrf；帳號登入路徑靠 cookie 驗證的非 GET 請求需要這個 header。 */
+/**
+ * 從 document.cookie 讀 CSRF token；帳號登入路徑靠 cookie 驗證的非 GET 請求需要這個 header。
+ *
+ * 名字在 https 部署上會多一個 `__Host-` 前綴（後端的 `cookieName()`），本機 http 開發沒有，
+ * 而這支前端建置時不知道自己會跑在哪一種。兩個都認得——伺服器比對的是由 session token
+ * 推導出來的值，不是這張 cookie，因此讀錯一張只會讓請求被拒，不會放行任何東西。
+ */
 function getCsrfToken(): string {
-  const match = document.cookie.match(/(?:^|;\s*)commerce_csrf=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : '';
+  // 兩張都在時以有前綴的為準：它是子網域蓋不掉的那一張。
+  for (const name of ['__Host-commerce_csrf', 'commerce_csrf']) {
+    const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
+    if (match) return decodeURIComponent(match[1]);
+  }
+  return '';
 }
 
 async function request<T>(

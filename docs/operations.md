@@ -52,6 +52,11 @@ service: commerce-api/worker  行程是否在跑
   之後在管理後台用這組帳密登入。session 是 httpOnly cookie，12 小時到期，
   audit log 會記成 `user:<uuid>`，查得出是誰動的。
 
+  cookie 的名字看 `http.publicUrl`：能發 Secure（https，或非本機的 hostname）時
+  帶 `__Host-` 前綴，本機以 http 開發時是裸名（ADR 0023）。**改動 `publicUrl` 而
+  跨過這條界線會讓既有的 session 與訪客購物車全部失效一次**——大家要重新登入，
+  這是預期行為，不是故障。
+
 - **機器用靜態 token**。`commerce.yaml` 的 `auth.tokens` 那組 bearer token 維持原樣，
   給 MCP 客戶端與 ERP 這類非瀏覽器呼叫端使用。它們不套用 CSRF 檢查，
   但也因此**沒有到期、不能個別撤銷**——`COMMERCE_ADMIN_TOKEN` 等於一把萬能鑰匙，

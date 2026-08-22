@@ -1,44 +1,45 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyReply } from 'fastify';
-
-/** 訪客購物車的識別碼。會員不需要它——他們的車綁在身分上。 */
-export const CART_COOKIE = 'commerce_cart';
-
-/**
- * 合併結果的一次性提示。合併發生在轉址之前，訊息沒有地方可以放，
- * 因此走 cookie 送到下一頁，讀到就清掉。
- */
-export const CART_NOTICE_COOKIE = 'commerce_cart_notice';
+import {
+  CART_COOKIE, CART_NOTICE_COOKIE, HOST_COOKIE_SCOPE, cookieName, readCookie, secureCookies,
+} from './cookie-names';
 
 const CART_COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
 const NOTICE_MAX_AGE = 5 * 60;
 
-function secureFor(publicUrl: string): boolean {
-  const { protocol, hostname } = new URL(publicUrl);
-  return protocol === 'https:' || !['localhost', '127.0.0.1', '::1'].includes(hostname);
-}
-
 export function setGuestCartCookie(reply: FastifyReply, publicUrl: string): string {
   const token = randomBytes(32).toString('base64url');
-  reply.setCookie(CART_COOKIE, token, {
-    path: '/', httpOnly: true, sameSite: 'lax', secure: secureFor(publicUrl), maxAge: CART_COOKIE_MAX_AGE,
+  reply.setCookie(cookieName(CART_COOKIE, publicUrl), token, {
+    ...HOST_COOKIE_SCOPE, httpOnly: true, sameSite: 'lax', secure: secureCookies(publicUrl), maxAge: CART_COOKIE_MAX_AGE,
   });
   return token;
 }
 
 /** 併過的 token 立刻失效，留著只會讓下一次請求又去找一台已經作廢的車。 */
 export function clearGuestCartCookie(reply: FastifyReply, publicUrl: string): void {
-  reply.clearCookie(CART_COOKIE, { path: '/', sameSite: 'lax', secure: secureFor(publicUrl), httpOnly: true });
+  reply.clearCookie(cookieName(CART_COOKIE, publicUrl), {
+    ...HOST_COOKIE_SCOPE, sameSite: 'lax', secure: secureCookies(publicUrl), httpOnly: true,
+  });
 }
 
 export function setCartNoticeCookie(reply: FastifyReply, publicUrl: string, message: string): void {
-  reply.setCookie(CART_NOTICE_COOKIE, message, {
-    path: '/', httpOnly: true, sameSite: 'lax', secure: secureFor(publicUrl), maxAge: NOTICE_MAX_AGE,
+  reply.setCookie(cookieName(CART_NOTICE_COOKIE, publicUrl), message, {
+    ...HOST_COOKIE_SCOPE, httpOnly: true, sameSite: 'lax', secure: secureCookies(publicUrl), maxAge: NOTICE_MAX_AGE,
   });
 }
 
 export function clearCartNoticeCookie(reply: FastifyReply, publicUrl: string): void {
-  reply.clearCookie(CART_NOTICE_COOKIE, { path: '/', sameSite: 'lax', secure: secureFor(publicUrl), httpOnly: true });
+  reply.clearCookie(cookieName(CART_NOTICE_COOKIE, publicUrl), {
+    ...HOST_COOKIE_SCOPE, sameSite: 'lax', secure: secureCookies(publicUrl), httpOnly: true,
+  });
+}
+
+/** 這次請求帶來的合併提示。 */
+export function cartNoticeOf(
+  req: { cookies?: Record<string, string | undefined> } | undefined,
+  publicUrl: string,
+): string | undefined {
+  return readCookie(req?.cookies, CART_NOTICE_COOKIE, publicUrl);
 }
 
 /** 被移除的商品講前三件就夠了；cookie 有大小上限，而清單長到那個地步也沒人讀。 */
@@ -59,7 +60,7 @@ export function guestTokenFor(
   publicUrl: string,
 ): string | undefined {
   if (req.actor?.type === 'customer') return undefined;
-  return req.cookies?.[CART_COOKIE] ?? setGuestCartCookie(reply, publicUrl);
+  return readCookie(req.cookies, CART_COOKIE, publicUrl) ?? setGuestCartCookie(reply, publicUrl);
 }
 
 /**
@@ -70,7 +71,8 @@ export function guestTokenFor(
  */
 export function existingGuestToken(
   req: { actor?: { type: string }; cookies?: Record<string, string | undefined> },
+  publicUrl: string,
 ): string | undefined {
   if (req.actor?.type === 'customer') return undefined;
-  return req.cookies?.[CART_COOKIE];
+  return readCookie(req.cookies, CART_COOKIE, publicUrl);
 }

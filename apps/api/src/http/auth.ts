@@ -4,6 +4,7 @@ import { Reflector } from '@nestjs/core';
 import { PlatformError, type Actor } from '@storeweave/contracts';
 import { permissionsForRole } from '@storeweave/authorization';
 import { csrfTokenFor } from '@storeweave/identity';
+import { sessionTokenOf } from './session-cookies';
 import { RUNTIME, type Runtime } from '../tokens';
 
 export const IS_PUBLIC = 'commerce:public';
@@ -23,8 +24,6 @@ export const Anonymous = () => SetMetadata(IS_ANONYMOUS, true);
 
 export const STOREFRONT_ROLE = 'storefront';
 
-export const SESSION_COOKIE = 'commerce_session';
-export const CSRF_COOKIE = 'commerce_csrf';
 export const CSRF_HEADER = 'x-csrf-token';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -95,7 +94,7 @@ export class ApiTokenGuard implements CanActivate {
       throw new PlatformError('UNAUTHENTICATED', 'Invalid API token');
     }
 
-    const sessionToken = request.cookies?.[SESSION_COOKIE];
+    const sessionToken = sessionTokenOf(request, this.runtime.config.http.publicUrl);
     if (sessionToken) {
       const resolved = await this.runtime.auth.resolveSession(this.runtime.database.db, sessionToken);
       if (resolved) {

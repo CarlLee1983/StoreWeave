@@ -85,4 +85,3 @@ ERP 串接與後台，因此先加恆為零的欄位、再讓新舊事件並行�
 - **`createPromotionInput` 以外的舊模組輸入仍未 `.strict()`**
   （catalog、inventory、customer、order 的部分 input）。那是既有行為，改動會影響
   現有客戶端，值得一張獨立的票。
-- **cookie 沒有 `__Host-` 前綴**。加上它需要 Secure，會擋掉本機以 http 開發。

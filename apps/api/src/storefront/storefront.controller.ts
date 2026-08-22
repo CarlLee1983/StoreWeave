@@ -5,9 +5,9 @@ import { PlatformError, type Actor } from '@storeweave/contracts';
 import { csrfTokenFor } from '@storeweave/identity';
 import type { StorefrontTheme, ThemeContext } from '@storeweave/kernel';
 import type { NotificationProvider } from '@storeweave/extension-sdk';
-import { Anonymous, Public, SESSION_COOKIE, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
-import { clearSessionCookies } from '../http/session-cookies';
-import { CART_NOTICE_COOKIE, clearCartNoticeCookie, existingGuestToken, guestTokenFor } from '../http/cart-cookie';
+import { Anonymous, Public, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
+import { clearSessionCookies, sessionTokenOf } from '../http/session-cookies';
+import { cartNoticeOf, clearCartNoticeCookie, existingGuestToken, guestTokenFor } from '../http/cart-cookie';
 import { startSession } from '../http/session-start';
 import { RUNTIME, THEME, type Runtime } from '../tokens';
 
@@ -67,7 +67,7 @@ export class StorefrontController {
    * 清除要落在同一個回應上，否則它會在每一頁重複出現。
    */
   private takeNotice(req?: AuthenticatedRequest, reply?: FastifyReply): string | null {
-    const notice = req?.cookies?.[CART_NOTICE_COOKIE];
+    const notice = cartNoticeOf(req, this.runtime.config.http.publicUrl);
     if (!notice) return null;
     if (reply) clearCartNoticeCookie(reply, this.runtime.config.http.publicUrl);
     return notice;
@@ -75,7 +75,7 @@ export class StorefrontController {
 
   private themeContext(req?: AuthenticatedRequest, reply?: FastifyReply): ThemeContext {
     const store = this.runtime.config.store;
-    const sessionToken = req?.cookies?.[SESSION_COOKIE];
+    const sessionToken = sessionTokenOf(req, this.runtime.config.http.publicUrl);
     const actor = req?.actor;
     return {
       storeName: store.name,
@@ -574,7 +574,7 @@ export class StorefrontController {
   @Anonymous()
   @Post('logout')
   async logout(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
-    const token = req.cookies?.[SESSION_COOKIE];
+    const token = sessionTokenOf(req, this.runtime.config.http.publicUrl);
     if (token) await this.runtime.auth.revokeSession(this.runtime.database.db, token);
     clearSessionCookies(reply as never, this.runtime.config.http.publicUrl);
     void reply.status(303).header('location', '/').send();
@@ -585,7 +585,7 @@ export class StorefrontController {
     // 讀取不簽發 token：沒有車就是空車，而不是發一張新的把舊的蓋掉。
     const cart = await this.runtime.queries.execute<any>(
       'commerce.cart.getCart',
-      { guestToken: existingGuestToken(req) },
+      { guestToken: existingGuestToken(req, this.runtime.config.http.publicUrl) },
       { actor: actorOf(req), channel: 'rest' },
     );
     return {

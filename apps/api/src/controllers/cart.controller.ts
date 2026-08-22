@@ -16,7 +16,8 @@ export class CartController extends BusController {
   /** 讀取不簽發 token：讀一次就換一台新車，等於把「清空購物車」變成跨站點得到的開關。 */
   @Get()
   async get(@Req() req: AuthenticatedRequest) {
-    return ok(await this.query(req, 'commerce.cart.getCart', { guestToken: existingGuestToken(req) }));
+    const guestToken = existingGuestToken(req, this.runtime.config.http.publicUrl);
+    return ok(await this.query(req, 'commerce.cart.getCart', { guestToken }));
   }
 
   @Post('items')

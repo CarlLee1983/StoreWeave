@@ -17,7 +17,11 @@ function guardWith(options: {
   resolveSession?: (token: string) => Promise<{ actor: Actor } | null>;
 }) {
   const runtime = {
-    config: { auth: { tokens: [{ name: 'admin-console', role: 'admin', secretRef: 'TOKEN' }] } },
+    config: {
+      auth: { tokens: [{ name: 'admin-console', role: 'admin', secretRef: 'TOKEN' }] },
+      // 本機 http：cookie 名字沒有 __Host- 前綴（見 cookie-names.ts）。
+      http: { publicUrl: 'http://localhost:3000' },
+    },
     secrets: { get: (name: string) => (name === 'TOKEN' ? options.tokenSecret ?? 'secret-token' : undefined) },
     auth: { resolveSession: vi.fn(async (_db: unknown, token: string) => (options.resolveSession ? options.resolveSession(token) : null)) },
     database: { db: {} },

@@ -34,6 +34,7 @@ Command Bus 與 Query Bus 只認這個型別，`apps/api/src/http/auth.ts` 是�
    權限模型不進資料庫，因此不需要授權快取與角色管理介面。有具體客戶需求再說。
 3. **session 用 httpOnly cookie**（`commerce_session`，SameSite=Strict，12 小時），
    搭配 double-submit CSRF token（`commerce_csrf`，非 httpOnly）。
+   https 部署上這兩個名字都會多一個 `__Host-` 前綴，理由見 ADR 0023。
    後台是同源 SPA，短期 JWT 在這裡只換來撤銷困難。
 4. **M2M token 維持現狀**。MCP 與 ERP 用的靜態 bearer token 不是人在用，
    繼續走 `auth.tokens` 那條路徑，且不套用 CSRF 檢查——它們不是瀏覽器發的。

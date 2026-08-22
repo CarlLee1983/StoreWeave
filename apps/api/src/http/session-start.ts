@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyReply } from 'fastify';
 import type { IssuedSession } from '@storeweave/identity';
-import { CART_COOKIE, cartMergeNotice, clearGuestCartCookie, setCartNoticeCookie } from './cart-cookie';
+import { cartMergeNotice, clearGuestCartCookie, setCartNoticeCookie } from './cart-cookie';
+import { CART_COOKIE, readCookie } from './cookie-names';
 import { setSessionCookies } from './session-cookies';
 import type { AuthenticatedRequest } from './auth';
 import type { Runtime } from '../tokens';
@@ -22,7 +23,8 @@ export async function startSession(
   const publicUrl = runtime.config.http.publicUrl;
   setSessionCookies(reply, { publicUrl, token: session.token, expiresAt: session.expiresAt });
 
-  const guestToken = req.cookies?.[CART_COOKIE];
+  // 這裡不用 existingGuestToken()：它會對已登入的身分回 undefined，而這一刻正是身分出現的瞬間。
+  const guestToken = readCookie(req.cookies, CART_COOKIE, publicUrl);
   if (!guestToken) return null;
 
   try {
