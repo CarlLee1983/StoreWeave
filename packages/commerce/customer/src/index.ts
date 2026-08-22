@@ -1,3 +1,4 @@
+export * from './events';
 export * from './commands';
 export * from './dto';
 export * from './migrations';

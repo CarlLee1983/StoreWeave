@@ -10,11 +10,13 @@ import {
   updateMyProfileHandler,
 } from './commands';
 import { getCustomerHandler, getCustomerQuery, getMyProfileHandler, getMyProfileQuery, listCustomersHandler, listCustomersQuery } from './queries';
+import { customerEvents } from './events';
 import { customerMigrations } from './migrations';
 
 export const customerModule = defineModule({
   name: 'customer',
   migrations: customerMigrations,
+  events: customerEvents,
   permissions: [
     { key: 'customer:register', description: '註冊成為會員', owner: 'customer' },
     { key: 'customer:read', description: '讀取顧客資料', owner: 'customer' },

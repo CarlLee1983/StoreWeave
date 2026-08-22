@@ -74,6 +74,14 @@ export type EventHandlerFn<P = any> = (event: DomainEvent<P>, ctx: EventHandlerC
 export interface EventHandlerContext {
   readonly logger: Logger;
   readonly correlationId: string;
+  /**
+   * 以 system 身分執行一個 Command。只有 Core 模組的訂閱者拿得到——
+   * Extension 走 SDK，不該有一支直達 Command Bus 的捷徑。
+   *
+   * 事件投遞跑在交易外，因此這裡的副作用與發出事件的那筆交易是分開成敗的：
+   * 發券失敗不會讓註冊跟著回滾。冪等由呼叫端給的 key 保證。
+   */
+  readonly executeCommand?: (name: string, input: unknown, idempotencyKey: string) => Promise<unknown>;
 }
 
 export function defineCommand<I, O>(d: {

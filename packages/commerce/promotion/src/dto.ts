@@ -40,6 +40,8 @@ export const promotionDto = z.object({
   stackable: z.boolean(),
   /** 需要券才套用；這種活動不會人人適用。 */
   requiresCoupon: z.boolean(),
+  autoIssue: z.enum(['signup', 'birthday']).nullable(),
+  autoIssueValidDays: z.number().int().positive().nullable(),
   startsAt: z.coerce.date().nullable(),
   endsAt: z.coerce.date().nullable(),
   createdAt: z.coerce.date(),
@@ -65,6 +67,9 @@ export const createPromotionInput = z
     priority: z.number().int().min(-1000).max(1000).default(0),
     stackable: z.boolean().default(true),
     requiresCoupon: z.boolean().default(false),
+    /** 自動發券的觸發。設了它就必須 requiresCoupon——發出去的券要有東西可指。 */
+    autoIssue: z.enum(['signup', 'birthday']).optional(),
+    autoIssueValidDays: z.number().int().positive().max(3_650).optional(),
     status: promotionStatus.default('active'),
     ...period,
   })
@@ -79,6 +84,8 @@ export const updatePromotionInput = z
     priority: z.number().int().min(-1000).max(1000).optional(),
     stackable: z.boolean().optional(),
     requiresCoupon: z.boolean().optional(),
+    autoIssue: z.enum(['signup', 'birthday']).nullable().optional(),
+    autoIssueValidDays: z.number().int().positive().max(3_650).nullable().optional(),
     ...period,
   })
   .strict()

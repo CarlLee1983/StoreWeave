@@ -4,6 +4,7 @@ import { PlatformError, defineCommand, type CommandContext } from '@storeweave/c
 import { CUSTOMER_ROLE, accountService } from '@storeweave/identity';
 import { sql } from 'drizzle-orm';
 import { customerDto, setCustomerStatusInput, registerCustomerInput, registerCustomerOutput, setCustomerBirthdayInput, updateMyProfileInput } from './dto';
+import { customerRegisteredV1 } from './events';
 import { CustomerRepository, toCustomerDto } from './repository';
 import { customerService } from './service';
 
@@ -46,6 +47,16 @@ export const registerCustomerHandler = async (
     displayName,
     createdAt: ctx.now,
     updatedAt: ctx.now,
+  });
+
+  await ctx.publish({
+    name: customerRegisteredV1.name,
+    payload: {
+      customerId: row.id,
+      accountId: account.id,
+      displayName,
+      registeredAt: ctx.now,
+    },
   });
 
   return { customer: toCustomerDto(row), accountId: account.id, email: account.email };

@@ -42,6 +42,7 @@ describe('Extension Contract Test', () => {
 describe('Release bundle', () => {
   it('公開全部版本化的核心事件', () => {
     expect(knownEvents).toEqual([
+      'commerce.customer.registered.v1',
       'commerce.inventory.adjusted.v1',
       'commerce.order.cancelled.v1',
       'commerce.order.paid.v1',

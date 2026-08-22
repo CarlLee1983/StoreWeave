@@ -110,6 +110,9 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
       if (j.schedule) recurring.register({ type: j.type, everyMs: j.schedule.everyMs });
     }
     for (const p of mod.policies ?? []) authorization.policies.register(p);
+    for (const sub of mod.subscribers ?? []) {
+      events.subscribe({ subscriberId: mod.name, eventName: sub.eventName, handler: sub.handler, maxAttempts: sub.maxAttempts });
+    }
   }
 
   jobRegistry.register(EVENT_DELIVERY_JOB, createEventDeliveryHandler(events, logger), 'platform');

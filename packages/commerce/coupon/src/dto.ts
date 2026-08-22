@@ -100,3 +100,18 @@ export const issueCouponsOutput = z.object({
   issued: z.number().int().nonnegative(),
   skipped: z.number().int().nonnegative(),
 });
+
+export const issueAutoCouponsInput = z.object({
+  trigger: z.enum(['signup', 'birthday']),
+  customerId: z.string().uuid(),
+  /**
+   * 這一次的「場合」。它進去重鍵，決定什麼叫做「同一次」——
+   * 註冊只有一次，生日則是每年一次，因此帶年份。
+   */
+  occurrence: z.string().min(1).max(40),
+}).strict();
+
+export const issueAutoCouponsOutput = z.object({
+  issued: z.number().int().nonnegative(),
+  codes: z.array(z.string()),
+});

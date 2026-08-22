@@ -22,6 +22,8 @@ function toPromotionShell(row: PromotionRow): Omit<PromotionDto, 'rule'> {
     priority: row.priority,
     stackable: row.stackable,
     requiresCoupon: row.requiresCoupon,
+    autoIssue: row.autoIssue as PromotionDto['autoIssue'],
+    autoIssueValidDays: row.autoIssueValidDays,
     startsAt: row.startsAt,
     endsAt: row.endsAt,
     createdAt: row.createdAt,
@@ -74,6 +76,15 @@ export class PromotionRepository {
       .where(and(activeAtCondition(at), eq(promotions.requiresCoupon, false))!)
       .orderBy(asc(promotions.priority), asc(promotions.id))
       .limit(limit + 1);
+  }
+
+  /** 這個觸發此刻該發哪些券。生效判斷與定價引擎逐字相同。 */
+  async listAutoIssueAt(db: DrizzleDb | Tx, trigger: string, at: Date): Promise<PromotionRow[]> {
+    return db
+      .select()
+      .from(promotions)
+      .where(and(activeAtCondition(at), eq(promotions.autoIssue, trigger))!)
+      .orderBy(asc(promotions.priority), asc(promotions.id));
   }
 
   /** 明確指名的活動：券所指向的那一條由這裡載入，生效判斷仍然一樣。 */

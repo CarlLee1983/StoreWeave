@@ -1,4 +1,6 @@
-import type { CommandDescriptor, CommandHandler, DomainEventDescriptor, QueryDescriptor, QueryHandler } from '@storeweave/contracts';
+import type {
+  CommandDescriptor, CommandHandler, DomainEventDescriptor, EventHandlerFn, QueryDescriptor, QueryHandler,
+} from '@storeweave/contracts';
 import type { MigrationSet } from '@storeweave/db';
 import type { PermissionDefinition, PolicyDefinition } from '@storeweave/authorization';
 import type { JobHandler } from '@storeweave/jobs';
@@ -20,6 +22,12 @@ export interface PlatformModule {
    * 已經排入（見 `recurring.ts`）——模組自己不需要處理去重鍵或續排。
    */
   readonly jobs?: readonly { type: string; handler: JobHandler; schedule?: Pick<RecurringJob, 'everyMs'> }[];
+  /**
+   * 對別的模組的事件做出反應。投遞經過 Outbox 與背景工作，因此訂閱者的失敗
+   * 不會讓發出事件的那筆交易回滾——「發券失敗不影響註冊成功」是這個機制的結果，
+   * 不是額外的處理。訂閱者識別就是模組名稱。
+   */
+  readonly subscribers?: readonly { eventName: string; handler: EventHandlerFn; maxAttempts?: number }[];
   readonly policies?: readonly PolicyDefinition[];
 }
 

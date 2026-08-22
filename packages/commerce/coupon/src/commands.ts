@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext } from '@storeweave/contracts';
+import type { NotificationProvider, ProviderRegistry } from '@storeweave/extension-sdk';
 import { customerService } from '@storeweave/customer';
+import { PromotionRepository } from '@storeweave/promotion';
 import {
   couponDto,
   createCouponInput,
+  issueAutoCouponsInput,
+  issueAutoCouponsOutput,
   issueCouponsInput,
   issueCouponsOutput,
   setCouponStatusInput,
@@ -14,6 +18,11 @@ import { CouponRepository, toCouponDto } from './repository';
 import { issueCouponTo } from './service';
 
 const repository = new CouponRepository();
+const promotions = new PromotionRepository();
+
+export interface CouponModuleDeps {
+  providers: ProviderRegistry;
+}
 
 export const createCouponCommand = defineCommand({
   name: 'commerce.coupon.createCoupon',
@@ -134,3 +143,77 @@ export const issueCouponsHandler = async (
   ctx.logger.info({ batchId, issued, targeted: customerIds.length }, 'issued coupon batch');
   return { batchId, issued, skipped: customerIds.length - issued };
 };
+
+export const issueAutoCouponsCommand = defineCommand({
+  name: 'commerce.coupon.issueAutoCoupons',
+  summary: '依觸發自動發券（註冊、生日）',
+  input: issueAutoCouponsInput,
+  output: issueAutoCouponsOutput,
+  permission: 'coupon:write',
+  idempotency: 'required',
+  audit: {
+    action: 'coupon.auto-issued',
+    resourceType: 'customer',
+    resourceId: (i) => i.customerId,
+    redact: (i) => ({ trigger: i.trigger, occurrence: i.occurrence }),
+  },
+});
+
+/**
+ * 註冊與生日共用這一支：觸發不同，發放路徑相同（Spec 0004）。
+ *
+ * 去重鍵是「觸發 × 活動 × 人 × 場合」，撞上就不發。事件重投與排程重跑因此
+ * 都是安全的——這比在呼叫端先查一次「他領過了嗎」可靠，那個判斷會輸給併發。
+ */
+export function createIssueAutoCouponsHandler(deps: CouponModuleDeps) {
+  return async (
+    input: z.infer<typeof issueAutoCouponsInput>,
+    ctx: CommandContext,
+  ): Promise<z.infer<typeof issueAutoCouponsOutput>> => {
+    const active = await promotions.listAutoIssueAt(ctx.tx, input.trigger, ctx.now);
+    const codes: string[] = [];
+
+    for (const promotion of active) {
+      const expiresAt = promotion.autoIssueValidDays
+        ? new Date(ctx.now.getTime() + promotion.autoIssueValidDays * 24 * 60 * 60 * 1000)
+        : null;
+      const row = await issueCouponTo(ctx.tx, {
+        promotionId: promotion.id,
+        customerId: input.customerId,
+        now: ctx.now,
+        source: input.trigger,
+        issueKey: `${input.trigger}:${promotion.id}:${input.customerId}:${input.occurrence}`,
+        expiresAt,
+      });
+      if (row) codes.push(row.code);
+    }
+
+    if (codes.length > 0) await notify(deps, ctx, input, codes);
+    return { issued: codes.length, codes };
+  };
+}
+
+/**
+ * 通知走 Provider。寄不出去不該讓發券回滾——券已經在他的帳號裡，
+ * 而通知可以補寄；反過來把券吞掉才是真的損失。
+ */
+async function notify(
+  deps: CouponModuleDeps,
+  ctx: CommandContext,
+  input: z.infer<typeof issueAutoCouponsInput>,
+  codes: string[],
+): Promise<void> {
+  try {
+    const customer = await customerService.contactFor(ctx.tx, input.customerId);
+    if (!customer) return;
+    const provider = deps.providers.get<NotificationProvider>('notification');
+    await provider.send({
+      template: `customer.coupon-${input.trigger}`,
+      to: { email: customer.email, name: customer.displayName },
+      variables: { codes, count: codes.length },
+      reference: `coupon-${input.trigger}:${input.customerId}:${input.occurrence}`,
+    });
+  } catch (err) {
+    ctx.logger.error({ error: (err as Error).message, customerId: input.customerId }, 'coupon notification failed');
+  }
+}

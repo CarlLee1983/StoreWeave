@@ -26,5 +26,16 @@ CREATE INDEX IF NOT EXISTS promotion_promotions_active_idx
 -- 券所指向的活動不該人人適用。沒有這個旗標，建一張券就等於全站打折。
 ALTER TABLE promotion_promotions ADD COLUMN IF NOT EXISTS requires_coupon boolean NOT NULL DEFAULT false;
 `),
+    sqlMigration('0003_auto_issue', 'expand', `
+-- 自動發券的觸發掛在活動上，而不是另做一層「發券活動」——在只有兩種觸發時，
+-- 那一層是規則引擎的規則引擎（Spec 0004）。
+ALTER TABLE promotion_promotions ADD COLUMN IF NOT EXISTS auto_issue text;
+ALTER TABLE promotion_promotions ADD COLUMN IF NOT EXISTS auto_issue_valid_days integer;
+ALTER TABLE promotion_promotions DROP CONSTRAINT IF EXISTS promotion_auto_issue_valid;
+ALTER TABLE promotion_promotions ADD CONSTRAINT promotion_auto_issue_valid
+  CHECK (auto_issue IS NULL OR auto_issue IN ('signup', 'birthday'));
+CREATE INDEX IF NOT EXISTS promotion_auto_issue_idx ON promotion_promotions (auto_issue)
+  WHERE auto_issue IS NOT NULL;
+`),
   ],
 };

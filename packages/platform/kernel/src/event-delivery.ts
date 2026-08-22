@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { EventBus } from '@storeweave/event-bus';
-import type { Logger } from '@storeweave/contracts';
+import type { EventHandlerContext, Logger } from '@storeweave/contracts';
 import type { JobHandler } from '@storeweave/jobs';
 
 export const EVENT_DELIVERY_JOB = 'platform.event.deliver';
@@ -35,6 +35,8 @@ export function createEventDeliveryHandler(eventBus: EventBus, logger: Logger): 
       return;
     }
     const parsed = eventBus.parse(event as any);
-    await subscription.handler(parsed, { logger: ctx.logger, correlationId: event.correlationId });
+    // Worker 在 JobContext 上掛了 executeCommand；Core 模組的訂閱者需要它才做得了事。
+    const executeCommand = (ctx as { executeCommand?: EventHandlerContext['executeCommand'] }).executeCommand;
+    await subscription.handler(parsed, { logger: ctx.logger, correlationId: event.correlationId, executeCommand });
   };
 }

@@ -6,4 +6,5 @@ export * from './pricing/allocation';
 export * from './pricing/engine';
 export * from './pricing/types';
 export * from './queries';
+export * from './repository';
 export * from './service';
