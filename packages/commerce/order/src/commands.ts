@@ -393,6 +393,11 @@ export function createExpireOrderHandler() {
       throw PlatformError.conflict(`Order ${order.number} has not reached its payment deadline`);
     }
     for (const line of lines) await inventoryService.release(ctx, { productId: line.productId, quantity: line.quantity, reference: order.number });
+    // 逾時與取消對顧客是同一件事：那張單沒有成立，折抵掉的購物金與用掉的券都要還他。
+    await reverseCouponForOrder(ctx.tx, { orderId: order.id, now: ctx.now });
+    if (order.customerId) {
+      await rewardService.reverseForOrder(ctx.tx, { customerId: order.customerId, orderId: order.id, now: ctx.now });
+    }
     const [updated] = await ctx.tx.update(orders).set({ status: 'expired', updatedAt: ctx.now }).where(eq(orders.id, order.id)).returning();
     return toOrderDto(updated, lines, adjustments);
   };
