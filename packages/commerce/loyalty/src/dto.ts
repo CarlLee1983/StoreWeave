@@ -1,0 +1,66 @@
+import { z } from 'zod';
+
+export const rewardSource = z.enum(['order-accrual', 'redemption', 'reversal', 'manual', 'expiry']);
+export type RewardSource = z.infer<typeof rewardSource>;
+
+export const rewardSettingsDto = z.object({
+  /** 累積比例，基點。100 = 1%。畫面上永遠寫成百分比。 */
+  accrualBasisPoints: z.number().int().min(0).max(10_000),
+  effectiveAfterDays: z.number().int().min(0).max(365),
+  expiresAfterDays: z.number().int().positive().max(3_650).nullable(),
+  updatedAt: z.coerce.date(),
+});
+
+export const updateRewardSettingsInput = z.object({
+  accrualBasisPoints: z.number().int().min(0).max(10_000).optional(),
+  effectiveAfterDays: z.number().int().min(0).max(365).optional(),
+  expiresAfterDays: z.number().int().positive().max(3_650).nullable().optional(),
+}).strict();
+
+export const rewardEntryDto = z.object({
+  id: z.string().uuid(),
+  amountCents: z.number().int(),
+  source: z.string(),
+  reference: z.string().nullable(),
+  effectiveAt: z.coerce.date(),
+  expiresAt: z.coerce.date().nullable(),
+  reason: z.string().nullable(),
+  createdAt: z.coerce.date(),
+});
+
+export const rewardBalanceDto = z.object({
+  availableCents: z.number().int().nonnegative(),
+  /** 已入帳但還沒生效。顧客看得到它才不會以為系統壞了。 */
+  pendingCents: z.number().int().nonnegative(),
+  expiredCents: z.number().int().nonnegative(),
+  /** 最近要到期的那一批，讓前台說得出「X 元將於 Y 到期」。 */
+  nextExpiry: z.object({
+    amountCents: z.number().int().positive(),
+    expiresAt: z.coerce.date(),
+  }).nullable(),
+});
+
+export const getMyRewardsInput = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+}).strict();
+
+export const getMyRewardsOutput = z.object({
+  balance: rewardBalanceDto,
+  entries: z.array(rewardEntryDto),
+});
+
+export const adjustRewardsInput = z.object({
+  customerId: z.string().uuid(),
+  /** 正數是給、負數是收回。 */
+  amountCents: z.number().int().refine((v) => v !== 0, { message: 'amountCents must not be zero' }),
+  reason: z.string().trim().min(1).max(500),
+  /** 幾天後到期；省略時沿用店鋪設定。 */
+  expiresInDays: z.number().int().positive().max(3_650).nullable().optional(),
+}).strict();
+
+export const outstandingRewardsOutput = z.object({
+  /** 流通在外的購物金總額：已生效、未過期、還沒被用掉的部分。 */
+  availableCents: z.number().int().nonnegative(),
+  pendingCents: z.number().int().nonnegative(),
+  customerCount: z.number().int().nonnegative(),
+});

@@ -9,6 +9,7 @@ import { customerService } from '@storeweave/customer';
 import { pricingService } from '@storeweave/promotion';
 import { CartRepository } from '@storeweave/cart';
 import { CouponRepository, couponError, couponService, reverseCouponForOrder, type CouponRow } from '@storeweave/coupon';
+import { rewardService } from '@storeweave/loyalty';
 import { cancelOrderInput, checkoutCartInput, markPaidInput, orderDto, payOrderInput, placeOrderInput, type OrderDto } from './dto';
 import { OrderRepository, toOrderDto } from './repository';
 import { orderCancelledV1, orderPaidV1, orderPaidV2, orderPlacedV1, orderPlacedV2, orderPlacedV3 } from './events';
@@ -371,6 +372,18 @@ export function createMarkPaidHandler() {
     await ctx.tx.insert(orderPayments).values({ id: randomUUID(), orderId: order.id, provider: input.provider, providerRef: input.providerRef, amountCents: order.totalCents, status: 'succeeded', createdAt: ctx.now });
     for (const line of lines) await inventoryService.commitReservation(ctx, { productId: line.productId, quantity: line.quantity, reference: order.number });
     const [updated] = await ctx.tx.update(orders).set({ status: 'paid', paidAt: ctx.now, updatedAt: ctx.now }).where(eq(orders.id, order.id)).returning();
+
+    // 購物金在付款完成時入帳，與付款同一個交易——付款回滾了，購物金就不曾發生。
+    // 生效日往後推，因此取消回沖只是扣掉一筆還沒生效的分錄（Spec 0005）。
+    if (order.customerId) {
+      await rewardService.accrueForOrder(ctx.tx, {
+        customerId: order.customerId,
+        orderId: order.id,
+        netCents: order.totalCents,
+        now: ctx.now,
+      });
+    }
+
     const dto = toOrderDto(updated, lines, adjustments);
     await ctx.publish({ name: orderPaidV1.name, payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency, totalCents: dto.totalCents, paidAt: dto.paidAt!, paymentProvider: input.provider, paymentRef: input.providerRef, lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents }) => ({ productId, sku, name, quantity, unitPriceCents, lineTotalCents })) } });
     await ctx.publish({
@@ -450,6 +463,10 @@ export function createCancelOrderHandler(_deps: OrderModuleDeps) {
 
     // 券回沖與取消在同一個交易內：取消失敗，券就沒有被還回去過。
     const reversed = await reverseCouponForOrder(ctx.tx, { orderId: order.id, now: ctx.now });
+    // 購物金一併回沖：折抵掉的還回去、那張單累積的扣回來，兩者都是新的反向分錄。
+    if (order.customerId) {
+      await rewardService.reverseForOrder(ctx.tx, { customerId: order.customerId, orderId: order.id, now: ctx.now });
+    }
     if (reversed) ctx.logger.info({ orderId: order.id, couponId: reversed.couponId }, 'reversed coupon redemption');
 
     const [updated] = await ctx.tx.update(orders)

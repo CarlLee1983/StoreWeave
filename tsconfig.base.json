@@ -41,6 +41,7 @@
       "@storeweave/customer": ["packages/commerce/customer/src/index.ts"],
       "@storeweave/cart": ["packages/commerce/cart/src/index.ts"],
       "@storeweave/coupon": ["packages/commerce/coupon/src/index.ts"],
+      "@storeweave/loyalty": ["packages/commerce/loyalty/src/index.ts"],
       "@storeweave/promotion": ["packages/commerce/promotion/src/index.ts"],
       "@storeweave/ext-mock-payment": ["packages/extensions/mock-payment/src/index.ts"],
       "@storeweave/ext-mock-notification": ["packages/extensions/mock-notification/src/index.ts"],
