@@ -44,8 +44,10 @@ export function layout({ title, body, ctx }: LayoutOptions): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)} · ${escapeHtml(ctx.storeName)}</title>
 <style>${styles(accent)}</style>
-<!-- HTMX 只是漸進增強；沒有它時所有表單仍以標準 POST 運作 -->
-<script defer src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+<!--
+  刻意不從第三方 CDN 載入任何 script：工單 11 之後每一頁都帶著會員 session，
+  CDN 被汙染等於全站帳號接管。所有表單本來就以標準 POST 運作，不需要 JavaScript。
+-->
 </head>
 <body>
 <header class="site-header">

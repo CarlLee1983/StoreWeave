@@ -26,6 +26,16 @@ export const customerService = {
     return actor.id.startsWith(ACCOUNT_PREFIX) ? actor.id.slice(ACCOUNT_PREFIX.length) : actor.id;
   },
 
+  /** 只要 customerId 的路徑用它——訂單範圍限縮不需要 email，別為它多打一次帳號表。 */
+  async customerIdOf(db: DrizzleDb | Tx, actor: Actor): Promise<string | null> {
+    const accountId = this.accountIdOf(actor);
+    if (!accountId) return null;
+    const customer = await customers.findByAccountId(db, accountId);
+    if (!customer) throw PlatformError.notFound('Customer', accountId);
+    if (customer.status !== 'active') throw PlatformError.forbidden('This customer account is disabled');
+    return customer.id;
+  },
+
   async requireByActor(db: DrizzleDb | Tx, actor: Actor): Promise<CustomerIdentity> {
     const accountId = this.accountIdOf(actor);
     if (!accountId) {
@@ -36,7 +46,7 @@ export const customerService = {
     if (!customer) throw PlatformError.notFound('Customer', accountId);
     if (customer.status !== 'active') throw PlatformError.forbidden('This customer account is disabled');
 
-    const account = await accounts.findById(db as DrizzleDb, accountId);
+    const account = await accounts.findById(db, accountId);
     if (!account) throw PlatformError.notFound('Account', accountId);
 
     return {

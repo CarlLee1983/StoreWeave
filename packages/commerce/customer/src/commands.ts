@@ -80,6 +80,11 @@ export const updateMyProfileHandler = async (
     throw PlatformError.validation('birthday can only be set once; contact support to correct it');
   }
 
+  if (input.displayName !== undefined) {
+    // 頁首與 /auth/me 讀的是帳號上的名字，只改顧客那一份會讓兩邊永遠分岔。
+    await accountService.setDisplayName(ctx.tx, me.accountId, input.displayName);
+  }
+
   const row = await repository.update(ctx.tx, me.customerId, {
     ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
     ...(input.phone === undefined ? {} : { phone: input.phone }),

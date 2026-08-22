@@ -139,6 +139,11 @@ export class AuthService {
     const user = await this.users.findByEmail(db, input.email);
     if (!user || user.status !== 'active') return null;
 
+    // 先作廢舊的：不然「我又點了一次忘記密碼」會讓上一封信裡的連結繼續有效。
+    await db.execute(sql`
+      UPDATE platform_password_resets SET used_at = now() WHERE user_id = ${user.id} AND used_at IS NULL
+    `);
+
     const token = randomBytes(32).toString('base64url');
     await db.execute(sql`
       INSERT INTO platform_password_resets (id, user_id, token_hash, expires_at)
@@ -184,6 +189,10 @@ export class AuthService {
 
     await db.execute(sql`
       UPDATE platform_users SET password_hash = ${await hashPassword(input.newPassword)} WHERE id = ${user.id}
+    `);
+    // 改完密碼，先前寄出的重設連結一律失效——那是「我懷疑帳號被盜」時最直接的期待。
+    await db.execute(sql`
+      UPDATE platform_password_resets SET used_at = now() WHERE user_id = ${user.id} AND used_at IS NULL
     `);
     await this.revokeAllSessions(db, user.id, input.keepToken);
   }

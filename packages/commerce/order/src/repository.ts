@@ -1,4 +1,4 @@
-import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import type { DrizzleDb, Tx } from '@storeweave/contracts';
 import { orderAdjustments, orderLines, orders, type OrderAdjustmentRow, type OrderLineRow, type OrderRow } from './schema';
 import type { OrderDto } from './dto';
@@ -73,6 +73,27 @@ export class OrderRepository {
       .from(orderAdjustments)
       .where(eq(orderAdjustments.orderId, orderId))
       .orderBy(orderAdjustments.sortOrder);
+  }
+
+  /** 一次撈多張訂單的行與調整明細：清單頁 20 筆訂單原本要打 41 次查詢。 */
+  async linesForMany(db: DrizzleDb | Tx, orderIds: string[]): Promise<Map<string, OrderLineRow[]>> {
+    const grouped = new Map<string, OrderLineRow[]>(orderIds.map((id) => [id, []]));
+    if (orderIds.length === 0) return grouped;
+    const rows = await db.select().from(orderLines).where(inArray(orderLines.orderId, orderIds)).orderBy(orderLines.id);
+    for (const row of rows) grouped.get(row.orderId)?.push(row);
+    return grouped;
+  }
+
+  async adjustmentsForMany(db: DrizzleDb | Tx, orderIds: string[]): Promise<Map<string, OrderAdjustmentRow[]>> {
+    const grouped = new Map<string, OrderAdjustmentRow[]>(orderIds.map((id) => [id, []]));
+    if (orderIds.length === 0) return grouped;
+    const rows = await db
+      .select()
+      .from(orderAdjustments)
+      .where(inArray(orderAdjustments.orderId, orderIds))
+      .orderBy(orderAdjustments.sortOrder);
+    for (const row of rows) grouped.get(row.orderId)?.push(row);
+    return grouped;
   }
 
   /** 固定排序：事件的 lines 順序決定下游的行號，不能每次重送都不一樣。 */

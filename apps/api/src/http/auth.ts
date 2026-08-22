@@ -65,6 +65,11 @@ export class ApiTokenGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
 
     if (isAnonymous) {
+      // 強制匿名的端點沒有 session 可以驗 CSRF，但登入本身仍是狀態變更：
+      // 沒有這道檢查，攻擊者能用自己的帳密從外站把受害者「登入成」他的帳號，
+      // 之後受害者填的地址與下的單全部進攻擊者的帳戶。SameSite 擋不住它——
+      // 那次請求本來就不需要帶 cookie，回應的 Set-Cookie 照樣會被存下來。
+      this.assertSameOrigin(request);
       request.actor = anonymousActor();
       return true;
     }
@@ -115,6 +120,37 @@ export class ApiTokenGuard implements CanActivate {
    * 比對的是「由這次的 session token 推導出的值」，不是請求自己帶來的 CSRF cookie，
    * 因此攻擊者就算能覆寫 cookie 也偽造不出來。
    */
+  /**
+   * 只在瀏覽器真的表態時才判斷：`Origin` 與 `Sec-Fetch-Site` 都是瀏覽器自己加的，
+   * 前端偽造不了。兩者都沒有（curl、伺服器對伺服器、測試）就放行——
+   * 它們本來就不受 CSRF 影響。
+   */
+  private assertSameOrigin(request: AuthenticatedRequest): void {
+    const method = (request.method ?? 'GET').toUpperCase();
+    if (SAFE_METHODS.has(method)) return;
+
+    const header = (name: string): string | undefined => {
+      const value = request.headers[name];
+      return Array.isArray(value) ? value[0] : value;
+    };
+
+    const fetchSite = header('sec-fetch-site');
+    if (fetchSite && !['same-origin', 'same-site', 'none'].includes(fetchSite)) {
+      throw new PlatformError('FORBIDDEN', 'Cross-site form submissions are not allowed');
+    }
+
+    const origin = header('origin');
+    if (!origin) return;
+    try {
+      if (new URL(origin).origin !== new URL(this.runtime.config.http.publicUrl).origin) {
+        throw new PlatformError('FORBIDDEN', 'Cross-site form submissions are not allowed');
+      }
+    } catch (err) {
+      if (err instanceof PlatformError) throw err;
+      throw new PlatformError('FORBIDDEN', 'Invalid Origin header');
+    }
+  }
+
   private assertCsrf(request: AuthenticatedRequest, sessionToken: string): void {
     const method = (request.method ?? 'GET').toUpperCase();
     if (SAFE_METHODS.has(method)) return;

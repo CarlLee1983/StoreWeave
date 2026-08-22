@@ -32,7 +32,7 @@ export interface ThemeOrderSummaryView {
   status: string;
   currency: string;
   totalCents: number;
-  placedAt: string;
+  placedAt: Date;
   lineCount: number;
 }
 

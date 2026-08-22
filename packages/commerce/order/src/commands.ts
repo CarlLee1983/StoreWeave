@@ -14,6 +14,17 @@ import { orderAdjustments, orderLines, orderPayments, orders } from './schema';
 
 const repository = new OrderRepository();
 
+/**
+ * 讀取路徑（工單 12）已經擋住「猜訂單號讀別人的訂單」，寫入路徑必須套用同一個不變式。
+ * 顧客身分只能動自己的訂單；後台角色與 system 不受限。回 notFound 而不是 forbidden，
+ * 理由與查詢相同：後者會變成「這張單存不存在」的 oracle。
+ */
+async function assertOwnedByActor(ctx: CommandContext, order: { id: string; customerId: string | null }): Promise<void> {
+  if (ctx.actor.type !== 'customer') return;
+  const customerId = await customerService.customerIdOf(ctx.tx, ctx.actor);
+  if (order.customerId !== customerId) throw PlatformError.notFound('Order', order.id);
+}
+
 export interface OrderModuleDeps {
   providers: ProviderRegistry;
   defaultCurrency: string;
@@ -163,6 +174,7 @@ export function createPayOrderHandler(deps: OrderModuleDeps) {
   return async (input: z.infer<typeof payOrderInput>, ctx: CommandContext): Promise<OrderDto> => {
     const order = await repository.lockById(ctx.tx, input.orderId);
     if (!order) throw PlatformError.notFound('Order', input.orderId);
+    await assertOwnedByActor(ctx, order);
     const lineRows = await repository.linesFor(ctx.tx, order.id);
     const adjustmentRows = await repository.adjustmentsFor(ctx.tx, order.id);
 
@@ -283,6 +295,7 @@ export function createCancelOrderHandler(_deps: OrderModuleDeps) {
   return async (input: z.infer<typeof cancelOrderInput>, ctx: CommandContext): Promise<OrderDto> => {
     const order = await repository.lockById(ctx.tx, input.orderId);
     if (!order) throw PlatformError.notFound('Order', input.orderId);
+    await assertOwnedByActor(ctx, order);
     const lineRows = await repository.linesFor(ctx.tx, order.id);
     const adjustmentRows = await repository.adjustmentsFor(ctx.tx, order.id);
     if (order.status === 'cancelled') return toOrderDto(order, lineRows, adjustmentRows);

@@ -23,7 +23,7 @@ const message = {
 };
 
 describe('mock notification provider', () => {
-  it('寄出的內容留得下來供測試斷言', async () => {
+  it('寄出的內容留得下來供測試斷言（一次性憑證預設遮蔽）', async () => {
     const ctx = context();
     const provider = createMockNotificationProvider(ctx);
 
@@ -36,7 +36,7 @@ describe('mock notification provider', () => {
         reference: 'password-reset:1',
         template: 'customer.password-reset',
         to: { email: 'buyer@example.com', name: '買家' },
-        variables: { resetUrl: 'https://shop.example/reset?token=abc' },
+        variables: { resetUrl: '[redacted]' },
         locale: null,
         providerRef: result.providerRef,
         sentAt: '2026-08-22T10:00:00.000Z',
@@ -82,5 +82,23 @@ describe('mock notification provider', () => {
     await createMockNotificationProvider(ctx).send(message);
 
     expect((await listSentNotifications(ctx.store))[0].sentAt).toBe('2001-01-01T00:00:00.000Z');
+  });
+});
+
+describe('一次性憑證不進儲存', () => {
+  it('預設會遮蔽連結與 token 這類變數', async () => {
+    const ctx = context();
+    await createMockNotificationProvider(ctx).send(message);
+
+    const [sent] = await listSentNotifications(ctx.store);
+    expect(sent.variables).toEqual({ resetUrl: '[redacted]' });
+  });
+
+  it('明確打開留存時才留下原文（整合測試用）', async () => {
+    const ctx = context({ retainSensitiveVariables: true });
+    await createMockNotificationProvider(ctx).send(message);
+
+    const [sent] = await listSentNotifications(ctx.store);
+    expect(sent.variables).toEqual({ resetUrl: 'https://shop.example/reset?token=abc' });
   });
 });

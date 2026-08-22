@@ -1,4 +1,4 @@
-import { PlatformError, type CommandContext } from '@storeweave/contracts';
+import { PlatformError, type CommandContext, type DrizzleDb, type Tx } from '@storeweave/contracts';
 import { StockRepository, toStockDto } from './repository';
 import { inventoryAdjustedV1 } from './events';
 import type { StockDto } from './dto';
@@ -10,6 +10,12 @@ const repository = new StockRepository();
  * order 模組扣庫存只能走這裡，不得直接寫 inventory_stock。
  */
 export const inventoryService = {
+  /** 唯讀的可售量。購物車與試算要顯示它，但兩者都不預留。 */
+  async availableFor(db: DrizzleDb | Tx, productId: string): Promise<number | null> {
+    const row = await repository.find(db, productId);
+    return row ? row.onHand - row.reserved : null;
+  },
+
   /** 預留不改變實體庫存；可售量永遠是 onHand - reserved。 */
   async reserve(ctx: CommandContext, input: { productId: string; quantity: number; reference?: string | null }): Promise<StockDto> {
     const current = await repository.lockOrCreate(ctx.tx, input.productId);

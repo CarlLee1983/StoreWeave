@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Body, Controller, Get, Inject, Param, Post, Query, Req, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { PlatformError, type Actor } from '@storeweave/contracts';
@@ -12,10 +12,24 @@ import { RUNTIME, THEME, type Runtime } from '../tokens';
 /** 重設連結的時效。夠久到收得到信，短到外洩的信件不會長期有效。 */
 const RESET_TTL_MS = 60 * 60 * 1000;
 
-/** 只接受站內路徑，避免變成開放轉址。 */
+/**
+ * 只接受站內路徑，避免變成開放轉址。
+ *
+ * 用 URL 解析而不是字串前綴：特殊 scheme 下反斜線等同斜線，tab / CR / LF 又會在
+ * 解析前被剝掉，`/\evil.com` 與 `/<TAB>/evil.com` 都會被瀏覽器當成 protocol-relative。
+ * 追這種邊角只能交給解析器。
+ */
 function safeNext(value: string | undefined): string {
-  if (!value || !value.startsWith('/') || value.startsWith('//')) return '/';
-  return value;
+  if (!value) return '/';
+  const cleaned = value.replace(/[\t\r\n]/g, '');
+  try {
+    const parsed = new URL(cleaned, 'https://internal.invalid');
+    if (parsed.origin !== 'https://internal.invalid') return '/';
+    const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return path.startsWith('/') && !path.startsWith('//') ? path : '/';
+  } catch {
+    return '/';
+  }
 }
 
 interface ProductDtoShape {
@@ -48,8 +62,9 @@ export class StorefrontController {
       supportEmail: store.supportEmail,
       options: this.runtime.config.theme.options,
       customerName: actor?.type === 'customer' ? actor.displayName ?? null : null,
-      // 只有真的解析出身分時才給 token：強制匿名的頁面沒有身分可以被冒用。
-      csrfToken: actor?.type === 'customer' && sessionToken ? csrfTokenFor(sessionToken) : null,
+      // 有 session 就發 token：守衛對任何 cookie 身分都會驗 CSRF，只發給顧客的話，
+      // 後台身分逛前台送出表單會拿到裸的 403，而不是那句「請先登入」。
+      csrfToken: sessionToken && actor && actor.type !== 'service' ? csrfTokenFor(sessionToken) : null,
     };
   }
 
@@ -248,7 +263,8 @@ export class StorefrontController {
             resetUrl: `${this.runtime.config.http.publicUrl.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(created.token)}`,
             expiresInMinutes: RESET_TTL_MS / 60_000,
           },
-          reference: `password-reset:${created.token.slice(0, 16)}`,
+          // reference 會被 Provider 留存，因此用不可逆的值——明文 token 只該出現在信裡。
+          reference: `password-reset:${createHash('sha256').update(created.token).digest('base64url').slice(0, 32)}`,
         });
       }
     } catch (err) {
@@ -335,9 +351,14 @@ export class StorefrontController {
       this.startSession(reply, session.token, session.expiresAt);
       void reply.status(303).header('location', next).send();
     } catch (err) {
-      const message = err instanceof PlatformError && err.httpStatus < 500
-        ? err.message
-        : '註冊失敗，請稍後再試。';
+      // 已存在的帳號不能在這裡說出來——那是一條比登入更明確的帳號枚舉管道。
+      // 驗證錯誤（密碼太短、email 格式）才照實說，因為它們與帳號存不存在無關。
+      const isConflict = err instanceof PlatformError && err.code === 'CONFLICT';
+      const message = isConflict
+        ? '無法用這組資料註冊。如果你已經有帳號，請改用登入或密碼重設。'
+        : err instanceof PlatformError && err.httpStatus < 500
+          ? err.message
+          : '註冊失敗，請稍後再試。';
       this.html(reply, 400, this.theme.renderAuth(this.themeContext(), { mode: 'register', next, error: message }));
     }
   }

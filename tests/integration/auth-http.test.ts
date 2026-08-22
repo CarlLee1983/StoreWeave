@@ -319,3 +319,114 @@ describe('三段式守衛在 HTTP 上的行為（工單 11）', () => {
     expect(res.headers.location).toMatch(/^\/login/);
   });
 });
+
+describe('CSRF 與跨站送出（真實表單路徑）', () => {
+  async function memberSession(email: string): Promise<string> {
+    const res = await inject({
+      method: 'POST', url: '/register',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `email=${encodeURIComponent(email)}&password=a-good-password&next=%2F`,
+    });
+    return cookieValue(res, SESSION_COOKIE)!;
+  }
+
+  it('缺 _csrf 的結帳被擋下來', async () => {
+    const session = await memberSession('csrf-checkout@example.com');
+    const product = await createProduct(h.runtime, { sku: 'CSRF-CHECKOUT', name: 'CSRF' });
+    await stockUp(h.runtime, product.id, 2);
+
+    const res = await inject({
+      method: 'POST', url: '/checkout',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      cookies: { [SESSION_COOKIE]: session },
+      payload: `productId=${product.id}&quantity=1`,
+    });
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('缺 _csrf 的個人資料儲存也被擋下來', async () => {
+    const session = await memberSession('csrf-profile@example.com');
+
+    const res = await inject({
+      method: 'POST', url: '/account/profile',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      cookies: { [SESSION_COOKIE]: session },
+      payload: 'displayName=%E5%B0%8F%E6%98%8E',
+    });
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('別的網站送過來的登入被擋下來（登入 CSRF / session 植入）', async () => {
+    const res = await inject({
+      method: 'POST', url: '/login',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'https://evil.example' },
+      payload: 'email=someone%40example.com&password=a-good-password',
+    });
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('同源送出的登入照常運作', async () => {
+    await memberSession('same-origin@example.com');
+
+    const res = await inject({
+      method: 'POST', url: '/login',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        origin: h.runtime.config.http.publicUrl,
+      },
+      payload: 'email=same-origin%40example.com&password=a-good-password&next=%2F',
+    });
+
+    expect(res.statusCode).toBe(303);
+  });
+
+  it('登入後的轉址只接受站內路徑', async () => {
+    await memberSession('open-redirect@example.com');
+
+    for (const next of ['/\\evil.example', '//evil.example', 'https://evil.example', '/\tevil.example']) {
+      const res = await inject({
+        method: 'POST', url: '/login',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        payload: `email=open-redirect%40example.com&password=a-good-password&next=${encodeURIComponent(next)}`,
+      });
+      expect(res.statusCode).toBe(303);
+      // 重點是「不會離站」：站內相對路徑（即使長得像網域）是安全的
+      const location = res.headers.location as string;
+      expect(location.startsWith('/')).toBe(true);
+      expect(location.startsWith('//')).toBe(false);
+      expect(location).not.toContain('\\');
+      expect(new URL(location, 'https://shop.internal').origin).toBe('https://shop.internal');
+    }
+  });
+});
+
+describe('前台表單路由的節流', () => {
+  it('連續打前台的 /login 一樣會被擋掉', async () => {
+    let limited = false;
+    for (let attempt = 0; attempt < 25 && !limited; attempt += 1) {
+      const res = await inject({
+        method: 'POST', url: '/login',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        payload: 'email=throttle-front%40example.com&password=wrong-password',
+      });
+      if (res.statusCode === 429) limited = true;
+    }
+    expect(limited).toBe(true);
+  });
+
+  it('忘記密碼也受節流，否則就是免費的寄信轟炸器', async () => {
+    let limited = false;
+    for (let attempt = 0; attempt < 25 && !limited; attempt += 1) {
+      const res = await inject({
+        method: 'POST', url: '/forgot-password',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        payload: 'email=throttle-forgot%40example.com',
+      });
+      if (res.statusCode === 429) limited = true;
+    }
+    expect(limited).toBe(true);
+  });
+});

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { PlatformError, type DrizzleDb, type Tx } from '@storeweave/contracts';
+import { PlatformError, type Tx } from '@storeweave/contracts';
 import { hashPassword } from './password';
 import { UserRepository, toUserDto, type UserDto } from './repository';
 
@@ -12,20 +12,29 @@ const repository = new UserRepository();
  * 它收 `tx` 而不是自己開交易：顧客註冊要讓帳號與顧客資料同生共死。
  */
 export const accountService = {
+  /** 帳號標籤跟著顧客的顯示名稱走：兩邊各存一份、只改一邊，畫面就會永遠對不起來。 */
+  async setDisplayName(tx: Tx, accountId: string, displayName: string): Promise<void> {
+    await repository.setDisplayName(tx, accountId, displayName);
+  },
+
   async createAccount(
     tx: Tx,
     input: { email: string; password: string; displayName: string; role: string },
   ): Promise<UserDto> {
-    const existing = await repository.findByEmail(tx as unknown as DrizzleDb, input.email);
-    if (existing) throw PlatformError.conflict(`Account ${input.email} already exists`);
+    // 訊息不帶 email：帶了就等於把登入端辛苦做的中性訊息從註冊端繞過去。
+    const conflict = PlatformError.conflict('An account with these details already exists');
+    const existing = await repository.findByEmail(tx, input.email);
+    if (existing) throw conflict;
 
-    const row = await repository.insert(tx, {
+    // 先查再寫擋不住並行：兩個請求可以同時通過上面的檢查，第二個會撞唯一索引。
+    const row = await repository.insertIfAbsent(tx, {
       id: randomUUID(),
       email: input.email,
       passwordHash: await hashPassword(input.password),
       displayName: input.displayName,
       role: input.role,
     });
+    if (!row) throw conflict;
     return toUserDto(row);
   },
 };

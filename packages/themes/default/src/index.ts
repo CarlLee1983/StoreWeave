@@ -111,7 +111,7 @@ export const defaultTheme: StorefrontTheme = {
         <td><span class="badge">${escapeHtml(o.status)}</span></td>
         <td>${o.lineCount}</td>
         <td>${formatMoney(o.totalCents, o.currency, ctx.locale)}</td>
-        <td class="muted">${escapeHtml(new Date(o.placedAt).toLocaleDateString(ctx.locale))}</td>
+        <td class="muted">${escapeHtml(o.placedAt.toLocaleDateString(ctx.locale))}</td>
       </tr>`).join('');
 
     const previous = offset > 0

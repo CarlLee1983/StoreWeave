@@ -48,7 +48,7 @@ export class UserRepository {
     return res.rows[0]!;
   }
 
-  async findById(db: DrizzleDb, id: string): Promise<UserRow | null> {
+  async findById(db: DrizzleDb | Tx, id: string): Promise<UserRow | null> {
     const res = await db.execute<UserRow>(sql`
       SELECT id, email, password_hash, display_name, role, status, created_at, last_login_at
       FROM platform_users WHERE id = ${id}
@@ -56,7 +56,24 @@ export class UserRepository {
     return res.rows[0] ?? null;
   }
 
-  async findByEmail(db: DrizzleDb, email: string): Promise<UserRow | null> {
+  /** 撞到 email 唯一索引時回 null，讓呼叫端把它變成 409 而不是 500。 */
+  async insertIfAbsent(tx: Tx, input: {
+    id: string; email: string; passwordHash: string; displayName: string; role: string;
+  }): Promise<UserRow | null> {
+    const res = await tx.execute<UserRow>(sql`
+      INSERT INTO platform_users (id, email, password_hash, display_name, role)
+      VALUES (${input.id}, ${input.email}, ${input.passwordHash}, ${input.displayName}, ${input.role})
+      ON CONFLICT DO NOTHING
+      RETURNING id, email, password_hash, display_name, role, status, created_at, last_login_at
+    `);
+    return res.rows[0] ?? null;
+  }
+
+  async setDisplayName(tx: Tx, id: string, displayName: string): Promise<void> {
+    await tx.execute(sql`UPDATE platform_users SET display_name = ${displayName} WHERE id = ${id}`);
+  }
+
+  async findByEmail(db: DrizzleDb | Tx, email: string): Promise<UserRow | null> {
     const res = await db.execute<UserRow>(sql`
       SELECT id, email, password_hash, display_name, role, status, created_at, last_login_at
       FROM platform_users WHERE lower(email) = lower(${email})

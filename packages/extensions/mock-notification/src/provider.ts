@@ -13,6 +13,9 @@ export const MOCK_NOTIFICATION_PROVIDER_ID = 'mock-notification';
 
 const SENT_PREFIX = 'sent:';
 
+/** 可能夾帶一次性憑證的變數名。留下它們等於在資料庫裡放一份可用的連結。 */
+const SENSITIVE_VARIABLE = /(url|token|link|code|password)/i;
+
 export interface SentNotification {
   reference: string;
   template: string;
@@ -53,7 +56,7 @@ export function createMockNotificationProvider(
         reference: message.reference,
         template: message.template,
         to: message.to.name === undefined ? { email: message.to.email } : { email: message.to.email, name: message.to.name },
-        variables: message.variables ?? null,
+        variables: redactVariables(message.variables ?? null, ctx.config.retainSensitiveVariables),
         locale: message.locale ?? null,
         providerRef,
         sentAt: ctx.now().toISOString(),
@@ -68,6 +71,16 @@ export function createMockNotificationProvider(
       return { ok: true, message: ctx.config.deliver ? 'delivering notifications' : 'dropping all notifications' };
     },
   };
+}
+
+function redactVariables(
+  variables: Record<string, unknown> | null,
+  retain: boolean,
+): Record<string, unknown> | null {
+  if (!variables || retain) return variables;
+  return Object.fromEntries(
+    Object.entries(variables).map(([key, value]) => [key, SENSITIVE_VARIABLE.test(key) ? '[redacted]' : value]),
+  );
 }
 
 /** 測試用：讀出這個 Extension 寄過的所有通知，依寄出時間排序。 */

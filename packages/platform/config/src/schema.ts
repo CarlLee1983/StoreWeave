@@ -52,7 +52,12 @@ export const commerceConfigSchema = z.object({
     /** API token 對應到角色；token 值一律來自環境變數，不寫在設定檔。 */
     tokens: z.array(z.object({
       name: z.string().min(1),
-      role: z.string().min(1),
+      /**
+       * 機器對機器的 token 不能扮成顧客或匿名訪客：那兩個角色的資料範圍是由
+       * `Actor.type` 決定的，而 token 產生的 actor 一律是 service ——
+       * 指成 customer 會得到一個「看得到全部訂單的顧客」。
+       */
+      role: z.enum(['admin', 'staff', 'readonly', 'mcp']),
       /** 讀取 token 值的環境變數名稱。 */
       secretRef: z.string().min(1),
     })).default([]),

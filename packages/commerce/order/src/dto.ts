@@ -44,7 +44,11 @@ export const orderDto = z.object({
 });
 export type OrderDto = z.infer<typeof orderDto>;
 
-/** 上限必須與 `quoteInput`（`packages/commerce/promotion/src/dto.ts`）相同。 */
+/**
+ * 上限必須與 `quoteInput`（`packages/commerce/promotion/src/dto.ts`）相同。
+ * strict：`customerEmail` 已於工單 21 移除，舊客戶端繼續送要收到錯誤而不是被靜默丟棄——
+ * 那個欄位曾經決定訂單歸屬，安靜忽略它是最糟的失敗方式。
+ */
 export const placeOrderInput = z.object({
   currency: z.string().length(3).optional(),
   lines: z.array(z.object({
@@ -52,7 +56,7 @@ export const placeOrderInput = z.object({
     quantity: z.number().int().min(1).max(999),
   })).min(1).max(50),
   metadata: z.record(z.unknown()).optional(),
-});
+}).strict();
 
 export const payOrderInput = z.object({
   orderId: z.string().uuid(),

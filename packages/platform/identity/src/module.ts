@@ -5,6 +5,7 @@ import { BUILT_IN_ROLES } from '@storeweave/authorization';
 import type { PlatformModule } from '@storeweave/kernel';
 import { identityMigrations } from './migrations';
 import { accountService } from './account-service';
+import { CUSTOMER_ROLE } from './auth-service';
 import { UserRepository, toUserDto } from './repository';
 
 export const IDENTITY_MODULE_NAME = 'platform-identity';
@@ -67,6 +68,11 @@ export const identityModule: PlatformModule = {
       descriptor: createUserCommand,
       handler: async (input: z.infer<typeof createUserInput>, ctx: CommandContext) => {
         // `in` 會把 constructor / toString / __proto__ 這些原型鏈上的鍵當成合法角色。
+        if (input.role === CUSTOMER_ROLE) {
+          // 顧客帳號只能經由註冊產生：這裡建出來的會是一個登得進去、
+          // 但沒有顧客資料的帳號，前台每一頁都 404。
+          throw PlatformError.validation('Customer accounts are created by signing up, not from the admin console');
+        }
         if (!Object.hasOwn(BUILT_IN_ROLES, input.role)) {
           throw PlatformError.validation(
             `Unknown role "${input.role}"; expected one of ${Object.keys(BUILT_IN_ROLES).join(', ')}`,

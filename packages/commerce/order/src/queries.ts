@@ -24,7 +24,7 @@ export const getOrderQuery = defineQuery({
  */
 async function scopedCustomerId(ctx: QueryContext): Promise<string | null> {
   if (ctx.actor.type !== 'customer') return null;
-  return (await customerService.requireByActor(ctx.db, ctx.actor)).customerId;
+  return customerService.customerIdOf(ctx.db, ctx.actor);
 }
 
 export const getOrderHandler = async (input: z.infer<typeof getOrderInput>, ctx: QueryContext) => {
@@ -50,11 +50,13 @@ export const listOrdersQuery = defineQuery({
 export const listOrdersHandler = async (input: z.infer<typeof listOrdersInput>, ctx: QueryContext) => {
   const customerId = await scopedCustomerId(ctx);
   const { rows, total } = await repository.list(ctx.db, { ...input, customerId: customerId ?? undefined });
-  const items = [];
-  for (const row of rows) {
-    items.push(toOrderDto(row, await repository.linesFor(ctx.db, row.id), await repository.adjustmentsFor(ctx.db, row.id)));
-  }
-  return { items, total };
+  const ids = rows.map((row) => row.id);
+  const lines = await repository.linesForMany(ctx.db, ids);
+  const adjustments = await repository.adjustmentsForMany(ctx.db, ids);
+  return {
+    items: rows.map((row) => toOrderDto(row, lines.get(row.id) ?? [], adjustments.get(row.id) ?? [])),
+    total,
+  };
 };
 
 export const salesSummaryQuery = defineQuery({

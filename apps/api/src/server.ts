@@ -40,7 +40,16 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
   // 計數存在行程記憶體裡：單站部署只有一個 API 行程，這與 Redis 選配的前提一致（ADR 0003）。
   await app.register(fastifyRateLimit, { global: false });
   // 註冊也要節流：它同樣跑一次 scrypt，而且沒有節流就是一條免費的帳號枚舉與洗帳號管道。
-  const THROTTLED_ROUTES = new Set(['/api/v1/auth/login', '/api/v1/customers/register']);
+  // 前台的表單路由與 API 端點一樣要節流：它們跑的是同一支 scrypt，
+  // 只擋 /api/v1/auth/login 等於把大門鎖上、後門開著。
+  const THROTTLED_ROUTES = new Set([
+    '/api/v1/auth/login',
+    '/api/v1/customers/register',
+    '/login',
+    '/register',
+    '/forgot-password',
+    '/reset-password',
+  ]);
 
   // 兩層節流。第一層綁帳號：擋針對特定帳號的爆破。
   const perAccountLimiter = app.getHttpAdapter().getInstance().createRateLimit({

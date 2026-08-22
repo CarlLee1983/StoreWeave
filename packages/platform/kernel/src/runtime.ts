@@ -21,7 +21,6 @@ import type { PlatformModule } from './module';
 import { createOpsModule } from './ops-module';
 import { AuthService, identityModule } from '@storeweave/identity';
 
-/** 後台 session 存活時間：12 小時，一個工作天結束就要重新登入。 */
 
 export interface RuntimeOptions {
   config: CommerceConfig;
