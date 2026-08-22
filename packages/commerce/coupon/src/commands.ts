@@ -4,11 +4,14 @@ import { PlatformError, defineCommand, type CommandContext } from '@storeweave/c
 import type { NotificationProvider, ProviderRegistry } from '@storeweave/extension-sdk';
 import { customerService } from '@storeweave/customer';
 import { PromotionRepository } from '@storeweave/promotion';
+import { birthdayMonthDaysFor, storeDateParts } from './birthday';
 import {
   couponDto,
   createCouponInput,
   issueAutoCouponsInput,
   issueAutoCouponsOutput,
+  issueBirthdayCouponsInput,
+  issueBirthdayCouponsOutput,
   issueCouponsInput,
   issueCouponsOutput,
   setCouponStatusInput,
@@ -22,6 +25,8 @@ const promotions = new PromotionRepository();
 
 export interface CouponModuleDeps {
   providers: ProviderRegistry;
+  /** 「生日當天」是店鋪時區的當天，不是 UTC 的當天。 */
+  timezone: string;
 }
 
 export const createCouponCommand = defineCommand({
@@ -165,31 +170,85 @@ export const issueAutoCouponsCommand = defineCommand({
  * 去重鍵是「觸發 × 活動 × 人 × 場合」，撞上就不發。事件重投與排程重跑因此
  * 都是安全的——這比在呼叫端先查一次「他領過了嗎」可靠，那個判斷會輸給併發。
  */
+async function issueAutoCouponsFor(
+  deps: CouponModuleDeps,
+  ctx: CommandContext,
+  input: z.infer<typeof issueAutoCouponsInput>,
+): Promise<string[]> {
+  const active = await promotions.listAutoIssueAt(ctx.tx, input.trigger, ctx.now);
+  const codes: string[] = [];
+
+  for (const promotion of active) {
+    const expiresAt = promotion.autoIssueValidDays
+      ? new Date(ctx.now.getTime() + promotion.autoIssueValidDays * 24 * 60 * 60 * 1000)
+      : null;
+    const row = await issueCouponTo(ctx.tx, {
+      promotionId: promotion.id,
+      customerId: input.customerId,
+      now: ctx.now,
+      source: input.trigger,
+      issueKey: `${input.trigger}:${promotion.id}:${input.customerId}:${input.occurrence}`,
+      expiresAt,
+    });
+    if (row) codes.push(row.code);
+  }
+
+  if (codes.length > 0) await notify(deps, ctx, input, codes);
+  return codes;
+}
+
 export function createIssueAutoCouponsHandler(deps: CouponModuleDeps) {
   return async (
     input: z.infer<typeof issueAutoCouponsInput>,
     ctx: CommandContext,
   ): Promise<z.infer<typeof issueAutoCouponsOutput>> => {
-    const active = await promotions.listAutoIssueAt(ctx.tx, input.trigger, ctx.now);
-    const codes: string[] = [];
-
-    for (const promotion of active) {
-      const expiresAt = promotion.autoIssueValidDays
-        ? new Date(ctx.now.getTime() + promotion.autoIssueValidDays * 24 * 60 * 60 * 1000)
-        : null;
-      const row = await issueCouponTo(ctx.tx, {
-        promotionId: promotion.id,
-        customerId: input.customerId,
-        now: ctx.now,
-        source: input.trigger,
-        issueKey: `${input.trigger}:${promotion.id}:${input.customerId}:${input.occurrence}`,
-        expiresAt,
-      });
-      if (row) codes.push(row.code);
-    }
-
-    if (codes.length > 0) await notify(deps, ctx, input, codes);
+    const codes = await issueAutoCouponsFor(deps, ctx, input);
     return { issued: codes.length, codes };
+  };
+}
+
+export const issueBirthdayCouponsCommand = defineCommand({
+  name: 'commerce.coupon.issueBirthdayCoupons',
+  summary: '發出今天的生日禮券',
+  input: issueBirthdayCouponsInput,
+  output: issueBirthdayCouponsOutput,
+  permission: 'coupon:write',
+  idempotency: 'required',
+  audit: {
+    action: 'coupon.birthday-issued',
+    resourceType: 'coupon-batch',
+    resourceId: () => 'birthday',
+    redact: () => ({}),
+  },
+});
+
+/**
+ * 今天的壽星。切片邊界對齊 UTC（ADR 0016），但「生日當天」是店鋪時區的當天——
+ * 這個換算必須由 handler 自己做。
+ *
+ * 同一個人同一年只會收到一次：去重鍵帶年份，重跑與跨切片都擋得住。
+ */
+export function createIssueBirthdayCouponsHandler(deps: CouponModuleDeps) {
+  return async (
+    input: z.infer<typeof issueBirthdayCouponsInput>,
+    ctx: CommandContext,
+  ): Promise<z.infer<typeof issueBirthdayCouponsOutput>> => {
+    const at = input.on ?? ctx.now;
+    const monthDays = birthdayMonthDaysFor(at, deps.timezone);
+    const { year } = storeDateParts(at, deps.timezone);
+    const customerIds = await customerService.customerIdsWithBirthdayOn(ctx.tx, monthDays);
+
+    let issued = 0;
+    for (const customerId of customerIds) {
+      const codes = await issueAutoCouponsFor(deps, ctx, {
+        trigger: 'birthday',
+        customerId,
+        occurrence: year,
+      });
+      issued += codes.length;
+    }
+    ctx.logger.info({ monthDays, customers: customerIds.length, issued }, 'issued birthday coupons');
+    return { monthDays, customers: customerIds.length, issued };
   };
 }
 

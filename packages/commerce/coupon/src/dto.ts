@@ -115,3 +115,14 @@ export const issueAutoCouponsOutput = z.object({
   issued: z.number().int().nonnegative(),
   codes: z.array(z.string()),
 });
+
+export const issueBirthdayCouponsInput = z.object({
+  /** 以哪一個時刻的店鋪日期判斷「今天」。省略就是現在——測試靠它驗邊界。 */
+  on: z.coerce.date().optional(),
+}).strict();
+
+export const issueBirthdayCouponsOutput = z.object({
+  monthDays: z.array(z.string()),
+  customers: z.number().int().nonnegative(),
+  issued: z.number().int().nonnegative(),
+});

@@ -2,10 +2,11 @@ import { defineModule, type PlatformModule } from '@storeweave/kernel';
 import { defineEvent } from '@storeweave/contracts';
 import { customerRegisteredV1 } from '@storeweave/customer';
 import {
-  createCouponCommand, createCouponHandler, createIssueAutoCouponsHandler, issueAutoCouponsCommand,
-  issueCouponsCommand, issueCouponsHandler, setCouponStatusCommand, setCouponStatusHandler,
-  type CouponModuleDeps,
+  createCouponCommand, createCouponHandler, createIssueAutoCouponsHandler, createIssueBirthdayCouponsHandler,
+  issueAutoCouponsCommand, issueBirthdayCouponsCommand, issueCouponsCommand, issueCouponsHandler,
+  setCouponStatusCommand, setCouponStatusHandler, type CouponModuleDeps,
 } from './commands';
+import { BIRTHDAY_COUPONS_JOB, createBirthdayCouponsJob } from './jobs';
 import { couponMigrations } from './migrations';
 import { getCouponHandler, getCouponQuery, listCouponsHandler, listCouponsQuery } from './queries';
 
@@ -22,6 +23,16 @@ export function createCouponModule(deps: CouponModuleDeps): PlatformModule {
     { descriptor: setCouponStatusCommand, handler: setCouponStatusHandler },
     { descriptor: issueCouponsCommand, handler: issueCouponsHandler },
     { descriptor: issueAutoCouponsCommand, handler: createIssueAutoCouponsHandler(deps) },
+    { descriptor: issueBirthdayCouponsCommand, handler: createIssueBirthdayCouponsHandler(deps) },
+  ],
+  jobs: [
+    {
+      type: BIRTHDAY_COUPONS_JOB,
+      handler: createBirthdayCouponsJob(),
+      // 一天一次。切片對齊 UTC，因此它在店鋪時區的哪個時刻跑不固定——
+      // handler 自己以店鋪時區判斷「今天」，所以這不影響正確性。
+      schedule: { everyMs: 24 * 60 * 60 * 1000 },
+    },
   ],
   /**
    * 新會員一註冊就發券。投遞經過 Outbox 與背景工作，因此發券失敗不會讓註冊

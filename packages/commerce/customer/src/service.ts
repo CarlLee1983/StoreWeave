@@ -41,6 +41,11 @@ export const customerService = {
     return customers.activeIds(db);
   },
 
+  /** 生日禮券掃這一份清單。月日以店鋪時區決定，由呼叫端算好再傳進來。 */
+  async customerIdsWithBirthdayOn(db: DrizzleDb | Tx, monthDays: readonly string[]): Promise<string[]> {
+    return customers.idsWithBirthdayOn(db, monthDays);
+  },
+
   /** 發通知需要收件人。找不到就回 null——通知的缺席不該讓呼叫端炸掉。 */
   async contactFor(db: DrizzleDb | Tx, customerId: string): Promise<{ email: string; displayName: string } | null> {
     const customer = await customers.findById(db, customerId);

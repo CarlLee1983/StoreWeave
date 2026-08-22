@@ -1,4 +1,4 @@
-import { and, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import type { DrizzleDb, Tx } from '@storeweave/contracts';
 import { customers, type CustomerRow } from './schema';
 import type { CustomerDto } from './dto';
@@ -81,6 +81,23 @@ export class CustomerRepository {
       items: rows.map((r) => ({ ...r.customer, email: r.email })),
       total: Number(count),
     };
+  }
+
+  /**
+   * 這些「月-日」當天生日的有效會員。傳多個月日是為了處理二月二十九日——
+   * 平年沒有那一天，那批人的禮券在三月一日發。
+   */
+  async idsWithBirthdayOn(db: DrizzleDb | Tx, monthDays: readonly string[]): Promise<string[]> {
+    if (monthDays.length === 0) return [];
+    const rows = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(and(
+        eq(customers.status, 'active'),
+        inArray(sql`substring(${customers.birthday} from 6 for 5)`, [...monthDays]),
+      )!)
+      .orderBy(customers.id);
+    return rows.map((row) => row.id);
   }
 
   /** 全體有效會員的識別。批次發券掃這一份清單。 */

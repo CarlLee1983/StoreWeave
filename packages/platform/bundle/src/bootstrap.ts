@@ -53,6 +53,7 @@ export async function bootstrap(options: { configPath?: string; loggerName: stri
       providers,
       defaultCurrency: config.store.currency,
       orderNumberPrefix: config.store.id.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || 'SW',
+      timezone: config.store.timezone,
     }),
     availableExtensions: AVAILABLE_EXTENSIONS,
   });

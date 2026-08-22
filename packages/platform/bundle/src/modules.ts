@@ -21,6 +21,8 @@ export function coreModules(options: {
   providers: ProviderRegistry;
   defaultCurrency: string;
   orderNumberPrefix: string;
+  /** 店鋪時區。生日這類「當天」的判斷需要它——切片邊界對齊的是 UTC。 */
+  timezone: string;
 }): PlatformModule[] {
   return [
     catalogModule,
@@ -28,7 +30,7 @@ export function coreModules(options: {
     customerModule,
     createCart({ defaultCurrency: options.defaultCurrency }),
     createPromotionModule({ defaultCurrency: options.defaultCurrency }),
-    createCouponModule({ providers: options.providers }),
+    createCouponModule({ providers: options.providers, timezone: options.timezone }),
     createOrderModule({
       providers: options.providers,
       defaultCurrency: options.defaultCurrency,
@@ -47,14 +49,14 @@ export const AVAILABLE_EXTENSIONS: Record<string, ExtensionDefinition<any>> = {
 /** 這個 Release 已知的所有事件名稱與權限鍵，供 contract test 與 doctor 使用。 */
 export function knownEventNames(): string[] {
   const providers = { list: () => [] } as unknown as ProviderRegistry;
-  return coreModules({ providers, defaultCurrency: 'TWD', orderNumberPrefix: 'SW' })
+  return coreModules({ providers, defaultCurrency: 'TWD', orderNumberPrefix: 'SW', timezone: 'Asia/Taipei' })
     .flatMap((m) => (m.events ?? []).map((e) => e.name))
     .sort();
 }
 
 export function knownPermissionKeys(): string[] {
   const providers = { list: () => [] } as unknown as ProviderRegistry;
-  return coreModules({ providers, defaultCurrency: 'TWD', orderNumberPrefix: 'SW' })
+  return coreModules({ providers, defaultCurrency: 'TWD', orderNumberPrefix: 'SW', timezone: 'Asia/Taipei' })
     .flatMap((m) => (m.permissions ?? []).map((p) => p.key))
     .sort();
 }
