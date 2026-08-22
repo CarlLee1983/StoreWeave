@@ -121,7 +121,12 @@ export const salesSummaryOutput = z.object({
  * 「顧客看到的車」與「結出來的單」因此不可能是兩份不同的東西。
  */
 export const checkoutCartInput = z.object({
-  /** 購物車識別碼是這次結帳的身分：重複送出同一台車，得到同一張訂單。 */
+  /**
+   * 購物車識別碼是這次結帳的身分：重複送出同一台車，得到同一張訂單。
+   *
+   * HTTP 層的冪等鍵由伺服器從它導出，客戶端送的 `Idempotency-Key` 會被忽略
+   * （ADR 0022）——重送表單的瀏覽器不會、也沒辦法帶同一把鍵。
+   */
   cartId: z.string().uuid(),
   metadata: z.record(z.unknown()).optional(),
 }).strict();

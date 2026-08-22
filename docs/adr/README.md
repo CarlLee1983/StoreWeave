@@ -23,6 +23,7 @@
 | [0019](0019-ledger-derived-balances.md) | 購物金與等級積分是分批帳本，餘額與等級是推導值 | accepted |
 | [0020](0020-core-modules-subscribe-to-events.md) | Core 模組可以訂閱其他模組的事件 | accepted |
 | [0021](0021-cross-module-foreign-keys.md) | 跨模組的參照不加外鍵，模組內的加 | accepted |
+| [0022](0022-checkout-idempotency-key-is-server-derived.md) | 結帳的冪等鍵由伺服器從購物車識別碼導出 | accepted |
 
 寫法：每篇結尾用 `## Falsified if` 這個標題起一段，段落裡以反引號標出這個決策所依賴的檔案；
 那些檔案就是這個決策的邊界清單，條件本身要寫成某個東西可以檢查的形式。

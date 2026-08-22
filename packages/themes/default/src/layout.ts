@@ -13,7 +13,8 @@ export function formatMoney(cents: number, currency: string, locale: string): st
   try {
     return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(cents / 100);
   } catch {
-    return `${(cents / 100).toFixed(2)} ${currency}`;
+    // fallback 也要轉義：currency 現在來自設定，但它會被插進 HTML。
+    return `${(cents / 100).toFixed(2)} ${escapeHtml(currency)}`;
   }
 }
 

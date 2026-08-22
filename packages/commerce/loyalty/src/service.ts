@@ -111,8 +111,11 @@ export const rewardService = {
       if (row.source === 'order-accrual') clawedBackCents += row.amountCents;
     }
 
+    let refunded = 0;
+    let clawedBack = 0;
+
     if (refundedCents > 0) {
-      await repository.addRewardEntry(tx, {
+      const row = await repository.addRewardEntry(tx, {
         id: randomUUID(),
         customerId: input.customerId,
         amountCents: refundedCents,
@@ -125,9 +128,11 @@ export const rewardService = {
         reason: null,
         createdAt: input.now,
       });
+      // 撞上唯一索引代表已經回沖過。回報 0 才不會讓呼叫端以為這次真的退了錢。
+      refunded = row ? refundedCents : 0;
     }
     if (clawedBackCents > 0) {
-      await repository.addRewardEntry(tx, {
+      const row = await repository.addRewardEntry(tx, {
         id: randomUUID(),
         customerId: input.customerId,
         amountCents: -clawedBackCents,
@@ -139,8 +144,9 @@ export const rewardService = {
         reason: null,
         createdAt: input.now,
       });
+      clawedBack = row ? clawedBackCents : 0;
     }
-    return { refundedCents, clawedBackCents };
+    return { refundedCents: refunded, clawedBackCents: clawedBack };
   },
 };
 

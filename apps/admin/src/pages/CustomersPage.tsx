@@ -212,13 +212,13 @@ function LoyaltyPanel({
         <AdjustForm
           label={t('adjustRewards')}
           unit={t('rewardUnit')}
-          onSubmit={(amount, reason) => api.adjustRewards(customerId, { amountCents: amount, reason })}
+          onSubmit={(amount, reason, key) => api.adjustRewards(customerId, { amountCents: amount, reason }, key)}
           onDone={onAdjusted}
         />
         <AdjustForm
           label={t('adjustTierPoints')}
           unit={t('tierPointUnit')}
-          onSubmit={(points, reason) => api.adjustTierPoints(customerId, { points, reason })}
+          onSubmit={(points, reason, key) => api.adjustTierPoints(customerId, { points, reason }, key)}
           onDone={onAdjusted}
         />
       </div>
@@ -234,12 +234,17 @@ function AdjustForm({
 }: {
   label: string;
   unit: string;
-  onSubmit: (amount: number, reason: string) => Promise<unknown>;
+  onSubmit: (amount: number, reason: string, idempotencyKey: string) => Promise<unknown>;
   onDone: () => void;
 }) {
   const { t } = useI18n();
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
+  /**
+   * 這一份表單的冪等鍵。連點兩下、逾時重送都是同一把——這是會生出錢的操作，
+   * 每次現產一把等於沒有保護。送出成功才換新的。
+   */
+  const [submissionKey, setSubmissionKey] = useState(() => crypto.randomUUID());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -254,9 +259,10 @@ function AdjustForm({
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit(value, reason.trim());
+      await onSubmit(value, reason.trim(), submissionKey);
       setAmount('');
       setReason('');
+      setSubmissionKey(crypto.randomUUID());
       onDone();
     } catch (err) {
       setError(err);

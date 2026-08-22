@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { ADMIN_ACTOR, createCustomer, createHarness, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createCustomer, createHarness, settleWorker, type TestHarness } from './helpers';
 
 /** 新會員註冊自動發券（工單 34）。 */
 
@@ -50,7 +50,7 @@ describe('註冊自動發券', () => {
 
     // 發券在事件投遞之後才發生：註冊本身不等它。
     expect((await couponsOf(customer.customerId)).items).toEqual([]);
-    await h.worker.drain();
+    await settleWorker(h.worker);
 
     const { items } = await couponsOf(customer.customerId);
     expect(items).toHaveLength(1);
@@ -68,13 +68,13 @@ describe('註冊自動發券', () => {
     await signupPromotion();
     const customer = await createCustomer(h.runtime, { email: `signup-dup-${randomUUID()}@example.test` });
 
-    await h.worker.drain();
+    await settleWorker(h.worker);
     // 重新排入同一筆投遞工作，模擬重投。
     await h.runtime.database.db.execute(sql`
       UPDATE platform_jobs SET status = 'pending', run_at = now() - interval '1 second'
       WHERE type = 'platform.event.deliver' AND payload->'event'->>'name' = 'commerce.customer.registered.v1'
     `);
-    await h.worker.drain();
+    await settleWorker(h.worker);
 
     expect((await couponsOf(customer.customerId)).items).toHaveLength(1);
   });
@@ -82,7 +82,7 @@ describe('註冊自動發券', () => {
   it('沒有設定自動發券的活動不會被發出來', async () => {
     await signupPromotion({ name: '不自動發的活動', autoIssue: undefined });
     const customer = await createCustomer(h.runtime, { email: `signup-none-${randomUUID()}@example.test` });
-    await h.worker.drain();
+    await settleWorker(h.worker);
 
     expect((await couponsOf(customer.customerId)).items).toEqual([]);
   });
@@ -96,7 +96,7 @@ describe('註冊自動發券', () => {
       ALTER TABLE coupon_coupons ADD CONSTRAINT tmp_issue_fails CHECK (false) NOT VALID
     `);
     try {
-      await h.worker.drain();
+      await settleWorker(h.worker);
     } finally {
       await h.runtime.database.db.execute(sql`ALTER TABLE coupon_coupons DROP CONSTRAINT tmp_issue_fails`);
     }
@@ -118,7 +118,7 @@ describe('註冊自動發券', () => {
     await signupPromotion();
     const email = `signup-notify-${randomUUID()}@example.test`;
     await createCustomer(h.runtime, { email });
-    await h.worker.drain();
+    await settleWorker(h.worker);
 
     const sent = await sentTo(email);
     expect(sent).toHaveLength(1);

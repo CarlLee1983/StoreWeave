@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-export const rewardSource = z.enum(['order-accrual', 'redemption', 'reversal', 'manual', 'expiry']);
+/** 到期不是分錄——它是推導出來的，因此這裡沒有 `expiry`。 */
+export const rewardSource = z.enum(['order-accrual', 'redemption', 'reversal', 'manual']);
 export type RewardSource = z.infer<typeof rewardSource>;
 
 export const rewardSettingsDto = z.object({

@@ -38,7 +38,12 @@ export interface TierStatus {
 /** 滾動期間的長度。十二個月是常見的一年制，但用月而不是 365 天，邊界才對得上月曆。 */
 export const TIER_WINDOW_MONTHS = 12;
 
-/** 滾動期間的起點：`at` 往前推十二個月。 */
+/**
+ * 滾動期間的起點：`at` 往前推十二個月。
+ *
+ * `setUTCMonth` 在 2/29 會滑到 3/1（`months = 12` 時只影響閏日那一天）。
+ * 那一天的顧客會少算一天的積分，比起自己實作月曆算術，這個誤差便宜得多。
+ */
 export function tierWindowStart(at: Date, months = TIER_WINDOW_MONTHS): Date {
   const start = new Date(at.getTime());
   start.setUTCMonth(start.getUTCMonth() - months);

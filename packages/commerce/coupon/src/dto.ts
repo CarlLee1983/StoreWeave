@@ -111,9 +111,12 @@ export const issueAutoCouponsInput = z.object({
   occurrence: z.string().min(1).max(40),
 }).strict();
 
+/**
+ * 只回數量，不回券碼。輸出會被完整存進冪等紀錄，而券碼是持有即可用的憑證——
+ * 呼叫端是事件訂閱者與排程，它們用不到碼。
+ */
 export const issueAutoCouponsOutput = z.object({
   issued: z.number().int().nonnegative(),
-  codes: z.array(z.string()),
 });
 
 export const issueBirthdayCouponsInput = z.object({

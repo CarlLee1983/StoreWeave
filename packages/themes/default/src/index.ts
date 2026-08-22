@@ -109,6 +109,13 @@ function couponBox(ctx: ThemeContext, view: ThemeCartView): string {
     </div>`;
 }
 
+/** 買不到的商品被拿掉時要講出來，而且要在結帳之前。 */
+function removedNotice(view: ThemeCartView): string {
+  if (view.removedNames.length === 0) return '';
+  return `<p class="notice">這些商品已經買不到，已從購物車移除：${
+    view.removedNames.map((name) => escapeHtml(name)).join('、')}。</p>`;
+}
+
 /**
  * 購物金折抵。訪客沒有帳本，因此只對會員顯示；餘額是零時也不顯示——
  * 給一個永遠只能填 0 的輸入框只是雜訊。
@@ -220,6 +227,7 @@ export const defaultTheme: StorefrontTheme = {
     const body = `
       <h1>購物車</h1>
       ${view.error ? `<div class="error"><p>${escapeHtml(view.error)}</p></div>` : ''}
+      ${removedNotice(view)}
       ${view.lines.length === 0
         ? `<p class="muted">購物車是空的。<a href="/">去逛逛</a></p>`
         : `${cartTable(ctx, view, true)}
@@ -227,7 +235,13 @@ export const defaultTheme: StorefrontTheme = {
            ${couponBox(ctx, view)}
            ${rewardBox(ctx, view)}
            <p><a class="cta" href="/checkout">${ctx.customerName ? '前往結帳' : '登入後結帳'}</a></p>
-           <p><a href="/">繼續購物</a></p>`}`;
+           <p>
+             <a href="/">繼續購物</a> ·
+             <form method="post" action="/cart/clear" class="inline">
+               ${csrfField(ctx)}
+               <button type="submit" class="linklike">清空購物車</button>
+             </form>
+           </p>`}`;
     return layout({ title: '購物車', body, ctx });
   },
 
@@ -235,6 +249,7 @@ export const defaultTheme: StorefrontTheme = {
     const body = `
       <h1>確認訂單</h1>
       ${view.error ? `<div class="error"><p>${escapeHtml(view.error)}</p></div>` : ''}
+      ${removedNotice(view)}
       <p class="muted">訂單通知會寄到 ${escapeHtml(view.customerEmail)}</p>
       ${cartTable(ctx, view, false)}
       <form method="post" action="/checkout">

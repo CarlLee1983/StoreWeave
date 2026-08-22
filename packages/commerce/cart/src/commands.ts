@@ -143,7 +143,7 @@ export function createCartModule(deps: CartModuleDeps) {
     ctx: CommandContext,
   ): Promise<MergedCartDto> => {
     if (ctx.actor.type !== 'customer') {
-      throw PlatformError.validation('Merging a guest cart needs a signed-in customer');
+      throw PlatformError.forbidden('Merging a guest cart needs a signed-in customer');
     }
     const target = await openCart(ctx, undefined);
     const guest = await repository.findGuestCart(ctx.tx, input.guestToken);
@@ -232,7 +232,7 @@ export function createCartModule(deps: CartModuleDeps) {
     ctx: CommandContext,
   ): Promise<CartDto> => {
     if (ctx.actor.type !== 'customer') {
-      throw PlatformError.validation('Redeeming rewards needs a signed-in customer');
+      throw PlatformError.forbidden('Redeeming rewards needs a signed-in customer');
     }
     const cart = await openCart(ctx, undefined);
     await repository.setRewardRedemption(ctx.tx, cart.id, input.amountCents, ctx.now);

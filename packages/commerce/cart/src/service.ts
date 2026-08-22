@@ -28,7 +28,7 @@ export function isPurchasable(
 export function emptyCartDto(id: string, currency: string): CartDto {
   return {
     id, currency, items: [], subtotalCents: 0, discountCents: 0, totalCents: 0,
-    adjustments: [], coupon: null, couponError: null, reward: null, nextThreshold: null,
+    adjustments: [], coupon: null, couponError: null, reward: null, nextThreshold: null, removedNames: [],
   };
 }
 
@@ -48,11 +48,16 @@ export async function toCartDto(
 ): Promise<CartDto> {
   const rows = await repository.items(db, cart.id);
   const items = [];
+  const removedNames: string[] = [];
 
   for (const row of rows) {
     const product = await catalogService.findById(db, row.productId);
-    // 下架或刪除的商品不在購物車裡顯示；合併與結帳各自處理它們（工單 27、28）。
-    if (!product || !isPurchasable(product, defaultCurrency)) continue;
+    // 買不到的商品不顯示，但要說得出被拿掉的是什麼：靜靜消失比消失更糟，
+    // 而顧客在結帳時才發現少了一件已經來不及調整（Spec 0003 User Story 11）。
+    if (!product || !isPurchasable(product, defaultCurrency)) {
+      if (product) removedNames.push(product.name);
+      continue;
+    }
 
     const available = await inventoryService.availableFor(db, row.productId).catch(() => null);
     items.push({
@@ -66,7 +71,7 @@ export async function toCartDto(
     });
   }
 
-  if (items.length === 0) return emptyCartDto(cart.id, defaultCurrency);
+  if (items.length === 0) return { ...emptyCartDto(cart.id, defaultCurrency), removedNames };
 
   // 券只是「多帶一條活動進定價」。它在這裡**不**扣任何額度——
   // 限量的扣減只發生在結帳，因此試算成功不保證結帳成功（Spec 0004）。
@@ -122,6 +127,7 @@ export async function toCartDto(
       }
       : null,
     couponError: resolved && !resolved.ok ? resolved.message : null,
+    removedNames,
     reward: balance
       ? {
         requestedCents: cart.rewardRedeemCents,

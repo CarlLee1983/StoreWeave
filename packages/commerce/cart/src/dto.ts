@@ -54,6 +54,11 @@ export const cartDto = z.object({
     availableCents: z.number().int().nonnegative(),
     maxCents: z.number().int().nonnegative(),
   }).nullable(),
+  /**
+   * 已經買不到而被拿掉的商品（下架、刪除、幣別不符）。
+   * 靜靜消失比消失更糟——顧客要在結帳之前就知道（Spec 0003 User Story 11）。
+   */
+  removedNames: z.array(z.string()),
   /** 差一點就達成的門檻活動；沒有就是 null。 */
   nextThreshold: z.object({
     promotionId: z.string(),

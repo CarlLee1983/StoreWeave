@@ -41,7 +41,6 @@ function rewardDescription(entry: { source: string; reason: string | null }): st
     case 'order-accrual': return '購物回饋';
     case 'redemption': return '結帳折抵';
     case 'reversal': return '訂單取消回沖';
-    case 'expiry': return '到期失效';
     default: return '調整';
   }
 }
@@ -271,6 +270,12 @@ export class StorefrontController {
       productId,
       quantity: Number.parseInt(body.quantity ?? '0', 10),
     });
+  }
+
+  /** 清空購物車。Spec 0003 User Story 5，也是顧客卡住時唯一的自救手段。 */
+  @Post('cart/clear')
+  async clearCart(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    await this.cartCommand(req, reply, 'commerce.cart.clearCart', {});
   }
 
   /** 折扣碼：套用或移除。這條路由與 REST 端點同樣受節流保護（掃碼機器人）。 */
@@ -594,6 +599,7 @@ export class StorefrontController {
       coupon: cart.coupon,
       couponError: cart.couponError,
       reward: cart.reward,
+      removedNames: cart.removedNames,
     };
   }
 

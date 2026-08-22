@@ -282,9 +282,21 @@ function getCsrfToken(): string {
 
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; idempotent?: boolean; withAuth?: boolean; raw?: boolean } = {},
+  options: {
+    method?: string;
+    body?: unknown;
+    idempotent?: boolean;
+    /**
+     * 這次操作的冪等鍵。省略時每次現產一把——對「重送就重算」的操作是對的，
+     * 但對會生出錢的操作等於沒有保護：連點兩下就是兩筆補償。
+     * 那些呼叫端要自己給一把在畫面上固定住的鍵。
+     */
+    idempotencyKey?: string;
+    withAuth?: boolean;
+    raw?: boolean;
+  } = {},
 ): Promise<T> {
-  const { method = 'GET', body, idempotent = false, withAuth = true, raw = false } = options;
+  const { method = 'GET', body, idempotent = false, idempotencyKey, withAuth = true, raw = false } = options;
   const headers: Record<string, string> = {};
 
   if (withAuth) {
@@ -303,7 +315,7 @@ async function request<T>(
     }
   }
   if (idempotent) {
-    headers['Idempotency-Key'] = crypto.randomUUID();
+    headers['Idempotency-Key'] = idempotencyKey ?? crypto.randomUUID();
   }
 
   const res = await fetch(path, {
@@ -458,11 +470,14 @@ export const api = {
   customerLoyalty(id: string) {
     return request<CustomerLoyalty>(`/api/v1/customers/${id}/loyalty`);
   },
-  adjustRewards(id: string, body: { amountCents: number; reason: string }) {
-    return request<{ id: string }>(`/api/v1/customers/${id}/rewards`, { method: 'POST', body, idempotent: true });
+  // 調帳會生出錢：冪等鍵由畫面固定住，連點兩下不會補兩次。
+  adjustRewards(id: string, body: { amountCents: number; reason: string }, idempotencyKey: string) {
+    return request<{ id: string }>(`/api/v1/customers/${id}/rewards`,
+      { method: 'POST', body, idempotent: true, idempotencyKey });
   },
-  adjustTierPoints(id: string, body: { points: number; reason: string }) {
-    return request<{ points: number }>(`/api/v1/customers/${id}/tier-points`, { method: 'POST', body, idempotent: true });
+  adjustTierPoints(id: string, body: { points: number; reason: string }, idempotencyKey: string) {
+    return request<{ points: number }>(`/api/v1/customers/${id}/tier-points`,
+      { method: 'POST', body, idempotent: true, idempotencyKey });
   },
   setCustomerStatus(id: string, status: AdminCustomer['status']) {
     return request<AdminCustomer>(`/api/v1/customers/${id}/status`, { method: 'POST', body: { status }, idempotent: true });

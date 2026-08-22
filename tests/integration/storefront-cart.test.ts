@@ -174,3 +174,31 @@ describe('結帳流程', () => {
     expect(res.headers.location).toBe('/cart');
   });
 });
+
+describe('買不到的商品要說出來（Spec 0003 User Story 11）', () => {
+  it('購物車頁列出被移除的商品，而不是讓它無聲消失', async () => {
+    const product = await sellable('SF-REMOVED', 8_000);
+    const added = await inject({ method: 'POST', url: '/cart/items', payload: { productId: product.id, quantity: '1' } });
+    const cookies = { [CART_COOKIE]: added.cookies.find((c) => c.name === CART_COOKIE)!.value };
+
+    await h.runtime.commands.execute('commerce.catalog.updateProduct',
+      { id: product.id, status: 'archived' }, { actor: ADMIN_ACTOR, idempotencyKey: `arch-${product.id}` });
+
+    const page = await inject({ method: 'GET', url: '/cart', cookies });
+
+    expect(page.body).toContain('已經買不到');
+    expect(page.body).toContain('SF-REMOVED');
+  });
+
+  it('購物車頁有清空的出口——顧客卡住時唯一的自救手段', async () => {
+    const product = await sellable('SF-CLEAR', 3_000);
+    const added = await inject({ method: 'POST', url: '/cart/items', payload: { productId: product.id, quantity: '1' } });
+    const cookies = { [CART_COOKIE]: added.cookies.find((c) => c.name === CART_COOKIE)!.value };
+
+    expect((await inject({ method: 'GET', url: '/cart', cookies })).body).toContain('action="/cart/clear"');
+
+    const cleared = await inject({ method: 'POST', url: '/cart/clear', cookies });
+    expect(cleared.statusCode).toBe(303);
+    expect((await inject({ method: 'GET', url: '/cart', cookies })).body).toContain('購物車是空的');
+  });
+});

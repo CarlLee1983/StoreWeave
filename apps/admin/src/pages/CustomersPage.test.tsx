@@ -136,9 +136,9 @@ describe('客服補償（工單 46）', () => {
     await user.type(screen.getAllByLabelText('原因')[0], '客訴補償');
     await user.click(screen.getAllByRole('button', { name: '調整' })[0]);
 
-    await waitFor(() => expect(api.adjustRewards).toHaveBeenCalledWith(customer.id, {
-      amountCents: 5_000, reason: '客訴補償',
-    }));
+    await waitFor(() => expect(api.adjustRewards).toHaveBeenCalledWith(
+      customer.id, { amountCents: 5_000, reason: '客訴補償' }, expect.any(String),
+    ));
     await waitFor(() => expect(api.customerLoyalty).toHaveBeenCalledTimes(2));
   });
 
@@ -152,9 +152,9 @@ describe('客服補償（工單 46）', () => {
     await user.type(screen.getAllByLabelText('原因')[1], '重複計算，收回');
     await user.click(screen.getAllByRole('button', { name: '調整' })[1]);
 
-    await waitFor(() => expect(api.adjustTierPoints).toHaveBeenCalledWith(customer.id, {
-      points: -100, reason: '重複計算，收回',
-    }));
+    await waitFor(() => expect(api.adjustTierPoints).toHaveBeenCalledWith(
+      customer.id, { points: -100, reason: '重複計算，收回' }, expect.any(String),
+    ));
     expect(api.adjustRewards).not.toHaveBeenCalled();
   });
 
@@ -169,5 +169,26 @@ describe('客服補償（工單 46）', () => {
 
     expect(await screen.findByText('請輸入非零整數與調整原因')).toBeInTheDocument();
     expect(api.adjustRewards).not.toHaveBeenCalled();
+  });
+});
+
+describe('調帳的冪等（審查發現）', () => {
+  it('同一份表單重送用的是同一把鑰匙——連點兩下不會補兩次', async () => {
+    const user = userEvent.setup();
+    // 第一次讓它失敗，表單留在原地，使用者再按一次。
+    vi.mocked(api.adjustRewards).mockRejectedValueOnce(new Error('timeout'));
+    renderPage();
+    await user.click(await screen.findByText('buyer@example.com'));
+    await screen.findByText('銀卡（4200）');
+
+    await user.type(screen.getByLabelText('調整購物金'), '5000');
+    await user.type(screen.getAllByLabelText('原因')[0], '補償');
+    await user.click(screen.getAllByRole('button', { name: '調整' })[0]);
+    await screen.findByText(/timeout/);
+    await user.click(screen.getAllByRole('button', { name: '調整' })[0]);
+
+    await waitFor(() => expect(api.adjustRewards).toHaveBeenCalledTimes(2));
+    const [first, second] = vi.mocked(api.adjustRewards).mock.calls;
+    expect(second[2]).toBe(first[2]);
   });
 });

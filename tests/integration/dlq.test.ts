@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PermanentJobError } from '@storeweave/jobs';
 import { ADMIN_ACTOR, actorWith, createHarness, type TestHarness } from './helpers';
@@ -29,7 +30,16 @@ async function deadJob(): Promise<string> {
   const { id } = await h.runtime.database.transaction((tx) =>
     h.runtime.jobs.enqueue(tx, { type: ALWAYS_FAILS, payload: { dedupeKey }, dedupeKey }),
   );
-  await h.worker.drain();
+  // 一輪 drain 未必把重試次數耗盡：同一個資料庫裡還有其他模組的週期性工作在搶
+  // 認領名額。跑到它真的進死信為止，才是這個 helper 宣稱要做的事。
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await h.worker.drain();
+    const rows = await h.runtime.database.db.execute<{ status: string }>(sql`
+      SELECT status FROM platform_jobs WHERE id = ${id}
+    `);
+    if (rows.rows[0]?.status === 'dead') return id;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
   return id;
 }
 

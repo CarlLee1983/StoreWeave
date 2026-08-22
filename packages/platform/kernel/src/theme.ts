@@ -90,6 +90,8 @@ export interface ThemeCartView {
   discountCents: number;
   totalCents: number;
   adjustments: { name: string; amountCents: number }[];
+  /** 已經買不到而被拿掉的商品。顧客要在結帳之前就知道。 */
+  removedNames: string[];
   /** 差一點就達成的門檻活動；沒有就是 null。 */
   nextThreshold: { name: string; remainingCents: number } | null;
   /** 本次套用的券。券不生效時 `discountCents` 是 0。 */

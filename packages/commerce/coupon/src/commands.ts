@@ -43,7 +43,8 @@ export const createCouponCommand = defineCommand({
     action: 'coupon.created',
     resourceType: 'coupon',
     resourceId: (_i, o: CouponDto) => o.id,
-    redact: (i) => ({ code: i.code, promotionId: i.promotionId, maxRedemptions: i.maxRedemptions }),
+    // 券碼是持有即可用的憑證（實發券綁人也一樣），不進稽核紀錄。
+    redact: (i) => ({ promotionId: i.promotionId, maxRedemptions: i.maxRedemptions }),
   },
 });
 
@@ -232,7 +233,7 @@ export function createIssueAutoCouponsHandler(deps: CouponModuleDeps) {
     ctx: CommandContext,
   ): Promise<z.infer<typeof issueAutoCouponsOutput>> => {
     const codes = await issueAutoCouponsFor(deps, ctx, input);
-    return { issued: codes.length, codes };
+    return { issued: codes.length };
   };
 }
 
