@@ -42,5 +42,20 @@ CREATE INDEX IF NOT EXISTS promotion_auto_issue_idx ON promotion_promotions (aut
 -- 它只是「這條規則套不套用」的一個條件（Spec 0005）。
 ALTER TABLE promotion_promotions ADD COLUMN IF NOT EXISTS tier_names text[] NOT NULL DEFAULT '{}';
 `),
+    sqlMigration('0005_backfill_requires_coupon', 'expand', `
+-- 已經有券指著的活動一律標成「需要券」。
+--
+-- 這是 0002 之後才補的：那些活動原本以 requires_coupon = false 建立，
+-- 而載入券指名的活動時現在會過濾這個欄位，於是那些券會安靜地折 0 元。
+-- 靜默失效比明確失敗糟得多。
+-- coupon 模組的 migration 排在 promotion 之後，全新的資料庫這時還沒有那張表。
+DO $$
+BEGIN
+  IF to_regclass('public.coupon_coupons') IS NOT NULL THEN
+    UPDATE promotion_promotions SET requires_coupon = true
+    WHERE id IN (SELECT DISTINCT promotion_id FROM coupon_coupons);
+  END IF;
+END $$;
+`),
   ],
 };

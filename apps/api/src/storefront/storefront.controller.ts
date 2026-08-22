@@ -374,10 +374,11 @@ export class StorefrontController {
       void reply.status(303).header('location', `/login?next=${encodeURIComponent('/cart')}`).send();
       return;
     }
-    const amount = Math.max(0, Math.floor(Number(body.amount ?? '0')));
-    await this.cartCommand(req, reply, 'commerce.cart.setRewardRedemption', {
-      amountCents: Number.isFinite(amount) ? amount * 100 : 0,
-    });
+    // 欄位是「元」而且允許小數：折抵額不見得是整數元（餘額或小計都可能不是），
+    // 用整數元來回換算會讓每一次重送都少折幾分。
+    const amount = Number(body.amount ?? '0');
+    const amountCents = Number.isFinite(amount) ? Math.max(0, Math.round(amount * 100)) : 0;
+    await this.cartCommand(req, reply, 'commerce.cart.setRewardRedemption', { amountCents });
   }
 
   /** 確認頁。內容不能在這裡改，否則「確認的東西」與「結出來的單」會是兩份。 */

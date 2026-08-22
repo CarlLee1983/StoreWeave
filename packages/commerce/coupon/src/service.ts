@@ -92,6 +92,11 @@ export const couponService = {
     if (!promotion || promotion.status !== 'active') {
       return { ok: false, reason: 'void', message: MESSAGES.void };
     }
+    // 指向人人適用的活動時，定價根本載不進那條規則，於是券會安靜地折 0 元。
+    // 明確拒絕：靜默失效比明確失敗糟得多。
+    if (!promotion.requiresCoupon) {
+      return { ok: false, reason: 'void', message: MESSAGES.void };
+    }
     if (promotion.startsAt && input.now.getTime() < promotion.startsAt.getTime()) {
       return { ok: false, reason: 'not_started', message: MESSAGES.not_started };
     }

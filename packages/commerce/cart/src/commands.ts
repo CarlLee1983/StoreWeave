@@ -46,13 +46,32 @@ async function requirePurchasable(ctx: CommandContext, productId: string, defaul
  * 甚至已經 checked_out 的車上——那些商品行從此只存在於一台沒有查詢找得到的車裡，
  * 顧客看不到也拿不回。這不是金錢損失，是靜默的資料遺失。
  */
+/**
+ * 一台車最多裝幾種商品。上限與訂單的商品行上限相同——先擋在這裡，
+ * 顧客才不會裝到第 51 種之後發現結不了帳，而且畫面上看不出要移掉哪一件。
+ */
+const MAX_CART_PRODUCTS = 50;
+
+async function assertRoomForAnotherProduct(ctx: CommandContext, cartId: string, productId: string): Promise<void> {
+  const rows = await repository.items(ctx.tx, cartId);
+  if (rows.some((row) => row.productId === productId)) return;
+  if (rows.length >= MAX_CART_PRODUCTS) {
+    throw PlatformError.validation(
+      `A cart holds at most ${MAX_CART_PRODUCTS} different products; remove something first`,
+    );
+  }
+}
+
 async function openCart(ctx: CommandContext, guestToken: string | undefined) {
   const owner = await resolveOwner(ctx.tx, ctx.actor, guestToken);
   const cart = await repository.findOrCreate(ctx.tx, owner, ctx.now);
   const locked = await repository.lockById(ctx.tx, cart.id);
   // 等到鎖之後那台車已經被結掉，就開一台新的：顧客的下一件商品要有地方放。
   if (locked && locked.status === 'open') return locked;
-  return repository.findOrCreate(ctx.tx, owner, ctx.now);
+
+  const replacement = await repository.findOrCreate(ctx.tx, owner, ctx.now);
+  // 新的那一台也要鎖住，否則這條路徑上「寫入與結帳鎖同一列」就不成立。
+  return await repository.lockById(ctx.tx, replacement.id) ?? replacement;
 }
 
 function cartCommand(name: string, summary: string, input: z.ZodTypeAny, action: string) {
@@ -84,6 +103,7 @@ export function createCartModule(deps: CartModuleDeps) {
   const addToCartHandler = async (input: z.infer<typeof addToCartInput>, ctx: CommandContext): Promise<CartDto> => {
     await requirePurchasable(ctx, input.productId, deps.defaultCurrency);
     const cart = await openCart(ctx, input.guestToken);
+    await assertRoomForAnotherProduct(ctx, cart.id, input.productId);
     // 再加一次同一件商品是累加：使用者的意圖是「再來一個」，不是「覆蓋成一個」。
     await repository.addQuantity(ctx.tx, cart.id, input.productId, input.quantity, ctx.now);
     await repository.touch(ctx.tx, cart.id, ctx.now);

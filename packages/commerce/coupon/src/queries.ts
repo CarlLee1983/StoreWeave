@@ -16,9 +16,36 @@ import {
   listMyCouponsOutput,
 } from './dto';
 import { CouponRepository, toCouponDto } from './repository';
+import { couponService, type CouponRejection } from './service';
 
 const repository = new CouponRepository();
 const promotions = new PromotionRepository();
+
+/**
+ * 拒絕原因對應到畫面上的狀態。券本身的原因與活動造成的原因分開說：
+ * 「這張券過期了」與「這檔活動結束了」對顧客是兩件不同的事。
+ */
+type CouponState = 'used' | 'void' | 'not_started' | 'expired' | 'promotion_ended';
+
+/** 券本身的問題。 */
+const COUPON_REASON_STATE: Record<CouponRejection, CouponState> = {
+  not_found: 'void',
+  not_started: 'not_started',
+  expired: 'expired',
+  void: 'void',
+  used: 'used',
+  not_eligible: 'void',
+  used_up: 'promotion_ended',
+  already_redeemed: 'promotion_ended',
+};
+
+/** 活動或額度造成的問題。券本身沒事。 */
+const PROMOTION_REASON_STATE: Record<CouponRejection, CouponState> = {
+  ...COUPON_REASON_STATE,
+  void: 'promotion_ended',
+  not_started: 'promotion_ended',
+  expired: 'promotion_ended',
+};
 
 /** 到期前幾天算「即將到期」。七天足夠讓人安排一次購物。 */
 const EXPIRING_SOON_DAYS = 7;
@@ -95,19 +122,21 @@ export function createListMyCouponsHandler(deps: { currency: string; locale: str
       // 規則壞掉的券不該讓整頁壞掉，但也不能假裝它有面額。
       if (!promotion) continue;
 
-      const expired = row.endsAt !== null && row.endsAt.getTime() <= ctx.now.getTime();
-      const notStarted = row.startsAt !== null && row.startsAt.getTime() > ctx.now.getTime();
-      const usable = row.status === 'issued' && !expired && !notStarted && promotion.status === 'active';
+      // 「能不能用」與套用、結帳問的是同一支：這裡自己算一份的話，
+      // 「我的券」會說可使用而套用時說不行——那正是這個共用判斷要消滅的落差。
+      const basic = couponService.check(row, { customerId: me.customerId, now: ctx.now });
+      const resolution = basic.ok
+        ? await couponService.checkAgainstLedger(ctx.db, row, { customerId: me.customerId, now: ctx.now })
+        : basic;
+      const usable = resolution.ok;
       if (input.usableOnly && !usable) continue;
 
-      // 把「不能用」拆回它真正的原因。全部顯示成「已過期」的話，
-      // 顧客會去找別張券，而問題其實是活動被停掉了。
+      // 把「不能用」拆回它真正的原因。全部顯示成「已過期」的話，顧客會去找別張券，
+      // 而問題其實是活動被停掉了。同一個 `void` 在券那一層與活動那一層意思不同，
+      // 因此看它是哪一段判斷回的。
       const unusableReason = usable ? null
-        : row.status === 'used' ? 'used' as const
-          : row.status === 'void' ? 'void' as const
-            : notStarted ? 'not_started' as const
-              : expired ? 'expired' as const
-                : 'promotion_ended' as const;
+        : !basic.ok ? COUPON_REASON_STATE[basic.reason]
+          : PROMOTION_REASON_STATE[resolution.reason];
 
       result.push({
         code: row.code,

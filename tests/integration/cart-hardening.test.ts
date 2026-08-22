@@ -201,3 +201,31 @@ describe('購物車寫入的節流', () => {
     expect(statuses).toContain(429);
   });
 });
+
+describe('購物車的商品種類上限', () => {
+  it('擋在加入的當下，而不是等到結不了帳才說', async () => {
+    const customer = await createCustomer(h.runtime, { email: `hard-cap-${randomUUID()}@example.test` });
+    const cartId = (await getCart({}, customer)).id;
+    // 先塞滿 50 種（直接寫表，避免跑 50 次命令）。
+    const first = await sellable(`HARD-CAP-0-${randomUUID().slice(0, 6)}`);
+    await addToCart({ productId: first.id, quantity: 1 }, customer);
+    const realCartId = (await getCart({}, customer)).id;
+    expect(realCartId).not.toBe(cartId);
+
+    for (let i = 1; i < 50; i += 1) {
+      const extra = await sellable(`HARD-CAP-${i}-${randomUUID().slice(0, 6)}`);
+      await h.runtime.database.db.execute(sql`
+        INSERT INTO cart_items (id, cart_id, product_id, quantity)
+        VALUES (${randomUUID()}, ${realCartId}, ${extra.id}, 1)
+      `);
+    }
+
+    const overflow = await sellable(`HARD-CAP-51-${randomUUID().slice(0, 6)}`);
+    await expect(addToCart({ productId: overflow.id, quantity: 1 }, customer))
+      .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+
+    // 已經在車裡的商品可以繼續加量——上限管的是種類。
+    const after = await addToCart({ productId: first.id, quantity: 1 }, customer);
+    expect(after.items.find((i: any) => i.productId === first.id).quantity).toBe(2);
+  });
+});

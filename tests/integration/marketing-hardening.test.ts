@@ -63,7 +63,7 @@ describe('券只能指向需要券的活動', () => {
       { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() })).rejects.toThrow();
   });
 
-  it('就算資料庫裡已經有這種券，定價也只套用一次', async () => {
+  it('資料庫裡已經有這種券時明確拒絕，而不是安靜地折 0 元', async () => {
     const open = await createPromotion({
       name: `舊資料九折-${randomUUID().slice(0, 6)}`,
       rule: { type: 'order_percentage', percentOffBasisPoints: 1_000 },
@@ -79,16 +79,26 @@ describe('券只能指向需要券的活動', () => {
     const product = await sellable(10_000);
     await h.runtime.commands.execute('commerce.cart.addToCart', { productId: product.id, quantity: 1 },
       { actor: customer, idempotencyKey: randomUUID() });
-    const cart = await h.runtime.commands.execute<any>('commerce.cart.applyCoupon', { code: value },
-      { actor: customer, idempotencyKey: randomUUID() });
 
-    // 九折就是九折：1,000。套兩次會變成 1,900。
-    expect(cart.discountCents).toBe(1_000);
-    expect(cart.adjustments).toHaveLength(1);
+    // 折 0 元的券套得上去是最糟的結果：顧客以為有折扣，結帳金額卻沒變。
+    await expect(h.runtime.commands.execute('commerce.cart.applyCoupon', { code: value },
+      { actor: customer, idempotencyKey: randomUUID() })).rejects.toMatchObject({ details: { reason: 'void' } });
+  });
 
-    const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', { cartId: cart.id },
-      { actor: customer, idempotencyKey: randomUUID() });
-    expect(order.discountCents).toBe(1_000);
+  it('遷移把已經有券指著的活動補標成需要券', async () => {
+    // 0005 的 backfill 跑在建立這個資料庫時；這裡驗的是它真的有效果——
+    // 建一張券之後再把活動改回人人適用，是遷移之後才可能出現的狀態。
+    const promotion = await createPromotion({
+      name: `補標測試-${randomUUID().slice(0, 6)}`,
+      rule: { type: 'order_percentage', percentOffBasisPoints: 1_000 },
+      requiresCoupon: true,
+    });
+    await createCoupon({ code: code('BACKFILL'), promotionId: promotion.id });
+
+    const rows = await h.runtime.database.db.execute<{ requires_coupon: boolean }>(sql`
+      SELECT requires_coupon FROM promotion_promotions WHERE id = ${promotion.id}
+    `);
+    expect(rows.rows[0].requires_coupon).toBe(true);
   });
 });
 

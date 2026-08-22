@@ -135,8 +135,8 @@ function rewardBox(ctx: ThemeContext, view: ThemeCartView): string {
       <form method="post" action="/cart/rewards" class="inline">
         ${csrfField(ctx)}
         <label>折抵金額（元）
-          <input type="number" name="amount" min="0" max="${Math.floor(reward.maxCents / 100)}"
-                 value="${Math.floor(reward.appliedCents / 100)}">
+          <input type="number" name="amount" step="0.01" min="0" max="${(reward.maxCents / 100).toFixed(2)}"
+                 value="${(reward.appliedCents / 100).toFixed(2)}">
         </label>
         <button type="submit">套用</button>
       </form>
@@ -163,7 +163,11 @@ const UNUSABLE_TEXT: Record<NonNullable<ThemeAccountCouponsView['coupons'][numbe
 };
 
 function couponStateText(coupon: ThemeAccountCouponsView['coupons'][number]): string {
-  if (coupon.unusableReason) return `<span class="badge">${UNUSABLE_TEXT[coupon.unusableReason]}</span>`;
+  // hasOwn 而不是直接索引：`constructor` 這種鍵會取到 Object.prototype 上的東西。
+  if (coupon.unusableReason && Object.hasOwn(UNUSABLE_TEXT, coupon.unusableReason)) {
+    return `<span class="badge">${UNUSABLE_TEXT[coupon.unusableReason]}</span>`;
+  }
+  if (coupon.unusableReason) return '<span class="badge">目前不可使用</span>';
   return coupon.expiringSoon ? '<span class="badge expiring">即將到期</span>' : '<span class="badge">可使用</span>';
 }
 
@@ -235,13 +239,13 @@ export const defaultTheme: StorefrontTheme = {
            ${couponBox(ctx, view)}
            ${rewardBox(ctx, view)}
            <p><a class="cta" href="/checkout">${ctx.customerName ? '前往結帳' : '登入後結帳'}</a></p>
-           <p>
-             <a href="/">繼續購物</a> ·
+           <div class="cart-actions">
+             <a href="/">繼續購物</a>
              <form method="post" action="/cart/clear" class="inline">
                ${csrfField(ctx)}
                <button type="submit" class="linklike">清空購物車</button>
              </form>
-           </p>`}`;
+           </div>`}`;
     return layout({ title: '購物車', body, ctx });
   },
 

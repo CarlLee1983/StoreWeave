@@ -93,6 +93,7 @@ table { width: 100%; border-collapse: collapse; margin-top: 16px; }
 th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); font-size: 14px; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
 .coupon { margin: 16px 0; }
+.cart-actions { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
 .expiring { color: var(--accent); font-weight: 600; }
 .cta { display: inline-block; padding: 10px 16px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; text-decoration: none; }
 .inline { display: inline; margin: 0; max-width: none; grid-auto-flow: column; gap: 4px; align-items: center; }

@@ -74,9 +74,11 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
   const COUPON_ROUTES = new Set(['/api/v1/cart/coupon', '/cart/coupon']);
   // 購物車的寫入不需要身分，因此不帶 cookie 的每一次請求都會開一台新車。
   // 沒有節流，資料表可以被無限灌；結帳則能反覆佔用庫存預留直到逾時。
+  // 只列 POST 的路由：preHandler 只處理 POST，把 PATCH/DELETE 的路徑放進來
+  // 只是讓人以為它被保護了。
   const CART_ROUTES = new Set([
-    '/api/v1/cart/items', '/api/v1/cart/items/:productId', '/api/v1/cart/checkout',
-    '/cart/items', '/cart/items/:productId', '/checkout',
+    '/api/v1/cart/items', '/api/v1/cart/checkout', '/api/v1/cart/rewards',
+    '/cart/items', '/cart/items/:productId', '/cart/rewards', '/cart/clear', '/checkout',
   ]);
   const cartLimiter = app.getHttpAdapter().getInstance().createRateLimit({
     max: 120,
