@@ -68,3 +68,16 @@ export const mergedCartDto = cartDto.extend({
   removedNames: z.array(z.string()),
 });
 export type MergedCartDto = z.infer<typeof mergedCartDto>;
+
+/** 訪客購物車的保留期。會員的車不受影響——棄單再行銷需要它留著。 */
+export const GUEST_CART_RETENTION_DAYS = 30;
+
+export const purgeStaleGuestCartsInput = z.object({
+  /** 這個時刻之前沒再動過的訪客車就清掉。省略時是「三十天前」。 */
+  before: z.coerce.date().optional(),
+}).strict();
+
+export const purgeStaleGuestCartsOutput = z.object({
+  deletedCarts: z.number().int().nonnegative(),
+  before: z.coerce.date(),
+});

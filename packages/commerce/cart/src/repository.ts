@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, lt, sql } from 'drizzle-orm';
 import { PlatformError, type Actor, type DrizzleDb, type Tx } from '@storeweave/contracts';
 import { customerService } from '@storeweave/customer';
 import { cartItems, carts, type CartItemRow, type CartRow } from './schema';
@@ -128,6 +128,18 @@ export class CartRepository {
   /** 併過的車就地作廢：狀態一離開 open，它就不再被任何查詢找到，token 也不能復活它。 */
   async markMerged(tx: Tx, cartId: string, now: Date): Promise<void> {
     await tx.update(carts).set({ status: 'merged', updatedAt: now }).where(eq(carts.id, cartId));
+  }
+
+  /**
+   * 清掉這個時刻之前沒再動過的訪客車。商品行由外鍵的 ON DELETE CASCADE 一起走。
+   * 條件只看 `customer_id IS NULL`：會員的車不管放多久都留著。
+   */
+  async deleteStaleGuestCarts(tx: Tx, before: Date): Promise<number> {
+    const deleted = await tx
+      .delete(carts)
+      .where(and(isNull(carts.customerId), lt(carts.updatedAt, before))!)
+      .returning({ id: carts.id });
+    return deleted.length;
   }
 
   async touch(tx: Tx, cartId: string, now: Date): Promise<void> {

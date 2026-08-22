@@ -7,6 +7,9 @@ import {
   clearCartInput,
   mergeGuestCartInput,
   mergedCartDto,
+  GUEST_CART_RETENTION_DAYS,
+  purgeStaleGuestCartsInput,
+  purgeStaleGuestCartsOutput,
   removeCartItemInput,
   setCartItemQuantityInput,
   type CartDto,
@@ -156,6 +159,37 @@ export function createCartModule(deps: CartModuleDeps) {
     return toCartDto(ctx.tx, cart, deps.defaultCurrency, ctx.now, ctx.logger);
   };
 
+  const purgeStaleGuestCartsCommand = defineCommand({
+    name: 'commerce.cart.purgeStaleGuestCarts',
+    summary: '清除長期未更新的訪客購物車',
+    input: purgeStaleGuestCartsInput,
+    output: purgeStaleGuestCartsOutput,
+    permission: 'cart:write',
+    idempotency: 'optional',
+    audit: {
+      action: 'cart.purged',
+      resourceType: 'cart',
+      resourceId: () => 'stale-guest-carts',
+      redact: () => ({}),
+    },
+  });
+
+  /**
+   * 訪客車三十天沒動就清掉，資料表才不會無限膨脹。會員的車永遠留著——
+   * 棄單再行銷需要「最後更新於 N 天前」這個查詢問得出東西。
+   *
+   * 界線由呼叫端給得出來，測試才驗得到邊界而不必等三十天。
+   */
+  const purgeStaleGuestCartsHandler = async (
+    input: z.infer<typeof purgeStaleGuestCartsInput>,
+    ctx: CommandContext,
+  ) => {
+    const before = input.before ?? new Date(ctx.now.getTime() - GUEST_CART_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const deletedCarts = await repository.deleteStaleGuestCarts(ctx.tx, before);
+    if (deletedCarts > 0) ctx.logger.info({ deletedCarts, before }, 'purged stale guest carts');
+    return { deletedCarts, before };
+  };
+
   return {
     commands: [
       { descriptor: addToCartCommand, handler: addToCartHandler },
@@ -163,6 +197,7 @@ export function createCartModule(deps: CartModuleDeps) {
       { descriptor: removeCartItemCommand, handler: removeCartItemHandler },
       { descriptor: clearCartCommand, handler: clearCartHandler },
       { descriptor: mergeGuestCartCommand, handler: mergeGuestCartHandler },
+      { descriptor: purgeStaleGuestCartsCommand, handler: purgeStaleGuestCartsHandler },
     ],
   };
 }

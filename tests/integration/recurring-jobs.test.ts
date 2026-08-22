@@ -98,6 +98,9 @@ describe('週期性工作', () => {
 
     const first = await h.worker.tick();
     expect(first.recurringScheduled).toBeGreaterThanOrEqual(1);
+    // 一輪 tick 只認領 concurrency 筆，而這個資料庫裡還有其他模組宣告的週期性工作
+    // （例如訪客購物車清理）。把剩下的跑完再斷言，否則這條測試會被排隊順序左右。
+    await h.worker.runJobs();
     expect(handler).toHaveBeenCalledTimes(1);
 
     const second = await h.worker.tick();
