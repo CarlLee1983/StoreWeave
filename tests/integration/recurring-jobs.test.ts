@@ -17,6 +17,20 @@ let h: TestHarness;
 beforeAll(async () => { h = await createHarness(); }, 300_000);
 afterAll(async () => { await h?.close(); });
 
+/**
+ * 把佇列裡的工作跑完。
+ *
+ * 不能用 `worker.drain()`：它每一輪都會 `ensureScheduled(now)`，於是又排進
+ * 當下切片的那一次，讓「跑了幾次」變成另一個問題。一輪 `runJobs` 又只認領
+ * concurrency 筆，而這個資料庫裡還有其他模組宣告的週期性工作。
+ */
+async function runQueuedJobs(): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const result = await h.worker.runJobs();
+    if (result.processed === 0 && result.failed === 0) return;
+  }
+}
+
 async function jobRows(type: string) {
   const res = await h.runtime.database.db.execute<{ dedupe_key: string; status: string; attempts: number }>(sql`
     SELECT dedupe_key, status, attempts FROM platform_jobs WHERE type = ${type} ORDER BY dedupe_key
@@ -31,13 +45,14 @@ describe('週期性工作', () => {
     h.runtime.recurring.register({ type: 'test.recurring.basic', everyMs: HOUR });
 
     await h.runtime.recurring.ensureScheduled(T0);
-    await h.worker.runJobs();
+    // 一輪只認領 concurrency 筆，而這個資料庫裡還有其他模組宣告的週期性工作。
+    await runQueuedJobs();
     expect(handler).toHaveBeenCalledTimes(1);
 
     // 同一個切片內再確保幾次，都不該產生新的工作
     await h.runtime.recurring.ensureScheduled(new Date(T0.getTime() + 60_000));
     await h.runtime.recurring.ensureScheduled(new Date(T0.getTime() + 39 * 60_000));
-    await h.worker.runJobs();
+    await runQueuedJobs();
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(await jobRows('test.recurring.basic')).toHaveLength(1);
@@ -45,7 +60,7 @@ describe('週期性工作', () => {
 
   it('進到下一個切片會排入新的一次，去重鍵不同', async () => {
     await h.runtime.recurring.ensureScheduled(new Date(T0.getTime() + HOUR));
-    await h.worker.runJobs();
+    await runQueuedJobs();
 
     const rows = await jobRows('test.recurring.basic');
     expect(rows).toHaveLength(2);
@@ -63,7 +78,7 @@ describe('週期性工作', () => {
 
     for (let i = 0; i < 4; i += 1) {
       await h.runtime.recurring.ensureScheduled(new Date(T0.getTime() + i * HOUR));
-      await h.worker.runJobs();
+      await runQueuedJobs();
     }
 
     expect(handler).toHaveBeenCalledTimes(4);

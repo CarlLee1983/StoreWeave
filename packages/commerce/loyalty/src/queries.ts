@@ -62,6 +62,7 @@ export const getRewardSettingsHandler = async (_input: unknown, ctx: QueryContex
     accrualBasisPoints: row.accrualBasisPoints,
     effectiveAfterDays: row.effectiveAfterDays,
     expiresAfterDays: row.expiresAfterDays,
+    expiryNoticeDays: row.expiryNoticeDays,
     updatedAt: row.updatedAt,
   };
 };
