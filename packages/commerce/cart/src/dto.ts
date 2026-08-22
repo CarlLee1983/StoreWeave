@@ -64,16 +64,20 @@ export const cartDto = z.object({
 });
 export type CartDto = z.infer<typeof cartDto>;
 
-export const getCartInput = z.object({ ...owner });
-export const addToCartInput = z.object({ ...owner, productId: z.string().uuid(), quantity: quantity.default(1) });
+// 輸入一律 `.strict()`：多送的欄位要回 400 而不是被靜默丟棄——
+// 那是最糟的失敗方式，呼叫端會以為自己送的東西生效了。
+export const getCartInput = z.object({ ...owner }).strict();
+export const addToCartInput = z.object({
+  ...owner, productId: z.string().uuid(), quantity: quantity.default(1),
+}).strict();
 export const setCartItemQuantityInput = z.object({
   ...owner,
   productId: z.string().uuid(),
   /** 0 等於移除：前台的數量選單本來就會走到 0，讓它自然表達「不要了」。 */
   quantity: z.number().int().min(0).max(999),
-});
-export const removeCartItemInput = z.object({ ...owner, productId: z.string().uuid() });
-export const clearCartInput = z.object({ ...owner });
+}).strict();
+export const removeCartItemInput = z.object({ ...owner, productId: z.string().uuid() }).strict();
+export const clearCartInput = z.object({ ...owner }).strict();
 
 export const mergeGuestCartInput = z.object({
   guestToken: z.string().min(16).max(200),
