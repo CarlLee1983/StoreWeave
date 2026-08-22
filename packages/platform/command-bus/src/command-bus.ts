@@ -186,8 +186,8 @@ export class CommandBus {
     `);
     if (inserted.rows.length > 0) return { kind: 'claimed' };
 
-    const existing = await tx.execute<{ request_hash: string; status: string; response: unknown }>(sql`
-      SELECT request_hash, status, response FROM platform_idempotency
+    const existing = await tx.execute<{ request_hash: string; status: string; response: unknown; actor_id: string }>(sql`
+      SELECT request_hash, status, response, actor_id FROM platform_idempotency
       WHERE command_name = ${commandName} AND key = ${key}
     `);
     const row = existing.rows[0];
@@ -197,6 +197,11 @@ export class CommandBus {
     }
     if (row.status !== 'completed') {
       throw new PlatformError('IDEMPOTENCY_IN_PROGRESS', `Request with idempotency key "${key}" is still in progress`);
+    }
+    // 冪等鍵屬於當初宣告它的人。不比對的話，重放會在 handler 執行之前就回傳快取的結果，
+    // 於是 handler 裡的歸屬檢查完全不會執行——猜到別人的鍵就能讀到別人的回應。
+    if (row.actor_id !== actorId) {
+      throw PlatformError.forbidden(`Idempotency key "${key}" belongs to another actor`);
     }
     return { kind: 'replay', response: row.response };
   }

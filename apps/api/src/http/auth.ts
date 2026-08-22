@@ -108,6 +108,9 @@ export class ApiTokenGuard implements CanActivate {
     }
 
     if (isPublic) {
+      // 訪客也會寫東西（購物車）。沒有 session 就沒有 CSRF token 可以比對，
+      // 因此改用瀏覽器自己加的 Origin / Sec-Fetch-Site——與 @Anonymous() 同一套（ADR 0018）。
+      this.assertSameOrigin(request);
       request.actor = anonymousActor();
       return true;
     }

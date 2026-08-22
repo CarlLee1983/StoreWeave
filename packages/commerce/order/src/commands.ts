@@ -7,7 +7,7 @@ import { catalogService } from '@storeweave/catalog';
 import { inventoryService } from '@storeweave/inventory';
 import { customerService } from '@storeweave/customer';
 import { pricingService } from '@storeweave/promotion';
-import { CartRepository } from '@storeweave/cart';
+import { CartRepository, isPurchasable } from '@storeweave/cart';
 import { CouponRepository, couponError, couponService, reverseCouponForOrder, type CouponRow } from '@storeweave/coupon';
 import { maxRedeemableCents, rewardService, tierService } from '@storeweave/loyalty';
 import { cancelOrderInput, checkoutCartInput, markPaidInput, orderDto, payOrderInput, placeOrderInput, type OrderDto } from './dto';
@@ -249,11 +249,14 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
       if (!check.ok) throw couponError(check.reason);
     }
 
-    // 下架的商品顧客本來就看不到（購物車顯示時已經濾掉），結帳跟著同一個判斷。
+    // 顧客看不到的商品行也結不進訂單：判斷與購物車顯示共用 `isPurchasable`，
+    // 兩邊各寫一次，遲早會有一邊多放行一種情況（例如幣別不符的商品）。
     const lines: { productId: string; quantity: number }[] = [];
     for (const row of await cartRepository.items(ctx.tx, cart.id)) {
       const product = await catalogService.findById(ctx.tx, row.productId);
-      if (product?.status === 'active') lines.push({ productId: row.productId, quantity: row.quantity });
+      if (isPurchasable(product, deps.defaultCurrency)) {
+        lines.push({ productId: row.productId, quantity: row.quantity });
+      }
     }
     if (lines.length === 0) throw PlatformError.validation('Your cart is empty');
 

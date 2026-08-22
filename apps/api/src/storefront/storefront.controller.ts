@@ -7,7 +7,7 @@ import type { StorefrontTheme, ThemeContext } from '@storeweave/kernel';
 import type { NotificationProvider } from '@storeweave/extension-sdk';
 import { Anonymous, Public, SESSION_COOKIE, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
 import { clearSessionCookies } from '../http/session-cookies';
-import { CART_NOTICE_COOKIE, clearCartNoticeCookie, guestTokenFor } from '../http/cart-cookie';
+import { CART_NOTICE_COOKIE, clearCartNoticeCookie, existingGuestToken, guestTokenFor } from '../http/cart-cookie';
 import { startSession } from '../http/session-start';
 import { RUNTIME, THEME, type Runtime } from '../tokens';
 
@@ -398,7 +398,8 @@ export class StorefrontController {
       const order = await this.runtime.commands.execute<{ id: string; number: string }>(
         'commerce.order.checkoutCart',
         { cartId },
-        { actor, idempotencyKey: `cart:${cartId}`, correlationId, channel: 'rest' },
+        // 鍵綁上身分：冪等鍵是猜得到的（購物車識別碼），而它決定了誰讀得到那份回應。
+        { actor, idempotencyKey: `cart:${actor.id}:${cartId}`, correlationId, channel: 'rest' },
       );
       await this.runtime.commands.execute('commerce.order.payOrder', { orderId: order.id }, {
         actor, idempotencyKey: `storefront-pay:${order.id}`, correlationId, channel: 'rest',
@@ -554,9 +555,10 @@ export class StorefrontController {
 
   /** 購物車頁與確認頁看的是同一份資料，差別只在能不能改。 */
   private async cartView(req: AuthenticatedRequest, reply: FastifyReply) {
+    // 讀取不簽發 token：沒有車就是空車，而不是發一張新的把舊的蓋掉。
     const cart = await this.runtime.queries.execute<any>(
       'commerce.cart.getCart',
-      { guestToken: guestTokenFor(req, reply, this.runtime.config.http.publicUrl) },
+      { guestToken: existingGuestToken(req) },
       { actor: actorOf(req), channel: 'rest' },
     );
     return {

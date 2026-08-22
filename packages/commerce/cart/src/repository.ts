@@ -79,7 +79,8 @@ export class CartRepository {
       .values({ id: randomUUID(), cartId, productId, quantity: delta, createdAt: now, updatedAt: now })
       .onConflictDoUpdate({
         target: [cartItems.cartId, cartItems.productId],
-        set: { quantity: sql`${cartItems.quantity} + ${delta}`, updatedAt: now },
+        // 上限與 setQuantity 一致：單次有界但累加無界的話，同一件商品按久了會溢位。
+        set: { quantity: sql`least(${cartItems.quantity} + ${delta}, 999)`, updatedAt: now },
       });
   }
 

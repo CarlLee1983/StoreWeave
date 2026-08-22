@@ -61,3 +61,16 @@ export function guestTokenFor(
   if (req.actor?.type === 'customer') return undefined;
   return req.cookies?.[CART_COOKIE] ?? setGuestCartCookie(reply, publicUrl);
 }
+
+/**
+ * 讀取路徑用的：**不簽發**新 token。
+ *
+ * 讀一次就發一張新 token 等於把「清空購物車」變成一個跨站點得到的開關——
+ * `<img src="/cart">` 這種子資源請求不帶 Lax cookie，伺服器卻會回一張新的蓋掉舊的。
+ */
+export function existingGuestToken(
+  req: { actor?: { type: string }; cookies?: Record<string, string | undefined> },
+): string | undefined {
+  if (req.actor?.type === 'customer') return undefined;
+  return req.cookies?.[CART_COOKIE];
+}

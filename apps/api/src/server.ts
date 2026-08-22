@@ -72,6 +72,17 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
   // 套用折扣碼同樣要節流，理由不同：那是一條可以暴力猜碼的管道，
   // 而共用碼的損失上限就是整檔活動的預算。綁 IP 就夠——碼不綁帳號。
   const COUPON_ROUTES = new Set(['/api/v1/cart/coupon', '/cart/coupon']);
+  // 購物車的寫入不需要身分，因此不帶 cookie 的每一次請求都會開一台新車。
+  // 沒有節流，資料表可以被無限灌；結帳則能反覆佔用庫存預留直到逾時。
+  const CART_ROUTES = new Set([
+    '/api/v1/cart/items', '/api/v1/cart/items/:productId', '/api/v1/cart/checkout',
+    '/cart/items', '/cart/items/:productId', '/checkout',
+  ]);
+  const cartLimiter = app.getHttpAdapter().getInstance().createRateLimit({
+    max: 120,
+    timeWindow: '1 minute',
+    keyGenerator: (request) => `cart:${request.ip}`,
+  });
   const couponLimiter = app.getHttpAdapter().getInstance().createRateLimit({
     max: 20,
     timeWindow: '1 minute',
@@ -87,7 +98,8 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
 
     const limiters = THROTTLED_ROUTES.has(route)
       ? [perIpLimiter, perAccountLimiter]
-      : COUPON_ROUTES.has(route) ? [couponLimiter] : [];
+      : COUPON_ROUTES.has(route) ? [couponLimiter]
+        : CART_ROUTES.has(route) ? [cartLimiter] : [];
     if (limiters.length === 0) return;
 
     for (const limiter of limiters) {

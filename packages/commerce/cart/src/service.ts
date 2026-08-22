@@ -10,6 +10,20 @@ import type { CartRow } from './schema';
 
 const repository = new CartRepository();
 
+/**
+ * 這件商品現在買得到嗎。
+ *
+ * 顯示、合併與結帳三處必須用同一個判斷：只在顯示時濾掉幣別不符的商品，
+ * 它就會在車裡隱形卻在結帳時把整筆擋下——顧客看不到那一行，也就移不掉它。
+ */
+export function isPurchasable(
+  product: { status: string; currency: string } | null | undefined,
+  defaultCurrency: string,
+): boolean {
+  return product !== null && product !== undefined
+    && product.status === 'active' && product.currency === defaultCurrency;
+}
+
 /** 沒有內容時的試算結果。空車不必進定價引擎，答案恆定。 */
 export function emptyCartDto(id: string, currency: string): CartDto {
   return {
@@ -38,9 +52,7 @@ export async function toCartDto(
   for (const row of rows) {
     const product = await catalogService.findById(db, row.productId);
     // 下架或刪除的商品不在購物車裡顯示；合併與結帳各自處理它們（工單 27、28）。
-    if (!product || product.status !== 'active') continue;
-    // 幣別不同的商品進不了同一張訂單，因此也不該混進同一次試算。
-    if (product.currency !== defaultCurrency) continue;
+    if (!product || !isPurchasable(product, defaultCurrency)) continue;
 
     const available = await inventoryService.availableFor(db, row.productId).catch(() => null);
     items.push({

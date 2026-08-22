@@ -20,7 +20,7 @@ import {
   type MergedCartDto,
 } from './dto';
 import { CartRepository, resolveOwner } from './repository';
-import { toCartDto } from './service';
+import { isPurchasable, toCartDto } from './service';
 
 const repository = new CartRepository();
 
@@ -28,13 +28,30 @@ export interface CartModuleDeps {
   defaultCurrency: string;
 }
 
-/** 加入購物車前確認商品真的買得到——下架的商品不該先進車再在結帳時才失敗。 */
-async function requirePurchasable(ctx: CommandContext, productId: string): Promise<void> {
-  await catalogService.requireActiveProduct(ctx.tx, productId);
+/**
+ * 加入購物車前確認商品真的買得到——下架的商品不該先進車再在結帳時才失敗。
+ * 幣別也在這裡擋：混幣別的商品進不了同一張訂單，讓它進車只會製造一個移不掉的行。
+ */
+async function requirePurchasable(ctx: CommandContext, productId: string, defaultCurrency: string): Promise<void> {
+  const product = await catalogService.requireActiveProduct(ctx.tx, productId);
+  if (product.currency !== defaultCurrency) {
+    throw PlatformError.validation(`Product ${product.sku} is priced in ${product.currency}, this store sells in ${defaultCurrency}`);
+  }
 }
 
+/**
+ * 取得（必要時開一台）這次要寫入的購物車，並**鎖住那一列**。
+ *
+ * 結帳也是鎖同一列（`lockById`）。不鎖的話，加入或合併可能落在一台正在結帳、
+ * 甚至已經 checked_out 的車上——那些商品行從此只存在於一台沒有查詢找得到的車裡，
+ * 顧客看不到也拿不回。這不是金錢損失，是靜默的資料遺失。
+ */
 async function openCart(ctx: CommandContext, guestToken: string | undefined) {
   const owner = await resolveOwner(ctx.tx, ctx.actor, guestToken);
+  const cart = await repository.findOrCreate(ctx.tx, owner, ctx.now);
+  const locked = await repository.lockById(ctx.tx, cart.id);
+  // 等到鎖之後那台車已經被結掉，就開一台新的：顧客的下一件商品要有地方放。
+  if (locked && locked.status === 'open') return locked;
   return repository.findOrCreate(ctx.tx, owner, ctx.now);
 }
 
@@ -65,7 +82,7 @@ export function createCartModule(deps: CartModuleDeps) {
   const clearCartCommand = cartCommand('commerce.cart.clearCart', '清空購物車', clearCartInput, 'cart.cleared');
 
   const addToCartHandler = async (input: z.infer<typeof addToCartInput>, ctx: CommandContext): Promise<CartDto> => {
-    await requirePurchasable(ctx, input.productId);
+    await requirePurchasable(ctx, input.productId, deps.defaultCurrency);
     const cart = await openCart(ctx, input.guestToken);
     // 再加一次同一件商品是累加：使用者的意圖是「再來一個」，不是「覆蓋成一個」。
     await repository.addQuantity(ctx.tx, cart.id, input.productId, input.quantity, ctx.now);
@@ -81,7 +98,7 @@ export function createCartModule(deps: CartModuleDeps) {
     if (input.quantity === 0) {
       await repository.removeItem(ctx.tx, cart.id, input.productId);
     } else {
-      await requirePurchasable(ctx, input.productId);
+      await requirePurchasable(ctx, input.productId, deps.defaultCurrency);
       await repository.setQuantity(ctx.tx, cart.id, input.productId, input.quantity, ctx.now);
     }
     await repository.touch(ctx.tx, cart.id, ctx.now);
@@ -139,7 +156,7 @@ export function createCartModule(deps: CartModuleDeps) {
 
     for (const row of await repository.items(ctx.tx, guest.id)) {
       const product = await catalogService.findById(ctx.tx, row.productId);
-      if (!product || product.status !== 'active') {
+      if (!product || !isPurchasable(product, deps.defaultCurrency)) {
         // 商品連紀錄都沒了就講不出名字，這時候不編一個——只是不提它。
         if (product) removedNames.push(product.name);
         continue;

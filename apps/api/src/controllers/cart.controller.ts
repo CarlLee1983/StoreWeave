@@ -3,7 +3,7 @@ import type { FastifyReply } from 'fastify';
 import { BusController } from './base';
 import { ok } from '../http/envelope';
 import { Public, actorOf, correlationIdOf, type AuthenticatedRequest } from '../http/auth';
-import { guestTokenFor } from '../http/cart-cookie';
+import { existingGuestToken, guestTokenFor } from '../http/cart-cookie';
 import { RUNTIME, type Runtime } from '../tokens';
 
 @Public()
@@ -13,9 +13,10 @@ export class CartController extends BusController {
     super(runtime);
   }
 
+  /** 讀取不簽發 token：讀一次就換一台新車，等於把「清空購物車」變成跨站點得到的開關。 */
   @Get()
-  async get(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) reply: FastifyReply) {
-    return ok(await this.query(req, 'commerce.cart.getCart', { guestToken: this.guestToken(req, reply) }));
+  async get(@Req() req: AuthenticatedRequest) {
+    return ok(await this.query(req, 'commerce.cart.getCart', { guestToken: existingGuestToken(req) }));
   }
 
   @Post('items')
@@ -69,9 +70,11 @@ export class CartController extends BusController {
       ? body.cartId
       : (await this.query<{ id: string }>(req, 'commerce.cart.getCart', {})).id;
 
+    const actor = actorOf(req);
     return ok(await this.runtime.commands.execute('commerce.order.checkoutCart',
-      { cartId, metadata: body?.metadata },
-      { actor: actorOf(req), idempotencyKey: `cart:${cartId}`, correlationId: correlationIdOf(req), channel: 'rest' }));
+      { cartId },
+      // 鍵綁上身分：冪等鍵是猜得到的（購物車識別碼），而它決定了誰讀得到那份回應。
+      { actor, idempotencyKey: `cart:${actor.id}:${cartId}`, correlationId: correlationIdOf(req), channel: 'rest' }));
   }
 
   /** 套用折扣碼。這支端點受節流保護：沒有它，掃碼機器人可以把限量活動吃光。 */
