@@ -76,4 +76,29 @@ export class AuthController {
     });
   }
 
+
+  /** 主動改密碼。走 cookie，因此受 CSRF 保護；改完踢掉其他裝置，留下自己這一台。 */
+  @Post('change-password')
+  @HttpCode(200)
+  async changePassword(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { currentPassword?: string; newPassword?: string },
+  ) {
+    const token = req.cookies?.[SESSION_COOKIE];
+    if (!token) throw new PlatformError('UNAUTHENTICATED', 'No active session');
+    const resolved = await this.runtime.auth.resolveSession(this.runtime.database.db, token);
+    if (!resolved) throw new PlatformError('UNAUTHENTICATED', 'Invalid or expired session');
+
+    if (!body?.currentPassword || !body?.newPassword) {
+      throw new PlatformError('VALIDATION_ERROR', 'currentPassword 與 newPassword 為必填');
+    }
+
+    await this.runtime.auth.changePassword(this.runtime.database.db, {
+      userId: resolved.user.id,
+      currentPassword: body.currentPassword,
+      newPassword: body.newPassword,
+      keepToken: token,
+    });
+    return ok({ changed: true });
+  }
 }

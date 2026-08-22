@@ -53,6 +53,7 @@ export function testSecretProvider(values: Record<string, string>): SecretProvid
 export function testConfig(url: string, options: TestRuntimeOptions = {}): CommerceConfig {
   const extensionEntries = options.extensions ?? {
     'mock-payment': { autoApprove: true },
+    'mock-notification': { deliver: true },
     'demo-erp': { endpoint: 'mock://demo-erp' },
     mcp: {},
   };

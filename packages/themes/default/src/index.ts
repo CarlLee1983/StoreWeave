@@ -2,6 +2,27 @@ import { z } from 'zod';
 import type { StorefrontTheme } from '@storeweave/kernel';
 import { escapeHtml, formatMoney, layout } from './layout';
 
+/** 忘記密碼與重設密碼：兩張表單長得夠像，共用一支。 */
+function renderPasswordForm(
+  ctx: Parameters<typeof layout>[0]['ctx'],
+  { mode, error, token, notice }: { mode: string; error?: string; token?: string; notice?: string },
+): string {
+  const forgot = mode === 'forgot-password';
+  const body = `
+    <h1>${forgot ? '忘記密碼' : '設定新密碼'}</h1>
+    ${notice ? `<p class="muted">${escapeHtml(notice)}</p>` : ''}
+    ${error ? `<div class="error"><p>${escapeHtml(error)}</p></div>` : ''}
+    ${notice && forgot ? '' : `<form method="post" action="${forgot ? '/forgot-password' : '/reset-password'}">
+      ${forgot
+        ? `<label>電子郵件<input type="email" name="email" required placeholder="you@example.com"></label>`
+        : `<input type="hidden" name="token" value="${escapeHtml(token ?? '')}">
+           <label>新密碼<input type="password" name="password" required minlength="8"></label>`}
+      <button type="submit">${forgot ? '寄出重設連結' : '設定新密碼'}</button>
+    </form>`}
+    <p class="muted"><a href="/login">回登入</a></p>`;
+  return layout({ title: forgot ? '忘記密碼' : '設定新密碼', body, ctx });
+}
+
 /** 伺服器渲染的表單以隱藏欄位做 CSRF 雙提交——瀏覽器的原生表單送不出自訂 header。 */
 function csrfField(ctx: { csrfToken?: string | null }): string {
   return ctx.csrfToken ? `<input type="hidden" name="_csrf" value="${escapeHtml(ctx.csrfToken)}">` : '';
@@ -144,7 +165,10 @@ export const defaultTheme: StorefrontTheme = {
     return layout({ title: '個人資料', body, ctx });
   },
 
-  renderAuth(ctx, { mode, next, error }) {
+  renderAuth(ctx, { mode, next, error, token, notice }) {
+    if (mode === 'forgot-password' || mode === 'reset-password') {
+      return renderPasswordForm(ctx, { mode, error, token, notice });
+    }
     const login = mode === 'login';
     const body = `
       <h1>${login ? '登入' : '註冊'}</h1>
@@ -163,7 +187,7 @@ export const defaultTheme: StorefrontTheme = {
         <button type="submit">${login ? '登入' : '註冊'}</button>
       </form>
       <p class="muted">${login
-        ? `還沒有帳號？<a href="/register?next=${encodeURIComponent(next)}">註冊一個</a>`
+        ? `還沒有帳號？<a href="/register?next=${encodeURIComponent(next)}">註冊一個</a> · <a href="/forgot-password">忘記密碼</a>`
         : `已經有帳號了？<a href="/login?next=${encodeURIComponent(next)}">登入</a>`}</p>`;
     return layout({ title: login ? '登入' : '註冊', body, ctx });
   },

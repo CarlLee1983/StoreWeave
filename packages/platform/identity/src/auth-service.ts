@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { PlatformError, type Actor, type DrizzleDb } from '@storeweave/contracts';
 import { permissionsForRole } from '@storeweave/authorization';
-import { DUMMY_HASH, verifyPassword } from './password';
+import { DUMMY_HASH, hashPassword, verifyPassword } from './password';
 import { UserRepository, toUserDto, type UserDto } from './repository';
 
 export interface IssuedSession {
@@ -14,6 +14,21 @@ export interface IssuedSession {
 export interface ResolvedSession {
   actor: Actor;
   user: UserDto;
+}
+
+/**
+ * 密碼長度下限依角色而異：後台帳號改得了設定、看得到所有訂單，門檻高一點；
+ * 前台會員以長度優先、不強制大小寫與符號（複雜度規則只會逼出可預測的變形）。
+ */
+export function minPasswordLengthFor(role: string): number {
+  return role === CUSTOMER_ROLE ? 8 : 12;
+}
+
+function assertPasswordLength(password: string, role: string): void {
+  const min = minPasswordLengthFor(role);
+  if (password.length < min) {
+    throw new PlatformError('VALIDATION_ERROR', `Password must be at least ${min} characters`);
+  }
 }
 
 /** 顧客帳號的角色名。identity 只認得「這是一個角色」，顧客的領域資料在 commerce/customer。 */
@@ -101,6 +116,76 @@ export class AuthService {
         permissions: permissionsForRole(row.role),
       },
     };
+  }
+
+  /** 撤銷一個帳號的所有 session；`exceptToken` 讓「改密碼」不必把自己也踢掉。 */
+  async revokeAllSessions(db: DrizzleDb, userId: string, exceptToken?: string): Promise<void> {
+    const except = exceptToken ? hashToken(exceptToken) : null;
+    await db.execute(sql`
+      UPDATE platform_sessions SET revoked_at = now()
+      WHERE user_id = ${userId} AND revoked_at IS NULL
+        AND (${except}::text IS NULL OR token_hash <> ${except})
+    `);
+  }
+
+  /**
+   * 產生重設 token。找不到帳號時回 null——呼叫端一律回中性訊息，
+   * 由它決定「什麼都不做」，而不是由這裡丟出可辨識的錯誤。
+   */
+  async createPasswordReset(
+    db: DrizzleDb,
+    input: { email: string; ttlMs: number },
+  ): Promise<{ token: string; user: UserDto } | null> {
+    const user = await this.users.findByEmail(db, input.email);
+    if (!user || user.status !== 'active') return null;
+
+    const token = randomBytes(32).toString('base64url');
+    await db.execute(sql`
+      INSERT INTO platform_password_resets (id, user_id, token_hash, expires_at)
+      VALUES (${randomUUID()}, ${user.id}, ${hashToken(token)}, ${new Date(Date.now() + input.ttlMs).toISOString()})
+    `);
+    return { token, user: toUserDto(user) };
+  }
+
+  /** 用重設 token 設定新密碼：單次使用、用過即作廢，並踢掉該帳號所有 session。 */
+  async resetPassword(db: DrizzleDb, input: { token: string; newPassword: string }): Promise<UserDto> {
+    const res = await db.execute<{ id: string; user_id: string; role: string }>(sql`
+      SELECT r.id, r.user_id, u.role
+      FROM platform_password_resets r JOIN platform_users u ON u.id = r.user_id
+      WHERE r.token_hash = ${hashToken(input.token)} AND r.used_at IS NULL AND r.expires_at > now()
+    `);
+    const row = res.rows[0];
+    if (!row) throw new PlatformError('VALIDATION_ERROR', 'This reset link is invalid or has expired');
+
+    assertPasswordLength(input.newPassword, row.role);
+
+    await db.execute(sql`
+      UPDATE platform_users SET password_hash = ${await hashPassword(input.newPassword)} WHERE id = ${row.user_id}
+    `);
+    await db.execute(sql`UPDATE platform_password_resets SET used_at = now() WHERE id = ${row.id}`);
+    // 重設密碼的情境就是「我不確定誰還登著」，因此一個 session 都不留。
+    await this.revokeAllSessions(db, row.user_id);
+
+    const user = await this.users.findById(db, row.user_id);
+    return toUserDto(user!);
+  }
+
+  /** 主動改密碼：驗過現有密碼才改，並踢掉其他裝置，留下自己這一台。 */
+  async changePassword(
+    db: DrizzleDb,
+    input: { userId: string; currentPassword: string; newPassword: string; keepToken?: string },
+  ): Promise<void> {
+    const user = await this.users.findById(db, input.userId);
+    if (!user) throw new PlatformError('UNAUTHENTICATED', FAILED);
+    if (!(await verifyPassword(input.currentPassword, user.password_hash))) {
+      throw new PlatformError('UNAUTHENTICATED', FAILED);
+    }
+    assertPasswordLength(input.newPassword, user.role);
+
+    await db.execute(sql`
+      UPDATE platform_users SET password_hash = ${await hashPassword(input.newPassword)} WHERE id = ${user.id}
+    `);
+    await this.revokeAllSessions(db, user.id, input.keepToken);
   }
 
   async revokeSession(db: DrizzleDb, token: string): Promise<void> {

@@ -49,7 +49,11 @@ export interface ThemeAccountProfileView {
 }
 
 export interface ThemeAuthView {
-  mode: 'login' | 'register';
+  mode: 'login' | 'register' | 'forgot-password' | 'reset-password';
+  /** reset-password 用：從信件連結帶進來的 token。 */
+  token?: string;
+  /** 中性訊息或成功提示。 */
+  notice?: string;
   /** 完成後要回到哪裡。只接受站內路徑。 */
   next: string;
   error?: string;

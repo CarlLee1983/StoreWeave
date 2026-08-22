@@ -34,5 +34,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS platform_sessions_token_key ON platform_sessio
 CREATE INDEX IF NOT EXISTS platform_sessions_user_idx ON platform_sessions (user_id);
 `,
     ),
+    sqlMigration('0003_password_resets', 'expand', `
+CREATE TABLE IF NOT EXISTS platform_password_resets (
+  id         uuid PRIMARY KEY,
+  user_id    uuid NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
+  -- 只存雜湊：明文只出現在信件連結裡，資料庫外洩不等於所有人的帳號被接管。
+  token_hash text NOT NULL UNIQUE,
+  expires_at timestamptz NOT NULL,
+  used_at    timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS platform_password_resets_user_idx ON platform_password_resets (user_id);
+`),
   ],
 };

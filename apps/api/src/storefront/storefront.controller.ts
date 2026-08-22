@@ -4,9 +4,13 @@ import type { FastifyReply } from 'fastify';
 import { PlatformError, type Actor } from '@storeweave/contracts';
 import { csrfTokenFor } from '@storeweave/identity';
 import type { StorefrontTheme, ThemeContext } from '@storeweave/kernel';
+import type { NotificationProvider } from '@storeweave/extension-sdk';
 import { Anonymous, Public, SESSION_COOKIE, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
 import { clearSessionCookies, setSessionCookies } from '../http/session-cookies';
 import { RUNTIME, THEME, type Runtime } from '../tokens';
+
+/** 重設連結的時效。夠久到收得到信，短到外洩的信件不會長期有效。 */
+const RESET_TTL_MS = 60 * 60 * 1000;
 
 /** 只接受站內路徑，避免變成開放轉址。 */
 function safeNext(value: string | undefined): string {
@@ -216,6 +220,68 @@ export class StorefrontController {
       void reply.status(303).header('location', `/orders/${order.number}`).send();
     } catch (err) {
       this.renderError(reply, err, req);
+    }
+  }
+
+  @Anonymous()
+  @Get('forgot-password')
+  async forgotPasswordPage(@Res() reply: FastifyReply) {
+    this.html(reply, 200, this.theme.renderAuth(this.themeContext(), { mode: 'forgot-password', next: '/' }));
+  }
+
+  @Anonymous()
+  @Post('forgot-password')
+  async forgotPassword(@Body() body: Record<string, string>, @Res() reply: FastifyReply) {
+    // 回應一律中性：區分「寄了」與「沒這個帳號」等於送出帳號枚舉管道。
+    const neutral = '若這個電子郵件存在，我們已經把重設連結寄出去了。';
+    try {
+      const created = await this.runtime.auth.createPasswordReset(this.runtime.database.db, {
+        email: body.email ?? '',
+        ttlMs: RESET_TTL_MS,
+      });
+      if (created) {
+        const provider = this.runtime.providers.get<NotificationProvider>('notification');
+        await provider.send({
+          template: 'customer.password-reset',
+          to: { email: created.user.email, name: created.user.displayName },
+          variables: {
+            resetUrl: `${this.runtime.config.http.publicUrl.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(created.token)}`,
+            expiresInMinutes: RESET_TTL_MS / 60_000,
+          },
+          reference: `password-reset:${created.token.slice(0, 16)}`,
+        });
+      }
+    } catch (err) {
+      // 寄信失敗也不改變對外的訊息，只留在 log 裡——否則它就是那條枚舉管道。
+      this.runtime.logger.error({ error: (err as Error).message }, 'password reset delivery failed');
+    }
+    this.html(reply, 200, this.theme.renderAuth(this.themeContext(), {
+      mode: 'forgot-password', next: '/', notice: neutral,
+    }));
+  }
+
+  @Anonymous()
+  @Get('reset-password')
+  async resetPasswordPage(@Query('token') token: string | undefined, @Res() reply: FastifyReply) {
+    this.html(reply, 200, this.theme.renderAuth(this.themeContext(), {
+      mode: 'reset-password', next: '/', token: token ?? '',
+    }));
+  }
+
+  @Anonymous()
+  @Post('reset-password')
+  async resetPassword(@Body() body: Record<string, string>, @Res() reply: FastifyReply) {
+    try {
+      await this.runtime.auth.resetPassword(this.runtime.database.db, {
+        token: body.token ?? '',
+        newPassword: body.password ?? '',
+      });
+      void reply.status(303).header('location', '/login').send();
+    } catch (err) {
+      const message = err instanceof PlatformError && err.httpStatus < 500 ? err.message : '設定新密碼失敗，請重新申請一次。';
+      this.html(reply, 400, this.theme.renderAuth(this.themeContext(), {
+        mode: 'reset-password', next: '/', token: body.token ?? '', error: message,
+      }));
     }
   }
 
