@@ -78,6 +78,44 @@ export class StorefrontController {
     }
   }
 
+  @Get('account/orders')
+  async accountOrders(
+    @Req() req: AuthenticatedRequest,
+    @Query('limit') limit: string | undefined,
+    @Query('offset') offset: string | undefined,
+    @Res() reply: FastifyReply,
+  ) {
+    const actor = actorOf(req);
+    if (actor.type !== 'customer') {
+      void reply.status(303).header('location', `/login?next=${encodeURIComponent('/account/orders')}`).send();
+      return;
+    }
+
+    try {
+      // 範圍過濾在 query handler：這裡不必、也不該自己加條件（工單 12）。
+      const result = await this.runtime.queries.execute<{ items: any[]; total: number }>(
+        'commerce.order.listOrders',
+        { limit: limit ?? 20, offset: offset ?? 0 },
+        { actor, channel: 'rest' },
+      );
+      this.html(reply, 200, this.theme.renderAccountOrders(this.themeContext(req), {
+        orders: result.items.map((order) => ({
+          number: order.number,
+          status: order.status,
+          currency: order.currency,
+          totalCents: order.totalCents,
+          placedAt: order.placedAt,
+          lineCount: order.lines.length,
+        })),
+        limit: Number(limit ?? 20),
+        offset: Number(offset ?? 0),
+        total: result.total,
+      }));
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
+  }
+
   @Get('orders/:number')
   async order(@Req() req: AuthenticatedRequest, @Param('number') number: string, @Res() reply: FastifyReply) {
     const actor = actorOf(req);

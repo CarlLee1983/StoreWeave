@@ -19,6 +19,23 @@ export interface ThemeOrderView {
   lines: { sku: string; name: string; quantity: number; lineTotalCents: number }[];
 }
 
+export interface ThemeAccountOrdersView {
+  orders: ThemeOrderSummaryView[];
+  /** 分頁：目前這一頁的起點與每頁筆數，以及總筆數。 */
+  limit: number;
+  offset: number;
+  total: number;
+}
+
+export interface ThemeOrderSummaryView {
+  number: string;
+  status: string;
+  currency: string;
+  totalCents: number;
+  placedAt: string;
+  lineCount: number;
+}
+
 export interface ThemeAuthView {
   mode: 'login' | 'register';
   /** 完成後要回到哪裡。只接受站內路徑。 */
@@ -58,4 +75,6 @@ export interface StorefrontTheme {
    * 因此它是 Theme 契約的一部分而不是選配。
    */
   renderAuth(ctx: ThemeContext, data: ThemeAuthView): string;
+  /** 會員中心的訂單清單。 */
+  renderAccountOrders(ctx: ThemeContext, data: ThemeAccountOrdersView): string;
 }

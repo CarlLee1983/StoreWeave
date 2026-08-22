@@ -83,6 +83,36 @@ export const defaultTheme: StorefrontTheme = {
     return layout({ title: `訂單 ${order.number}`, body, ctx });
   },
 
+  renderAccountOrders(ctx, { orders, limit, offset, total }) {
+    const rows = orders.map((o) => `
+      <tr>
+        <td><a href="/orders/${escapeHtml(o.number)}">${escapeHtml(o.number)}</a></td>
+        <td><span class="badge">${escapeHtml(o.status)}</span></td>
+        <td>${o.lineCount}</td>
+        <td>${formatMoney(o.totalCents, o.currency, ctx.locale)}</td>
+        <td class="muted">${escapeHtml(new Date(o.placedAt).toLocaleDateString(ctx.locale))}</td>
+      </tr>`).join('');
+
+    const previous = offset > 0
+      ? `<a href="/account/orders?limit=${limit}&offset=${Math.max(0, offset - limit)}">← 上一頁</a>`
+      : '';
+    const next = offset + limit < total
+      ? `<a href="/account/orders?limit=${limit}&offset=${offset + limit}">下一頁 →</a>`
+      : '';
+
+    const body = orders.length === 0
+      ? `<h1>我的訂單</h1><p class="muted">你還沒有任何訂單。<a href="/">去逛逛</a></p>`
+      : `
+      <h1>我的訂單</h1>
+      <table>
+        <thead><tr><th>訂單編號</th><th>狀態</th><th>件數</th><th>總計</th><th>下單時間</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p class="muted">共 ${total} 張</p>
+      <p>${previous} ${next}</p>`;
+    return layout({ title: '我的訂單', body, ctx });
+  },
+
   renderAuth(ctx, { mode, next, error }) {
     const login = mode === 'login';
     const body = `
