@@ -97,5 +97,10 @@ ALTER TABLE order_lines DROP CONSTRAINT IF EXISTS order_lines_discount_within_to
 ALTER TABLE order_lines ADD CONSTRAINT order_lines_discount_within_total
   CHECK (discount_cents <= line_total_cents);
 `),
+    sqlMigration('0006_order_customer', 'expand', `
+ALTER TABLE order_orders ADD COLUMN IF NOT EXISTS customer_id uuid;
+-- 「我的訂單」是會員中心的主要查詢。
+CREATE INDEX IF NOT EXISTS order_orders_customer_idx ON order_orders (customer_id, placed_at DESC);
+`),
   ],
 };

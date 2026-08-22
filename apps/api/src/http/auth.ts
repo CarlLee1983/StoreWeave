@@ -32,6 +32,8 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 export interface AuthenticatedRequest {
   actor?: Actor;
   headers: Record<string, string | string[] | undefined>;
+  /** 表單送出的 CSRF token（`_csrf`）。伺服器渲染的表單送不出自訂 header。 */
+  body?: unknown;
   cookies?: Record<string, string | undefined>;
   method?: string;
   raw?: unknown;
@@ -119,7 +121,12 @@ export class ApiTokenGuard implements CanActivate {
 
     const header = request.headers[CSRF_HEADER];
     const headerToken = Array.isArray(header) ? header[0] : header;
-    if (!headerToken || !safeEquals(headerToken, csrfTokenFor(sessionToken))) {
+    // 伺服器渲染的表單只能送欄位，送不出自訂 header——兩種來源比對的是同一個推導值。
+    const body = request.body as { _csrf?: unknown } | undefined;
+    const formToken = typeof body?._csrf === 'string' ? body._csrf : undefined;
+    const presented = headerToken ?? formToken;
+
+    if (!presented || !safeEquals(presented, csrfTokenFor(sessionToken))) {
       throw new PlatformError('FORBIDDEN', 'Missing or invalid CSRF token');
     }
   }

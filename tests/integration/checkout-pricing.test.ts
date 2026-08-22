@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createHarness, createProduct, defaultCustomer, stockUp, type TestHarness } from './helpers';
 
 let h: TestHarness;
 beforeAll(async () => { h = await createHarness(); }, 300_000);
@@ -26,10 +26,16 @@ afterEach(async () => {
   }
 });
 
-const order = (productId: string, quantity = 1) =>
+// 下單者由身分決定（工單 21）：測試裡的每一張訂單都出自一位真的顧客。
+const order = async (productId: string, quantity = 1) =>
   h.runtime.commands.execute<any>('commerce.order.placeOrder',
-    { customerEmail: 'buyer@example.com', lines: [{ productId, quantity }] },
-    { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+    { lines: [{ productId, quantity }] },
+    { actor: await defaultCustomer(h.runtime), idempotencyKey: randomUUID() });
+
+const orderLines = async (lines: { productId: string; quantity: number }[]) =>
+  h.runtime.commands.execute<any>('commerce.order.placeOrder',
+    { lines },
+    { actor: await defaultCustomer(h.runtime), idempotencyKey: randomUUID() });
 
 async function sellableProduct(sku: string, priceCents: number) {
   const product = await createProduct(h.runtime, { sku, name: sku, priceCents });
@@ -155,9 +161,7 @@ describe('結帳前試算', () => {
     const lines = [{ productId: a.id, quantity: 1 }, { productId: b.id, quantity: 1 }];
 
     const quoted = await quote(lines);
-    const placed = await h.runtime.commands.execute<any>('commerce.order.placeOrder',
-      { customerEmail: 'buyer@example.com', lines },
-      { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+    const placed = await orderLines(lines);
 
     expect(quoted.subtotalCents).toBe(placed.subtotalCents);
     expect(quoted.discountCents).toBe(placed.discountCents);
@@ -185,9 +189,7 @@ describe('結帳前試算', () => {
     ];
 
     const quoted = await quote(lines);
-    const placed = await h.runtime.commands.execute<any>('commerce.order.placeOrder',
-      { customerEmail: 'buyer@example.com', lines },
-      { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+    const placed = await orderLines(lines);
 
     expect(quoted.discountCents).toBe(10_000);
     expect(quoted.discountCents).toBe(placed.discountCents);
@@ -211,9 +213,7 @@ describe('結帳前試算', () => {
       [{ productId: rich.id, quantity: 1 }, { productId: cheap.id, quantity: 3 }],
     ]) {
       const quoted = await quote(lines);
-      const placed = await h.runtime.commands.execute<any>('commerce.order.placeOrder',
-        { customerEmail: 'buyer@example.com', lines },
-        { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+      const placed = await orderLines(lines);
 
       expect(quoted.totalCents).toBe(placed.totalCents);
       expect(quoted.lines.map((l: any) => [l.productId, l.quantity, l.discountCents]))

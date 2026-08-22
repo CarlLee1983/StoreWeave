@@ -2,6 +2,11 @@ import { z } from 'zod';
 import type { StorefrontTheme } from '@storeweave/kernel';
 import { escapeHtml, formatMoney, layout } from './layout';
 
+/** 伺服器渲染的表單以隱藏欄位做 CSRF 雙提交——瀏覽器的原生表單送不出自訂 header。 */
+function csrfField(ctx: { csrfToken?: string | null }): string {
+  return ctx.csrfToken ? `<input type="hidden" name="_csrf" value="${escapeHtml(ctx.csrfToken)}">` : '';
+}
+
 export const defaultThemeOptions = z.object({
   accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#111827'),
   tagline: z.string().max(120).default(''),
@@ -44,13 +49,11 @@ export const defaultTheme: StorefrontTheme = {
       <p class="muted">${product.available === null ? '' : soldOut ? '已售完' : `可售 ${product.available} 件`}</p>
       <form method="post" action="/checkout">
         <input type="hidden" name="productId" value="${escapeHtml(product.id)}">
-        <label>電子郵件
-          <input type="email" name="customerEmail" required placeholder="you@example.com">
-        </label>
+        ${csrfField(ctx)}
         <label>數量
           <input type="number" name="quantity" value="1" min="1" max="${Math.max(1, product.available ?? 99)}" required>
         </label>
-        <button type="submit" ${soldOut ? 'disabled' : ''}>立即結帳</button>
+        <button type="submit" ${soldOut ? 'disabled' : ''}>${ctx.customerName ? '立即結帳' : '登入後結帳'}</button>
       </form>`;
     return layout({ title: product.name, body, ctx });
   },
@@ -78,6 +81,30 @@ export const defaultTheme: StorefrontTheme = {
       </table>
       <p><a href="/">繼續購物</a></p>`;
     return layout({ title: `訂單 ${order.number}`, body, ctx });
+  },
+
+  renderAuth(ctx, { mode, next, error }) {
+    const login = mode === 'login';
+    const body = `
+      <h1>${login ? '登入' : '註冊'}</h1>
+      ${error ? `<div class="error"><p>${escapeHtml(error)}</p></div>` : ''}
+      <form method="post" action="${login ? '/login' : '/register'}">
+        <input type="hidden" name="next" value="${escapeHtml(next)}">
+        <label>電子郵件
+          <input type="email" name="email" required placeholder="you@example.com">
+        </label>
+        ${login ? '' : `<label>顯示名稱
+          <input type="text" name="displayName" maxlength="120" placeholder="怎麼稱呼你">
+        </label>`}
+        <label>密碼
+          <input type="password" name="password" required minlength="${login ? 1 : 8}">
+        </label>
+        <button type="submit">${login ? '登入' : '註冊'}</button>
+      </form>
+      <p class="muted">${login
+        ? `還沒有帳號？<a href="/register?next=${encodeURIComponent(next)}">註冊一個</a>`
+        : `已經有帳號了？<a href="/login?next=${encodeURIComponent(next)}">登入</a>`}</p>`;
+    return layout({ title: login ? '登入' : '註冊', body, ctx });
   },
 
   renderError(ctx, { status, message }) {

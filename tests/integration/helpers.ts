@@ -4,9 +4,15 @@ import { commerceConfigSchema, type CommerceConfig, type SecretProvider } from '
 import { createRuntime, Worker, type Runtime } from '@storeweave/kernel';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
 import { noopLogger, type Actor } from '@storeweave/contracts';
+import { permissionsForRole } from '@storeweave/authorization';
 import { AVAILABLE_EXTENSIONS, coreModules } from '@storeweave/bundle';
 
 export const ADMIN_ACTOR: Actor = { id: 'test:admin', type: 'user', displayName: 'admin', permissions: ['*'] };
+
+/** 匿名訪客：註冊要用它，因為註冊發生在身分存在之前。 */
+export const STOREFRONT_ACTOR: Actor = {
+  id: 'storefront', type: 'service', displayName: 'storefront', permissions: permissionsForRole('storefront'),
+};
 
 export function actorWith(permissions: string[]): Actor {
   return { id: 'test:limited', type: 'user', displayName: 'limited', permissions };
@@ -102,15 +108,52 @@ export async function stockUp(runtime: Runtime, productId: string, delta: number
     { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
 }
 
-export async function placeOrder(runtime: Runtime, productId: string, quantity = 1) {
+/**
+ * 註冊一個顧客並回傳它的 Actor。下單者由身分決定（工單 21），
+ * 因此測試裡的每一張訂單都要有一個真的顧客。
+ */
+export async function createCustomer(
+  runtime: Runtime,
+  overrides: { email?: string; password?: string; displayName?: string } = {},
+): Promise<Actor & { email: string; customerId: string }> {
+  const email = overrides.email ?? `buyer-${randomUUID().slice(0, 8)}@example.com`;
+  const registered = await runtime.commands.execute<{ customer: { id: string }; accountId: string }>(
+    'commerce.customer.registerCustomer',
+    { email, password: overrides.password ?? 'test-password', displayName: overrides.displayName },
+    { actor: STOREFRONT_ACTOR, idempotencyKey: randomUUID() },
+  );
+  return {
+    id: `user:${registered.accountId}`,
+    type: 'customer',
+    displayName: overrides.displayName ?? email,
+    permissions: permissionsForRole('customer'),
+    email,
+    customerId: registered.customer.id,
+  };
+}
+
+/** 同一個測試檔共用一位顧客就夠了，除非測試本身在驗證「不同顧客」。 */
+const sharedCustomers = new WeakMap<Runtime, Promise<Actor & { email: string; customerId: string }>>();
+
+export function defaultCustomer(runtime: Runtime) {
+  let existing = sharedCustomers.get(runtime);
+  if (!existing) {
+    existing = createCustomer(runtime);
+    sharedCustomers.set(runtime, existing);
+  }
+  return existing;
+}
+
+export async function placeOrder(runtime: Runtime, productId: string, quantity = 1, actor?: Actor) {
+  const buyer = actor ?? (await defaultCustomer(runtime));
   return runtime.commands.execute<{
     id: string; number: string; status: string; subtotalCents: number; totalCents: number;
-    discountCents: number; shippingCents: number; taxCents: number;
+    discountCents: number; shippingCents: number; taxCents: number; customerEmail: string; customerId: string | null;
     lines: { discountCents: number }[];
   }>(
     'commerce.order.placeOrder',
-    { customerEmail: 'buyer@example.com', lines: [{ productId, quantity }] },
-    { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() },
+    { lines: [{ productId, quantity }] },
+    { actor: buyer, idempotencyKey: randomUUID() },
   );
 }
 

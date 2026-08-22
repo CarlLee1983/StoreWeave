@@ -23,6 +23,17 @@ export interface LayoutOptions {
   ctx: ThemeContext;
 }
 
+/** 結帳需要身分之後，「我是誰、怎麼登出」必須在每一頁都看得到。 */
+function accountNav(ctx: ThemeContext): string {
+  if (!ctx.customerName) {
+    return `<a href="/login">登入</a> · <a href="/register">註冊</a>`;
+  }
+  return `<span class="muted">${escapeHtml(ctx.customerName)}</span>
+    <form method="post" action="/logout" class="inline">
+      <button type="submit" class="linklike">登出</button>
+    </form>`;
+}
+
 export function layout({ title, body, ctx }: LayoutOptions): string {
   const accent = escapeHtml(ctx.options.accentColor ?? '#111827');
   const tagline = escapeHtml(ctx.options.tagline ?? '');
@@ -40,6 +51,7 @@ export function layout({ title, body, ctx }: LayoutOptions): string {
 <header class="site-header">
   <a class="brand" href="/">${escapeHtml(ctx.storeName)}</a>
   ${tagline ? `<p class="tagline">${tagline}</p>` : ''}
+  <nav class="account">${accountNav(ctx)}</nav>
 </header>
 <main>${body}</main>
 <footer class="site-footer">

@@ -48,11 +48,13 @@ export const orderPlacedV2 = defineEvent({
 });
 
 /** v3 補上折扣、運費、稅與調整明細；金額欄位在定價引擎接上（工單 15）前恆為 0。 */
+/** v3 與 paid.v2 加上 customerId 是相加式變更：欄位是新增的，既有欄位語意不動（ADR 0006）。 */
 export const orderPlacedV3 = defineEvent({
   name: 'commerce.order.placed.v3',
   summary: '訂單成立並預留庫存，含金額與調整明細',
   payload: z.object({
     orderId: z.string().uuid(), orderNumber: z.string(), customerEmail: z.string().email(),
+    customerId: z.string().uuid().nullable(),
     currency: z.string().length(3), placedAt: z.coerce.date(), expiresAt: z.coerce.date(),
     subtotalCents: z.number().int().nonnegative(), discountCents: z.number().int().nonnegative(),
     shippingCents: z.number().int().nonnegative(), taxCents: z.number().int().nonnegative(),
@@ -83,6 +85,7 @@ export const orderPaidV2 = defineEvent({
   summary: '訂單付款成功，含金額與調整明細',
   payload: z.object({
     orderId: z.string().uuid(), orderNumber: z.string(), customerEmail: z.string().email(),
+    customerId: z.string().uuid().nullable(),
     currency: z.string().length(3), paidAt: z.coerce.date(), paymentProvider: z.string(), paymentRef: z.string(),
     subtotalCents: z.number().int().nonnegative(), discountCents: z.number().int().nonnegative(),
     shippingCents: z.number().int().nonnegative(), taxCents: z.number().int().nonnegative(),

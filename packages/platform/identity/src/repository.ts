@@ -48,6 +48,14 @@ export class UserRepository {
     return res.rows[0]!;
   }
 
+  async findById(db: DrizzleDb, id: string): Promise<UserRow | null> {
+    const res = await db.execute<UserRow>(sql`
+      SELECT id, email, password_hash, display_name, role, status, created_at, last_login_at
+      FROM platform_users WHERE id = ${id}
+    `);
+    return res.rows[0] ?? null;
+  }
+
   async findByEmail(db: DrizzleDb, email: string): Promise<UserRow | null> {
     const res = await db.execute<UserRow>(sql`
       SELECT id, email, password_hash, display_name, role, status, created_at, last_login_at

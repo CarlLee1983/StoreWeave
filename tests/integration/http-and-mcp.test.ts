@@ -131,6 +131,26 @@ describe('Storefront SSR', () => {
     expect(res.body).toContain('Test Store');
   });
 
+  it('登入後的商品頁帶著 CSRF 隱藏欄位，未登入則沒有', async () => {
+    const product = await createProduct(h.runtime, { sku: 'SSR-CSRF', name: 'CSRF 測試' });
+    await stockUp(h.runtime, product.id, 1);
+
+    const anonymous = await inject({ method: 'GET', url: `/p/${product.id}` });
+    expect(anonymous.body).not.toContain('name="_csrf"');
+    expect(anonymous.body).toContain('登入後結帳');
+
+    const registered = await inject({
+      method: 'POST', url: '/register',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'email=csrf%40example.com&password=a-good-password&next=%2F',
+    });
+    const session = registered.cookies.find((c) => c.name === 'commerce_session')!.value;
+
+    const signedIn = await inject({ method: 'GET', url: `/p/${product.id}`, cookies: { commerce_session: session } });
+    expect(signedIn.body).toContain('name="_csrf"');
+    expect(signedIn.body).toContain('立即結帳');
+  });
+
   it('商品頁包含結帳表單', async () => {
     const product = await createProduct(h.runtime, { sku: 'SSR-2', name: '結帳測試' });
     await stockUp(h.runtime, product.id, 2);
@@ -145,17 +165,45 @@ describe('Storefront SSR', () => {
     expect(res.body).toContain('404');
   });
 
-  it('結帳會建立付款處理中的訂單並立即導向訂單頁', async () => {
-    const product = await createProduct(h.runtime, { sku: 'SSR-3', name: '下單測試', priceCents: 1500 });
+  it('未登入結帳會被導去登入頁，而不是建出一張沒有歸屬的訂單', async () => {
+    const product = await createProduct(h.runtime, { sku: 'SSR-GUEST', name: '訪客結帳', priceCents: 1500 });
     await stockUp(h.runtime, product.id, 5);
+
     const res = await inject({
       method: 'POST', url: '/checkout',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      payload: `productId=${product.id}&customerEmail=ssr%40example.com&quantity=2`,
+      payload: `productId=${product.id}&quantity=1`,
+    });
+
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toMatch(/^\/login\?next=/);
+  });
+
+  it('註冊完可以直接結帳，訂單建立後導向訂單頁', async () => {
+    const product = await createProduct(h.runtime, { sku: 'SSR-3', name: '下單測試', priceCents: 1500 });
+    await stockUp(h.runtime, product.id, 5);
+
+    const registered = await inject({
+      method: 'POST', url: '/register',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'email=ssr%40example.com&password=a-good-password&next=%2F',
+    });
+    expect(registered.statusCode).toBe(303);
+    const session = registered.cookies.find((c) => c.name === 'commerce_session')!.value;
+
+    // 表單的 CSRF token 由商品頁渲染出來，這裡照瀏覽器的做法把它抓下來再送
+    const page = await inject({ method: 'GET', url: `/p/${product.id}`, cookies: { commerce_session: session } });
+    const csrf = /name="_csrf" value="([^"]+)"/.exec(page.body)![1];
+
+    const res = await inject({
+      method: 'POST', url: '/checkout',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      cookies: { commerce_session: session },
+      payload: `productId=${product.id}&quantity=2&_csrf=${encodeURIComponent(csrf)}`,
     });
     expect(res.statusCode).toBe(303);
     const location = res.headers.location as string;
-    const orderPage = await inject({ method: 'GET', url: location });
+    const orderPage = await inject({ method: 'GET', url: location, cookies: { commerce_session: session } });
     expect(orderPage.body).toContain('payment_processing');
     expect(orderPage.body).toContain('付款處理中');
     expect(orderPage.body).toContain('ssr@example.com');

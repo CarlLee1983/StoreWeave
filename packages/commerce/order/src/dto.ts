@@ -28,6 +28,7 @@ export const orderDto = z.object({
   status: orderStatus,
   currency: z.string().length(3),
   customerEmail: z.string().email(),
+  customerId: z.string().uuid().nullable(),
   subtotalCents: z.number().int().nonnegative(),
   totalCents: z.number().int().nonnegative(),
   discountCents: z.number().int().nonnegative(),
@@ -45,7 +46,6 @@ export type OrderDto = z.infer<typeof orderDto>;
 
 /** 上限必須與 `quoteInput`（`packages/commerce/promotion/src/dto.ts`）相同。 */
 export const placeOrderInput = z.object({
-  customerEmail: z.string().email(),
   currency: z.string().length(3).optional(),
   lines: z.array(z.object({
     productId: z.string().uuid(),

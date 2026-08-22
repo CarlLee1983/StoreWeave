@@ -305,16 +305,17 @@ describe('三段式守衛在 HTTP 上的行為（工單 11）', () => {
     expect(live.statusCode).toBe(200);
   });
 
-  it('訪客結帳仍然可用：checkout 是強制匿名，不需要 CSRF token', async () => {
+  it('未登入結帳被導去登入頁（工單 21 之後結帳需要顧客身分）', async () => {
     const product = await createProduct(h.runtime, { sku: 'GUARD-CHECKOUT', name: '守衛測試' });
     await stockUp(h.runtime, product.id, 3);
 
     const res = await inject({
       method: 'POST', url: '/checkout',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      payload: `productId=${product.id}&customerEmail=guest%40example.com&quantity=1`,
+      payload: `productId=${product.id}&quantity=1`,
     });
 
     expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toMatch(/^\/login/);
   });
 });

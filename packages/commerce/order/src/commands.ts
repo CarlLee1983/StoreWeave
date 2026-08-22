@@ -5,6 +5,7 @@ import { PlatformError, defineCommand, type CommandContext } from '@storeweave/c
 import type { ProviderRegistry, PaymentProvider } from '@storeweave/extension-sdk';
 import { catalogService } from '@storeweave/catalog';
 import { inventoryService } from '@storeweave/inventory';
+import { customerService } from '@storeweave/customer';
 import { pricingService } from '@storeweave/promotion';
 import { cancelOrderInput, markPaidInput, orderDto, payOrderInput, placeOrderInput, type OrderDto } from './dto';
 import { OrderRepository, toOrderDto } from './repository';
@@ -41,6 +42,8 @@ export const placeOrderCommand = defineCommand({
 export function createPlaceOrderHandler(deps: OrderModuleDeps) {
   return async (input: z.infer<typeof placeOrderInput>, ctx: CommandContext): Promise<OrderDto> => {
     const orderId = randomUUID();
+    // 下單者取自當下身分，不再是表單上自由填寫的 email：一張訂單的歸屬不該由呼叫端自己宣稱。
+    const buyer = await customerService.requireByActor(ctx.tx, ctx.actor);
     const number = await repository.nextOrderNumber(ctx.tx, deps.orderNumberPrefix);
     const currency = input.currency ?? deps.defaultCurrency;
 
@@ -87,7 +90,8 @@ export function createPlaceOrderHandler(deps: OrderModuleDeps) {
       number,
       status: 'pending',
       currency,
-      customerEmail: input.customerEmail,
+      customerEmail: buyer.email,
+      customerId: buyer.customerId,
       subtotalCents: pricing.subtotalCents,
       discountCents: pricing.discountCents,
       totalCents: pricing.totalCents,
@@ -133,8 +137,8 @@ export function createPlaceOrderHandler(deps: OrderModuleDeps) {
     });
     await ctx.publish({
       name: orderPlacedV3.name,
-      payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency,
-        placedAt: dto.placedAt, expiresAt: expiresAt,
+      payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, customerId: dto.customerId,
+        currency: dto.currency, placedAt: dto.placedAt, expiresAt: expiresAt,
         subtotalCents: dto.subtotalCents, discountCents: dto.discountCents, shippingCents: dto.shippingCents,
         taxCents: dto.taxCents, totalCents: dto.totalCents, adjustments: dto.adjustments,
         lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents }) => ({
@@ -222,8 +226,8 @@ export function createMarkPaidHandler() {
     await ctx.publish({ name: orderPaidV1.name, payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency, totalCents: dto.totalCents, paidAt: dto.paidAt!, paymentProvider: input.provider, paymentRef: input.providerRef, lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents }) => ({ productId, sku, name, quantity, unitPriceCents, lineTotalCents })) } });
     await ctx.publish({
       name: orderPaidV2.name,
-      payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency,
-        paidAt: dto.paidAt!, paymentProvider: input.provider, paymentRef: input.providerRef,
+      payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, customerId: dto.customerId,
+        currency: dto.currency, paidAt: dto.paidAt!, paymentProvider: input.provider, paymentRef: input.providerRef,
         subtotalCents: dto.subtotalCents, discountCents: dto.discountCents, shippingCents: dto.shippingCents,
         taxCents: dto.taxCents, totalCents: dto.totalCents, adjustments: dto.adjustments,
         lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents }) => ({

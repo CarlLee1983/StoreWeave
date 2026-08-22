@@ -6,6 +6,8 @@ export const orders = pgTable('order_orders', {
   status: text('status').notNull().default('pending'),
   currency: text('currency').notNull(),
   customerEmail: text('customer_email').notNull(),
+  /** 下單者。歷史訂單沒有這個欄位，因此可為 null。 */
+  customerId: uuid('customer_id'),
   subtotalCents: integer('subtotal_cents').notNull(),
   totalCents: integer('total_cents').notNull(),
   discountCents: integer('discount_cents').notNull().default(0),
