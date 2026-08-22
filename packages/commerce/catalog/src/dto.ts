@@ -24,7 +24,7 @@ export const createProductInput = z.object({
   priceCents: z.number().int().nonnegative(),
   currency: z.string().length(3).default('TWD'),
   status: productStatus.default('active'),
-});
+}).strict();
 export type CreateProductInput = z.infer<typeof createProductInput>;
 
 export const updateProductInput = z.object({
@@ -33,14 +33,14 @@ export const updateProductInput = z.object({
   description: z.string().max(4000).nullable().optional(),
   priceCents: z.number().int().nonnegative().optional(),
   status: productStatus.optional(),
-});
+}).strict();
 
 export const searchProductsInput = z.object({
   q: z.string().max(200).optional(),
   status: productStatus.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).default(0),
-});
+}).strict();
 
 export const searchProductsOutput = z.object({
   items: z.array(productDto),

@@ -99,6 +99,21 @@ describe('REST 介面', () => {
     expect(viaBus.sku).toBe('HTTP-1');
   });
 
+  it('多帶一個不認得的欄位回 400，而不是 201 卻沒有套用它', async () => {
+    // 拼錯的欄位名以前會被 Zod 安靜丟掉，端點回 201，送出者以為自己設了 status（ADR 0024）。
+    const res = await inject({
+      method: 'POST', url: '/api/v1/products',
+      headers: { ...auth(), 'idempotency-key': 'http-strict-1' },
+      payload: { sku: 'HTTP-STRICT', name: '嚴格輸入', priceCents: 100, statuss: 'draft' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('VALIDATION_ERROR');
+
+    const found = await inject({ method: 'GET', url: '/api/v1/products?q=HTTP-STRICT', headers: auth() });
+    expect(found.json().data.items).toHaveLength(0);
+  });
+
   it('Extension 的通用橋接只接受屬於該 Extension 的名稱', async () => {
     const good = await inject({
       method: 'GET', url: '/api/v1/extensions/demo-erp/queries/ext.demo-erp.listDeliveries?limit=10', headers: auth(),

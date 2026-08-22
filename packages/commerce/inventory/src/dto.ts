@@ -15,15 +15,15 @@ export const adjustStockInput = z.object({
   delta: z.number().int().refine((v) => v !== 0, { message: 'delta must not be zero' }),
   reason: z.enum(['restock', 'correction', 'damage', 'return', 'manual']).default('manual'),
   reference: z.string().max(200).optional(),
-});
+}).strict();
 
-export const getStockInput = z.object({ productId: z.string().uuid() });
+export const getStockInput = z.object({ productId: z.string().uuid() }).strict();
 
 export const listStockInput = z.object({
   belowQuantity: z.coerce.number().int().nonnegative().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
-});
+}).strict();
 
 export const listStockOutput = z.object({
   items: z.array(stockDto),

@@ -105,9 +105,9 @@ export const updatePromotionInput = z
 export const setPromotionStatusInput = z.object({
   id: z.string().uuid(),
   status: promotionStatus,
-});
+}).strict();
 
-export const getPromotionInput = z.object({ id: z.string().uuid() });
+export const getPromotionInput = z.object({ id: z.string().uuid() }).strict();
 
 export const listPromotionsInput = z.object({
   status: promotionStatus.optional(),
@@ -115,7 +115,7 @@ export const listPromotionsInput = z.object({
   activeAt: z.coerce.date().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
-});
+}).strict();
 
 export const listPromotionsOutput = z.object({
   items: z.array(promotionDto),
@@ -128,7 +128,7 @@ export const quoteInput = z.object({
     productId: z.string().uuid(),
     quantity: z.number().int().min(1).max(999),
   })).min(1).max(50),
-});
+}).strict();
 
 const quoteAdjustment = z.object({
   source: z.enum(['promotion', 'reward']),

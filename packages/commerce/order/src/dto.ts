@@ -63,30 +63,30 @@ export const payOrderInput = z.object({
   orderId: z.string().uuid(),
   /** 不指定就用預設的 payment provider。 */
   provider: z.string().optional(),
-});
+}).strict();
 
 export const markPaidInput = z.object({
   orderId: z.string().uuid(),
   provider: z.string(),
   providerRef: z.string(),
-});
+}).strict();
 
 export const cancelOrderInput = z.object({
   orderId: z.string().uuid(),
   reason: z.string().max(500).default('customer request'),
-});
+}).strict();
 
 export const getOrderInput = z.object({
   id: z.string().uuid().optional(),
   number: z.string().optional(),
-}).refine((v) => Boolean(v.id || v.number), { message: 'Either id or number is required' });
+}).strict().refine((v) => Boolean(v.id || v.number), { message: 'Either id or number is required' });
 
 export const listOrdersInput = z.object({
   status: orderStatus.optional(),
   customerEmail: z.string().email().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).default(0),
-});
+}).strict();
 
 export const listOrdersOutput = z.object({
   items: z.array(orderDto),
@@ -96,7 +96,7 @@ export const listOrdersOutput = z.object({
 export const salesSummaryInput = z.object({
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
-});
+}).strict();
 
 export const salesSummaryOutput = z.object({
   from: z.coerce.date().nullable(),

@@ -33,7 +33,7 @@ export const registerCustomerInput = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(200),
   displayName: z.string().min(1).max(120).optional(),
-});
+}).strict();
 
 export const registerCustomerOutput = z.object({
   customer: customerDto,
@@ -51,7 +51,7 @@ export const updateMyProfileInput = z.object({
 export const setCustomerBirthdayInput = z.object({
   customerId: z.string().uuid(),
   birthday,
-});
+}).strict();
 
 /** 後台看到的會員：顧客資料 + 帳號 email。永遠不含密碼雜湊。 */
 export const adminCustomerDto = customerDto.extend({
@@ -63,7 +63,7 @@ export const listCustomersInput = z.object({
   status: z.enum(['active', 'disabled']).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
-});
+}).strict();
 
 export const listCustomersOutput = z.object({
   items: z.array(adminCustomerDto),
@@ -86,4 +86,4 @@ export const adminCustomerDetailDto = adminCustomerDto.extend({
 export const setCustomerStatusInput = z.object({
   customerId: z.string().uuid(),
   status: z.enum(['active', 'disabled']),
-});
+}).strict();

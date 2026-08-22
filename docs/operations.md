@@ -132,5 +132,10 @@ correlation id，以及經過遮蔽的請求摘要。
 `POST /api/v1/extensions/demo-erp/commands/ext.demo-erp.resendOrder`。
 遠端以 `reference` 去重，重送不會產生第二張單據。
 
+**升級後出現沒看過的 400 `VALIDATION_ERROR`** — 從這一版起，Command 與 Query 的輸入
+一律拒絕未知欄位（ADR 0024）。過去送了多餘欄位而被安靜忽略的請求，現在會被擋下來。
+錯誤訊息會指出是哪一個鍵；正確的處置是把那個鍵從客戶端拿掉，而不是放寬 schema——
+它本來就沒有做到送出者以為它做到的事。
+
 **升級後想回退** — `commerce rollback`。若該版本已經套用過 `contract` 階段的 migration，
 舊版程式無法讀取新 schema，此時只能還原備份。
