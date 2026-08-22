@@ -48,15 +48,56 @@ export interface ThemeAccountProfileView {
   error?: string;
 }
 
-export interface ThemeAuthView {
-  mode: 'login' | 'register' | 'forgot-password' | 'reset-password';
-  /** reset-password 用：從信件連結帶進來的 token。 */
-  token?: string;
-  /** 中性訊息或成功提示。 */
-  notice?: string;
+interface ThemeAuthBase {
   /** 完成後要回到哪裡。只接受站內路徑。 */
   next: string;
   error?: string;
+}
+
+/**
+ * discriminated union 而不是「全部 optional」：`token` 只對重設密碼有意義，
+ * `notice` 只對忘記密碼有意義。攤平成選填欄位會讓 Theme 得自己記住哪個模式該讀哪個。
+ */
+export type ThemeAuthView =
+  | (ThemeAuthBase & { mode: 'login' | 'register' })
+  | (ThemeAuthBase & { mode: 'forgot-password'; notice?: string })
+  | (ThemeAuthBase & { mode: 'reset-password'; token: string });
+
+export interface ThemeCartLineView {
+  productId: string;
+  sku: string;
+  name: string;
+  unitPriceCents: number;
+  quantity: number;
+  lineTotalCents: number;
+  /** 攤到這一行的折扣與折後金額。 */
+  discountCents: number;
+  netCents: number;
+  /** 目前可售量，null 代表沒有庫存紀錄。購物車不預留，這只是顯示用。 */
+  available: number | null;
+}
+
+/**
+ * 購物車的呈現資料。金額全部是**當下**重算的結果——購物車不凍結價格，
+ * Theme 拿到的永遠是現在的數字。
+ */
+export interface ThemeCartView {
+  /** 結帳表單要把它帶回來：它是那次結帳的冪等鍵。 */
+  cartId: string;
+  currency: string;
+  lines: ThemeCartLineView[];
+  subtotalCents: number;
+  discountCents: number;
+  totalCents: number;
+  adjustments: { name: string; amountCents: number }[];
+  /** 差一點就達成的門檻活動；沒有就是 null。 */
+  nextThreshold: { name: string; remainingCents: number } | null;
+  error?: string;
+}
+
+export interface ThemeCheckoutView extends ThemeCartView {
+  /** 訂單會寄到哪裡。結帳必須是會員，因此它一定有值。 */
+  customerEmail: string;
 }
 
 export interface ThemeContext {
@@ -96,6 +137,12 @@ export interface StorefrontTheme {
    * 因此它是 Theme 契約的一部分而不是選配。
    */
   renderAuth(ctx: ThemeContext, data: ThemeAuthView): string;
+  /**
+   * 購物車與結帳。任何購物型 Theme 都必須實作它們，不是選配——
+   * 沒有這兩頁的商店等於關著門。
+   */
+  renderCart(ctx: ThemeContext, data: ThemeCartView): string;
+  renderCheckout(ctx: ThemeContext, data: ThemeCheckoutView): string;
   /** 會員中心的訂單清單。 */
   renderAccountOrders(ctx: ThemeContext, data: ThemeAccountOrdersView): string;
   /** 會員中心的個人資料與收件地址。 */

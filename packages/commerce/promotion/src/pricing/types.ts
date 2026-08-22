@@ -90,6 +90,18 @@ export interface PricedLine {
   adjustments: Adjustment[];
 }
 
+/**
+ * 最接近、但還沒達成的門檻。前台用它說「還差多少」——
+ * 那句話是門檻活動唯一的行銷價值，算不出來就等於活動只在結帳當下才存在。
+ */
+export interface ThresholdHint {
+  promotionId: string;
+  name: string;
+  thresholdCents: number;
+  /** 還差多少分才達得到，恆為正數。 */
+  remainingCents: number;
+}
+
 export interface PricingResult {
   subtotalCents: number;
   /** 所有折扣的絕對值合計，保證不超過 subtotalCents。 */
@@ -101,4 +113,6 @@ export interface PricingResult {
   appliedPromotions: AppliedPromotion[];
   /** 與輸入的商品行同順序。 */
   lines: PricedLine[];
+  /** 差一點就達成的門檻活動；全部達成或沒有門檻活動時為 null。 */
+  nextThreshold: ThresholdHint | null;
 }

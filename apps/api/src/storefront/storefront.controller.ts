@@ -7,7 +7,7 @@ import type { StorefrontTheme, ThemeContext } from '@storeweave/kernel';
 import type { NotificationProvider } from '@storeweave/extension-sdk';
 import { Anonymous, Public, SESSION_COOKIE, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
 import { clearSessionCookies } from '../http/session-cookies';
-import { CART_NOTICE_COOKIE, clearCartNoticeCookie } from '../http/cart-cookie';
+import { CART_NOTICE_COOKIE, clearCartNoticeCookie, guestTokenFor } from '../http/cart-cookie';
 import { startSession } from '../http/session-start';
 import { RUNTIME, THEME, type Runtime } from '../tokens';
 
@@ -226,22 +226,86 @@ export class StorefrontController {
     }
   }
 
-  /** 下單後立即排入付款工作，訂單頁呈現處理中的狀態。 */
+  @Get('cart')
+  async cart(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    try {
+      this.html(reply, 200, this.theme.renderCart(this.themeContext(req, reply), await this.cartView(req, reply)));
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
+  }
+
+  @Post('cart/items')
+  async addToCart(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: Record<string, string>,
+    @Res() reply: FastifyReply,
+  ) {
+    await this.cartCommand(req, reply, 'commerce.cart.addToCart', {
+      productId: body.productId,
+      quantity: Number.parseInt(body.quantity ?? '1', 10),
+    });
+  }
+
+  /** 數量設成 0 就是移除——前台的數量欄位本來就會走到 0，讓它自然表達「不要了」。 */
+  @Post('cart/items/:productId')
+  async setCartItemQuantity(
+    @Req() req: AuthenticatedRequest,
+    @Param('productId') productId: string,
+    @Body() body: Record<string, string>,
+    @Res() reply: FastifyReply,
+  ) {
+    await this.cartCommand(req, reply, 'commerce.cart.setCartItemQuantity', {
+      productId,
+      quantity: Number.parseInt(body.quantity ?? '0', 10),
+    });
+  }
+
+  /** 確認頁。內容不能在這裡改，否則「確認的東西」與「結出來的單」會是兩份。 */
+  @Get('checkout')
+  async checkoutPage(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    const actor = actorOf(req);
+    if (actor.type !== 'customer') {
+      void reply.status(303).header('location', `/login?next=${encodeURIComponent('/checkout')}`).send();
+      return;
+    }
+    try {
+      const view = await this.cartView(req, reply);
+      if (view.lines.length === 0) {
+        void reply.status(303).header('location', '/cart').send();
+        return;
+      }
+      this.html(reply, 200, this.theme.renderCheckout(this.themeContext(req, reply), {
+        ...view,
+        customerEmail: await this.emailOf(actor),
+      }));
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
+  }
+
+  /**
+   * 送出訂單並立即排入付款工作，訂單頁呈現處理中的狀態。
+   *
+   * 冪等鍵是購物車識別碼，而它由表單帶回來：重送的請求若改問「現在的車」
+   * 會問到一台新的空車。這是 Spec 0003 點名要修的缺陷——原本每次現產一個
+   * 隨機值，等於完全沒有保護。
+   */
   @Post('checkout')
   async checkout(@Req() req: AuthenticatedRequest, @Body() body: Record<string, string>, @Res() reply: FastifyReply) {
     const actor = actorOf(req);
     // 結帳需要身分。未登入不是錯誤，是「先去登入，然後回到這裡」。
     if (actor.type !== 'customer') {
-      void reply.status(303).header('location', `/login?next=${encodeURIComponent(`/p/${body.productId ?? ''}`)}`).send();
+      void reply.status(303).header('location', `/login?next=${encodeURIComponent('/checkout')}`).send();
       return;
     }
     try {
-      const quantity = Number.parseInt(body.quantity ?? '1', 10);
+      const cartId = body.cartId;
       const correlationId = randomUUID();
       const order = await this.runtime.commands.execute<{ id: string; number: string }>(
-        'commerce.order.placeOrder',
-        { lines: [{ productId: body.productId, quantity }] },
-        { actor, idempotencyKey: `storefront:${correlationId}`, correlationId, channel: 'rest' },
+        'commerce.order.checkoutCart',
+        { cartId },
+        { actor, idempotencyKey: `cart:${cartId}`, correlationId, channel: 'rest' },
       );
       await this.runtime.commands.execute('commerce.order.payOrder', { orderId: order.id }, {
         actor, idempotencyKey: `storefront-pay:${order.id}`, correlationId, channel: 'rest',
@@ -393,6 +457,50 @@ export class StorefrontController {
     if (token) await this.runtime.auth.revokeSession(this.runtime.database.db, token);
     clearSessionCookies(reply as never, this.runtime.config.http.publicUrl);
     void reply.status(303).header('location', '/').send();
+  }
+
+  /** 購物車頁與確認頁看的是同一份資料，差別只在能不能改。 */
+  private async cartView(req: AuthenticatedRequest, reply: FastifyReply) {
+    const cart = await this.runtime.queries.execute<any>(
+      'commerce.cart.getCart',
+      { guestToken: guestTokenFor(req, reply, this.runtime.config.http.publicUrl) },
+      { actor: actorOf(req), channel: 'rest' },
+    );
+    return {
+      cartId: cart.id,
+      currency: cart.currency,
+      lines: cart.items,
+      subtotalCents: cart.subtotalCents,
+      discountCents: cart.discountCents,
+      totalCents: cart.totalCents,
+      adjustments: cart.adjustments,
+      nextThreshold: cart.nextThreshold,
+    };
+  }
+
+  /** 購物車的寫入一律回到 /cart：POST 之後轉址，重新整理才不會再送一次。 */
+  private async cartCommand(
+    req: AuthenticatedRequest,
+    reply: FastifyReply,
+    name: string,
+    input: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.runtime.commands.execute(name, {
+        ...input,
+        guestToken: guestTokenFor(req, reply, this.runtime.config.http.publicUrl),
+      }, { actor: actorOf(req), idempotencyKey: randomUUID(), correlationId: randomUUID(), channel: 'rest' });
+      void reply.status(303).header('location', '/cart').send();
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
+  }
+
+  private async emailOf(actor: Actor): Promise<string> {
+    const profile = await this.runtime.queries.execute<{ email: string }>(
+      'commerce.customer.getMyProfile', {}, { actor, channel: 'rest' },
+    );
+    return profile.email;
   }
 
   private async withStock(actor: Actor, product: ProductDtoShape) {

@@ -91,6 +91,10 @@ button[disabled] { opacity: .5; cursor: not-allowed; }
 table { width: 100%; border-collapse: collapse; margin-top: 16px; }
 th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); font-size: 14px; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
+.cta { display: inline-block; padding: 10px 16px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; text-decoration: none; }
+.inline { display: inline; margin: 0; max-width: none; grid-auto-flow: column; gap: 4px; align-items: center; }
+.inline input[type=number] { width: 5rem; }
+.linklike { background: none; color: var(--accent); padding: 0; font-weight: 400; text-decoration: underline; }
 .notice { border: 1px solid var(--accent); background: var(--card); padding: 12px; border-radius: 8px; margin-bottom: 16px; }
 .error { border: 1px solid #ef4444; background: rgba(239,68,68,.1); padding: 12px; border-radius: 8px; }
 `;

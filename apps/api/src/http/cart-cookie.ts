@@ -48,3 +48,16 @@ export function cartMergeNotice(removedNames: readonly string[]): string | null 
   const rest = removedNames.length - Math.min(3, removedNames.length);
   return `這些商品已下架，已從購物車移除：${shown}${rest > 0 ? ` 等 ${removedNames.length} 件` : ''}。`;
 }
+
+/**
+ * 這次請求該用哪一張訪客 token。會員沒有——他們的車綁在身分上，
+ * 而登入的那一刻訪客車就併進去了（工單 27）。
+ */
+export function guestTokenFor(
+  req: { actor?: { type: string }; cookies?: Record<string, string | undefined> },
+  reply: FastifyReply,
+  publicUrl: string,
+): string | undefined {
+  if (req.actor?.type === 'customer') return undefined;
+  return req.cookies?.[CART_COOKIE] ?? setGuestCartCookie(reply, publicUrl);
+}

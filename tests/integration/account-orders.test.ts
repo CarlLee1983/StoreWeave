@@ -37,13 +37,18 @@ async function buy(session: string, sku: string, quantity = 1): Promise<string> 
 
   const page = await inject({ method: 'GET', url: `/p/${product.id}`, cookies: { [SESSION_COOKIE]: session } });
   const csrf = /name="_csrf" value="([^"]+)"/.exec(page.body)![1];
-
-  const res = await inject({
-    method: 'POST', url: '/checkout',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+  const form = (body: string) => ({
+    headers: { 'content-type': 'application/x-www-form-urlencoded' as const },
     cookies: { [SESSION_COOKIE]: session },
-    payload: `productId=${product.id}&quantity=${quantity}&_csrf=${encodeURIComponent(csrf)}`,
+    payload: `${body}&_csrf=${encodeURIComponent(csrf)}`,
   });
+
+  // 前台一律經購物車下單（工單 29）。
+  await inject({ method: 'POST', url: '/cart/items', ...form(`productId=${product.id}&quantity=${quantity}`) });
+  const confirm = await inject({ method: 'GET', url: '/checkout', cookies: { [SESSION_COOKIE]: session } });
+  const cartId = /name="cartId" value="([^"]+)"/.exec(confirm.body)![1];
+
+  const res = await inject({ method: 'POST', url: '/checkout', ...form(`cartId=${cartId}`) });
   return (res.headers.location as string).replace('/orders/', '');
 }
 

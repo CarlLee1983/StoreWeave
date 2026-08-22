@@ -35,6 +35,13 @@ export const cartDto = z.object({
   discountCents: z.number().int().nonnegative(),
   totalCents: z.number().int().nonnegative(),
   adjustments: z.array(cartAdjustmentDto),
+  /** 差一點就達成的門檻活動；沒有就是 null。 */
+  nextThreshold: z.object({
+    promotionId: z.string(),
+    name: z.string(),
+    thresholdCents: z.number().int().nonnegative(),
+    remainingCents: z.number().int().positive(),
+  }).nullable(),
 });
 export type CartDto = z.infer<typeof cartDto>;
 

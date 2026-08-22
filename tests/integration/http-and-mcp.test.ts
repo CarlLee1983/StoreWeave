@@ -137,7 +137,7 @@ describe('Storefront SSR', () => {
 
     const anonymous = await inject({ method: 'GET', url: `/p/${product.id}` });
     expect(anonymous.body).not.toContain('name="_csrf"');
-    expect(anonymous.body).toContain('登入後結帳');
+    expect(anonymous.body).toContain('加入購物車');
 
     const registered = await inject({
       method: 'POST', url: '/register',
@@ -148,14 +148,14 @@ describe('Storefront SSR', () => {
 
     const signedIn = await inject({ method: 'GET', url: `/p/${product.id}`, cookies: { commerce_session: session } });
     expect(signedIn.body).toContain('name="_csrf"');
-    expect(signedIn.body).toContain('立即結帳');
+    expect(signedIn.body).toContain('加入購物車');
   });
 
-  it('商品頁包含結帳表單', async () => {
+  it('商品頁包含加入購物車的表單', async () => {
     const product = await createProduct(h.runtime, { sku: 'SSR-2', name: '結帳測試' });
     await stockUp(h.runtime, product.id, 2);
     const res = await inject({ method: 'GET', url: `/p/${product.id}` });
-    expect(res.body).toContain('action="/checkout"');
+    expect(res.body).toContain('action="/cart/items"');
     expect(res.body).toContain('結帳測試');
   });
 
@@ -194,13 +194,17 @@ describe('Storefront SSR', () => {
     // 表單的 CSRF token 由商品頁渲染出來，這裡照瀏覽器的做法把它抓下來再送
     const page = await inject({ method: 'GET', url: `/p/${product.id}`, cookies: { commerce_session: session } });
     const csrf = /name="_csrf" value="([^"]+)"/.exec(page.body)![1];
-
-    const res = await inject({
-      method: 'POST', url: '/checkout',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    const form = (body: string) => ({
+      headers: { 'content-type': 'application/x-www-form-urlencoded' as const },
       cookies: { commerce_session: session },
-      payload: `productId=${product.id}&quantity=2&_csrf=${encodeURIComponent(csrf)}`,
+      payload: `${body}&_csrf=${encodeURIComponent(csrf)}`,
     });
+
+    await inject({ method: 'POST', url: '/cart/items', ...form(`productId=${product.id}&quantity=2`) });
+    const confirm = await inject({ method: 'GET', url: '/checkout', cookies: { commerce_session: session } });
+    const cartId = /name="cartId" value="([^"]+)"/.exec(confirm.body)![1];
+
+    const res = await inject({ method: 'POST', url: '/checkout', ...form(`cartId=${cartId}`) });
     expect(res.statusCode).toBe(303);
     const location = res.headers.location as string;
     const orderPage = await inject({ method: 'GET', url: location, cookies: { commerce_session: session } });

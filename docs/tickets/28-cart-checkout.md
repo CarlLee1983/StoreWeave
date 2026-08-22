@@ -12,5 +12,5 @@
 - [x] 結帳成功後購物車被清空
 - [x] 未登入結帳被拒並引導登入
 
-**做法備註**：前台 `POST /checkout` 的改寫留在工單 29 一次做完（那裡才有購物車頁），
-本票交付的是領域命令 `commerce.order.checkoutCart` 與 REST `POST /api/v1/cart/checkout`。
+**做法備註**：本票交付領域命令 `commerce.order.checkoutCart` 與 REST `POST /api/v1/cart/checkout`；
+前台 `POST /checkout` 的改寫在工單 29 一起做完（那裡才有購物車頁）。

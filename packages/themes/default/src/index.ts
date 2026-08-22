@@ -1,13 +1,16 @@
 import { z } from 'zod';
-import type { StorefrontTheme } from '@storeweave/kernel';
+import type { StorefrontTheme, ThemeAuthView, ThemeCartView, ThemeContext } from '@storeweave/kernel';
 import { escapeHtml, formatMoney, layout } from './layout';
 
 /** 忘記密碼與重設密碼：兩張表單長得夠像，共用一支。 */
 function renderPasswordForm(
-  ctx: Parameters<typeof layout>[0]['ctx'],
-  { mode, error, token, notice }: { mode: string; error?: string; token?: string; notice?: string },
+  ctx: ThemeContext,
+  view: Extract<ThemeAuthView, { mode: 'forgot-password' | 'reset-password' }>,
 ): string {
-  const forgot = mode === 'forgot-password';
+  const forgot = view.mode === 'forgot-password';
+  const error = view.error;
+  const notice = forgot ? view.notice : undefined;
+  const token = forgot ? undefined : view.token;
   const body = `
     <h1>${forgot ? '忘記密碼' : '設定新密碼'}</h1>
     ${notice ? `<p class="muted">${escapeHtml(notice)}</p>` : ''}
@@ -21,6 +24,64 @@ function renderPasswordForm(
     </form>`}
     <p class="muted"><a href="/login">回登入</a></p>`;
   return layout({ title: forgot ? '忘記密碼' : '設定新密碼', body, ctx });
+}
+
+/**
+ * 購物車與確認頁的商品表。`editable` 決定要不要出現數量與移除的表單——
+ * 確認頁刻意不能改，否則「確認的內容」與「結出來的單」會是兩份東西。
+ */
+function cartTable(ctx: ThemeContext, view: ThemeCartView, editable: boolean): string {
+  const money = (cents: number) => formatMoney(cents, view.currency, ctx.locale);
+  const rows = view.lines.map((line) => `
+    <tr>
+      <td>
+        <a href="/p/${escapeHtml(line.productId)}">${escapeHtml(line.name)}</a>
+        ${ctx.options.showSku !== false ? `<span class="muted"> ${escapeHtml(line.sku)}</span>` : ''}
+      </td>
+      <td>${money(line.unitPriceCents)}</td>
+      <td>${editable ? `
+        <form method="post" action="/cart/items/${escapeHtml(line.productId)}" class="inline">
+          ${csrfField(ctx)}
+          <input type="number" name="quantity" value="${line.quantity}" min="0"
+                 max="${Math.max(line.quantity, line.available ?? 999)}" required>
+          <button type="submit">更新</button>
+        </form>` : line.quantity}</td>
+      <td>${money(line.lineTotalCents)}</td>
+      <td>${line.discountCents > 0 ? `−${money(line.discountCents)}` : ''}</td>
+      <td>${money(line.netCents)}</td>
+      ${editable ? `<td>
+        <form method="post" action="/cart/items/${escapeHtml(line.productId)}" class="inline">
+          ${csrfField(ctx)}
+          <input type="hidden" name="quantity" value="0">
+          <button type="submit" class="linklike">移除</button>
+        </form>
+      </td>` : ''}
+    </tr>`).join('');
+
+  const adjustments = view.adjustments.map((adjustment) => `
+    <tr><td colspan="${editable ? 6 : 5}">${escapeHtml(adjustment.name)}</td>
+        <td>${money(adjustment.amountCents)}</td></tr>`).join('');
+
+  return `
+    <table>
+      <thead><tr>
+        <th>商品</th><th>單價</th><th>數量</th><th>小計</th><th>折扣</th><th>實付</th>${editable ? '<th></th>' : ''}
+      </tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot>
+        <tr><td colspan="${editable ? 6 : 5}">商品小計</td><td>${money(view.subtotalCents)}</td></tr>
+        ${adjustments}
+        <tr><td colspan="${editable ? 6 : 5}"><strong>預估總額</strong></td>
+            <td><strong>${money(view.totalCents)}</strong></td></tr>
+      </tfoot>
+    </table>`;
+}
+
+/** 門檻活動唯一的行銷價值就是這句話：還差多少。 */
+function thresholdHint(ctx: ThemeContext, view: ThemeCartView): string {
+  if (!view.nextThreshold) return '';
+  const amount = formatMoney(view.nextThreshold.remainingCents, view.currency, ctx.locale);
+  return `<p class="notice">再買 ${amount} 就達到「${escapeHtml(view.nextThreshold.name)}」。</p>`;
 }
 
 /** 伺服器渲染的表單以隱藏欄位做 CSRF 雙提交——瀏覽器的原生表單送不出自訂 header。 */
@@ -68,15 +129,44 @@ export const defaultTheme: StorefrontTheme = {
       <p class="price">${formatMoney(product.priceCents, product.currency, ctx.locale)}</p>
       ${product.description ? `<p>${escapeHtml(product.description)}</p>` : ''}
       <p class="muted">${product.available === null ? '' : soldOut ? '已售完' : `可售 ${product.available} 件`}</p>
-      <form method="post" action="/checkout">
+      <form method="post" action="/cart/items">
         <input type="hidden" name="productId" value="${escapeHtml(product.id)}">
         ${csrfField(ctx)}
         <label>數量
           <input type="number" name="quantity" value="1" min="1" max="${Math.max(1, product.available ?? 99)}" required>
         </label>
-        <button type="submit" ${soldOut ? 'disabled' : ''}>${ctx.customerName ? '立即結帳' : '登入後結帳'}</button>
+        <button type="submit" ${soldOut ? 'disabled' : ''}>加入購物車</button>
       </form>`;
     return layout({ title: product.name, body, ctx });
+  },
+
+  renderCart(ctx, view) {
+    const body = `
+      <h1>購物車</h1>
+      ${view.error ? `<div class="error"><p>${escapeHtml(view.error)}</p></div>` : ''}
+      ${view.lines.length === 0
+        ? `<p class="muted">購物車是空的。<a href="/">去逛逛</a></p>`
+        : `${cartTable(ctx, view, true)}
+           ${thresholdHint(ctx, view)}
+           <p><a class="cta" href="/checkout">${ctx.customerName ? '前往結帳' : '登入後結帳'}</a></p>
+           <p><a href="/">繼續購物</a></p>`}`;
+    return layout({ title: '購物車', body, ctx });
+  },
+
+  renderCheckout(ctx, view) {
+    const body = `
+      <h1>確認訂單</h1>
+      ${view.error ? `<div class="error"><p>${escapeHtml(view.error)}</p></div>` : ''}
+      <p class="muted">訂單通知會寄到 ${escapeHtml(view.customerEmail)}</p>
+      ${cartTable(ctx, view, false)}
+      <form method="post" action="/checkout">
+        ${csrfField(ctx)}
+        <input type="hidden" name="cartId" value="${escapeHtml(view.cartId)}">
+        <input type="hidden" name="confirm" value="1">
+        <button type="submit">送出訂單</button>
+      </form>
+      <p><a href="/cart">回購物車</a></p>`;
+    return layout({ title: '確認訂單', body, ctx });
   },
 
   renderOrder(ctx, { order }) {
@@ -165,11 +255,12 @@ export const defaultTheme: StorefrontTheme = {
     return layout({ title: '個人資料', body, ctx });
   },
 
-  renderAuth(ctx, { mode, next, error, token, notice }) {
-    if (mode === 'forgot-password' || mode === 'reset-password') {
-      return renderPasswordForm(ctx, { mode, error, token, notice });
+  renderAuth(ctx, view) {
+    if (view.mode === 'forgot-password' || view.mode === 'reset-password') {
+      return renderPasswordForm(ctx, view);
     }
-    const login = mode === 'login';
+    const { next, error } = view;
+    const login = view.mode === 'login';
     const body = `
       <h1>${login ? '登入' : '註冊'}</h1>
       ${error ? `<div class="error"><p>${escapeHtml(error)}</p></div>` : ''}

@@ -3,6 +3,7 @@ import { assertValidPricingInput } from './input';
 import { evaluateRule } from './rules';
 import type {
   Adjustment,
+  ThresholdHint,
   AppliedPromotion,
   PricedLine,
   PricingInput,
@@ -28,6 +29,30 @@ function isActive(promotion: Promotion, now: Date): boolean {
 /** 優先序相同時以活動 id 決定順序，讓輸出與輸入陣列的排列無關。 */
 function inApplicationOrder(promotions: readonly Promotion[]): Promotion[] {
   return [...promotions].sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
+}
+
+/** 規則裡的門檻。沒有門檻的規則型別回 null——那種活動沒有「還差多少」可言。 */
+function thresholdOf(promotion: Promotion): number | null {
+  return promotion.rule.type === 'threshold_fixed_amount' || promotion.rule.type === 'threshold_percentage'
+    ? promotion.rule.thresholdCents
+    : null;
+}
+
+/**
+ * 最接近、但還沒達成的門檻。差距相同時沿用套用順序（優先序、然後 id），
+ * 輸出因此與輸入陣列的排列無關。
+ */
+function nextThresholdOf(promotions: readonly Promotion[], subtotalCents: number, now: Date): ThresholdHint | null {
+  let best: ThresholdHint | null = null;
+  for (const promotion of inApplicationOrder(promotions)) {
+    if (!isActive(promotion, now)) continue;
+    const thresholdCents = thresholdOf(promotion);
+    if (thresholdCents === null || subtotalCents >= thresholdCents) continue;
+    const remainingCents = thresholdCents - subtotalCents;
+    if (best && best.remainingCents <= remainingCents) continue;
+    best = { promotionId: promotion.id, name: promotion.name, thresholdCents, remainingCents };
+  }
+  return best;
 }
 
 /**
@@ -111,5 +136,6 @@ export function calculatePricing(input: PricingInput): PricingResult {
     adjustments,
     appliedPromotions,
     lines: pricedLines,
+    nextThreshold: nextThresholdOf(input.context.promotions, subtotalCents, input.now),
   };
 }

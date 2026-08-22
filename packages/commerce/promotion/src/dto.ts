@@ -115,6 +115,14 @@ const quoteAdjustment = z.object({
   amountCents: z.number().int(),
 });
 
+/** 差一點就達成的門檻活動。前台靠它說「還差多少」。 */
+export const nextThresholdDto = z.object({
+  promotionId: z.string(),
+  name: z.string(),
+  thresholdCents: money,
+  remainingCents: z.number().int().positive(),
+}).nullable();
+
 export const quoteOutput = z.object({
   currency: z.string().length(3),
   subtotalCents: money,
@@ -123,6 +131,7 @@ export const quoteOutput = z.object({
   taxCents: money,
   totalCents: money,
   adjustments: z.array(quoteAdjustment),
+  nextThreshold: nextThresholdDto,
   lines: z.array(z.object({
     productId: z.string().uuid(),
     sku: z.string(),

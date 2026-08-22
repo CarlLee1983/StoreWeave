@@ -3,7 +3,7 @@ import type { FastifyReply } from 'fastify';
 import { BusController } from './base';
 import { ok } from '../http/envelope';
 import { Public, actorOf, correlationIdOf, type AuthenticatedRequest } from '../http/auth';
-import { CART_COOKIE, setGuestCartCookie } from '../http/cart-cookie';
+import { guestTokenFor } from '../http/cart-cookie';
 import { RUNTIME, type Runtime } from '../tokens';
 
 @Public()
@@ -84,7 +84,6 @@ export class CartController extends BusController {
    * 登入的那一刻兩台車就合併了（工單 27），身分與 token 不會同時生效。
    */
   private guestToken(req: AuthenticatedRequest, reply: FastifyReply): string | undefined {
-    if (req.actor?.type === 'customer') return undefined;
-    return req.cookies?.[CART_COOKIE] ?? setGuestCartCookie(reply, this.runtime.config.http.publicUrl);
+    return guestTokenFor(req, reply, this.runtime.config.http.publicUrl);
   }
 }

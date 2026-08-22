@@ -10,7 +10,10 @@ const repository = new CartRepository();
 
 /** 沒有內容時的試算結果。空車不必進定價引擎，答案恆定。 */
 export function emptyCartDto(id: string, currency: string): CartDto {
-  return { id, currency, items: [], subtotalCents: 0, discountCents: 0, totalCents: 0, adjustments: [] };
+  return {
+    id, currency, items: [], subtotalCents: 0, discountCents: 0, totalCents: 0,
+    adjustments: [], nextThreshold: null,
+  };
 }
 
 /**
@@ -76,5 +79,6 @@ export async function toCartDto(
     discountCents: pricing.discountCents,
     totalCents: pricing.totalCents,
     adjustments: pricing.adjustments,
+    nextThreshold: pricing.nextThreshold,
   };
 }

@@ -84,6 +84,7 @@ export function createQuoteHandler(deps: { defaultCurrency: string }) {
     taxCents: pricing.taxCents,
     totalCents: pricing.totalCents,
     adjustments: pricing.adjustments,
+    nextThreshold: pricing.nextThreshold,
     lines: lines.map((line) => ({
       productId: line.productId,
       sku: line.sku,
