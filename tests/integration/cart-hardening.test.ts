@@ -57,7 +57,8 @@ describe('冪等鍵綁身分', () => {
     // Bob 猜到同一把鍵、送同一份輸入——重放發生在 handler 之前，
     // 沒有這道檢查他會直接讀到 Alice 的訂單（含 email 與品項）。
     await expect(h.runtime.commands.execute('commerce.order.checkoutCart', { cartId },
-      { actor: bob, idempotencyKey: key })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      // 回 NOT_FOUND 而不是 FORBIDDEN：後者會變成「這把鍵存不存在」的 oracle。
+      { actor: bob, idempotencyKey: key })).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('本人重放照樣拿回同一張訂單', async () => {

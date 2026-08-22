@@ -125,6 +125,7 @@ export type AdminCustomerDetail = AdminCustomer & {
 };
 
 export type CustomerLoyalty = {
+  currency: string;
   balance: {
     availableCents: number;
     pendingCents: number;
@@ -162,6 +163,7 @@ export type AttributionSummary = {
 };
 
 export type OutstandingRewards = {
+  currency: string;
   availableCents: number;
   pendingCents: number;
   customerCount: number;
@@ -469,12 +471,12 @@ export const api = {
     return request<SalesSummary>(`/api/v1/analytics/sales-summary${toQuery(dayRange(params))}`);
   },
   promotionPerformance(params: { from?: string; to?: string }) {
-    return request<{ items: PromotionPerformance[] }>(
+    return request<{ currency: string; items: PromotionPerformance[] }>(
       `/api/v1/analytics/promotions${toQuery(dayRange(params))}`,
     );
   },
   partnerPerformance(params: { from?: string; to?: string }) {
-    return request<{ items: AttributionSummary[] }>(
+    return request<{ currency: string; items: AttributionSummary[] }>(
       `/api/v1/analytics/partners${toQuery(dayRange(params))}`,
     );
   },

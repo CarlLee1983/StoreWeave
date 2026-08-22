@@ -58,10 +58,12 @@ export const attributionSummaryQuery = defineQuery({
   permission: 'analytics:read',
 });
 
-export const attributionSummaryHandler = async (
-  input: z.infer<typeof attributionSummaryInput>,
-  ctx: QueryContext,
-) => ({ items: await repository.attributionSummary(ctx.db, input) });
+export function createAttributionSummaryHandler(deps: { currency: string }) {
+  return async (input: z.infer<typeof attributionSummaryInput>, ctx: QueryContext) => ({
+    currency: deps.currency,
+    items: await repository.attributionSummary(ctx.db, input),
+  });
+}
 
 export const listMyCouponsQuery = defineQuery({
   name: 'commerce.coupon.listMyCoupons',
@@ -98,6 +100,15 @@ export function createListMyCouponsHandler(deps: { currency: string; locale: str
       const usable = row.status === 'issued' && !expired && !notStarted && promotion.status === 'active';
       if (input.usableOnly && !usable) continue;
 
+      // 把「不能用」拆回它真正的原因。全部顯示成「已過期」的話，
+      // 顧客會去找別張券，而問題其實是活動被停掉了。
+      const unusableReason = usable ? null
+        : row.status === 'used' ? 'used' as const
+          : row.status === 'void' ? 'void' as const
+            : notStarted ? 'not_started' as const
+              : expired ? 'expired' as const
+                : 'promotion_ended' as const;
+
       result.push({
         code: row.code,
         promotionName: promotion.name,
@@ -106,6 +117,7 @@ export function createListMyCouponsHandler(deps: { currency: string; locale: str
         endsAt: row.endsAt,
         expiringSoon: usable && row.endsAt !== null && row.endsAt.getTime() - ctx.now.getTime() <= soonMs,
         usable,
+        unusableReason,
       });
     }
     return { items: result };
@@ -120,16 +132,15 @@ export const promotionPerformanceQuery = defineQuery({
   permission: 'analytics:read',
 });
 
-export const promotionPerformanceHandler = async (
-  input: z.infer<typeof promotionPerformanceInput>,
-  ctx: QueryContext,
-) => {
-  const rows = await repository.promotionPerformance(ctx.db, input);
-  const items = [];
-  for (const row of rows) {
-    const promotion = await promotions.findById(ctx.db, row.promotionId);
-    // 活動被刪掉時仍然要看得到數字：錢已經花出去了，報表不該假裝沒發生。
-    items.push({ ...row, name: promotion?.name ?? row.promotionId });
-  }
-  return { items };
-};
+export function createPromotionPerformanceHandler(deps: { currency: string }) {
+  return async (input: z.infer<typeof promotionPerformanceInput>, ctx: QueryContext) => {
+    const rows = await repository.promotionPerformance(ctx.db, input);
+    const items = [];
+    for (const row of rows) {
+      const promotion = await promotions.findById(ctx.db, row.promotionId);
+      // 活動被刪掉時仍然要看得到數字：錢已經花出去了，報表不該假裝沒發生。
+      items.push({ ...row, name: promotion?.name ?? row.promotionId });
+    }
+    return { currency: deps.currency, items };
+  };
+}

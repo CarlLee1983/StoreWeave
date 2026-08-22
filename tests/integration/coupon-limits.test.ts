@@ -147,7 +147,7 @@ describe('總量限制', () => {
 });
 
 describe('每人限用', () => {
-  it('同一個會員對同一條規則只能核銷一次', async () => {
+  it('同一個會員對同一條規則只能核銷一次，而且在套用當下就說得出來', async () => {
     const promotion = await couponPromotion();
     const value = code('ONCE');
     await createCoupon({ code: value, promotionId: promotion.id });
@@ -157,10 +157,33 @@ describe('每人限用', () => {
     await checkout(customer, cartId);
 
     await addToCart({ productId: product.id, quantity: 1 }, customer);
-    await applyCoupon({ code: value }, customer);
-    const second = (await getCart(customer)).id;
 
-    await expect(checkout(customer, second))
+    // 套用就擋下：讓顧客在購物車看到折扣、結帳才說「你用過了」是最糟的順序。
+    await expect(applyCoupon({ code: value }, customer))
+      .rejects.toMatchObject({ code: 'CONFLICT', details: { reason: 'already_redeemed' } });
+  });
+
+  it('繞過套用直接結帳也擋得住——限制不只在入口', async () => {
+    const promotion = await couponPromotion();
+    const value = code('ONCE2');
+    await createCoupon({ code: value, promotionId: promotion.id });
+    const product = await sellable(`LIM-ONCE2-${randomUUID().slice(0, 6)}`);
+
+    const first = await readyToCheckout('once2-a', product, value);
+    const second = await readyToCheckout('once2-b', product, undefined);
+    // 直接把碼寫進第二台車，跳過 applyCoupon 的檢查。
+    await h.runtime.database.db.execute(sql`
+      UPDATE cart_carts SET coupon_code = ${value} WHERE id = ${second.cartId}
+    `);
+    await checkout(first.customer, first.cartId);
+    // 同一個人再來一次。
+    await addToCart({ productId: product.id, quantity: 1 }, first.customer);
+    const again = (await getCart(first.customer)).id;
+    await h.runtime.database.db.execute(sql`
+      UPDATE cart_carts SET coupon_code = ${value} WHERE id = ${again}
+    `);
+
+    await expect(checkout(first.customer, again))
       .rejects.toMatchObject({ code: 'CONFLICT', details: { reason: 'already_redeemed' } });
   });
 
@@ -176,8 +199,7 @@ describe('每人限用', () => {
     await checkout(shopper.customer, shopper.cartId);
 
     await addToCart({ productId: product.id, quantity: 1 }, shopper.customer);
-    await applyCoupon({ code: second }, shopper.customer);
-    await expect(checkout(shopper.customer, (await getCart(shopper.customer)).id))
+    await expect(applyCoupon({ code: second }, shopper.customer))
       .rejects.toMatchObject({ details: { reason: 'already_redeemed' } });
   });
 

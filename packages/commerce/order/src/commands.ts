@@ -245,8 +245,13 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
     const locked = coupon ? await couponRepository.lockById(ctx.tx, coupon.id) : null;
     if (cart.couponCode && !locked) throw couponError('not_found');
     if (locked) {
-      const check = couponService.check(locked, { customerId: buyer.customerId, now: ctx.now });
-      if (!check.ok) throw couponError(check.reason);
+      const basic = couponService.check(locked, { customerId: buyer.customerId, now: ctx.now });
+      if (!basic.ok) throw couponError(basic.reason);
+      const eligible = await couponService.checkAgainstLedger(ctx.tx, locked, {
+        customerId: buyer.customerId,
+        now: ctx.now,
+      });
+      if (!eligible.ok) throw couponError(eligible.reason);
     }
 
     // 顧客看不到的商品行也結不進訂單：判斷與購物車顯示共用 `isPurchasable`，

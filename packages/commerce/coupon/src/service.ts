@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { PlatformError, type DrizzleDb, type Tx } from '@storeweave/contracts';
+import { PromotionRepository } from '@storeweave/promotion';
 import { generateCouponCode } from './code';
 import { CouponRepository } from './repository';
 import type { CouponRow } from './schema';
 
 const repository = new CouponRepository();
+const promotions = new PromotionRepository();
 
 /**
  * 券為什麼不能用。分得這麼細不是為了好看：顧客看到「無效」只會再打一次，
@@ -57,16 +59,56 @@ export const couponService = {
     return MESSAGES[reason];
   },
 
+  /**
+   * 以碼查出券並做完整判斷——包含要打資料庫的那兩項（活動是否停用、這個人用過幾次）。
+   *
+   * 「這張券能不能用」原本有三個答案：`check` 不看每人次數也不看活動狀態、
+   * `listMyCoupons` 看活動狀態卻不看額度、只有 `consume` 看每人次數。結果是共用碼
+   * 套用成功、購物車顯示折扣、結帳才說「你已經用過了」。一個判斷只能有一個地方。
+   */
   async resolve(
     db: DrizzleDb | Tx,
     input: { code: string; customerId: string | null; now: Date },
   ): Promise<CouponResolution> {
     const coupon = await repository.findByCode(db, input.code);
     if (!coupon) return { ok: false, reason: 'not_found', message: MESSAGES.not_found };
-    return this.check(coupon, input);
+
+    const basic = this.check(coupon, input);
+    if (!basic.ok) return basic;
+    return this.checkAgainstLedger(db, coupon, input);
   },
 
-  /** 已經拿到那一列時的判斷。核銷會先鎖列再呼叫它，避免多讀一次。 */
+  /**
+   * 需要查資料庫的那兩項。與 `check` 分開，是因為核銷已經在交易內鎖住那一列，
+   * 而試算沒有；兩邊都要問得到同一個答案。
+   */
+  async checkAgainstLedger(
+    db: DrizzleDb | Tx,
+    coupon: CouponRow,
+    input: { customerId: string | null; now: Date },
+  ): Promise<CouponResolution> {
+    const promotion = await promotions.findById(db, coupon.promotionId);
+    // 券指向的活動被停用或已經過期，那張券就是不能用的——不是「還沒到期」。
+    if (!promotion || promotion.status !== 'active') {
+      return { ok: false, reason: 'void', message: MESSAGES.void };
+    }
+    if (promotion.startsAt && input.now.getTime() < promotion.startsAt.getTime()) {
+      return { ok: false, reason: 'not_started', message: MESSAGES.not_started };
+    }
+    if (promotion.endsAt && input.now.getTime() >= promotion.endsAt.getTime()) {
+      return { ok: false, reason: 'expired', message: MESSAGES.expired };
+    }
+
+    if (coupon.perCustomerLimit !== null && input.customerId) {
+      const used = await repository.redemptionCountFor(db, coupon.promotionId, input.customerId);
+      if (used >= coupon.perCustomerLimit) {
+        return { ok: false, reason: 'already_redeemed', message: MESSAGES.already_redeemed };
+      }
+    }
+    return { ok: true, coupon };
+  },
+
+  /** 不必查資料庫就答得出來的部分。核銷會先鎖列再呼叫它，避免多讀一次。 */
   check(coupon: CouponRow, input: { customerId: string | null; now: Date }): CouponResolution {
     const reject = (reason: CouponRejection): CouponResolution =>
       ({ ok: false, reason, message: MESSAGES[reason] });
@@ -95,12 +137,9 @@ export const couponService = {
     coupon: CouponRow,
     input: { customerId: string; now: Date },
   ): Promise<CouponResolution> {
-    if (coupon.perCustomerLimit !== null) {
-      const used = await repository.redemptionCountFor(tx, coupon.promotionId, input.customerId);
-      if (used >= coupon.perCustomerLimit) {
-        return { ok: false, reason: 'already_redeemed', message: MESSAGES.already_redeemed };
-      }
-    }
+    const eligible = await this.checkAgainstLedger(tx, coupon, input);
+    if (!eligible.ok) return eligible;
+
     const consumed = await repository.consume(tx, coupon.id, input.now);
     if (!consumed) return { ok: false, reason: 'used_up', message: MESSAGES.used_up };
     return { ok: true, coupon };

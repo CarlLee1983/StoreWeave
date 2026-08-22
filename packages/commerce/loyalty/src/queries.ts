@@ -75,8 +75,12 @@ export const outstandingRewardsQuery = defineQuery({
   permission: 'analytics:read',
 });
 
-export const outstandingRewardsHandler = async (_input: unknown, ctx: QueryContext) =>
-  repository.outstandingRewards(ctx.db, ctx.now);
+export function createOutstandingRewardsHandler(deps: { currency: string }) {
+  return async (_input: unknown, ctx: QueryContext) => ({
+    currency: deps.currency,
+    ...await repository.outstandingRewards(ctx.db, ctx.now),
+  });
+}
 
 export const getMyTierQuery = defineQuery({
   name: 'commerce.loyalty.getMyTier',
@@ -115,16 +119,15 @@ export const getCustomerLoyaltyQuery = defineQuery({
 });
 
 /** 客服在處理客訴時要看得到「他現在有多少、怎麼來的」，否則補償只能用猜的。 */
-export const getCustomerLoyaltyHandler = async (
-  input: z.infer<typeof customerLoyaltyInput>,
-  ctx: QueryContext,
-) => {
+export function createGetCustomerLoyaltyHandler(deps: { currency: string }) {
+  return async (input: z.infer<typeof customerLoyaltyInput>, ctx: QueryContext) => {
   const balance = await rewardService.balanceFor(ctx.db, input.customerId, ctx.now);
   const status = await tierService.statusFor(ctx.db, input.customerId, ctx.now);
   const rows = await repository.rewardEntriesFor(ctx.db, input.customerId);
   const soonest = balance.batches.find((batch) => batch.expiresAt !== null);
 
   return {
+    currency: deps.currency,
     balance: {
       availableCents: balance.availableCents,
       pendingCents: balance.pendingCents,
@@ -144,4 +147,5 @@ export const getCustomerLoyaltyHandler = async (
       createdAt: row.createdAt,
     })),
   };
-};
+  };
+}

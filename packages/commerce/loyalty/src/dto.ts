@@ -68,6 +68,7 @@ export const adjustRewardsInput = z.object({
 }).strict();
 
 export const outstandingRewardsOutput = z.object({
+  currency: z.string().length(3),
   /** 流通在外的購物金總額：已生效、未過期、還沒被用掉的部分。 */
   availableCents: z.number().int().nonnegative(),
   pendingCents: z.number().int().nonnegative(),
@@ -126,6 +127,7 @@ export const recalculateTiersOutput = z.object({
 export const customerLoyaltyInput = z.object({ customerId: z.string().uuid() }).strict();
 
 export const customerLoyaltyOutput = z.object({
+  currency: z.string().length(3),
   balance: rewardBalanceDto,
   tierName: z.string(),
   tierPoints: z.number().int().nonnegative(),

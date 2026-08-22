@@ -119,6 +119,8 @@ export interface ThemeAccountCouponsView {
     endsAt: Date | null;
     expiringSoon: boolean;
     usable: boolean;
+    /** 不能用的原因；可以用時為 null。 */
+    unusableReason: 'used' | 'void' | 'not_started' | 'expired' | 'promotion_ended' | null;
   }[];
 }
 

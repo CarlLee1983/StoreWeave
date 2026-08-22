@@ -143,11 +143,20 @@ function thresholdHint(ctx: ThemeContext, view: ThemeCartView): string {
   return `<p class="notice">再買 ${amount} 就達到「${escapeHtml(view.nextThreshold.name)}」。</p>`;
 }
 
-/** 即將到期要說得出來——顧客沒用掉的券，多半是因為忘了它存在。 */
+/**
+ * 券的狀態。即將到期要說得出來——顧客沒用掉的券，多半是因為忘了它存在。
+ * 不能用時說出真正的原因：全部寫「已過期」會讓顧客去找別張，而問題其實是活動停掉了。
+ */
+const UNUSABLE_TEXT: Record<NonNullable<ThemeAccountCouponsView['coupons'][number]['unusableReason']>, string> = {
+  used: '已使用',
+  void: '已停用',
+  not_started: '尚未開始',
+  expired: '已過期',
+  promotion_ended: '活動已結束',
+};
+
 function couponStateText(coupon: ThemeAccountCouponsView['coupons'][number]): string {
-  if (coupon.status === 'used') return '<span class="badge">已使用</span>';
-  if (coupon.status === 'void') return '<span class="badge">已停用</span>';
-  if (!coupon.usable) return '<span class="badge">已過期</span>';
+  if (coupon.unusableReason) return `<span class="badge">${UNUSABLE_TEXT[coupon.unusableReason]}</span>`;
   return coupon.expiringSoon ? '<span class="badge expiring">即將到期</span>' : '<span class="badge">可使用</span>';
 }
 

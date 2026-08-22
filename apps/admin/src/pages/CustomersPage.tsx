@@ -198,12 +198,12 @@ function LoyaltyPanel({
     <>
       <h4>{t('loyalty')}</h4>
       <dl className="order-totals">
-        <dt>{t('rewardAvailable')}</dt><dd className="mono">{formatMoney(loyalty.balance.availableCents, 'TWD')}</dd>
-        <dt>{t('rewardPending')}</dt><dd className="mono">{formatMoney(loyalty.balance.pendingCents, 'TWD')}</dd>
+        <dt>{t('rewardAvailable')}</dt><dd className="mono">{formatMoney(loyalty.balance.availableCents, loyalty.currency)}</dd>
+        <dt>{t('rewardPending')}</dt><dd className="mono">{formatMoney(loyalty.balance.pendingCents, loyalty.currency)}</dd>
         <dt>{t('nextExpiry')}</dt>
         <dd className="mono">
           {loyalty.balance.nextExpiry
-            ? `${formatMoney(loyalty.balance.nextExpiry.amountCents, 'TWD')} · ${formatDateTime(loyalty.balance.nextExpiry.expiresAt)}`
+            ? `${formatMoney(loyalty.balance.nextExpiry.amountCents, loyalty.currency)} · ${formatDateTime(loyalty.balance.nextExpiry.expiresAt)}`
             : '—'}
         </dd>
         <dt>{t('memberTier')}</dt><dd>{loyalty.tierName}（{loyalty.tierPoints}）</dd>

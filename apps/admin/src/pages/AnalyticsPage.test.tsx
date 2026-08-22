@@ -62,7 +62,7 @@ const partners: AttributionSummary[] = [
   { partnerCode: 'STREAMER-A', orderCount: 5, revenueCents: 150_000, discountCents: 15_000 },
 ];
 
-const outstanding: OutstandingRewards = { availableCents: 88_000, pendingCents: 12_000, customerCount: 42 };
+const outstanding: OutstandingRewards = { currency: 'TWD', availableCents: 88_000, pendingCents: 12_000, customerCount: 42 };
 
 function renderPage() {
   return render(<I18nProvider><AnalyticsPage /></I18nProvider>);
@@ -74,8 +74,8 @@ function dateInputs(container: HTMLElement) {
 
 beforeEach(() => {
   vi.mocked(api.salesSummary).mockReset().mockResolvedValue(summary);
-  vi.mocked(api.promotionPerformance).mockReset().mockResolvedValue({ items: promotionPerformance });
-  vi.mocked(api.partnerPerformance).mockReset().mockResolvedValue({ items: partners });
+  vi.mocked(api.promotionPerformance).mockReset().mockResolvedValue({ currency: 'TWD', items: promotionPerformance });
+  vi.mocked(api.partnerPerformance).mockReset().mockResolvedValue({ currency: 'TWD', items: partners });
   vi.mocked(api.outstandingRewards).mockReset().mockResolvedValue(outstanding);
 });
 
@@ -151,7 +151,7 @@ describe('活動成效', () => {
   });
 
   it('沒有核銷時說出來，而不是給一張空表格', async () => {
-    vi.mocked(api.promotionPerformance).mockResolvedValue({ items: [] });
+    vi.mocked(api.promotionPerformance).mockResolvedValue({ currency: 'TWD', items: [] });
     renderPage();
 
     expect(await screen.findByText('這段期間沒有任何核銷。')).toBeInTheDocument();
@@ -179,7 +179,7 @@ describe('行銷碼成效', () => {
   });
 
   it('沒有帶歸因的核銷時說出來', async () => {
-    vi.mocked(api.partnerPerformance).mockResolvedValue({ items: [] });
+    vi.mocked(api.partnerPerformance).mockResolvedValue({ currency: 'TWD', items: [] });
     renderPage();
 
     expect(await screen.findByText('這段期間沒有帶歸因的核銷。')).toBeInTheDocument();

@@ -15,12 +15,12 @@ import {
 } from './jobs';
 import { loyaltyMigrations } from './migrations';
 import {
-  getCustomerLoyaltyHandler, getCustomerLoyaltyQuery,
+  createGetCustomerLoyaltyHandler, getCustomerLoyaltyQuery,
   getMyRewardsHandler, getMyRewardsQuery,
   getMyTierHandler, getMyTierQuery,
   listTiersHandler, listTiersQuery,
   getRewardSettingsHandler, getRewardSettingsQuery,
-  outstandingRewardsHandler, outstandingRewardsQuery,
+  createOutstandingRewardsHandler, outstandingRewardsQuery,
 } from './queries';
 
 export function createLoyaltyModule(deps: LoyaltyModuleDeps): PlatformModule {
@@ -52,10 +52,10 @@ export function createLoyaltyModule(deps: LoyaltyModuleDeps): PlatformModule {
   queries: [
     { descriptor: getMyRewardsQuery, handler: getMyRewardsHandler },
     { descriptor: getRewardSettingsQuery, handler: getRewardSettingsHandler },
-    { descriptor: outstandingRewardsQuery, handler: outstandingRewardsHandler },
+    { descriptor: outstandingRewardsQuery, handler: createOutstandingRewardsHandler(deps) },
     { descriptor: getMyTierQuery, handler: getMyTierHandler },
     { descriptor: listTiersQuery, handler: listTiersHandler },
-    { descriptor: getCustomerLoyaltyQuery, handler: getCustomerLoyaltyHandler },
+    { descriptor: getCustomerLoyaltyQuery, handler: createGetCustomerLoyaltyHandler(deps) },
   ],
   });
 }

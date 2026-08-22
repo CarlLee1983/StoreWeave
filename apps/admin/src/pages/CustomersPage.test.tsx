@@ -38,6 +38,7 @@ const detail: AdminCustomerDetail = {
 };
 
 const loyalty: CustomerLoyalty = {
+  currency: 'TWD',
   balance: { availableCents: 12_000, pendingCents: 3_000, expiredCents: 0, nextExpiry: null },
   tierName: '銀卡',
   tierPoints: 4_200,

@@ -135,6 +135,7 @@ export const attributionSummaryInput = z.object({
 }).strict();
 
 export const attributionSummaryOutput = z.object({
+  currency: z.string().length(3),
   items: z.array(z.object({
     partnerCode: z.string(),
     orderCount: z.number().int().nonnegative(),
@@ -159,6 +160,8 @@ export const myCouponDto = z.object({
   /** 到期日在七天內。前台把它凸顯出來。 */
   expiringSoon: z.boolean(),
   usable: z.boolean(),
+  /** 不能用的原因。分得細不是為了好看：顧客看到「已過期」會去找別張，看到「已停用」會問客服。 */
+  unusableReason: z.enum(['used', 'void', 'not_started', 'expired', 'promotion_ended']).nullable(),
 });
 
 export const listMyCouponsOutput = z.object({ items: z.array(myCouponDto) });
@@ -169,6 +172,7 @@ export const promotionPerformanceInput = z.object({
 }).strict();
 
 export const promotionPerformanceOutput = z.object({
+  currency: z.string().length(3),
   items: z.array(z.object({
     promotionId: z.string().uuid(),
     name: z.string(),

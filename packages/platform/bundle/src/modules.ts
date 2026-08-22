@@ -38,7 +38,7 @@ export function coreModules(options: {
       currency: options.defaultCurrency,
       locale: options.locale,
     }),
-    createLoyaltyModule({ providers: options.providers }),
+    createLoyaltyModule({ providers: options.providers, currency: options.defaultCurrency }),
     createOrderModule({
       providers: options.providers,
       defaultCurrency: options.defaultCurrency,

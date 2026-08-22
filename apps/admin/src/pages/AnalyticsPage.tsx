@@ -118,13 +118,18 @@ function SalesSummarySection({ from, to }: { from: string; to: string }) {
 function PromotionPerformanceSection({ from, to }: { from: string; to: string }) {
   const { t, formatMoney } = useI18n();
   const [items, setItems] = useState<PromotionPerformance[] | null>(null);
+  const [currency, setCurrency] = useState('');
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
     let cancelled = false;
     setError(null);
     api.promotionPerformance(useRange(from, to))
-      .then((result) => !cancelled && setItems(result.items))
+      .then((result) => {
+        if (cancelled) return;
+        setItems(result.items);
+        setCurrency(result.currency);
+      })
       .catch((err) => !cancelled && setError(err));
     return () => { cancelled = true; };
   }, [from, to]);
@@ -147,8 +152,8 @@ function PromotionPerformanceSection({ from, to }: { from: string; to: string })
                 <td>{item.name}</td>
                 <td className="mono">{item.redemptionCount}</td>
                 <td className="mono">{item.orderCount}</td>
-                <td className="mono">{formatMoney(item.discountCents, 'TWD')}</td>
-                <td className="mono">{formatMoney(item.revenueCents, 'TWD')}</td>
+                <td className="mono">{formatMoney(item.discountCents, currency)}</td>
+                <td className="mono">{formatMoney(item.revenueCents, currency)}</td>
               </tr>
             ))}
           </tbody>
@@ -161,13 +166,18 @@ function PromotionPerformanceSection({ from, to }: { from: string; to: string })
 function PartnerSection({ from, to }: { from: string; to: string }) {
   const { t, formatMoney } = useI18n();
   const [items, setItems] = useState<AttributionSummary[] | null>(null);
+  const [currency, setCurrency] = useState('');
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
     let cancelled = false;
     setError(null);
     api.partnerPerformance(useRange(from, to))
-      .then((result) => !cancelled && setItems(result.items))
+      .then((result) => {
+        if (cancelled) return;
+        setItems(result.items);
+        setCurrency(result.currency);
+      })
       .catch((err) => !cancelled && setError(err));
     return () => { cancelled = true; };
   }, [from, to]);
@@ -188,8 +198,8 @@ function PartnerSection({ from, to }: { from: string; to: string }) {
               <tr key={item.partnerCode}>
                 <td>{item.partnerCode}</td>
                 <td className="mono">{item.orderCount}</td>
-                <td className="mono">{formatMoney(item.revenueCents, 'TWD')}</td>
-                <td className="mono">{formatMoney(item.discountCents, 'TWD')}</td>
+                <td className="mono">{formatMoney(item.revenueCents, currency)}</td>
+                <td className="mono">{formatMoney(item.discountCents, currency)}</td>
               </tr>
             ))}
           </tbody>
@@ -220,8 +230,8 @@ function OutstandingRewardsSection() {
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
       {!data ? <Loading /> : (
         <div className="summary-cards">
-          <SummaryCard label={t('rewardAvailable')} value={formatMoney(data.availableCents, 'TWD')} />
-          <SummaryCard label={t('rewardPending')} value={formatMoney(data.pendingCents, 'TWD')} />
+          <SummaryCard label={t('rewardAvailable')} value={formatMoney(data.availableCents, data.currency)} />
+          <SummaryCard label={t('rewardPending')} value={formatMoney(data.pendingCents, data.currency)} />
           <SummaryCard label={t('rewardHolders')} value={String(data.customerCount)} />
         </div>
       )}

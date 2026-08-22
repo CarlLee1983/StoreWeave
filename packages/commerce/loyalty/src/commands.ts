@@ -15,6 +15,8 @@ import { rewardService, tierService } from './service';
 
 export interface LoyaltyModuleDeps {
   providers: ProviderRegistry;
+  /** 金額要說得出幣別。後台硬編一個 'TWD' 只是在等第二個幣別的商店出現。 */
+  currency: string;
 }
 
 const repository = new LoyaltyRepository();

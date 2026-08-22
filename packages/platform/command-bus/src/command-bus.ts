@@ -200,8 +200,11 @@ export class CommandBus {
     }
     // 冪等鍵屬於當初宣告它的人。不比對的話，重放會在 handler 執行之前就回傳快取的結果，
     // 於是 handler 裡的歸屬檢查完全不會執行——猜到別人的鍵就能讀到別人的回應。
+    //
+    // 回 notFound 而不是 forbidden，理由與訂單查詢相同：後者會變成
+    // 「這把鍵存不存在」的 oracle。
     if (row.actor_id !== actorId) {
-      throw PlatformError.forbidden(`Idempotency key "${key}" belongs to another actor`);
+      throw PlatformError.notFound('Idempotency key', key);
     }
     return { kind: 'replay', response: row.response };
   }
