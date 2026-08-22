@@ -107,7 +107,8 @@ describe('MCP 不得繞過 Application Layer', () => {
       const pool = tool.target.kind === 'command' ? commandNames : queryNames;
       expect(pool).toContain(tool.target.name);
     }
-  });
+    // 這條測試會動態載入整個 bundle 的模組圖，冷啟動比預設的 5 秒久。
+  }, 30_000);
 });
 
 describe('Commerce Core 沒有客戶條件判斷', () => {
@@ -150,5 +151,5 @@ describe('公開契約不外洩 ORM Entity', () => {
         expect(descriptor.permission).toMatch(/^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/);
       }
     }
-  });
+  }, 30_000);
 });
