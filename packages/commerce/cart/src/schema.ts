@@ -1,0 +1,27 @@
+import { integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+
+/**
+ * 購物車。訪客以 token 的雜湊綁定、會員以顧客識別綁定，兩者擇一。
+ * 購物車**不預留庫存**，也**不凍結價格**——兩者都發生在轉成訂單的那一刻。
+ */
+export const carts = pgTable('cart_carts', {
+  id: uuid('id').primaryKey(),
+  customerId: uuid('customer_id'),
+  /** 訪客 token 只存雜湊：cookie 外洩不等於資料庫裡有一份可用的識別碼。 */
+  guestTokenHash: text('guest_token_hash'),
+  status: text('status').notNull().default('open'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cartItems = pgTable('cart_items', {
+  id: uuid('id').primaryKey(),
+  cartId: uuid('cart_id').notNull(),
+  productId: uuid('product_id').notNull(),
+  quantity: integer('quantity').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type CartRow = typeof carts.$inferSelect;
+export type CartItemRow = typeof cartItems.$inferSelect;

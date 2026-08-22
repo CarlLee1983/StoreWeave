@@ -39,6 +39,7 @@
       "@storeweave/inventory": ["packages/commerce/inventory/src/index.ts"],
       "@storeweave/order": ["packages/commerce/order/src/index.ts"],
       "@storeweave/customer": ["packages/commerce/customer/src/index.ts"],
+      "@storeweave/cart": ["packages/commerce/cart/src/index.ts"],
       "@storeweave/promotion": ["packages/commerce/promotion/src/index.ts"],
       "@storeweave/ext-mock-payment": ["packages/extensions/mock-payment/src/index.ts"],
       "@storeweave/ext-mock-notification": ["packages/extensions/mock-notification/src/index.ts"],

@@ -6,9 +6,9 @@ export const BUILT_IN_ROLES: Record<string, readonly string[]> = {
   mcp: ['catalog:read', 'inventory:read', 'inventory:write', 'order:read', 'analytics:read'],
   // 匿名訪客。刻意沒有 order:read：無範圍的訂單讀取等於任何人猜到訂單號就能讀別人的
   // 訂單。訂單頁在工單 21 之後需要登入，訪客沒有訂單可看。
-  storefront: ['catalog:read', 'inventory:read', 'order:write', 'promotion:quote', 'customer:register'],
+  storefront: ['catalog:read', 'inventory:read', 'order:write', 'promotion:quote', 'customer:register', 'cart:read', 'cart:write'],
   // 已登入的顧客。讀取仍需 query handler 依 actor 限縮到自己的資料。
-  customer: ['catalog:read', 'inventory:read', 'order:read', 'order:write', 'promotion:quote', 'customer:read', 'customer:write'],
+  customer: ['catalog:read', 'inventory:read', 'order:read', 'order:write', 'promotion:quote', 'customer:read', 'customer:write', 'cart:read', 'cart:write'],
 };
 
 export function permissionsForRole(role: string): readonly string[] {

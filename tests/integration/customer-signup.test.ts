@@ -113,9 +113,12 @@ describe('顧客登入與登出', () => {
       method: 'POST', url: '/api/v1/orders',
       cookies: { [SESSION_COOKIE]: session },
       headers: { 'x-csrf-token': csrfTokenFor(session), 'idempotency-key': 'customer-order-1' },
-      payload: { customerEmail: 'buyer6@example.com', lines: [{ productId: product.id, quantity: 1 }] },
+      // 不送 customerEmail：下單者由身分決定（工單 21），送了會被 strict 擋下
+      payload: { lines: [{ productId: product.id, quantity: 1 }] },
     });
     expect(created.statusCode).toBe(201);
+    // 訂單上的 email 來自帳號，不是呼叫端說了算
+    expect(created.json().data.customerEmail).toBe('buyer6@example.com');
 
     const audit = await h.runtime.database.db.execute<{ actor_type: string; actor_id: string }>(sql`
       SELECT actor_type, actor_id FROM platform_audit_log
