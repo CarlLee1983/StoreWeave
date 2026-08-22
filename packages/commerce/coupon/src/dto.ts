@@ -162,3 +162,21 @@ export const myCouponDto = z.object({
 });
 
 export const listMyCouponsOutput = z.object({ items: z.array(myCouponDto) });
+
+export const promotionPerformanceInput = z.object({
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+}).strict();
+
+export const promotionPerformanceOutput = z.object({
+  items: z.array(z.object({
+    promotionId: z.string().uuid(),
+    name: z.string(),
+    /** 核銷次數。同一張訂單用兩張券算兩次。 */
+    redemptionCount: z.number().int().nonnegative(),
+    orderCount: z.number().int().nonnegative(),
+    discountCents: z.number().int().nonnegative(),
+    /** 這些訂單的應付金額合計。 */
+    revenueCents: z.number().int().nonnegative(),
+  })),
+});

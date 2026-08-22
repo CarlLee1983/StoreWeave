@@ -7,6 +7,7 @@ import { ProductsPage } from './pages/ProductsPage';
 import { OrdersPage } from './pages/OrdersPage';
 import { PromotionsPage } from './pages/PromotionsPage';
 import { CouponsPage } from './pages/CouponsPage';
+import { AnalyticsPage } from './pages/AnalyticsPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { ErpPage } from './pages/ErpPage';
 import { SystemPage } from './pages/SystemPage';
@@ -88,6 +89,15 @@ const ENTRIES = [
     title: 'customersTitle',
     subtitle: 'customersSubtitle',
     render: () => <CustomersPage />,
+  },
+  {
+    path: 'analytics',
+    navLabel: 'analytics',
+    icon: 'activity',
+    section: 'commerce',
+    title: 'analyticsTitle',
+    subtitle: 'analyticsSubtitle',
+    render: () => <AnalyticsPage />,
   },
   {
     path: 'erp',

@@ -10,6 +10,8 @@ import {
   getCouponInput,
   listCouponsInput,
   listCouponsOutput,
+  promotionPerformanceInput,
+  promotionPerformanceOutput,
   listMyCouponsInput,
   listMyCouponsOutput,
 } from './dto';
@@ -109,3 +111,25 @@ export function createListMyCouponsHandler(deps: { currency: string; locale: str
     return { items: result };
   };
 }
+
+export const promotionPerformanceQuery = defineQuery({
+  name: 'commerce.coupon.promotionPerformance',
+  summary: '每一檔活動的核銷次數、折抵總額、訂單數與營收',
+  input: promotionPerformanceInput,
+  output: promotionPerformanceOutput,
+  permission: 'analytics:read',
+});
+
+export const promotionPerformanceHandler = async (
+  input: z.infer<typeof promotionPerformanceInput>,
+  ctx: QueryContext,
+) => {
+  const rows = await repository.promotionPerformance(ctx.db, input);
+  const items = [];
+  for (const row of rows) {
+    const promotion = await promotions.findById(ctx.db, row.promotionId);
+    // 活動被刪掉時仍然要看得到數字：錢已經花出去了，報表不該假裝沒發生。
+    items.push({ ...row, name: promotion?.name ?? row.promotionId });
+  }
+  return { items };
+};

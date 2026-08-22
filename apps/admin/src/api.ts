@@ -145,6 +145,28 @@ export type CustomerLoyalty = {
   }[];
 };
 
+export type PromotionPerformance = {
+  promotionId: string;
+  name: string;
+  redemptionCount: number;
+  orderCount: number;
+  discountCents: number;
+  revenueCents: number;
+};
+
+export type AttributionSummary = {
+  partnerCode: string;
+  orderCount: number;
+  revenueCents: number;
+  discountCents: number;
+};
+
+export type OutstandingRewards = {
+  availableCents: number;
+  pendingCents: number;
+  customerCount: number;
+};
+
 export type SalesSummary = {
   currency: string;
   paidOrderCount: number;
@@ -444,13 +466,20 @@ export const api = {
     return request<AdminCustomer>(`/api/v1/customers/${id}/status`, { method: 'POST', body: { status }, idempotent: true });
   },
   salesSummary(params: { from?: string; to?: string }) {
-    // date input 只有到日，這裡補上時間讓區間包含「到」那一整天
-    return request<SalesSummary>(
-      `/api/v1/analytics/sales-summary${toQuery({
-        from: params.from ? `${params.from}T00:00:00` : undefined,
-        to: params.to ? `${params.to}T23:59:59.999` : undefined,
-      })}`,
+    return request<SalesSummary>(`/api/v1/analytics/sales-summary${toQuery(dayRange(params))}`);
+  },
+  promotionPerformance(params: { from?: string; to?: string }) {
+    return request<{ items: PromotionPerformance[] }>(
+      `/api/v1/analytics/promotions${toQuery(dayRange(params))}`,
     );
+  },
+  partnerPerformance(params: { from?: string; to?: string }) {
+    return request<{ items: AttributionSummary[] }>(
+      `/api/v1/analytics/partners${toQuery(dayRange(params))}`,
+    );
+  },
+  outstandingRewards() {
+    return request<OutstandingRewards>('/api/v1/analytics/outstanding-rewards');
   },
   listExtensions() {
     return request<{ items: ExtensionInfo[] }>('/api/v1/extensions');
@@ -493,6 +522,14 @@ export const api = {
     return request<CurrentUser>('/api/v1/auth/me', { withAuth: false });
   },
 };
+
+/** date input 只有到日，補上時間讓區間包含「到」那一整天。 */
+function dayRange(params: { from?: string; to?: string }) {
+  return {
+    from: params.from ? `${params.from}T00:00:00` : undefined,
+    to: params.to ? `${params.to}T23:59:59.999` : undefined,
+  };
+}
 
 /** 依 currency 格式化 cents 金額 */
 export function formatMoney(cents: number, currency: string): string {

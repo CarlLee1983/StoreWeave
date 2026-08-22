@@ -1,22 +1,15 @@
 import { useEffect, useState } from 'react';
-import { api, type ExtensionInfo, type HealthReport, type SalesSummary } from '../api';
+import { api, type ExtensionInfo, type HealthReport } from '../api';
 import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function toDateInput(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
 
 export function SystemPage() {
   return (
     <section>
       <HealthSection />
       <ExtensionsSection />
-      <SalesSummarySection />
     </section>
   );
 }
@@ -112,85 +105,5 @@ function ExtensionsSection() {
         </ul>
       )}
     </div></div>
-  );
-}
-
-function SalesSummarySection() {
-  const { t, formatMoney } = useI18n();
-  const [from, setFrom] = useState(toDateInput(new Date(Date.now() - 30 * DAY_MS)));
-  const [to, setTo] = useState(toDateInput(new Date()));
-  const [summary, setSummary] = useState<SalesSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<unknown>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    api
-      .salesSummary({ from, to })
-      .then((result) => !cancelled && setSummary(result))
-      .catch((err) => !cancelled && setError(err))
-      .finally(() => !cancelled && setLoading(false));
-
-    return () => {
-      cancelled = true;
-    };
-  }, [from, to]);
-
-  return (
-    <div className="panel">
-      <div className="panel__header"><h3>{t('salesSummary')}</h3></div><div className="panel__body">
-      <div className="toolbar">
-        <label>
-          {t('from')}
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        </label>
-        <label>
-          {t('to')}
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        </label>
-      </div>
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-      {loading ? (
-        <Loading />
-      ) : (
-        summary && (
-          <>
-            <div className="summary-cards">
-              <SummaryCard label={t('paidOrders')} value={String(summary.paidOrderCount)} /><SummaryCard label={t('pendingOrders')} value={String(summary.pendingOrderCount)} /><SummaryCard label={t('cancelledOrders')} value={String(summary.cancelledOrderCount)} /><SummaryCard label={t('grossRevenue')} value={formatMoney(summary.grossRevenueCents, summary.currency)} /><SummaryCard label={t('averageOrderValue')} value={formatMoney(summary.averageOrderValueCents, summary.currency)} />
-            </div>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>SKU</th>
-                  <th>{t('productName')}</th><th>{t('salesQuantity')}</th><th>{t('revenue')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.topProducts.map((product) => (
-                  <tr key={product.productId}>
-                    <td>{product.sku}</td>
-                    <td>{product.name}</td>
-                    <td>{product.quantity}</td>
-                    <td>{formatMoney(product.revenueCents, summary.currency)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        )
-      )}
-    </div></div>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="summary-card">
-      <span className="summary-card__label">{label}</span>
-      <span className="summary-card__value">{value}</span>
-    </div>
   );
 }

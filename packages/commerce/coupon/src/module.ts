@@ -10,6 +10,7 @@ import { BIRTHDAY_COUPONS_JOB, createBirthdayCouponsJob } from './jobs';
 import { couponMigrations } from './migrations';
 import {
   attributionSummaryHandler, attributionSummaryQuery,
+  promotionPerformanceHandler, promotionPerformanceQuery,
   getCouponHandler, getCouponQuery, listCouponsHandler, listCouponsQuery,
   createListMyCouponsHandler, listMyCouponsQuery,
 } from './queries';
@@ -59,6 +60,7 @@ export function createCouponModule(deps: CouponModuleDeps): PlatformModule {
     { descriptor: getCouponQuery, handler: getCouponHandler },
     { descriptor: listCouponsQuery, handler: listCouponsHandler },
     { descriptor: attributionSummaryQuery, handler: attributionSummaryHandler },
+    { descriptor: promotionPerformanceQuery, handler: promotionPerformanceHandler },
     { descriptor: listMyCouponsQuery, handler: createListMyCouponsHandler(deps) },
   ],
   });

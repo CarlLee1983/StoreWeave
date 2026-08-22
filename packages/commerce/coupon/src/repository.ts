@@ -191,6 +191,40 @@ export class CouponRepository {
     }));
   }
 
+  /**
+   * 每一檔活動的成效。查的是核銷明細——它天生比訂單表小得多，
+   * 而且本來就是為了這件事存在的（Spec 0004、0005）。不建 projection。
+   */
+  async promotionPerformance(
+    db: DrizzleDb | Tx,
+    filter: { from?: Date; to?: Date },
+  ): Promise<{ promotionId: string; redemptionCount: number; orderCount: number; discountCents: number; revenueCents: number }[]> {
+    const conditions: SQL[] = [isNull(couponRedemptions.reversedAt)];
+    if (filter.from) conditions.push(gte(couponRedemptions.redeemedAt, filter.from));
+    if (filter.to) conditions.push(lt(couponRedemptions.redeemedAt, filter.to));
+
+    const rows = await db
+      .select({
+        promotionId: couponRedemptions.promotionId,
+        redemptionCount: sql<number>`count(*)::int`,
+        orderCount: sql<number>`count(DISTINCT ${couponRedemptions.orderId})::int`,
+        discountCents: sql<number>`coalesce(sum(${couponRedemptions.discountCents}), 0)::int`,
+        revenueCents: sql<number>`coalesce(sum(${couponRedemptions.orderTotalCents}), 0)::int`,
+      })
+      .from(couponRedemptions)
+      .where(and(...conditions)!)
+      .groupBy(couponRedemptions.promotionId)
+      .orderBy(desc(sql`coalesce(sum(${couponRedemptions.discountCents}), 0)`));
+
+    return rows.map((row) => ({
+      promotionId: row.promotionId,
+      redemptionCount: Number(row.redemptionCount),
+      orderCount: Number(row.orderCount),
+      discountCents: Number(row.discountCents),
+      revenueCents: Number(row.revenueCents),
+    }));
+  }
+
   async redemptionForOrder(db: DrizzleDb | Tx, orderId: string): Promise<CouponRedemptionRow | null> {
     const [row] = await db
       .select()
