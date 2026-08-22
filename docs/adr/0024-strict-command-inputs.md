@@ -20,9 +20,14 @@ order、promotion、loyalty 剩下的 20 個 input 沒有。同一批 API 裡有
 **所有 Command 與 Query 的 input schema 一律 `.strict()`**，未知欄位回
 `VALIDATION_ERROR`（HTTP 400）。輸出 DTO 不受影響——那是回應的形狀，不是契約的入口。
 
-守在測試而不是守在慣例：`tests/unit/strict-inputs.test.ts` 掃過八個模組所有匯出的
-`*Input`，逐一斷言 `unknownKeys === 'strict'`。新加的 input 忘記寫，那條測試會紅，
-不需要有人在審查時記得這件事。
+守在測試而不是守在慣例：`tests/unit/strict-inputs.test.ts` 從 `coreModules()` 走過
+八個模組**註冊處**的每一支 descriptor，逐一斷言 `unknownKeys === 'strict'`。
+新加的 command / query 忘記寫，那條測試會紅，不需要有人在審查時記得這件事。
+
+掃註冊處而不是掃 `dto.ts` 裡叫做 `*Input` 的匯出，是因為有四支的輸入 schema 是直接
+內嵌在 `defineQuery` / `defineCommand` 上的匿名 `z.object()`（catalog 的 getProduct、
+customer 的 getMyProfile 與 getCustomer、order 的 expireOrder）。第一版的測試靠命名
+慣例掃，這四支從頭到尾看不到——**判準要對齊真正的邊界，不是對齊命名習慣**。
 
 `.refine()` 的順序是 `z.object({...}).strict().refine(...)`：`.refine()` 回傳的是
 ZodEffects，在它之後才 `.strict()` 是接不上去的。
@@ -40,7 +45,7 @@ Zod 預設會把未知欄位剝掉，因此傳到 Command Bus 的物件只有認
 
 ## Falsified if
 
-`packages/**/src/dto.ts` 裡出現沒有 `.strict()` 的 `*Input`，
-或 `tests/unit/strict-inputs.test.ts` 被改成只檢查部分模組、
-或它的 `inputSchemas().length` 下限被調低到掃不到東西也能通過 —— 任一項成立，
+`tests/unit/strict-inputs.test.ts` 被改成只檢查部分模組、
+或改回掃 `dto.ts` 的匯出而不是 `coreModules()` 的 descriptor、
+或它的數量下限被調低到掃不到東西也能通過 —— 任一項成立，
 代表「輸入的挑剔程度只有一個答案」這件事又鬆掉了，這篇記的理由要重新檢視。

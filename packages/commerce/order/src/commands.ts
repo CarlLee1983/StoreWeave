@@ -396,7 +396,7 @@ export const markPaidCommand = defineCommand({
 
 export const expireOrderCommand = defineCommand({
   name: 'commerce.order.expireOrder', summary: '釋放逾時未付款訂單的庫存預留',
-  input: z.object({ orderId: z.string().uuid() }), output: orderDto, permission: 'order:write', idempotency: 'required',
+  input: z.object({ orderId: z.string().uuid() }).strict(), output: orderDto, permission: 'order:write', idempotency: 'required',
   audit: { action: 'order.expired', resourceType: 'order', resourceId: (i) => i.orderId },
 });
 

@@ -8,7 +8,7 @@ const repository = new ProductRepository();
 export const getProductQuery = defineQuery({
   name: 'commerce.catalog.getProduct',
   summary: '依 id 或 sku 取得商品',
-  input: z.object({ id: z.string().uuid().optional(), sku: z.string().optional() }).refine(
+  input: z.object({ id: z.string().uuid().optional(), sku: z.string().optional() }).strict().refine(
     (v) => Boolean(v.id || v.sku),
     { message: 'Either id or sku is required' },
   ),

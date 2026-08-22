@@ -15,7 +15,7 @@ const repository = new CustomerRepository();
 export const getMyProfileQuery = defineQuery({
   name: 'commerce.customer.getMyProfile',
   summary: '讀取自己的個人資料',
-  input: z.object({}),
+  input: z.object({}).strict(),
   output: customerDto,
   permission: 'customer:read',
 });
@@ -44,7 +44,7 @@ export const listCustomersHandler = async (input: z.infer<typeof listCustomersIn
 export const getCustomerQuery = defineQuery({
   name: 'commerce.customer.getCustomer',
   summary: '後台：單一會員的資料與訂單',
-  input: z.object({ id: z.string().uuid() }),
+  input: z.object({ id: z.string().uuid() }).strict(),
   output: adminCustomerDetailDto,
   permission: 'customers:manage',
 });

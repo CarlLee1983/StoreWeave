@@ -6,7 +6,7 @@
 
 **Status:** done
 
-- [x] 六個模組的 input schema 全部 `.strict()`，`packages/**/dto.ts` 裡不再有寬鬆的 input
+- [x] 六個模組的 input schema 全部 `.strict()`，包含四支內嵌在註冊處的匿名 `z.object()`
 - [x] 每個模組至少一條測試斷言「多帶一個不認得的欄位會被擋下來」
 - [x] 內部呼叫端（controller、storefront、job、MCP、demo-erp）沒有任何一處在送多餘欄位
 - [x] 契約變更記在 ADR 0024，並在 `docs/operations.md` 說明升級時可能看到的 400
