@@ -28,10 +28,28 @@ order、promotion 剩下的 20 個 input，加上四支直接內嵌在註冊處�
 `promotionRuleInput`：只有寫入這一側嚴格。一起收緊會把「建立時被忽略的欄位」變成
 「這筆資料從此讀不回來」——用一個看得見的錯誤換掉一個更嚴重的。
 
-**Extension 的輸入暫時不在範圍內**（`ext.demo-erp.*` 三支）。
-`apps/api/src/controllers/extensions.controller.ts` 的橋接把 query string 整包往下送，
-先收緊會讓任何帶 `_t=` 這類 cache-buster 的呼叫立刻 400。要納入得先讓橋接明挑欄位，
-那是獨立的一張票。
+**Extension 的輸入也在範圍內**（`ext.demo-erp.*` 三支，工單 51 補上）。
+前提是 `apps/api/src/controllers/extensions.controller.ts` 的橋接**明挑欄位**：
+它原本把 query string 整包往下送，直接收緊會讓任何帶 `_t=` 這類 cache-buster 的呼叫立刻 400。
+現在它依 Bus 上那支 descriptor 自己宣告的鍵（`declaredInputKeys`）過濾——控制器裡另抄一份白名單，
+下一支 extension 註冊時就會忘記更新。
+
+**兩側刻意不對稱**：query string 挑欄位，Command 的 JSON body 不挑。query string 是公共空間，
+瀏覽器、CDN、前端都會往上加鍵而呼叫端阻止不了，在那裡回 400 等於把別人加的東西算到他頭上；
+body 裡多出來的鍵一定是呼叫端自己送的，那正是這篇要讓它看得見的情況。
+
+Extension 這一側守在 Extension Contract Test（`packages/platform/extension-sdk/src/contract-test.ts`）
+的兩項檢查：`command / query inputs reject unknown keys` 驗嚴格性，
+`command / query inputs are a plain object the HTTP bridge can pick keys from` 驗「橋接讀得出
+它宣告了哪些鍵」。兩項都走過 `setup()` 實際註冊的每一支 descriptor，對所有 extension 生效。
+
+第二項不是多餘的：一支每個分支都 `.strict()` 的 `z.union([...])` 嚴格性沒有問題，但
+`declaredInputKeys` 剝不出鍵，橋接只能整包往下送，於是帶 `?_t=` 的呼叫又會回 400——
+收緊輸入的前提是挑得出欄位，而挑不出來的失敗方式與收緊前完全一樣，不會有人發現。
+
+橋接挑掉的鍵會 `logger.warn` 一行（只記鍵名，值可能是個人資料）。打錯的 `?limits=10`
+拿到的是 200 帶預設值，沒有那行日誌就等於在這裡新開一個「安靜忽略」——
+而這篇整篇要換掉的就是安靜忽略。
 
 守在測試而不是守在慣例：`tests/unit/strict-inputs.test.ts` 從 `coreModules()` 走過
 八個模組**註冊處**的每一支 descriptor，逐一斷言 `unknownKeys === 'strict'`。
@@ -73,6 +91,8 @@ MCP 那條路徑不是天生安全的。工具 schema 反而會**多**一個 `id
 ## Falsified if
 
 `tests/unit/strict-inputs.test.ts` 被改成只檢查部分模組、
+或 Extension Contract Test 的 `command / query inputs reject unknown keys`
+與 `... are a plain object the HTTP bridge can pick keys from` 任一項被拿掉、
 或改回掃 `dto.ts` 的匯出而不是模組註冊處的 descriptor、
 或它改回只讀 `_def.unknownKeys` 而不實際解析一次
 （`.strict().catchall(z.unknown())` 會讓那個欄位仍是 `'strict'` 而未知鍵照樣通過）——

@@ -104,7 +104,9 @@ export function createPushOrderJob(): ExtensionJobHandler {
 export const resendOrderCommand = defineCommand({
   name: 'ext.demo-erp.resendOrder',
   summary: '人工重送訂單到 ERP',
-  input: z.object({ orderId: z.string().uuid() }),
+  // 輸入一律拒絕未知欄位（ADR 0024）。Query 那兩支同樣收緊——HTTP 橋接在進 Bus 前
+  // 就把 query string 上未宣告的鍵挑掉，因此帶 cache-buster 的呼叫不會誤傷（工單 51）。
+  input: z.object({ orderId: z.string().uuid() }).strict(),
   output: z.object({ orderId: z.string(), status: z.string(), attempts: z.number().int(), jobId: z.string().nullable() }),
   permission: 'erp:write',
   idempotency: 'optional',
@@ -152,7 +154,7 @@ export const listDeliveriesQuery = defineQuery({
   input: z.object({
     status: z.enum(['pending', 'sent', 'failed']).optional(),
     limit: z.coerce.number().int().min(1).max(200).default(50),
-  }),
+  }).strict(),
   output: z.object({ items: z.array(deliveryRecord) }),
   permission: 'erp:read',
 });
@@ -164,7 +166,7 @@ export const listDeliveriesQuery = defineQuery({
 export const inspectDeliveryPayloadQuery = defineQuery({
   name: 'ext.demo-erp.inspectDeliveryPayload',
   summary: '檢視 ERP 投遞的 HTTP JSON payload',
-  input: z.object({ orderId: z.string().uuid() }),
+  input: z.object({ orderId: z.string().uuid() }).strict(),
   output: z.object({ orderId: z.string().uuid(), payload: z.record(z.unknown()) }),
   permission: 'erp:read',
 });

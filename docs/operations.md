@@ -136,7 +136,9 @@ correlation id，以及經過遮蔽的請求摘要。
 一律拒絕未知欄位（ADR 0024）。過去送了多餘欄位而被安靜忽略的請求，現在會被擋下來。
 回應的 `error.details` 會指出是哪一個鍵（同一份也寫進 `logger.warn`）；正確的處置是把
 那個鍵從客戶端拿掉，而不是放寬 schema——它本來就沒有做到送出者以為它做到的事。
-Extension 自己的輸入（`ext.*`）暫時不在範圍內，理由見 ADR 0024。
+Extension 自己的輸入（`ext.*`）同樣拒絕未知欄位。差別只在 `GET /api/v1/extensions/.../queries/...`
+的 query string：橋接會先把該支 Query 沒宣告的鍵挑掉，因此 `?_t=` 這類 cache-buster 不會變成 400。
+Extension Command 的 JSON body 不挑，多送的鍵一律 400。
 
 **升級後想回退** — `commerce rollback`。若該版本已經套用過 `contract` 階段的 migration，
 舊版程式無法讀取新 schema，此時只能還原備份。

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
-import { noopLogger } from '@storeweave/contracts';
+import { inputObjectOf, noopLogger } from '@storeweave/contracts';
 import { coreModules } from '@storeweave/bundle';
 import { identityModule } from '@storeweave/identity';
 import { createOpsModule } from '@storeweave/kernel';
@@ -29,19 +29,6 @@ const MODULES = [
   }),
 ];
 
-/** `.refine()` 之後外面包的是 ZodEffects，要剝到裡面的 object 才看得到 unknownKeys。 */
-function unwrap(schema: unknown): z.ZodTypeAny | null {
-  let current = schema as z.ZodTypeAny;
-  for (let depth = 0; depth < 5; depth += 1) {
-    if (current instanceof z.ZodObject) return current;
-    if (current instanceof z.ZodEffects) { current = current.innerType(); continue; }
-    if (current instanceof z.ZodDefault) { current = current.removeDefault(); continue; }
-    if (current instanceof z.ZodOptional) { current = current.unwrap(); continue; }
-    return null;
-  }
-  return null;
-}
-
 function registeredInputs(): [string, unknown][] {
   const found: [string, unknown][] = [];
   for (const module of MODULES) {
@@ -65,7 +52,9 @@ describe('所有 Command / Query 輸入都拒絕未知欄位', () => {
   });
 
   it.each(registeredInputs())('%s 多帶一個不認得的欄位會被擋', (_name, schema) => {
-    const object = unwrap(schema);
+    // 剝 wrapper 的那一段與 HTTP 橋接挑欄位時用的是同一支（`inputObjectOf`）：
+    // 兩邊各寫一次，遲早會有一邊剝得出來、另一邊剝不出來。
+    const object = inputObjectOf(schema);
     // 輸入不是 object 的話沒有「未知欄位」可言，但這個 repo 目前每一支都是 object；
     // 哪天不是了，這裡要的是一個明確的失敗而不是靜靜跳過。
     expect(object).toBeInstanceOf(z.ZodObject);

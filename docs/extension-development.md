@@ -11,6 +11,7 @@ Extension 是客戶特殊需求的唯一落腳處。它只能透過 `@storeweave
 | 2 | Provider Contract | `PaymentProvider` / `ShippingProvider` / `ErpProvider`（`providers.ts`） |
 | 3 | Command Registry | `ExtensionRegistration.commands`（`ext.<id>.*`） |
 | 4 | Query Registry | `ExtensionRegistration.queries`（`ext.<id>.*`） |
+| — | 輸入契約 | Command / Query 的 `input` 一律 `.strict()`（ADR 0024，見下） |
 | 5 | Domain Event Subscription | `ExtensionRegistration.events` |
 | 6 | Policy Registry | `ExtensionRegistration.policies`（deny-overrides） |
 | 7 | Permission Declaration | `manifest.permissions` / `manifest.declaredPermissions` |
@@ -82,7 +83,8 @@ type Config = z.infer<typeof config>;
 const requestWrapCommand = defineCommand({
   name: 'ext.gift-wrap.requestWrap',
   summary: '為訂單加購禮品包裝',
-  input: z.object({ orderId: z.string().uuid(), message: z.string().max(200).optional() }),
+  // 輸入一律 `.strict()`（ADR 0024）：Zod 預設會安靜丟掉未知欄位，端點回 200 而什麼都沒做。
+  input: z.object({ orderId: z.string().uuid(), message: z.string().max(200).optional() }).strict(),
   output: z.object({ orderId: z.string(), feeCents: z.number().int(), status: z.string() }),
   permission: 'gift-wrap:write',
   idempotency: 'required',
@@ -92,7 +94,7 @@ const requestWrapCommand = defineCommand({
 const listWrapsQuery = defineQuery({
   name: 'ext.gift-wrap.listWraps',
   summary: '列出已加購包裝的訂單',
-  input: z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }),
+  input: z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }).strict(),
   output: z.object({ items: z.array(z.object({
     orderId: z.string(), feeCents: z.number().int(), message: z.string().nullable(), status: z.string(),
   })) }),
@@ -209,6 +211,18 @@ export const giftWrapExtension = defineExtension<Config>({
 export default giftWrapExtension;
 ```
 
+## 輸入一律 `.strict()`
+
+Command 與 Query 的 `input` 都必須拒絕未知欄位（ADR 0024）。Zod 的 `z.object()` 預設會**丟掉**
+不認得的鍵：端點回 200、handler 收到的物件裡沒有那個鍵，送出者以為自己設到了東西。
+Contract Test 的 `command / query inputs reject unknown keys` 會擋下漏寫的那一支。
+
+`input` 還必須是**一個平的 object**，不能是 union、array 或 intersection：
+`GET /api/v1/extensions/<id>/queries/<name>` 的橋接依 `declaredInputKeys()` 讀出你宣告了哪些鍵，
+只把那些鍵往下送——`?_t=` 這類 cache-buster 才不會撞上 `.strict()` 回 400。剝不出鍵的輸入
+由 `command / query inputs are a plain object the HTTP bridge can pick keys from` 擋下。
+Command 的 JSON body 不做這個過濾：那裡多出來的鍵一定是呼叫端自己送的，就該回 400。
+
 ## Contract Test
 
 在不啟動平台、不連資料庫的情況下驗證契約：
@@ -272,3 +286,5 @@ extensions:
 | `requires secret "X" which is not set` | 環境變數或 Secret Provider 沒有提供該機密 |
 | `is incompatible: extension requires platform ^1.0.0` | `platformVersion` 與目前平台版本不符 |
 | `did not declare access to payment providers` | 取用未宣告的 provider kind |
+| `command / query inputs reject unknown keys` | 有一支 `input` 漏了 `.strict()`（ADR 0024） |
+| `... are a plain object the HTTP bridge can pick keys from` | `input` 不是平的 object（union / array），橋接讀不出它宣告了哪些鍵 |

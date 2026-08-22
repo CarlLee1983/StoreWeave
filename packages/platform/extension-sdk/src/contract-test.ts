@@ -1,4 +1,4 @@
-import { PLATFORM_VERSION } from '@storeweave/contracts';
+import { PLATFORM_VERSION, declaredInputKeys, inputObjectOf } from '@storeweave/contracts';
 import { checkPlatformCompatibility } from './compat';
 import { validateManifestShape } from './manifest';
 import { createTestExtensionContext } from './testing';
@@ -136,6 +136,37 @@ export async function runExtensionContractChecks(
 
   const duplicateJobTypes = jobTypes.filter((t, i) => jobTypes.indexOf(t) !== i);
   push('job types are unique', duplicateJobTypes.length === 0, duplicateJobTypes.join(', '));
+
+  // Extension 的輸入與 Core 的輸入是同一個答案：未知欄位一律擋（ADR 0024）。
+  // 斷言的是「真的解析一次會被擋」而不是讀 `_def.unknownKeys`——
+  // `.strict().catchall(z.unknown())` 會讓那個欄位仍是 'strict' 而未知鍵照樣通過。
+  const registeredInputs = [...(registration.commands ?? []), ...(registration.queries ?? [])];
+  const notObjects = registeredInputs
+    .filter(({ descriptor }) => inputObjectOf(descriptor.input) === null)
+    .map(({ descriptor }) => descriptor.name);
+  const lax = registeredInputs
+    .filter(({ descriptor }) => {
+      const result = descriptor.input.safeParse({ __definitely_not_a_field__: 1 });
+      return result.success || !result.error.issues.some((issue) => issue.code === 'unrecognized_keys');
+    })
+    .map(({ descriptor }) => descriptor.name)
+    // 不是 object 的輸入沒有「未知欄位」可言，它吐的是 invalid_type；
+    // 混進這份名單只會叫作者去找一個不存在的鍵。它由下面那一項各自報。
+    .filter((name) => !notObjects.includes(name));
+  push('command / query inputs reject unknown keys', lax.length === 0, lax.join(', '));
+
+  // 收緊輸入的前提是 HTTP 橋接挑得出欄位：`apps/api/src/controllers/extensions.controller.ts`
+  // 依 `declaredInputKeys` 過濾 query string，剝不出鍵時它只能整包往下送，
+  // 於是帶 `?_t=` 的呼叫會撞上 strict 而回 400——那正是工單 51 要消掉的失敗（ADR 0024）。
+  // union、array、intersection 這類輸入嚴格歸嚴格，但橋接讀不出它宣告了哪些鍵。
+  const unpickable = registeredInputs
+    .filter(({ descriptor }) => declaredInputKeys(descriptor.input) === null)
+    .map(({ descriptor }) => descriptor.name);
+  push(
+    'command / query inputs are a plain object the HTTP bridge can pick keys from',
+    unpickable.length === 0,
+    unpickable.join(', '),
+  );
 
   return checks;
 }

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
@@ -126,6 +126,52 @@ describe('REST 介面', () => {
       method: 'GET', url: '/api/v1/extensions/demo-erp/queries/commerce.catalog.searchProducts', headers: auth(),
     });
     expect(bad.statusCode).toBe(400);
+  });
+
+  it('橋接明挑欄位：query string 上的 cache-buster 不會撞上 strict 的輸入（工單 51）', async () => {
+    // `_t=` 這種鍵是瀏覽器與前端加上去的，呼叫端阻止不了；在這裡回 400 等於把別人加的東西算到他頭上。
+    const res = await inject({
+      method: 'GET',
+      url: '/api/v1/extensions/demo-erp/queries/ext.demo-erp.listDeliveries?limit=10&_t=1724371200000',
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+
+    // 宣告過的鍵必須活著穿過去。把所有鍵都挑掉的實作同樣會回 200（`limit` 有 default 50），
+    // 因此這裡送一個違反 schema 的值：它必須抵達 schema 並被擋下。
+    const passedThrough = await inject({
+      method: 'GET', url: '/api/v1/extensions/demo-erp/queries/ext.demo-erp.listDeliveries?limit=0', headers: auth(),
+    });
+    expect(passedThrough.statusCode).toBe(400);
+    expect(JSON.stringify(passedThrough.json().error.details)).toContain('limit');
+  });
+
+  it('挑掉的鍵會留下一行日誌，而不是靜靜消失（工單 51）', async () => {
+    // 打錯的 `?limits=10` 拿到的是 200 帶預設值。沒有這行日誌，維運手上只有「它沒照我說的做」。
+    const warn = vi.spyOn(h.runtime.logger, 'warn');
+    try {
+      const res = await inject({
+        method: 'GET', url: '/api/v1/extensions/demo-erp/queries/ext.demo-erp.listDeliveries?limits=10', headers: auth(),
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(warn.mock.calls.some(([fields]) => JSON.stringify(fields).includes('limits'))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('但 Extension Command 的 body 多一個鍵仍然回 400（工單 51）', async () => {
+    // body 裡多出來的鍵一定是呼叫端自己送的，那正是 ADR 0024 要讓它看得見的情況。
+    const res = await inject({
+      method: 'POST', url: '/api/v1/extensions/demo-erp/commands/ext.demo-erp.resendOrder',
+      headers: { ...auth(), 'idempotency-key': 'ext-strict-1' },
+      payload: { orderId: '11111111-1111-4111-8111-111111111111', notify: true },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('VALIDATION_ERROR');
+    expect(JSON.stringify(res.json().error.details)).toContain('notify');
   });
 
   it('契約自省列出 Command / Query / Event', async () => {
