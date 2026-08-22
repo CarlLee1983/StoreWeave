@@ -133,6 +133,16 @@ describe('先到期的先用', () => {
     expect(balance.availableCents).toBe(0);
   });
 
+  it('同一時刻的入帳與扣抵，先算入帳', () => {
+    const at = AT('2026-03-01T00:00:00.000Z');
+    const balance = deriveRewardBalance([
+      entry({ amountCents: -1_000, createdAt: at }),
+      entry({ amountCents: 1_000, createdAt: at }),
+    ], NOW);
+
+    expect(balance).toMatchObject({ availableCents: 0, pendingCents: 0 });
+  });
+
   it('輸入順序不影響結果', () => {
     const entries = [
       entry({ amountCents: 500, expiresAt: AT('2027-01-01T00:00:00.000Z'), createdAt: AT('2026-02-01T00:00:00.000Z') }),

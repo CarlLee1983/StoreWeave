@@ -58,8 +58,12 @@ function byExpiryThenAge(a: RewardBatch, b: RewardBatch): number {
  * 只會把問題藏起來。
  */
 export function deriveRewardBalance(entries: readonly RewardEntry[], now: Date): RewardBalance {
+  // 同一時刻的分錄先算入帳再算扣抵：扣抵只能花掉已經存在的錢，
+  // 反過來排會讓一筆本來抵銷得掉的扣抵落空。
   const ordered = [...entries].sort(
-    (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
+    (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
+      || Math.sign(b.amountCents) - Math.sign(a.amountCents)
+      || a.id.localeCompare(b.id),
   );
 
   const batches: RewardBatch[] = [];

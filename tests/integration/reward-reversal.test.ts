@@ -139,11 +139,14 @@ describe('取消時回沖', () => {
   it('扣回尚未生效的累積不會讓餘額變成負數', async () => {
     const customer = await createCustomer(h.runtime, { email: `rvs-neg-${randomUUID()}@example.test` });
     // 模擬「累積了但還沒生效，然後被扣回」：兩筆分錄互相抵銷，可用餘額仍是零。
+    // created_at 明確錯開——推導依帳本順序處理扣抵，扣抵排在累積之前是另一種情況。
     await h.runtime.database.db.execute(sql`
-      INSERT INTO loyalty_reward_entries (id, customer_id, amount_cents, source, reference, effective_at, expires_at)
+      INSERT INTO loyalty_reward_entries (id, customer_id, amount_cents, source, reference, effective_at, expires_at, created_at)
       VALUES
-        (${randomUUID()}, ${customer.customerId}, 1000, 'order-accrual', ${randomUUID()}, now() + interval '7 days', NULL),
-        (${randomUUID()}, ${customer.customerId}, -1000, 'reversal', ${randomUUID()}, now(), NULL)
+        (${randomUUID()}, ${customer.customerId}, 1000, 'order-accrual', ${randomUUID()},
+         now() + interval '7 days', NULL, now() - interval '2 minutes'),
+        (${randomUUID()}, ${customer.customerId}, -1000, 'reversal', ${randomUUID()},
+         now(), NULL, now() - interval '1 minute')
     `);
 
     const { balance } = await myRewards(customer);
