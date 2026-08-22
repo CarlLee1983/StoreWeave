@@ -210,6 +210,53 @@ export const defaultTheme: StorefrontTheme = {
     return layout({ title: '確認訂單', body, ctx });
   },
 
+  renderAccountRewards(ctx, { currency, balance, entries, tier }) {
+    const money = (cents: number) => formatMoney(cents, currency, ctx.locale);
+    const day = (at: Date) => escapeHtml(at.toLocaleDateString(ctx.locale));
+
+    const rows = entries.map((entry) => `
+      <tr>
+        <td class="${entry.amountCents < 0 ? '' : 'price'}">${entry.amountCents < 0 ? '−' : '+'}${money(Math.abs(entry.amountCents))}</td>
+        <td>${escapeHtml(entry.description)}</td>
+        <td class="muted">${day(entry.createdAt)}</td>
+        <td class="muted">${entry.expiresAt ? day(entry.expiresAt) : '—'}</td>
+      </tr>`).join('');
+
+    const body = `
+      <h1>購物金與會員等級</h1>
+      <div class="grid">
+        <article class="card">
+          <h2>可用購物金</h2>
+          <p class="price">${money(balance.availableCents)}</p>
+          ${balance.pendingCents > 0
+            ? `<p class="muted">另有 ${money(balance.pendingCents)} 尚未生效</p>`
+            : ''}
+          ${balance.nextExpiry
+            ? `<p class="muted">${money(balance.nextExpiry.amountCents)} 將於 ${day(balance.nextExpiry.expiresAt)} 到期</p>`
+            : ''}
+        </article>
+        <article class="card">
+          <h2>${escapeHtml(tier.name)}</h2>
+          <p class="muted">等級積分 ${tier.points}</p>
+          ${tier.next
+            ? `<p class="muted">再累積 ${tier.next.remainingPoints} 點升到「${escapeHtml(tier.next.name)}」</p>`
+            : '<p class="muted">你已經是最高等級。</p>'}
+        </article>
+      </div>
+      <p class="notice">
+        會員等級看的是最近 ${tier.windowMonths} 個月（${day(tier.windowStartsAt)} 起）累積的等級積分，
+        每天重新計算一次，因此會升也會降。等級積分不能折抵金額。
+      </p>
+      ${entries.length === 0
+        ? '<p class="muted">還沒有任何購物金紀錄。</p>'
+        : `<table>
+             <thead><tr><th>金額</th><th>說明</th><th>時間</th><th>到期</th></tr></thead>
+             <tbody>${rows}</tbody>
+           </table>`}
+      <p><a href="/">繼續購物</a></p>`;
+    return layout({ title: '購物金與會員等級', body, ctx });
+  },
+
   renderAccountCoupons(ctx, { coupons }) {
     const rows = coupons.map((coupon) => `
       <tr class="${coupon.expiringSoon ? 'expiring' : ''}">

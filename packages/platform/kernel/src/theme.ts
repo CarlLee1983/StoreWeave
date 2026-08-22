@@ -117,6 +117,33 @@ export interface ThemeCheckoutView extends ThemeCartView {
   customerEmail: string;
 }
 
+export interface ThemeAccountRewardsView {
+  currency: string;
+  balance: {
+    availableCents: number;
+    /** 已入帳但還沒生效。顧客看得到它才不會以為系統壞了。 */
+    pendingCents: number;
+    expiredCents: number;
+    nextExpiry: { amountCents: number; expiresAt: Date } | null;
+  };
+  entries: {
+    amountCents: number;
+    /** 已經翻成人看得懂的來源說法。 */
+    description: string;
+    effectiveAt: Date;
+    expiresAt: Date | null;
+    createdAt: Date;
+  }[];
+  tier: {
+    name: string;
+    points: number;
+    next: { name: string; remainingPoints: number } | null;
+    /** 滾動期間的起點與長度。降級時要解釋得了為什麼。 */
+    windowStartsAt: Date;
+    windowMonths: number;
+  };
+}
+
 export interface ThemeContext {
   storeName: string;
   storeId: string;
@@ -160,6 +187,8 @@ export interface StorefrontTheme {
    */
   renderCart(ctx: ThemeContext, data: ThemeCartView): string;
   renderCheckout(ctx: ThemeContext, data: ThemeCheckoutView): string;
+  /** 會員中心的購物金與會員等級。 */
+  renderAccountRewards(ctx: ThemeContext, data: ThemeAccountRewardsView): string;
   /** 會員中心的我的券。 */
   renderAccountCoupons(ctx: ThemeContext, data: ThemeAccountCouponsView): string;
   /** 會員中心的訂單清單。 */

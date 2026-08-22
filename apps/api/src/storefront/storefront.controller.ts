@@ -34,6 +34,18 @@ function safeNext(value: string | undefined): string {
   }
 }
 
+/** 帳本的來源代碼對顧客沒有意義。客服補償的原因有寫就照實顯示。 */
+function rewardDescription(entry: { source: string; reason: string | null }): string {
+  if (entry.reason) return entry.reason;
+  switch (entry.source) {
+    case 'order-accrual': return '購物回饋';
+    case 'redemption': return '結帳折抵';
+    case 'reversal': return '訂單取消回沖';
+    case 'expiry': return '到期失效';
+    default: return '調整';
+  }
+}
+
 interface ProductDtoShape {
   id: string; sku: string; name: string; description: string | null;
   priceCents: number; currency: string; status: string;
@@ -285,6 +297,43 @@ export class StorefrontController {
         ...await this.cartView(req, reply),
         couponError: message,
       }));
+    }
+  }
+
+  /** 購物金的來源說法在這裡翻成中文：Theme 不該認得 `order-accrual` 這種字串。 */
+  @Get('account/rewards')
+  async accountRewards(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    const actor = actorOf(req);
+    if (actor.type !== 'customer') {
+      void reply.status(303).header('location', `/login?next=${encodeURIComponent('/account/rewards')}`).send();
+      return;
+    }
+    try {
+      const [rewards, tier] = await Promise.all([
+        this.runtime.queries.execute<any>('commerce.loyalty.getMyRewards', {}, { actor, channel: 'rest' }),
+        this.runtime.queries.execute<any>('commerce.loyalty.getMyTier', {}, { actor, channel: 'rest' }),
+      ]);
+
+      this.html(reply, 200, this.theme.renderAccountRewards(this.themeContext(req, reply), {
+        currency: this.runtime.config.store.currency,
+        balance: rewards.balance,
+        entries: rewards.entries.map((entry: any) => ({
+          amountCents: entry.amountCents,
+          description: rewardDescription(entry),
+          effectiveAt: entry.effectiveAt,
+          expiresAt: entry.expiresAt,
+          createdAt: entry.createdAt,
+        })),
+        tier: {
+          name: tier.current.name,
+          points: tier.points,
+          next: tier.next ? { name: tier.next.tier.name, remainingPoints: tier.next.remainingPoints } : null,
+          windowStartsAt: tier.windowStartsAt,
+          windowMonths: tier.windowMonths,
+        },
+      }));
+    } catch (err) {
+      this.renderError(reply, err, req);
     }
   }
 
