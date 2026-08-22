@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Req, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import { PlatformError } from '@storeweave/contracts';
 import { BusController } from './base';
 import { ok } from '../http/envelope';
 import { Public, actorOf, correlationIdOf, type AuthenticatedRequest } from '../http/auth';
@@ -67,9 +68,7 @@ export class CartController extends BusController {
    */
   @Post('checkout')
   async checkout(@Req() req: AuthenticatedRequest, @Body() body: Record<string, unknown>) {
-    const cartId = typeof body?.cartId === 'string'
-      ? body.cartId
-      : (await this.query<{ id: string }>(req, 'commerce.cart.getCart', {})).id;
+    const cartId = typeof body?.cartId === 'string' ? body.cartId : await this.currentCartId(req);
 
     const actor = actorOf(req);
     return ok(await this.runtime.commands.execute('commerce.order.checkoutCart',
@@ -105,6 +104,26 @@ export class CartController extends BusController {
   @Delete()
   async clear(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) reply: FastifyReply) {
     return ok(await this.command(req, 'commerce.cart.clearCart', { guestToken: this.guestToken(req, reply) }));
+  }
+
+  /**
+   * 沒帶 `cartId` 時的退路：問「現在的車」。
+   *
+   * 這次查詢必須帶上既有的訪客 token（與 `GET /api/v1/cart` 同一支讀法，不簽發新的），
+   * 否則訪客問到的是一台跟他無關的車。而 `getCart` 對「還沒有車」的人回的是一台
+   * **現產的**空車——那個 uuid 在資料庫裡不存在，拿去結帳只會換來一個指著陌生識別碼的 404。
+   * 空車在這裡就結束（工單 52）。這句話與 `checkoutCart` 對空車的說法**不共用**同一份宣告：
+   * apps/api 對任何 commerce 模組都沒有相依（ADR 0010），為了一句訊息開這個相依不划算。
+   * 兩邊各自成立——這裡說的是「沒有車可以結」，命令說的是「這台車沒有結得了的商品」。
+   *
+   * 判準也不同：這裡數的是購物車顯示的行數，命令數的是 `isPurchasable` 過濾後的行。
+   * 一台只剩下架商品的車會穿過這個預檢查，然後被命令擋下——結局一樣，理由不一樣。
+   */
+  private async currentCartId(req: AuthenticatedRequest): Promise<string> {
+    const guestToken = existingGuestToken(req, this.runtime.config.http.publicUrl);
+    const cart = await this.query<{ id: string; items: unknown[] }>(req, 'commerce.cart.getCart', { guestToken });
+    if (cart.items.length === 0) throw PlatformError.validation('No cart to check out');
+    return cart.id;
   }
 
   /**

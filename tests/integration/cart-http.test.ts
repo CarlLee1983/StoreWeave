@@ -250,6 +250,54 @@ describe('購物車結帳（工單 28）', () => {
   });
 });
 
+describe('沒帶 cartId 的結帳（工單 52）', () => {
+  async function member(email: string) {
+    const registered = await inject({
+      method: 'POST', url: '/api/v1/customers/register',
+      payload: { email, password: 'a-good-password' },
+    });
+    const session = registered.cookies.find((c) => c.name === SESSION_COOKIE)!.value;
+    return { cookies: { [SESSION_COOKIE]: session }, headers: { 'x-csrf-token': csrfTokenFor(session) } };
+  }
+
+  it('會員只有一台車，沒帶 cartId 也結得了帳', async () => {
+    const product = await sellable('CART-CHECKOUT-NOID');
+    const auth = await member(`cart-checkout-noid-${Date.now()}@example.com`);
+    await inject({ method: 'POST', url: '/api/v1/cart/items', ...auth, payload: { productId: product.id, quantity: 1 } });
+
+    const res = await inject({ method: 'POST', url: '/api/v1/cart/checkout', ...auth, payload: {} });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data.lines).toHaveLength(1);
+  });
+
+  it('沒有車的會員拿到的是「車是空的」，不是指著陌生 uuid 的 404', async () => {
+    const auth = await member(`cart-checkout-nocart-${Date.now()}@example.com`);
+
+    const res = await inject({ method: 'POST', url: '/api/v1/cart/checkout', ...auth, payload: {} });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('VALIDATION_ERROR');
+    // 現產的 uuid 不該出現在訊息裡——那個識別碼在資料庫裡不存在，講出來只會誤導。
+    expect(res.json().error.message).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+  });
+
+  it('訪客沒帶 cartId 時，擋下他的仍然是身分而不是「找不到那台車」', async () => {
+    const product = await sellable('CART-CHECKOUT-NOID-ANON');
+    const added = await inject({ method: 'POST', url: '/api/v1/cart/items', payload: { productId: product.id, quantity: 1 } });
+    const guest = added.cookies.find((c) => c.name === CART_COOKIE)!.value;
+
+    const res = await inject({
+      method: 'POST', url: '/api/v1/cart/checkout', cookies: { [CART_COOKIE]: guest }, payload: {},
+    });
+
+    // requireByActor 的 403，而不是「找不到那台車」——光看狀態碼分不出這兩者。
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('FORBIDDEN');
+    expect(res.json().error.message).not.toMatch(/[Cc]art|[0-9a-f]{8}-[0-9a-f]{4}-/);
+  });
+});
+
 describe('折扣碼端點（工單 31）', () => {
   it('套用與移除折扣碼', async () => {
     const promotion = await h.runtime.commands.execute<any>('commerce.promotion.createPromotion', {
