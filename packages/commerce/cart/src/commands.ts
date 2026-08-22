@@ -10,6 +10,7 @@ import {
   mergedCartDto,
   applyCouponInput,
   removeCouponInput,
+  setRewardRedemptionInput,
   GUEST_CART_RETENTION_DAYS,
   purgeStaleGuestCartsInput,
   purgeStaleGuestCartsOutput,
@@ -190,6 +191,43 @@ export function createCartModule(deps: CartModuleDeps) {
     return toCartDto(ctx.tx, { ...cart, couponCode: null }, deps.defaultCurrency, ctx.now, ctx.logger);
   };
 
+  const setRewardRedemptionCommand = defineCommand({
+    name: 'commerce.cart.setRewardRedemption',
+    summary: '設定要折抵多少購物金',
+    input: setRewardRedemptionInput,
+    output: cartDto,
+    permission: 'cart:write',
+    idempotency: 'optional',
+    audit: {
+      action: 'cart.reward-redemption-set',
+      resourceType: 'cart',
+      resourceId: (_i, o: CartDto) => o.id,
+      redact: (i) => ({ amountCents: i.amountCents }),
+    },
+  });
+
+  /**
+   * 存的是「顧客希望折多少」，不是「實際折多少」：餘額與小計都會再變，
+   * 實際折抵額在試算與結帳時各自重新夾限。存實際值等於把一個會過期的答案寫進資料庫。
+   */
+  const setRewardRedemptionHandler = async (
+    input: z.infer<typeof setRewardRedemptionInput>,
+    ctx: CommandContext,
+  ): Promise<CartDto> => {
+    if (ctx.actor.type !== 'customer') {
+      throw PlatformError.validation('Redeeming rewards needs a signed-in customer');
+    }
+    const cart = await openCart(ctx, undefined);
+    await repository.setRewardRedemption(ctx.tx, cart.id, input.amountCents, ctx.now);
+    return toCartDto(
+      ctx.tx,
+      { ...cart, rewardRedeemCents: input.amountCents },
+      deps.defaultCurrency,
+      ctx.now,
+      ctx.logger,
+    );
+  };
+
   const purgeStaleGuestCartsCommand = defineCommand({
     name: 'commerce.cart.purgeStaleGuestCarts',
     summary: '清除長期未更新的訪客購物車',
@@ -231,6 +269,7 @@ export function createCartModule(deps: CartModuleDeps) {
       { descriptor: purgeStaleGuestCartsCommand, handler: purgeStaleGuestCartsHandler },
       { descriptor: applyCouponCommand, handler: applyCouponHandler },
       { descriptor: removeCouponCommand, handler: removeCouponHandler },
+      { descriptor: setRewardRedemptionCommand, handler: setRewardRedemptionHandler },
     ],
   };
 }

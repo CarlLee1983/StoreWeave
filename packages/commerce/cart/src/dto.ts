@@ -21,7 +21,7 @@ export const cartItemDto = z.object({
 
 /** 與 `quoteOutput` 的調整明細同形：兩個入口說的是同一件事。 */
 export const cartAdjustmentDto = z.object({
-  source: z.literal('promotion'),
+  source: z.enum(['promotion', 'reward']),
   sourceId: z.string(),
   name: z.string(),
   amountCents: z.number().int(),
@@ -44,6 +44,16 @@ export const cartDto = z.object({
   }).nullable(),
   /** 券失效的原因。留著碼而不是靜靜拿掉，顧客才知道發生了什麼。 */
   couponError: z.string().nullable(),
+  /**
+   * 購物金折抵。`requestedCents` 是顧客要求的、`appliedCents` 是這次真的折掉的——
+   * 兩者不同時畫面要說得出為什麼（餘額不夠、或小計不夠折）。
+   */
+  reward: z.object({
+    requestedCents: z.number().int().nonnegative(),
+    appliedCents: z.number().int().nonnegative(),
+    availableCents: z.number().int().nonnegative(),
+    maxCents: z.number().int().nonnegative(),
+  }).nullable(),
   /** 差一點就達成的門檻活動；沒有就是 null。 */
   nextThreshold: z.object({
     promotionId: z.string(),
@@ -93,3 +103,8 @@ export const purgeStaleGuestCartsOutput = z.object({
 
 export const applyCouponInput = z.object({ ...owner, code: couponCode }).strict();
 export const removeCouponInput = z.object({ ...owner }).strict();
+
+export const setRewardRedemptionInput = z.object({
+  /** 要折抵多少。0 等於不折抵——前台的輸入框本來就會走到 0。 */
+  amountCents: z.number().int().min(0).max(100_000_000),
+}).strict();

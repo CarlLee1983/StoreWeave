@@ -9,7 +9,7 @@ import { customerService } from '@storeweave/customer';
 import { pricingService } from '@storeweave/promotion';
 import { CartRepository } from '@storeweave/cart';
 import { CouponRepository, couponError, couponService, reverseCouponForOrder, type CouponRow } from '@storeweave/coupon';
-import { rewardService } from '@storeweave/loyalty';
+import { maxRedeemableCents, rewardService } from '@storeweave/loyalty';
 import { cancelOrderInput, checkoutCartInput, markPaidInput, orderDto, payOrderInput, placeOrderInput, type OrderDto } from './dto';
 import { OrderRepository, toOrderDto } from './repository';
 import { orderCancelledV1, orderPaidV1, orderPaidV2, orderPlacedV1, orderPlacedV2, orderPlacedV3 } from './events';
@@ -65,6 +65,8 @@ export async function createOrderFromLines(
     metadata?: Record<string, unknown>;
     /** 券指名的活動。它們不在「此刻人人適用」的清單裡，必須明確帶進來。 */
     couponPromotionIds?: readonly string[];
+    /** 購物金折抵。上限由呼叫端算好，引擎只負責套用與分攤。 */
+    rewardRedeemCents?: number;
   },
   ctx: CommandContext,
 ): Promise<OrderDto> {
@@ -109,6 +111,7 @@ export async function createOrderFromLines(
   // 定價與訂單建立在同一個交易內：折扣依據的活動狀態與寫進訂單的金額必定一致。
   const pricing = await pricingService.quote(ctx.tx, {
     couponPromotionIds: input.couponPromotionIds,
+    rewardRedeemCents: input.rewardRedeemCents,
     lines: lines.map((l) => ({
       lineId: l.id!,
       productId: l.productId,
@@ -250,11 +253,34 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
     }
     if (lines.length === 0) throw PlatformError.validation('Your cart is empty');
 
+    // 折抵上限在結帳當下重新算：購物車存的是「顧客希望折多少」，
+    // 而餘額與小計在那之後都可能變過。
+    const subtotalCents = await subtotalOfLines(ctx, lines);
+    const balance = await rewardService.balanceFor(ctx.tx, buyer.customerId, ctx.now);
+    const rewardRedeemCents = Math.min(
+      cart.rewardRedeemCents,
+      maxRedeemableCents(balance.availableCents, subtotalCents),
+    );
+
     const order = await createOrderFromLines(deps, {
       lines,
       metadata: input.metadata,
       couponPromotionIds: locked ? [locked.promotionId] : [],
+      rewardRedeemCents,
     }, ctx);
+
+    // 折抵與訂單在同一個交易內成立：訂單回滾了，購物金就沒有被扣過。
+    const redeemed = order.adjustments
+      .filter((adjustment) => adjustment.source === 'reward')
+      .reduce((sum, adjustment) => sum - adjustment.amountCents, 0);
+    if (redeemed > 0) {
+      await rewardService.redeemForOrder(ctx.tx, {
+        customerId: buyer.customerId,
+        orderId: order.id,
+        amountCents: redeemed,
+        now: ctx.now,
+      });
+    }
 
     if (locked) await redeemCoupon(ctx, locked, order, buyer.customerId);
     await cartRepository.markCheckedOut(ctx.tx, cart.id, order.id, ctx.now);
@@ -296,6 +322,19 @@ async function redeemCoupon(
   });
   // 實發券用完就沒了；共用碼還留著給下一個人（額度控制是工單 32）。
   if (coupon.customerId) await couponRepository.update(ctx.tx, coupon.id, { status: 'used', updatedAt: ctx.now });
+}
+
+/** 折抵上限看的是商品小計，因此要先知道這些行加起來多少。 */
+async function subtotalOfLines(
+  ctx: CommandContext,
+  lines: readonly { productId: string; quantity: number }[],
+): Promise<number> {
+  let subtotal = 0;
+  for (const line of lines) {
+    const product = await catalogService.requireActiveProduct(ctx.tx, line.productId);
+    subtotal += product.priceCents * line.quantity;
+  }
+  return subtotal;
 }
 
 export const payOrderCommand = defineCommand({

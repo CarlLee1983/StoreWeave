@@ -120,7 +120,7 @@ export const quoteInput = z.object({
 });
 
 const quoteAdjustment = z.object({
-  source: z.literal('promotion'),
+  source: z.enum(['promotion', 'reward']),
   sourceId: z.string(),
   name: z.string(),
   amountCents: z.number().int(),

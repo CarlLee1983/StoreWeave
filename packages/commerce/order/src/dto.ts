@@ -15,7 +15,8 @@ export const orderLineDto = z.object({
 });
 
 export const orderAdjustmentDto = z.object({
-  source: z.literal('promotion'),
+  /** 折扣來自活動或購物金折抵。 */
+  source: z.enum(['promotion', 'reward']),
   sourceId: z.string(),
   name: z.string(),
   /** 折扣為負數。訂單總額 = 小計 + 所有 Adjustment。 */

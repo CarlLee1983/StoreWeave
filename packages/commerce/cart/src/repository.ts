@@ -146,6 +146,10 @@ export class CartRepository {
     await tx.update(carts).set({ couponCode: code, updatedAt: now }).where(eq(carts.id, cartId));
   }
 
+  async setRewardRedemption(tx: Tx, cartId: string, amountCents: number, now: Date): Promise<void> {
+    await tx.update(carts).set({ rewardRedeemCents: amountCents, updatedAt: now }).where(eq(carts.id, cartId));
+  }
+
   async touch(tx: Tx, cartId: string, now: Date): Promise<void> {
     await tx.update(carts).set({ updatedAt: now }).where(eq(carts.id, cartId));
   }

@@ -127,9 +127,26 @@ export function calculatePricing(input: PricingInput): PricingResult {
     appliedPromotions.push({ promotionId: promotion.id, name: promotion.name, discountCents: granted });
   }
 
+  // 購物金折抵最後套用：它作用在商品小計上，且不該影響任何活動的門檻判斷。
+  const rewardWanted = Math.max(0, Math.trunc(input.rewardRedeemCents ?? 0));
+  const rewardGranted = Math.min(rewardWanted, subtotalCents - discountCents);
+  if (rewardGranted > 0) {
+    discountCents += rewardGranted;
+    adjustments.push({ source: 'reward', sourceId: 'reward', name: '購物金折抵', amountCents: -rewardGranted });
+    const shares = allocateByAmount(lineTotals, rewardGranted, pricedLines.map((line) => line.netCents));
+    shares.forEach((share, index) => {
+      if (share <= 0) return;
+      const line = pricedLines[index];
+      line.discountCents += share;
+      line.netCents -= share;
+      line.adjustments.push({ source: 'reward', sourceId: 'reward', name: '購物金折抵', amountCents: -share });
+    });
+  }
+
   return {
     subtotalCents,
     discountCents,
+    rewardRedeemedCents: rewardGranted,
     shippingCents,
     taxCents,
     totalCents: subtotalCents - discountCents + shippingCents + taxCents,

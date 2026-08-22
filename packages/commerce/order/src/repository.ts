@@ -31,7 +31,7 @@ export function toOrderDto(row: OrderRow, lines: OrderLineRow[], adjustments: Or
       discountCents: l.discountCents,
     })),
     adjustments: adjustments.map((a) => ({
-      source: a.source as 'promotion',
+      source: a.source as 'promotion' | 'reward',
       sourceId: a.sourceId,
       name: a.name,
       amountCents: a.amountCents,

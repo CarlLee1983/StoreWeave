@@ -3,6 +3,7 @@ import { catalogService } from '@storeweave/catalog';
 import { inventoryService } from '@storeweave/inventory';
 import { pricingService } from '@storeweave/promotion';
 import { couponService } from '@storeweave/coupon';
+import { maxRedeemableCents, rewardService } from '@storeweave/loyalty';
 import type { CartDto } from './dto';
 import { CartRepository } from './repository';
 import type { CartRow } from './schema';
@@ -13,7 +14,7 @@ const repository = new CartRepository();
 export function emptyCartDto(id: string, currency: string): CartDto {
   return {
     id, currency, items: [], subtotalCents: 0, discountCents: 0, totalCents: 0,
-    adjustments: [], coupon: null, couponError: null, nextThreshold: null,
+    adjustments: [], coupon: null, couponError: null, reward: null, nextThreshold: null,
   };
 }
 
@@ -62,9 +63,16 @@ export async function toCartDto(
     : null;
   const couponPromotionIds = resolved?.ok ? [resolved.coupon.promotionId] : [];
 
+  // 購物金折抵的上限在這裡重新算：餘額與小計都會變，存下來的只是「顧客希望折多少」。
+  const subtotalCents = items.reduce((sum, item) => sum + item.lineTotalCents, 0);
+  const balance = cart.customerId ? await rewardService.balanceFor(db, cart.customerId, now) : null;
+  const maxCents = balance ? maxRedeemableCents(balance.availableCents, subtotalCents) : 0;
+  const rewardRedeemCents = Math.min(cart.rewardRedeemCents, maxCents);
+
   // lineId 用 productId：一台車裡一件商品只有一行，這個對應是唯一的。
   const pricing = await pricingService.quote(db, {
     couponPromotionIds,
+    rewardRedeemCents,
     lines: items.map((item) => ({
       lineId: item.productId,
       productId: item.productId,
@@ -98,6 +106,14 @@ export async function toCartDto(
       }
       : null,
     couponError: resolved && !resolved.ok ? resolved.message : null,
+    reward: balance
+      ? {
+        requestedCents: cart.rewardRedeemCents,
+        appliedCents: pricing.rewardRedeemedCents,
+        availableCents: balance.availableCents,
+        maxCents,
+      }
+      : null,
     nextThreshold: pricing.nextThreshold,
   };
 }

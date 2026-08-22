@@ -14,6 +14,8 @@ export const carts = pgTable('cart_carts', {
   orderId: uuid('order_id'),
   /** 本次要使用的券。存碼而不是券 id：券可能在結帳前被停用，屆時要能說出是哪一組碼失效。 */
   couponCode: text('coupon_code'),
+  /** 顧客希望折抵多少購物金。實際折抵額在試算與結帳時各自重新夾限。 */
+  rewardRedeemCents: integer('reward_redeem_cents').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

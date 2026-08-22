@@ -20,6 +20,8 @@ export interface QuoteInput {
   membershipTier?: string | null;
   shippingCents?: number;
   taxCents?: number;
+  /** 購物金折抵。最後套用，只作用在商品小計上。上限由呼叫端算好。 */
+  rewardRedeemCents?: number;
   /** 用來回報被跳過的壞活動。沒給就靜靜跳過。 */
   logger?: Logger;
 }
@@ -74,6 +76,7 @@ export const pricingService = {
       now: input.now,
       shippingCents: input.shippingCents,
       taxCents: input.taxCents,
+      rewardRedeemCents: input.rewardRedeemCents,
     });
   },
 };

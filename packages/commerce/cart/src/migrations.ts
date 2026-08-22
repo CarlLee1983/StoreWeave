@@ -50,5 +50,11 @@ ALTER TABLE cart_carts ADD COLUMN IF NOT EXISTS order_id uuid;
 -- 屆時錯誤訊息要說得出是哪一組碼失效（Spec 0004）。
 ALTER TABLE cart_carts ADD COLUMN IF NOT EXISTS coupon_code text;
 `),
+    sqlMigration('0005_reward_redeem', 'expand', `
+-- 顧客希望折抵多少購物金。存「希望」而不是「實際」：餘額與小計都會變，
+-- 實際折抵額在試算與結帳時各自重新夾限（Spec 0005）。
+ALTER TABLE cart_carts ADD COLUMN IF NOT EXISTS reward_redeem_cents integer NOT NULL DEFAULT 0
+  CHECK (reward_redeem_cents >= 0);
+`),
   ],
 };

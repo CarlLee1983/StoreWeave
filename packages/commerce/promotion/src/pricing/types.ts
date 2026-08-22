@@ -56,6 +56,11 @@ export interface PricingContext {
 
 export interface PricingInput {
   lines: PricingLineInput[];
+  /**
+   * 購物金折抵。**最後**套用，而且只作用在商品小計上——不折運費、不折稅。
+   * 上限由呼叫端算好（可用餘額與小計的較小值），引擎只負責套用與分攤。
+   */
+  rewardRedeemCents?: number;
   context: PricingContext;
   /** 當下時間。引擎不讀時鐘。 */
   now: Date;
@@ -65,7 +70,8 @@ export interface PricingInput {
 }
 
 export interface Adjustment {
-  source: 'promotion';
+  /** 折扣來自活動或購物金折抵。兩者的分攤與記帳方式相同，只有來源不同。 */
+  source: 'promotion' | 'reward';
   sourceId: string;
   name: string;
   /** 折扣為負數。訂單總額 = 小計 + 所有 Adjustment。 */
@@ -104,8 +110,10 @@ export interface ThresholdHint {
 
 export interface PricingResult {
   subtotalCents: number;
-  /** 所有折扣的絕對值合計，保證不超過 subtotalCents。 */
+  /** 所有折扣的絕對值合計（含購物金折抵），保證不超過 subtotalCents。 */
   discountCents: number;
+  /** 這次實際折抵掉的購物金。呼叫端據此寫帳本分錄。 */
+  rewardRedeemedCents: number;
   shippingCents: number;
   taxCents: number;
   totalCents: number;
