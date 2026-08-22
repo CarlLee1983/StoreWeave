@@ -114,3 +114,13 @@ export const salesSummaryOutput = z.object({
     revenueCents: z.number().int(),
   })),
 });
+
+/**
+ * 結帳的內容全部來自購物車，呼叫端不帶任何商品行——
+ * 「顧客看到的車」與「結出來的單」因此不可能是兩份不同的東西。
+ */
+export const checkoutCartInput = z.object({
+  /** 購物車識別碼是這次結帳的身分：重複送出同一台車，得到同一張訂單。 */
+  cartId: z.string().uuid(),
+  metadata: z.record(z.unknown()).optional(),
+}).strict();

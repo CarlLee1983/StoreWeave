@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Req, Res } f
 import type { FastifyReply } from 'fastify';
 import { BusController } from './base';
 import { ok } from '../http/envelope';
-import { Public, type AuthenticatedRequest } from '../http/auth';
+import { Public, actorOf, correlationIdOf, type AuthenticatedRequest } from '../http/auth';
 import { CART_COOKIE, setGuestCartCookie } from '../http/cart-cookie';
 import { RUNTIME, type Runtime } from '../tokens';
 
@@ -54,6 +54,24 @@ export class CartController extends BusController {
       productId,
       guestToken: this.guestToken(req, reply),
     }));
+  }
+
+  /**
+   * 購物車結帳。冪等鍵取自購物車識別碼——重複送出的表單不會帶對 `Idempotency-Key`，
+   * 而每次現產一個隨機值等於沒有保護（工單 28 修掉的就是這個缺陷）。
+   *
+   * `cartId` 由畫面帶回來：結完帳那台車就關了，重送的請求若改問「現在的車」
+   * 會問到一台新的空車，然後回一個看不懂的錯誤，而不是原本那張訂單。
+   */
+  @Post('checkout')
+  async checkout(@Req() req: AuthenticatedRequest, @Body() body: Record<string, unknown>) {
+    const cartId = typeof body?.cartId === 'string'
+      ? body.cartId
+      : (await this.query<{ id: string }>(req, 'commerce.cart.getCart', {})).id;
+
+    return ok(await this.runtime.commands.execute('commerce.order.checkoutCart',
+      { cartId, metadata: body?.metadata },
+      { actor: actorOf(req), idempotencyKey: `cart:${cartId}`, correlationId: correlationIdOf(req), channel: 'rest' }));
   }
 
   @Delete()

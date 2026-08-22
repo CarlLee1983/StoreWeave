@@ -7,7 +7,8 @@ import { catalogService } from '@storeweave/catalog';
 import { inventoryService } from '@storeweave/inventory';
 import { customerService } from '@storeweave/customer';
 import { pricingService } from '@storeweave/promotion';
-import { cancelOrderInput, markPaidInput, orderDto, payOrderInput, placeOrderInput, type OrderDto } from './dto';
+import { CartRepository } from '@storeweave/cart';
+import { cancelOrderInput, checkoutCartInput, markPaidInput, orderDto, payOrderInput, placeOrderInput, type OrderDto } from './dto';
 import { OrderRepository, toOrderDto } from './repository';
 import { orderCancelledV1, orderPaidV1, orderPaidV2, orderPlacedV1, orderPlacedV2, orderPlacedV3 } from './events';
 import { orderAdjustments, orderLines, orderPayments, orders } from './schema';
@@ -50,113 +51,188 @@ export const placeOrderCommand = defineCommand({
   },
 });
 
-export function createPlaceOrderHandler(deps: OrderModuleDeps) {
-  return async (input: z.infer<typeof placeOrderInput>, ctx: CommandContext): Promise<OrderDto> => {
-    const orderId = randomUUID();
-    // 下單者取自當下身分，不再是表單上自由填寫的 email：一張訂單的歸屬不該由呼叫端自己宣稱。
-    const buyer = await customerService.requireByActor(ctx.tx, ctx.actor);
-    const number = await repository.nextOrderNumber(ctx.tx, deps.orderNumberPrefix);
-    const currency = input.currency ?? deps.defaultCurrency;
+/**
+ * 建立訂單的唯一實作。`placeOrder` 與 `checkoutCart` 都走這裡——
+ * 兩條路各寫一次定價與預留，遲早會有一條算出不同的金額。
+ */
+export async function createOrderFromLines(
+  deps: OrderModuleDeps,
+  input: { currency?: string; lines: { productId: string; quantity: number }[]; metadata?: Record<string, unknown> },
+  ctx: CommandContext,
+): Promise<OrderDto> {
+  const orderId = randomUUID();
+  // 下單者取自當下身分，不再是表單上自由填寫的 email：一張訂單的歸屬不該由呼叫端自己宣稱。
+  const buyer = await customerService.requireByActor(ctx.tx, ctx.actor);
+  const number = await repository.nextOrderNumber(ctx.tx, deps.orderNumberPrefix);
+  const currency = input.currency ?? deps.defaultCurrency;
 
-    const lines: (typeof orderLines.$inferInsert)[] = [];
-    for (const line of input.lines) {
-      const product = await catalogService.requireActiveProduct(ctx.tx, line.productId);
-      if (product.currency !== currency) {
-        throw PlatformError.validation(`Product ${product.sku} is priced in ${product.currency}, order is ${currency}`);
-      }
+  const lines: (typeof orderLines.$inferInsert)[] = [];
+  for (const line of input.lines) {
+    const product = await catalogService.requireActiveProduct(ctx.tx, line.productId);
+    if (product.currency !== currency) {
+      throw PlatformError.validation(`Product ${product.sku} is priced in ${product.currency}, order is ${currency}`);
+    }
+    // 預留失敗的訊息必須說得出是哪一件商品：顧客拿到 uuid 沒辦法決定要調整什麼。
+    try {
       await inventoryService.reserve(ctx, {
         productId: product.id,
         quantity: line.quantity,
         reference: number,
       });
-      lines.push({
-        id: randomUUID(),
-        orderId,
-        productId: product.id,
-        sku: product.sku,
-        name: product.name,
-        unitPriceCents: product.priceCents,
-        quantity: line.quantity,
-        lineTotalCents: product.priceCents * line.quantity,
-      });
+    } catch (err) {
+      if (!(err instanceof PlatformError) || err.code !== 'CONFLICT') throw err;
+      const available = await inventoryService.availableFor(ctx.tx, product.id).catch(() => null);
+      throw PlatformError.conflict(
+        `Insufficient stock for ${product.sku} (${product.name}): ${available ?? 0} available, ${line.quantity} requested`,
+      );
     }
+    lines.push({
+      id: randomUUID(),
+      orderId,
+      productId: product.id,
+      sku: product.sku,
+      name: product.name,
+      unitPriceCents: product.priceCents,
+      quantity: line.quantity,
+      lineTotalCents: product.priceCents * line.quantity,
+    });
+  }
 
-    // 定價與訂單建立在同一個交易內：折扣依據的活動狀態與寫進訂單的金額必定一致。
-    const pricing = await pricingService.quote(ctx.tx, {
-      lines: lines.map((l) => ({
-        lineId: l.id!,
-        productId: l.productId,
-        unitPriceCents: l.unitPriceCents,
-        quantity: l.quantity,
+  // 定價與訂單建立在同一個交易內：折扣依據的活動狀態與寫進訂單的金額必定一致。
+  const pricing = await pricingService.quote(ctx.tx, {
+    lines: lines.map((l) => ({
+      lineId: l.id!,
+      productId: l.productId,
+      unitPriceCents: l.unitPriceCents,
+      quantity: l.quantity,
+    })),
+    now: ctx.now,
+    logger: ctx.logger,
+  });
+  const discountByLine = new Map(pricing.lines.map((l) => [l.lineId, l.discountCents]));
+  for (const line of lines) line.discountCents = discountByLine.get(line.id!) ?? 0;
+
+  const expiresAt = new Date(ctx.now.getTime() + RESERVATION_MINUTES * 60_000);
+  const [orderRow] = await ctx.tx.insert(orders).values({
+    id: orderId,
+    number,
+    status: 'pending',
+    currency,
+    customerEmail: buyer.email,
+    customerId: buyer.customerId,
+    subtotalCents: pricing.subtotalCents,
+    discountCents: pricing.discountCents,
+    totalCents: pricing.totalCents,
+    metadata: input.metadata ?? null,
+    placedAt: ctx.now,
+    expiresAt,
+    updatedAt: ctx.now,
+  }).returning();
+  const lineRows = await ctx.tx.insert(orderLines).values(lines).returning();
+  const adjustmentRows = pricing.adjustments.length === 0 ? [] : await ctx.tx.insert(orderAdjustments).values(
+    pricing.adjustments.map((adjustment, index) => ({
+      id: randomUUID(),
+      orderId,
+      source: adjustment.source,
+      sourceId: adjustment.sourceId,
+      name: adjustment.name,
+      amountCents: adjustment.amountCents,
+      sortOrder: index,
+    })),
+  ).returning();
+
+  const dto = toOrderDto(orderRow, lineRows, adjustmentRows);
+  await ctx.enqueue({ type: EXPIRE_ORDER_JOB, payload: { orderId }, dedupeKey: `order:expire:${orderId}`, runAt: expiresAt });
+  await ctx.publish({
+    name: orderPlacedV1.name,
+    payload: {
+      orderId: dto.id,
+      orderNumber: dto.number,
+      customerEmail: dto.customerEmail,
+      currency: dto.currency,
+      totalCents: dto.totalCents,
+      placedAt: dto.placedAt,
+      lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents }) => ({
+        productId, sku, name, quantity, unitPriceCents, lineTotalCents,
       })),
-      now: ctx.now,
-      logger: ctx.logger,
-    });
-    const discountByLine = new Map(pricing.lines.map((l) => [l.lineId, l.discountCents]));
-    for (const line of lines) line.discountCents = discountByLine.get(line.id!) ?? 0;
+    },
+  });
+  await ctx.publish({
+    name: orderPlacedV2.name,
+    payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency,
+      totalCents: dto.totalCents, placedAt: dto.placedAt, expiresAt: expiresAt,
+      lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents }) => ({ productId, sku, name, quantity, unitPriceCents, lineTotalCents })), },
+  });
+  await ctx.publish({
+    name: orderPlacedV3.name,
+    payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, customerId: dto.customerId,
+      currency: dto.currency, placedAt: dto.placedAt, expiresAt: expiresAt,
+      subtotalCents: dto.subtotalCents, discountCents: dto.discountCents, shippingCents: dto.shippingCents,
+      taxCents: dto.taxCents, totalCents: dto.totalCents, adjustments: dto.adjustments,
+      lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents }) => ({
+        productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents, netCents: lineTotalCents - discountCents,
+      })), },
+  });
+  return dto;
+}
 
-    const expiresAt = new Date(ctx.now.getTime() + RESERVATION_MINUTES * 60_000);
-    const [orderRow] = await ctx.tx.insert(orders).values({
-      id: orderId,
-      number,
-      status: 'pending',
-      currency,
-      customerEmail: buyer.email,
-      customerId: buyer.customerId,
-      subtotalCents: pricing.subtotalCents,
-      discountCents: pricing.discountCents,
-      totalCents: pricing.totalCents,
-      metadata: input.metadata ?? null,
-      placedAt: ctx.now,
-      expiresAt,
-      updatedAt: ctx.now,
-    }).returning();
-    const lineRows = await ctx.tx.insert(orderLines).values(lines).returning();
-    const adjustmentRows = pricing.adjustments.length === 0 ? [] : await ctx.tx.insert(orderAdjustments).values(
-      pricing.adjustments.map((adjustment, index) => ({
-        id: randomUUID(),
-        orderId,
-        source: adjustment.source,
-        sourceId: adjustment.sourceId,
-        name: adjustment.name,
-        amountCents: adjustment.amountCents,
-        sortOrder: index,
-      })),
-    ).returning();
+export function createPlaceOrderHandler(deps: OrderModuleDeps) {
+  return (input: z.infer<typeof placeOrderInput>, ctx: CommandContext): Promise<OrderDto> =>
+    createOrderFromLines(deps, input, ctx);
+}
 
-    const dto = toOrderDto(orderRow, lineRows, adjustmentRows);
-    await ctx.enqueue({ type: EXPIRE_ORDER_JOB, payload: { orderId }, dedupeKey: `order:expire:${orderId}`, runAt: expiresAt });
-    await ctx.publish({
-      name: orderPlacedV1.name,
-      payload: {
-        orderId: dto.id,
-        orderNumber: dto.number,
-        customerEmail: dto.customerEmail,
-        currency: dto.currency,
-        totalCents: dto.totalCents,
-        placedAt: dto.placedAt,
-        lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents }) => ({
-          productId, sku, name, quantity, unitPriceCents, lineTotalCents,
-        })),
-      },
-    });
-    await ctx.publish({
-      name: orderPlacedV2.name,
-      payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency,
-        totalCents: dto.totalCents, placedAt: dto.placedAt, expiresAt: expiresAt,
-        lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents }) => ({ productId, sku, name, quantity, unitPriceCents, lineTotalCents })), },
-    });
-    await ctx.publish({
-      name: orderPlacedV3.name,
-      payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, customerId: dto.customerId,
-        currency: dto.currency, placedAt: dto.placedAt, expiresAt: expiresAt,
-        subtotalCents: dto.subtotalCents, discountCents: dto.discountCents, shippingCents: dto.shippingCents,
-        taxCents: dto.taxCents, totalCents: dto.totalCents, adjustments: dto.adjustments,
-        lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents }) => ({
-          productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents, netCents: lineTotalCents - discountCents,
-        })), },
-    });
-    return dto;
+const cartRepository = new CartRepository();
+
+export const checkoutCartCommand = defineCommand({
+  name: 'commerce.order.checkoutCart',
+  summary: '把購物車轉成訂單',
+  input: checkoutCartInput,
+  output: orderDto,
+  permission: 'order:write',
+  idempotency: 'required',
+  audit: {
+    action: 'order.placed',
+    resourceType: 'order',
+    resourceId: (_i, o: OrderDto) => o.id,
+    redact: () => ({}),
+  },
+});
+
+/**
+ * 購物車結帳。冪等的來源是購物車本身：先鎖住那一列，已經結過就回同一張訂單。
+ * 呼叫端帶什麼冪等鍵都不影響這個保證——重複送出的表單本來就不會帶對 key，
+ * 而每次現產一個隨機值等於沒有保護（Spec 0003 要修的就是這個缺陷）。
+ */
+export function createCheckoutCartHandler(deps: OrderModuleDeps) {
+  return async (input: z.infer<typeof checkoutCartInput>, ctx: CommandContext): Promise<OrderDto> => {
+    const buyer = await customerService.requireByActor(ctx.tx, ctx.actor);
+    const cart = await cartRepository.lockById(ctx.tx, input.cartId);
+    // 別人的車、或還沒併進來的訪客車，都不是這個人結得了的。
+    if (!cart || cart.customerId !== buyer.customerId) throw PlatformError.notFound('Cart', input.cartId);
+
+    if (cart.orderId) {
+      const existing = await repository.findById(ctx.tx, cart.orderId);
+      if (existing) {
+        return toOrderDto(
+          existing,
+          await repository.linesFor(ctx.tx, existing.id),
+          await repository.adjustmentsFor(ctx.tx, existing.id),
+        );
+      }
+    }
+    if (cart.status !== 'open') throw PlatformError.conflict(`Cart ${cart.id} is no longer open`);
+
+    // 下架的商品顧客本來就看不到（購物車顯示時已經濾掉），結帳跟著同一個判斷。
+    const lines: { productId: string; quantity: number }[] = [];
+    for (const row of await cartRepository.items(ctx.tx, cart.id)) {
+      const product = await catalogService.findById(ctx.tx, row.productId);
+      if (product?.status === 'active') lines.push({ productId: row.productId, quantity: row.quantity });
+    }
+    if (lines.length === 0) throw PlatformError.validation('Your cart is empty');
+
+    const order = await createOrderFromLines(deps, { lines, metadata: input.metadata }, ctx);
+    await cartRepository.markCheckedOut(ctx.tx, cart.id, order.id, ctx.now);
+    return order;
   };
 }
 

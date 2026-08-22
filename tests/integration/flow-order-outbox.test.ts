@@ -51,7 +51,7 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
   it('庫存不足時整筆訂單回滾，不留下訂單也不動庫存', async () => {
     const product = await createProduct(h.runtime);
     await stockUp(h.runtime, product.id, 2);
-    await expect(placeOrder(h.runtime, product.id, 5)).rejects.toThrow(/Insufficient available stock/);
+    await expect(placeOrder(h.runtime, product.id, 5)).rejects.toThrow(/Insufficient stock for SKU-/);
 
     const stock = await h.runtime.queries.execute<any>('commerce.inventory.getStock', { productId: product.id }, { actor: ADMIN_ACTOR });
     expect(stock.onHand).toBe(2);

@@ -207,3 +207,38 @@ describe('登入時合併購物車（工單 27）', () => {
     expect(again.body).not.toContain('已下架');
   });
 });
+
+describe('購物車結帳（工單 28）', () => {
+  it('重複送出同一台車的結帳，只會有一張訂單', async () => {
+    const product = await sellable('CART-CHECKOUT-HTTP');
+    const registered = await inject({
+      method: 'POST', url: '/api/v1/customers/register',
+      payload: { email: `cart-checkout-${Date.now()}@example.com`, password: 'a-good-password' },
+    });
+    const session = registered.cookies.find((c) => c.name === SESSION_COOKIE)!.value;
+    const auth = { cookies: { [SESSION_COOKIE]: session }, headers: { 'x-csrf-token': csrfTokenFor(session) } };
+
+    await inject({ method: 'POST', url: '/api/v1/cart/items', ...auth, payload: { productId: product.id, quantity: 2 } });
+
+    const cartId = (await inject({ method: 'GET', url: '/api/v1/cart', cookies: { [SESSION_COOKIE]: session } })).json().data.id;
+    const first = await inject({ method: 'POST', url: '/api/v1/cart/checkout', ...auth, payload: { cartId } });
+    // 同一台車再送一次——瀏覽器重送表單就是這個樣子。
+    const second = await inject({ method: 'POST', url: '/api/v1/cart/checkout', ...auth, payload: { cartId } });
+
+    expect(first.statusCode).toBe(201);
+    expect(second.json().data.id).toBe(first.json().data.id);
+
+    // 結完帳看到的是空車。
+    const after = await inject({ method: 'GET', url: '/api/v1/cart', cookies: { [SESSION_COOKIE]: session } });
+    expect(after.json().data.items).toEqual([]);
+  });
+
+  it('訪客結不了帳', async () => {
+    const product = await sellable('CART-CHECKOUT-ANON');
+    const added = await inject({ method: 'POST', url: '/api/v1/cart/items', payload: { productId: product.id, quantity: 1 } });
+    const guest = added.cookies.find((c) => c.name === CART_COOKIE)!.value;
+
+    const res = await inject({ method: 'POST', url: '/api/v1/cart/checkout', cookies: { [CART_COOKIE]: guest }, payload: {} });
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+  });
+});

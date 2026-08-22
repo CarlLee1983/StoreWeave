@@ -10,6 +10,8 @@ export const carts = pgTable('cart_carts', {
   /** 訪客 token 只存雜湊：cookie 外洩不等於資料庫裡有一份可用的識別碼。 */
   guestTokenHash: text('guest_token_hash'),
   status: text('status').notNull().default('open'),
+  /** 結成的那張訂單。重複送出的結帳靠它回到同一張單，而不是靠呼叫端記得帶對冪等鍵。 */
+  orderId: uuid('order_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

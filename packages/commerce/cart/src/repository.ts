@@ -111,6 +111,20 @@ export class CartRepository {
     return row ?? null;
   }
 
+  /**
+   * 鎖住指定的那台車，不分狀態。結帳的冪等建立在這把鎖上：
+   * 併發的第二筆請求會在這裡等，等到的是已經 checked_out 的那一列。
+   */
+  async lockById(tx: Tx, cartId: string): Promise<CartRow | null> {
+    const [row] = await tx.select().from(carts).where(eq(carts.id, cartId)).limit(1).for('update');
+    return row ?? null;
+  }
+
+  /** 結完帳的車就地封存：顧客看到的是空車，而那張訂單留在列上作為冪等的依據。 */
+  async markCheckedOut(tx: Tx, cartId: string, orderId: string, now: Date): Promise<void> {
+    await tx.update(carts).set({ status: 'checked_out', orderId, updatedAt: now }).where(eq(carts.id, cartId));
+  }
+
   /** 併過的車就地作廢：狀態一離開 open，它就不再被任何查詢找到，token 也不能復活它。 */
   async markMerged(tx: Tx, cartId: string, now: Date): Promise<void> {
     await tx.update(carts).set({ status: 'merged', updatedAt: now }).where(eq(carts.id, cartId));

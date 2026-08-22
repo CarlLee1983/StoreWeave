@@ -40,5 +40,10 @@ ALTER TABLE cart_carts DROP CONSTRAINT IF EXISTS cart_carts_status_check;
 ALTER TABLE cart_carts ADD CONSTRAINT cart_carts_status_check
   CHECK (status IN ('open', 'checked_out', 'merged'));
 `),
+    sqlMigration('0003_checkout', 'expand', `
+-- 結成的訂單。重複送出的結帳靠它回到同一張單——冪等的來源是購物車本身，
+-- 不是呼叫端記不記得帶對 key（Spec 0003）。
+ALTER TABLE cart_carts ADD COLUMN IF NOT EXISTS order_id uuid;
+`),
   ],
 };
