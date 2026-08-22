@@ -4,9 +4,13 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 守衛依 token、cookie、匿名的順序解析身分
-- [ ] 所有既有標示為不需 token 的端點行為不變，並逐一有測試佐證
-- [ ] 前台的寫入端點受跨站請求偽造保護
-- [ ] 匿名訪客仍然可以瀏覽商品
+- [x] 守衛依 token、cookie、匿名的順序解析身分
+- [x] 所有既有標示為不需 token 的端點行為不變，並逐一有測試佐證
+- [x] 前台的寫入端點受跨站請求偽造保護
+- [x] 匿名訪客仍然可以瀏覽商品
+
+使用者決定（2026-08-22）：守衛全面改三段式，但 `auth/login`、`health/live`、`health/ready`、
+storefront 的 `POST /checkout` 四支維持強制匿名，改用新的 `@Anonymous()` 標記。
+checkout 那條與 CONTEXT.md「結帳必須是已登入 Customer」相衝，會在工單 21 拿掉。

@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { Body, Controller, Get, Inject, Param, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post, Req, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { PlatformError, type Actor } from '@storeweave/contracts';
-import { permissionsForRole } from '@storeweave/authorization';
 import type { StorefrontTheme, ThemeContext } from '@storeweave/kernel';
-import { Public } from '../http/auth';
+import { Anonymous, Public, actorOf, type AuthenticatedRequest } from '../http/auth';
 import { RUNTIME, THEME, type Runtime } from '../tokens';
 
 interface ProductDtoShape {
@@ -19,19 +18,10 @@ interface ProductDtoShape {
 @Public()
 @Controller()
 export class StorefrontController {
-  private readonly actor: Actor;
-
   constructor(
     @Inject(RUNTIME) private readonly runtime: Runtime,
     @Inject(THEME) private readonly theme: StorefrontTheme,
-  ) {
-    this.actor = {
-      id: 'storefront',
-      type: 'service',
-      displayName: 'storefront',
-      permissions: permissionsForRole('storefront'),
-    };
-  }
+  ) {}
 
   private themeContext(): ThemeContext {
     const store = this.runtime.config.store;
@@ -51,33 +41,36 @@ export class StorefrontController {
   }
 
   @Get()
-  async home(@Res() reply: FastifyReply) {
+  async home(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    const actor = actorOf(req);
     const result = await this.runtime.queries.execute<{ items: ProductDtoShape[] }>(
       'commerce.catalog.searchProducts',
       { status: 'active', limit: 48, offset: 0 },
-      { actor: this.actor, channel: 'rest' },
+      { actor, channel: 'rest' },
     );
-    const products = await Promise.all(result.items.map((p) => this.withStock(p)));
+    const products = await Promise.all(result.items.map((p) => this.withStock(actor, p)));
     this.html(reply, 200, this.theme.renderHome(this.themeContext(), { products }));
   }
 
   @Get('p/:id')
-  async product(@Param('id') id: string, @Res() reply: FastifyReply) {
+  async product(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Res() reply: FastifyReply) {
+    const actor = actorOf(req);
     try {
       const product = await this.runtime.queries.execute<ProductDtoShape>(
-        'commerce.catalog.getProduct', { id }, { actor: this.actor, channel: 'rest' },
+        'commerce.catalog.getProduct', { id }, { actor, channel: 'rest' },
       );
-      this.html(reply, 200, this.theme.renderProduct(this.themeContext(), { product: await this.withStock(product) }));
+      this.html(reply, 200, this.theme.renderProduct(this.themeContext(), { product: await this.withStock(actor, product) }));
     } catch (err) {
       this.renderError(reply, err);
     }
   }
 
   @Get('orders/:number')
-  async order(@Param('number') number: string, @Res() reply: FastifyReply) {
+  async order(@Req() req: AuthenticatedRequest, @Param('number') number: string, @Res() reply: FastifyReply) {
+    const actor = actorOf(req);
     try {
       const order = await this.runtime.queries.execute<any>(
-        'commerce.order.getOrder', { number }, { actor: this.actor, channel: 'rest' },
+        'commerce.order.getOrder', { number }, { actor, channel: 'rest' },
       );
       this.html(reply, 200, this.theme.renderOrder(this.themeContext(), { order }));
     } catch (err) {
@@ -86,18 +79,20 @@ export class StorefrontController {
   }
 
   /** 下單後立即排入付款工作，訂單頁呈現處理中的狀態。 */
+  @Anonymous()
   @Post('checkout')
-  async checkout(@Body() body: Record<string, string>, @Res() reply: FastifyReply) {
+  async checkout(@Req() req: AuthenticatedRequest, @Body() body: Record<string, string>, @Res() reply: FastifyReply) {
+    const actor = actorOf(req);
     try {
       const quantity = Number.parseInt(body.quantity ?? '1', 10);
       const correlationId = randomUUID();
       const order = await this.runtime.commands.execute<{ id: string; number: string }>(
         'commerce.order.placeOrder',
         { customerEmail: body.customerEmail, lines: [{ productId: body.productId, quantity }] },
-        { actor: this.actor, idempotencyKey: `storefront:${correlationId}`, correlationId, channel: 'rest' },
+        { actor, idempotencyKey: `storefront:${correlationId}`, correlationId, channel: 'rest' },
       );
       await this.runtime.commands.execute('commerce.order.payOrder', { orderId: order.id }, {
-        actor: this.actor, idempotencyKey: `storefront-pay:${order.id}`, correlationId, channel: 'rest',
+        actor, idempotencyKey: `storefront-pay:${order.id}`, correlationId, channel: 'rest',
       });
       void reply.status(303).header('location', `/orders/${order.number}`).send();
     } catch (err) {
@@ -105,11 +100,11 @@ export class StorefrontController {
     }
   }
 
-  private async withStock(product: ProductDtoShape) {
+  private async withStock(actor: Actor, product: ProductDtoShape) {
     let available: number | null = null;
     try {
       const stock = await this.runtime.queries.execute<{ available: number }>(
-        'commerce.inventory.getStock', { productId: product.id }, { actor: this.actor, channel: 'rest' },
+        'commerce.inventory.getStock', { productId: product.id }, { actor, channel: 'rest' },
       );
       available = stock.available;
     } catch {

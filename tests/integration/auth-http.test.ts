@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
-import { createServer } from '@storeweave/api';
+import { SESSION_COOKIE, createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
-import { ADMIN_ACTOR, createHarness, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
 
 const ADMIN_TOKEN = 'test-admin-token-abcdefghijklmnop';
 
@@ -253,5 +253,68 @@ describe('登入 / 登出 / session cookie', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().data.email).toBe('operator7@example.com');
+  });
+});
+
+describe('三段式守衛在 HTTP 上的行為（工單 11）', () => {
+  async function loginAs(email: string, password = 'correct horse battery staple') {
+    await createOperator(email, password);
+    const res = await inject({ method: 'POST', url: '/api/v1/auth/login', payload: { email, password } });
+    return cookieValue(res, SESSION_COOKIE)!;
+  }
+
+  it('匿名訪客照樣逛得了商店首頁與商品頁', async () => {
+    const home = await inject({ method: 'GET', url: '/' });
+    expect(home.statusCode).toBe(200);
+  });
+
+  it('帶著有效 session 逛前台不會被擋，頁面照常呈現', async () => {
+    const session = await loginAs('guard-session@example.com');
+    const home = await inject({ method: 'GET', url: '/', cookies: { [SESSION_COOKIE]: session } });
+    expect(home.statusCode).toBe(200);
+  });
+
+  it('過期或偽造的 cookie 不會讓前台壞掉，退回訪客', async () => {
+    const home = await inject({ method: 'GET', url: '/', cookies: { [SESSION_COOKIE]: 'not-a-real-session' } });
+    expect(home.statusCode).toBe(200);
+  });
+
+  it('但非公開端點的壞 cookie 仍然是 401', async () => {
+    const res = await inject({
+      method: 'GET', url: '/api/v1/products',
+      cookies: { [SESSION_COOKIE]: 'not-a-real-session' },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('登入是強制匿名的：帶著舊 session 又沒有 CSRF token 也能重新登入', async () => {
+    const session = await loginAs('guard-relogin@example.com');
+
+    const again = await inject({
+      method: 'POST', url: '/api/v1/auth/login',
+      cookies: { [SESSION_COOKIE]: session },
+      payload: { email: 'guard-relogin@example.com', password: 'correct horse battery staple' },
+    });
+
+    expect(again.statusCode).toBe(200);
+    expect(cookieValue(again, SESSION_COOKIE)).toBeTruthy();
+  });
+
+  it('探針端點不解析身分，帶壞 cookie 也照樣回報', async () => {
+    const live = await inject({ method: 'GET', url: '/health/live', cookies: { [SESSION_COOKIE]: 'garbage' } });
+    expect(live.statusCode).toBe(200);
+  });
+
+  it('訪客結帳仍然可用：checkout 是強制匿名，不需要 CSRF token', async () => {
+    const product = await createProduct(h.runtime, { sku: 'GUARD-CHECKOUT', name: '守衛測試' });
+    await stockUp(h.runtime, product.id, 3);
+
+    const res = await inject({
+      method: 'POST', url: '/checkout',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `productId=${product.id}&customerEmail=guest%40example.com&quantity=1`,
+    });
+
+    expect(res.statusCode).toBe(303);
   });
 });

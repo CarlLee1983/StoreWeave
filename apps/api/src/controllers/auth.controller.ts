@@ -3,7 +3,7 @@ import type { FastifyReply } from 'fastify';
 import { PlatformError } from '@storeweave/contracts';
 import { csrfTokenFor } from '@storeweave/identity';
 import { ok } from '../http/envelope';
-import { CSRF_COOKIE, Public, SESSION_COOKIE, type AuthenticatedRequest } from '../http/auth';
+import { Anonymous, CSRF_COOKIE, Public, SESSION_COOKIE, type AuthenticatedRequest } from '../http/auth';
 import { RUNTIME, type Runtime } from '../tokens';
 
 interface LoginBody {
@@ -16,7 +16,9 @@ interface LoginBody {
 export class AuthController {
   constructor(@Inject(RUNTIME) private readonly runtime: Runtime) {}
 
+  // 登入時身分還不存在；帶著舊 session 呼叫也只是重新簽發，不該解析出舊身分。
   @Public()
+  @Anonymous()
   @Post('login')
   @HttpCode(200)
   async login(
