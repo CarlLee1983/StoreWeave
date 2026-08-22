@@ -76,6 +76,25 @@ export type Promotion = {
   updatedAt: string;
 };
 
+export type AdminCustomer = {
+  id: string;
+  accountId: string;
+  email: string;
+  displayName: string;
+  birthday: string | null;
+  phone: string | null;
+  address: {
+    recipient: string; phone: string; postcode: string; city: string; line1: string; line2: string | null;
+  } | null;
+  status: 'active' | 'disabled';
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminCustomerDetail = AdminCustomer & {
+  orders: { id: string; number: string; status: string; currency: string; totalCents: number; placedAt: string }[];
+};
+
 export type SalesSummary = {
   currency: string;
   paidOrderCount: number;
@@ -334,6 +353,15 @@ export const api = {
       body: { status },
       idempotent: true,
     });
+  },
+  listCustomers(params: { q?: string; status?: string; limit?: number; offset?: number }) {
+    return request<Paged<AdminCustomer>>(`/api/v1/customers${toQuery(params)}`);
+  },
+  getCustomer(id: string) {
+    return request<AdminCustomerDetail>(`/api/v1/customers/${id}`);
+  },
+  setCustomerStatus(id: string, status: AdminCustomer['status']) {
+    return request<AdminCustomer>(`/api/v1/customers/${id}/status`, { method: 'POST', body: { status }, idempotent: true });
   },
   salesSummary(params: { from?: string; to?: string }) {
     // date input 只有到日，這裡補上時間讓區間包含「到」那一整天

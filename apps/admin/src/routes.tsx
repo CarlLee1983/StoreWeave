@@ -6,6 +6,7 @@ import type { IconName } from './components/Icon';
 import { ProductsPage } from './pages/ProductsPage';
 import { OrdersPage } from './pages/OrdersPage';
 import { PromotionsPage } from './pages/PromotionsPage';
+import { CustomersPage } from './pages/CustomersPage';
 import { ErpPage } from './pages/ErpPage';
 import { SystemPage } from './pages/SystemPage';
 import { DlqPage } from './pages/DlqPage';
@@ -67,6 +68,15 @@ const ENTRIES = [
     subtitle: 'promotionsSubtitle',
     action: { label: 'createPromotion', targetId: 'create-promotion' },
     render: () => <PromotionsPage />,
+  },
+  {
+    path: 'customers',
+    navLabel: 'customers',
+    icon: 'receipt',
+    section: 'commerce',
+    title: 'customersTitle',
+    subtitle: 'customersSubtitle',
+    render: () => <CustomersPage />,
   },
   {
     path: 'erp',

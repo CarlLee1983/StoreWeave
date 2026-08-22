@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Inject, Patch, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { BusController } from './base';
 import { ok } from '../http/envelope';
@@ -62,5 +62,22 @@ export class CustomerController extends BusController {
   @Patch('me')
   async updateMe(@Req() req: AuthenticatedRequest, @Body() body: unknown) {
     return ok(await this.command(req, 'commerce.customer.updateMyProfile', body));
+  }
+
+  @Get()
+  async list(@Req() req: AuthenticatedRequest, @Query() query: Record<string, string>) {
+    return ok(await this.query(req, 'commerce.customer.listCustomers', {
+      q: query.q, status: query.status, limit: query.limit, offset: query.offset,
+    }));
+  }
+
+  @Get(':id')
+  async get(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+    return ok(await this.query(req, 'commerce.customer.getCustomer', { id }));
+  }
+
+  @Post(':id/status')
+  async setStatus(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return ok(await this.command(req, 'commerce.customer.setCustomerStatus', { customerId: id, status: body.status }));
   }
 }

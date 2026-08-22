@@ -27,6 +27,7 @@ vi.mock('./api', async () => {
 vi.mock('./pages/ProductsPage', () => ({ ProductsPage: () => <div>PRODUCTS_PAGE</div> }));
 vi.mock('./pages/OrdersPage', () => ({ OrdersPage: () => <div>ORDERS_PAGE</div> }));
 vi.mock('./pages/PromotionsPage', () => ({ PromotionsPage: () => <div>PROMOTIONS_PAGE</div> }));
+vi.mock('./pages/CustomersPage', () => ({ CustomersPage: () => <div>CUSTOMERS_PAGE</div> }));
 vi.mock('./pages/ErpPage', () => ({ ErpPage: () => <div>ERP_PAGE</div> }));
 vi.mock('./pages/SystemPage', () => ({ SystemPage: () => <div>SYSTEM_PAGE</div> }));
 vi.mock('./pages/DlqPage', () => ({ DlqPage: () => <div>DLQ_PAGE</div> }));
@@ -43,7 +44,7 @@ beforeEach(() => {
 afterEach(() => { window.location.hash = ''; });
 
 describe('後台外殼的導覽', () => {
-  it('側欄依 Commerce 與 Integrations 兩組列出六個頁面', async () => {
+  it('側欄依 Commerce 與 Integrations 兩組列出七個頁面', async () => {
     renderApp();
     await screen.findByText('PRODUCTS_PAGE');
 
@@ -52,7 +53,7 @@ describe('後台外殼的導覽', () => {
 
     const nav = screen.getByLabelText('主要導覽');
     const labels = Array.from(nav.querySelectorAll('.nav-link')).map((el) => el.getAttribute('aria-label'));
-    expect(labels).toEqual(['訂單', '商品', '促銷活動', 'ERP 佇列', '死信佇列', '系統健康度']);
+    expect(labels).toEqual(['訂單', '商品', '促銷活動', '會員', 'ERP 佇列', '死信佇列', '系統健康度']);
   });
 
   it('預設進到商品頁，標題與副標題正確', async () => {
@@ -177,7 +178,7 @@ describe('命令面板', () => {
     const dialog = await screen.findByRole('dialog', { name: '命令選單' });
     const labels = Array.from(dialog.querySelectorAll('button')).map((el) => el.textContent);
 
-    expect(labels).toEqual(['訂單', '商品', '促銷活動', 'ERP 佇列', '死信佇列', '系統健康度']);
+    expect(labels).toEqual(['訂單', '商品', '促銷活動', '會員', 'ERP 佇列', '死信佇列', '系統健康度']);
   });
 
   it('Esc 關閉命令面板', async () => {

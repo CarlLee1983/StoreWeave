@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext } from '@storeweave/contracts';
 import { CUSTOMER_ROLE, accountService } from '@storeweave/identity';
-import { customerDto, registerCustomerInput, registerCustomerOutput, setCustomerBirthdayInput, updateMyProfileInput } from './dto';
+import { sql } from 'drizzle-orm';
+import { customerDto, setCustomerStatusInput, registerCustomerInput, registerCustomerOutput, setCustomerBirthdayInput, updateMyProfileInput } from './dto';
 import { CustomerRepository, toCustomerDto } from './repository';
 import { customerService } from './service';
 
@@ -119,5 +120,41 @@ export const setCustomerBirthdayHandler = async (
 ) => {
   const row = await repository.update(ctx.tx, input.customerId, { birthday: input.birthday, updatedAt: ctx.now });
   if (!row) throw PlatformError.notFound('Customer', input.customerId);
+  return toCustomerDto(row);
+};
+
+export const setCustomerStatusCommand = defineCommand({
+  name: 'commerce.customer.setCustomerStatus',
+  summary: '後台：停用或啟用會員',
+  input: setCustomerStatusInput,
+  output: customerDto,
+  permission: 'customers:manage',
+  idempotency: 'optional',
+  audit: {
+    action: 'customer.status-changed',
+    resourceType: 'customer',
+    resourceId: (i: z.infer<typeof setCustomerStatusInput>) => i.customerId,
+    redact: (i: z.infer<typeof setCustomerStatusInput>) => ({ status: i.status }),
+  },
+});
+
+export const setCustomerStatusHandler = async (
+  input: z.infer<typeof setCustomerStatusInput>,
+  ctx: CommandContext,
+) => {
+  const row = await repository.update(ctx.tx, input.customerId, { status: input.status, updatedAt: ctx.now });
+  if (!row) throw PlatformError.notFound('Customer', input.customerId);
+
+  // 帳號一起停：只停顧客資料的話，人還是登得進來，只是什麼都不能做——那不是「停用帳號」。
+  await ctx.tx.execute(sql`
+    UPDATE platform_users SET status = ${input.status === 'disabled' ? 'disabled' : 'active'}
+    WHERE id = ${row.accountId}
+  `);
+  if (input.status === 'disabled') {
+    await ctx.tx.execute(sql`
+      UPDATE platform_sessions SET revoked_at = now() WHERE user_id = ${row.accountId} AND revoked_at IS NULL
+    `);
+  }
+
   return toCustomerDto(row);
 };

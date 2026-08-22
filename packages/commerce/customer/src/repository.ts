@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
 import type { DrizzleDb, Tx } from '@storeweave/contracts';
 import { customers, type CustomerRow } from './schema';
 import type { CustomerDto } from './dto';
@@ -26,6 +26,10 @@ export function toCustomerDto(row: CustomerRow): CustomerDto {
   };
 }
 
+export interface CustomerListRow extends CustomerRow {
+  email: string;
+}
+
 export class CustomerRepository {
   async insert(tx: Tx, values: typeof customers.$inferInsert): Promise<CustomerRow> {
     const [row] = await tx.insert(customers).values(values).returning();
@@ -40,6 +44,43 @@ export class CustomerRepository {
   async findById(db: DrizzleDb | Tx, id: string): Promise<CustomerRow | null> {
     const [row] = await db.select().from(customers).where(eq(customers.id, id)).limit(1);
     return row ?? null;
+  }
+
+  /**
+   * 後台清單。email 屬於帳號、顯示名稱屬於顧客，兩邊都要搜得到，
+   * 因此這一支是 customer 模組唯一讀 platform_users 的地方——而且只讀，不寫。
+   */
+  async listForAdmin(
+    db: DrizzleDb | Tx,
+    filter: { q?: string; status?: string; limit: number; offset: number },
+  ): Promise<{ items: CustomerListRow[]; total: number }> {
+    const conditions: SQL[] = [];
+    if (filter.status) conditions.push(eq(customers.status, filter.status));
+    if (filter.q) {
+      const like = `%${filter.q}%`;
+      conditions.push(or(ilike(customers.displayName, like), sql`u.email ILIKE ${like}`)!);
+    }
+    const where = conditions.length ? and(...conditions)! : sql`true`;
+
+    const rows = await db
+      .select({ customer: customers, email: sql<string>`u.email` })
+      .from(customers)
+      .innerJoin(sql`platform_users u`, sql`u.id = ${customers.accountId}`)
+      .where(where)
+      .orderBy(sql`${customers.createdAt} DESC`)
+      .limit(filter.limit)
+      .offset(filter.offset);
+
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(customers)
+      .innerJoin(sql`platform_users u`, sql`u.id = ${customers.accountId}`)
+      .where(where);
+
+    return {
+      items: rows.map((r) => ({ ...r.customer, email: r.email })),
+      total: Number(count),
+    };
   }
 
   async findByAccountId(db: DrizzleDb | Tx, accountId: string): Promise<CustomerRow | null> {

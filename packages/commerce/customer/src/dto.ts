@@ -52,3 +52,38 @@ export const setCustomerBirthdayInput = z.object({
   customerId: z.string().uuid(),
   birthday,
 });
+
+/** 後台看到的會員：顧客資料 + 帳號 email。永遠不含密碼雜湊。 */
+export const adminCustomerDto = customerDto.extend({
+  email: z.string().email(),
+});
+
+export const listCustomersInput = z.object({
+  q: z.string().max(200).optional(),
+  status: z.enum(['active', 'disabled']).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+export const listCustomersOutput = z.object({
+  items: z.array(adminCustomerDto),
+  total: z.number().int().nonnegative(),
+});
+
+export const customerOrderDto = z.object({
+  id: z.string().uuid(),
+  number: z.string(),
+  status: z.string(),
+  currency: z.string().length(3),
+  totalCents: z.number().int(),
+  placedAt: z.coerce.date(),
+});
+
+export const adminCustomerDetailDto = adminCustomerDto.extend({
+  orders: z.array(customerOrderDto),
+});
+
+export const setCustomerStatusInput = z.object({
+  customerId: z.string().uuid(),
+  status: z.enum(['active', 'disabled']),
+});

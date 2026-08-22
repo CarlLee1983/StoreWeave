@@ -4,10 +4,12 @@ import {
   registerCustomerHandler,
   setCustomerBirthdayCommand,
   setCustomerBirthdayHandler,
+  setCustomerStatusCommand,
+  setCustomerStatusHandler,
   updateMyProfileCommand,
   updateMyProfileHandler,
 } from './commands';
-import { getMyProfileHandler, getMyProfileQuery } from './queries';
+import { getCustomerHandler, getCustomerQuery, getMyProfileHandler, getMyProfileQuery, listCustomersHandler, listCustomersQuery } from './queries';
 import { customerMigrations } from './migrations';
 
 export const customerModule = defineModule({
@@ -23,8 +25,11 @@ export const customerModule = defineModule({
     { descriptor: registerCustomerCommand, handler: registerCustomerHandler },
     { descriptor: updateMyProfileCommand, handler: updateMyProfileHandler },
     { descriptor: setCustomerBirthdayCommand, handler: setCustomerBirthdayHandler },
+    { descriptor: setCustomerStatusCommand, handler: setCustomerStatusHandler },
   ],
   queries: [
     { descriptor: getMyProfileQuery, handler: getMyProfileHandler },
+    { descriptor: listCustomersQuery, handler: listCustomersHandler },
+    { descriptor: getCustomerQuery, handler: getCustomerHandler },
   ],
 });
