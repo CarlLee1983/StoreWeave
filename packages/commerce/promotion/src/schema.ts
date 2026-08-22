@@ -9,6 +9,8 @@ export const promotions = pgTable('promotion_promotions', {
   rule: jsonb('rule').notNull(),
   priority: integer('priority').notNull().default(0),
   stackable: boolean('stackable').notNull().default(true),
+  /** 需要券才套用。這種活動不會出現在「此刻人人適用」的清單裡。 */
+  requiresCoupon: boolean('requires_coupon').notNull().default(false),
   startsAt: timestamp('starts_at', { withTimezone: true }),
   endsAt: timestamp('ends_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

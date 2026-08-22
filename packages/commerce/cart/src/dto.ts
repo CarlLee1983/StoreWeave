@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { couponCode } from '@storeweave/coupon';
 
 /** 訪客 token 由前台的 cookie 帶進來；會員身分優先，兩者同時出現時以會員為準。 */
 const owner = { guestToken: z.string().min(16).max(200).optional() };
@@ -35,6 +36,14 @@ export const cartDto = z.object({
   discountCents: z.number().int().nonnegative(),
   totalCents: z.number().int().nonnegative(),
   adjustments: z.array(cartAdjustmentDto),
+  /** 本次套用的券。券不生效時 `discountCents` 是 0，`error` 說得出為什麼。 */
+  coupon: z.object({
+    code: z.string(),
+    promotionId: z.string().uuid(),
+    discountCents: z.number().int().nonnegative(),
+  }).nullable(),
+  /** 券失效的原因。留著碼而不是靜靜拿掉，顧客才知道發生了什麼。 */
+  couponError: z.string().nullable(),
   /** 差一點就達成的門檻活動；沒有就是 null。 */
   nextThreshold: z.object({
     promotionId: z.string(),
@@ -81,3 +90,6 @@ export const purgeStaleGuestCartsOutput = z.object({
   deletedCarts: z.number().int().nonnegative(),
   before: z.coerce.date(),
 });
+
+export const applyCouponInput = z.object({ ...owner, code: couponCode }).strict();
+export const removeCouponInput = z.object({ ...owner }).strict();

@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, lte, gt, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lte, gt, or, sql, type SQL } from 'drizzle-orm';
 import type { DrizzleDb, Tx } from '@storeweave/contracts';
 import { promotionRule, type PromotionDto } from './dto';
 import { promotions, type PromotionRow } from './schema';
@@ -21,6 +21,7 @@ function toPromotionShell(row: PromotionRow): Omit<PromotionDto, 'rule'> {
     status: row.status as PromotionDto['status'],
     priority: row.priority,
     stackable: row.stackable,
+    requiresCoupon: row.requiresCoupon,
     startsAt: row.startsAt,
     endsAt: row.endsAt,
     createdAt: row.createdAt,
@@ -65,12 +66,24 @@ export class PromotionRepository {
    * 改成多取一列來判斷有沒有超出上限。
    */
   async listActiveAt(db: DrizzleDb | Tx, at: Date, limit: number): Promise<PromotionRow[]> {
+    // 需要券的活動不在這裡：它們由呼叫端明確帶進來（`byIds`），
+    // 否則建一張券就等於全站打折。
     return db
       .select()
       .from(promotions)
-      .where(activeAtCondition(at))
+      .where(and(activeAtCondition(at), eq(promotions.requiresCoupon, false))!)
       .orderBy(asc(promotions.priority), asc(promotions.id))
       .limit(limit + 1);
+  }
+
+  /** 明確指名的活動：券所指向的那一條由這裡載入，生效判斷仍然一樣。 */
+  async listActiveByIds(db: DrizzleDb | Tx, ids: readonly string[], at: Date): Promise<PromotionRow[]> {
+    if (ids.length === 0) return [];
+    return db
+      .select()
+      .from(promotions)
+      .where(and(activeAtCondition(at), inArray(promotions.id, [...ids]))!)
+      .orderBy(asc(promotions.priority), asc(promotions.id));
   }
 
   async list(

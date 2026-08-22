@@ -8,6 +8,7 @@ import { inventoryService } from '@storeweave/inventory';
 import { customerService } from '@storeweave/customer';
 import { pricingService } from '@storeweave/promotion';
 import { CartRepository } from '@storeweave/cart';
+import { CouponRepository, couponError, couponService } from '@storeweave/coupon';
 import { cancelOrderInput, checkoutCartInput, markPaidInput, orderDto, payOrderInput, placeOrderInput, type OrderDto } from './dto';
 import { OrderRepository, toOrderDto } from './repository';
 import { orderCancelledV1, orderPaidV1, orderPaidV2, orderPlacedV1, orderPlacedV2, orderPlacedV3 } from './events';
@@ -57,7 +58,13 @@ export const placeOrderCommand = defineCommand({
  */
 export async function createOrderFromLines(
   deps: OrderModuleDeps,
-  input: { currency?: string; lines: { productId: string; quantity: number }[]; metadata?: Record<string, unknown> },
+  input: {
+    currency?: string;
+    lines: { productId: string; quantity: number }[];
+    metadata?: Record<string, unknown>;
+    /** 券指名的活動。它們不在「此刻人人適用」的清單裡，必須明確帶進來。 */
+    couponPromotionIds?: readonly string[];
+  },
   ctx: CommandContext,
 ): Promise<OrderDto> {
   const orderId = randomUUID();
@@ -100,6 +107,7 @@ export async function createOrderFromLines(
 
   // 定價與訂單建立在同一個交易內：折扣依據的活動狀態與寫進訂單的金額必定一致。
   const pricing = await pricingService.quote(ctx.tx, {
+    couponPromotionIds: input.couponPromotionIds,
     lines: lines.map((l) => ({
       lineId: l.id!,
       productId: l.productId,
@@ -182,6 +190,7 @@ export function createPlaceOrderHandler(deps: OrderModuleDeps) {
 }
 
 const cartRepository = new CartRepository();
+const couponRepository = new CouponRepository();
 
 export const checkoutCartCommand = defineCommand({
   name: 'commerce.order.checkoutCart',
@@ -222,6 +231,16 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
     }
     if (cart.status !== 'open') throw PlatformError.conflict(`Cart ${cart.id} is no longer open`);
 
+    // 券在這裡鎖住並重驗：試算到結帳之間它可能過期或被停用，
+    // 而顧客看到的金額必須是實際會扣的金額。
+    const coupon = cart.couponCode ? await couponRepository.findByCode(ctx.tx, cart.couponCode) : null;
+    const locked = coupon ? await couponRepository.lockById(ctx.tx, coupon.id) : null;
+    if (cart.couponCode && !locked) throw couponError('not_found');
+    if (locked) {
+      const check = couponService.check(locked, { customerId: buyer.customerId, now: ctx.now });
+      if (!check.ok) throw couponError(check.reason);
+    }
+
     // 下架的商品顧客本來就看不到（購物車顯示時已經濾掉），結帳跟著同一個判斷。
     const lines: { productId: string; quantity: number }[] = [];
     for (const row of await cartRepository.items(ctx.tx, cart.id)) {
@@ -230,10 +249,46 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
     }
     if (lines.length === 0) throw PlatformError.validation('Your cart is empty');
 
-    const order = await createOrderFromLines(deps, { lines, metadata: input.metadata }, ctx);
+    const order = await createOrderFromLines(deps, {
+      lines,
+      metadata: input.metadata,
+      couponPromotionIds: locked ? [locked.promotionId] : [],
+    }, ctx);
+
+    if (locked) await redeemCoupon(ctx, locked, order, buyer.customerId);
     await cartRepository.markCheckedOut(ctx.tx, cart.id, order.id, ctx.now);
     return order;
   };
+}
+
+/**
+ * 核銷。與訂單在同一個交易內成立——訂單回滾，核銷就不曾發生。
+ *
+ * 券沒有真的折到錢時不核銷：門檻沒達到的券被吃掉，是顧客最不能接受的那種損失。
+ */
+async function redeemCoupon(
+  ctx: CommandContext,
+  coupon: { id: string; code: string; promotionId: string; partnerCode: string | null; customerId: string | null },
+  order: OrderDto,
+  customerId: string,
+): Promise<void> {
+  const discountCents = order.adjustments
+    .filter((adjustment) => adjustment.sourceId === coupon.promotionId)
+    .reduce((sum, adjustment) => sum - adjustment.amountCents, 0);
+  if (discountCents <= 0) return;
+
+  await couponRepository.recordRedemption(ctx.tx, {
+    couponId: coupon.id,
+    promotionId: coupon.promotionId,
+    orderId: order.id,
+    customerId,
+    code: coupon.code,
+    partnerCode: coupon.partnerCode,
+    discountCents,
+    redeemedAt: ctx.now,
+  });
+  // 實發券用完就沒了；共用碼還留著給下一個人（額度控制是工單 32）。
+  if (coupon.customerId) await couponRepository.update(ctx.tx, coupon.id, { status: 'used', updatedAt: ctx.now });
 }
 
 export const payOrderCommand = defineCommand({

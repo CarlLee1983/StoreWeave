@@ -12,6 +12,8 @@ export const carts = pgTable('cart_carts', {
   status: text('status').notNull().default('open'),
   /** 結成的那張訂單。重複送出的結帳靠它回到同一張單，而不是靠呼叫端記得帶對冪等鍵。 */
   orderId: uuid('order_id'),
+  /** 本次要使用的券。存碼而不是券 id：券可能在結帳前被停用，屆時要能說出是哪一組碼失效。 */
+  couponCode: text('coupon_code'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

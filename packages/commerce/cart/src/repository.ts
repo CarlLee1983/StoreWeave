@@ -142,6 +142,10 @@ export class CartRepository {
     return deleted.length;
   }
 
+  async setCouponCode(tx: Tx, cartId: string, code: string | null, now: Date): Promise<void> {
+    await tx.update(carts).set({ couponCode: code, updatedAt: now }).where(eq(carts.id, cartId));
+  }
+
   async touch(tx: Tx, cartId: string, now: Date): Promise<void> {
     await tx.update(carts).set({ updatedAt: now }).where(eq(carts.id, cartId));
   }

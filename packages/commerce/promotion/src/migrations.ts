@@ -22,5 +22,9 @@ CREATE TABLE IF NOT EXISTS promotion_promotions (
 CREATE INDEX IF NOT EXISTS promotion_promotions_active_idx
   ON promotion_promotions (status, priority, id);
 `),
+    sqlMigration('0002_requires_coupon', 'expand', `
+-- 券所指向的活動不該人人適用。沒有這個旗標，建一張券就等於全站打折。
+ALTER TABLE promotion_promotions ADD COLUMN IF NOT EXISTS requires_coupon boolean NOT NULL DEFAULT false;
+`),
   ],
 };

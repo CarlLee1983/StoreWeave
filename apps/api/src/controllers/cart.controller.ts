@@ -74,6 +74,24 @@ export class CartController extends BusController {
       { actor: actorOf(req), idempotencyKey: `cart:${cartId}`, correlationId: correlationIdOf(req), channel: 'rest' }));
   }
 
+  /** 套用折扣碼。這支端點受節流保護：沒有它，掃碼機器人可以把限量活動吃光。 */
+  @Post('coupon')
+  async applyCoupon(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: Record<string, unknown>,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    return ok(await this.command(req, 'commerce.cart.applyCoupon', {
+      code: body.code,
+      guestToken: this.guestToken(req, reply),
+    }));
+  }
+
+  @Delete('coupon')
+  async removeCoupon(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) reply: FastifyReply) {
+    return ok(await this.command(req, 'commerce.cart.removeCoupon', { guestToken: this.guestToken(req, reply) }));
+  }
+
   @Delete()
   async clear(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) reply: FastifyReply) {
     return ok(await this.command(req, 'commerce.cart.clearCart', { guestToken: this.guestToken(req, reply) }));

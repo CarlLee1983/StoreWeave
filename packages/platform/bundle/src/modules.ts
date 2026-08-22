@@ -5,6 +5,7 @@ import { inventoryModule } from '@storeweave/inventory';
 import { createOrderModule } from '@storeweave/order';
 import { customerModule } from '@storeweave/customer';
 import { createCart } from '@storeweave/cart';
+import { couponModule } from '@storeweave/coupon';
 import { createPromotionModule } from '@storeweave/promotion';
 import { mockPaymentExtension } from '@storeweave/ext-mock-payment';
 import { mockNotificationExtension } from '@storeweave/ext-mock-notification';
@@ -27,6 +28,7 @@ export function coreModules(options: {
     customerModule,
     createCart({ defaultCurrency: options.defaultCurrency }),
     createPromotionModule({ defaultCurrency: options.defaultCurrency }),
+    couponModule,
     createOrderModule({
       providers: options.providers,
       defaultCurrency: options.defaultCurrency,

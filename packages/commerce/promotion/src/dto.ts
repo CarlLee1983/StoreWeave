@@ -38,6 +38,8 @@ export const promotionDto = z.object({
   rule: promotionRule,
   priority: z.number().int(),
   stackable: z.boolean(),
+  /** 需要券才套用；這種活動不會人人適用。 */
+  requiresCoupon: z.boolean(),
   startsAt: z.coerce.date().nullable(),
   endsAt: z.coerce.date().nullable(),
   createdAt: z.coerce.date(),
@@ -62,6 +64,7 @@ export const createPromotionInput = z
     /** 數字小的先套用。 */
     priority: z.number().int().min(-1000).max(1000).default(0),
     stackable: z.boolean().default(true),
+    requiresCoupon: z.boolean().default(false),
     status: promotionStatus.default('active'),
     ...period,
   })
@@ -75,6 +78,7 @@ export const updatePromotionInput = z
     rule: promotionRule.optional(),
     priority: z.number().int().min(-1000).max(1000).optional(),
     stackable: z.boolean().optional(),
+    requiresCoupon: z.boolean().optional(),
     ...period,
   })
   .strict()

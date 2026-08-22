@@ -242,3 +242,48 @@ describe('購物車結帳（工單 28）', () => {
     expect(res.statusCode).toBeGreaterThanOrEqual(400);
   });
 });
+
+describe('折扣碼端點（工單 31）', () => {
+  it('套用與移除折扣碼', async () => {
+    const promotion = await h.runtime.commands.execute<any>('commerce.promotion.createPromotion', {
+      name: 'HTTP 券九折',
+      rule: { type: 'order_percentage', percentOffBasisPoints: 1_000 },
+      requiresCoupon: true,
+    }, { actor: ADMIN_ACTOR, idempotencyKey: `promo-http-${Date.now()}` });
+    const code = `HTTP${Date.now()}`;
+    await h.runtime.commands.execute('commerce.coupon.createCoupon', { code, promotionId: promotion.id },
+      { actor: ADMIN_ACTOR, idempotencyKey: `coupon-http-${Date.now()}` });
+
+    const product = await sellable('CART-COUPON-HTTP');
+    const added = await inject({ method: 'POST', url: '/api/v1/cart/items', payload: { productId: product.id, quantity: 1 } });
+    const cookies = { [CART_COOKIE]: added.cookies.find((c) => c.name === CART_COOKIE)!.value };
+
+    const applied = await inject({ method: 'POST', url: '/api/v1/cart/coupon', cookies, payload: { code } });
+    expect(applied.statusCode).toBe(201);
+    expect(applied.json().data.coupon.code).toBe(code);
+    expect(applied.json().data.discountCents).toBe(500);
+
+    const removed = await inject({ method: 'DELETE', url: '/api/v1/cart/coupon', cookies });
+    expect(removed.json().data.coupon).toBeNull();
+    expect(removed.json().data.discountCents).toBe(0);
+
+    await h.runtime.commands.execute('commerce.promotion.setPromotionStatus', { id: promotion.id, status: 'disabled' },
+      { actor: ADMIN_ACTOR, idempotencyKey: `disable-http-${Date.now()}` });
+  });
+
+  it('猜碼會被節流擋下：這條管道通了，限量活動就會被掃光', async () => {
+    const product = await sellable('CART-COUPON-BRUTE');
+    const added = await inject({ method: 'POST', url: '/api/v1/cart/items', payload: { productId: product.id, quantity: 1 } });
+    const cookies = { [CART_COOKIE]: added.cookies.find((c) => c.name === CART_COOKIE)!.value };
+
+    const statuses: number[] = [];
+    for (let i = 0; i < 25; i += 1) {
+      const res = await inject({ method: 'POST', url: '/api/v1/cart/coupon', cookies, payload: { code: `GUESS${i}XYZ` } });
+      statuses.push(res.statusCode);
+    }
+
+    expect(statuses).toContain(429);
+    // 節流之前的嘗試回的是「找不到」，不是別的錯誤——節流不能掩蓋真正的行為。
+    expect(statuses[0]).toBe(404);
+  });
+});

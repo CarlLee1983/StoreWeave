@@ -45,5 +45,10 @@ ALTER TABLE cart_carts ADD CONSTRAINT cart_carts_status_check
 -- 不是呼叫端記不記得帶對 key（Spec 0003）。
 ALTER TABLE cart_carts ADD COLUMN IF NOT EXISTS order_id uuid;
 `),
+    sqlMigration('0004_coupon_code', 'expand', `
+-- 本次要使用的券。存碼而不是券 id：券可能在結帳前被停用，
+-- 屆時錯誤訊息要說得出是哪一組碼失效（Spec 0004）。
+ALTER TABLE cart_carts ADD COLUMN IF NOT EXISTS coupon_code text;
+`),
   ],
 };

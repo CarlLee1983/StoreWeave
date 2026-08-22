@@ -69,13 +69,28 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
     keyGenerator: (request) => `auth-ip:${request.ip}`,
   });
 
+  // 套用折扣碼同樣要節流，理由不同：那是一條可以暴力猜碼的管道，
+  // 而共用碼的損失上限就是整檔活動的預算。綁 IP 就夠——碼不綁帳號。
+  const COUPON_ROUTES = new Set(['/api/v1/cart/coupon', '/cart/coupon']);
+  const couponLimiter = app.getHttpAdapter().getInstance().createRateLimit({
+    max: 20,
+    timeWindow: '1 minute',
+    keyGenerator: (request) => `coupon:${request.ip}`,
+  });
+
   app.getHttpAdapter().getInstance().addHook('preHandler', async (request, reply) => {
     // 比對正規化後的路由，不是原始 URL：request.url 保留百分比編碼，
     // 而 Fastify 是解碼後才比對路由，因此 /api/v1/auth/%6cogin 會打到 login
     // 卻繞過任何用 startsWith(request.url) 寫成的條件。
-    if (request.method !== 'POST' || !THROTTLED_ROUTES.has(request.routeOptions?.url ?? '')) return;
+    const route = request.routeOptions?.url ?? '';
+    if (request.method !== 'POST') return;
 
-    for (const limiter of [perIpLimiter, perAccountLimiter]) {
+    const limiters = THROTTLED_ROUTES.has(route)
+      ? [perIpLimiter, perAccountLimiter]
+      : COUPON_ROUTES.has(route) ? [couponLimiter] : [];
+    if (limiters.length === 0) return;
+
+    for (const limiter of limiters) {
       const result = await limiter(request);
       // isAllowed 只有 allowList 命中時才是 true；一般路徑一律回 false，要看的是 isExceeded。
       if (!result.isAllowed && result.isExceeded) {

@@ -2,6 +2,7 @@ import type { DrizzleDb, Logger, Tx } from '@storeweave/contracts';
 import { catalogService } from '@storeweave/catalog';
 import { inventoryService } from '@storeweave/inventory';
 import { pricingService } from '@storeweave/promotion';
+import { couponService } from '@storeweave/coupon';
 import type { CartDto } from './dto';
 import { CartRepository } from './repository';
 import type { CartRow } from './schema';
@@ -12,7 +13,7 @@ const repository = new CartRepository();
 export function emptyCartDto(id: string, currency: string): CartDto {
   return {
     id, currency, items: [], subtotalCents: 0, discountCents: 0, totalCents: 0,
-    adjustments: [], nextThreshold: null,
+    adjustments: [], coupon: null, couponError: null, nextThreshold: null,
   };
 }
 
@@ -54,8 +55,16 @@ export async function toCartDto(
 
   if (items.length === 0) return emptyCartDto(cart.id, defaultCurrency);
 
+  // 券只是「多帶一條活動進定價」。它在這裡**不**扣任何額度——
+  // 限量的扣減只發生在結帳，因此試算成功不保證結帳成功（Spec 0004）。
+  const resolved = cart.couponCode
+    ? await couponService.resolve(db, { code: cart.couponCode, customerId: cart.customerId, now })
+    : null;
+  const couponPromotionIds = resolved?.ok ? [resolved.coupon.promotionId] : [];
+
   // lineId 用 productId：一台車裡一件商品只有一行，這個對應是唯一的。
   const pricing = await pricingService.quote(db, {
+    couponPromotionIds,
     lines: items.map((item) => ({
       lineId: item.productId,
       productId: item.productId,
@@ -79,6 +88,16 @@ export async function toCartDto(
     discountCents: pricing.discountCents,
     totalCents: pricing.totalCents,
     adjustments: pricing.adjustments,
+    coupon: resolved?.ok
+      ? {
+        code: resolved.coupon.code,
+        promotionId: resolved.coupon.promotionId,
+        discountCents: pricing.appliedPromotions
+          .filter((applied) => applied.promotionId === resolved.coupon.promotionId)
+          .reduce((sum, applied) => sum + applied.discountCents, 0),
+      }
+      : null,
+    couponError: resolved && !resolved.ok ? resolved.message : null,
     nextThreshold: pricing.nextThreshold,
   };
 }

@@ -1,12 +1,15 @@
 import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext } from '@storeweave/contracts';
 import { catalogService } from '@storeweave/catalog';
+import { couponError, couponService } from '@storeweave/coupon';
 import {
   addToCartInput,
   cartDto,
   clearCartInput,
   mergeGuestCartInput,
   mergedCartDto,
+  applyCouponInput,
+  removeCouponInput,
   GUEST_CART_RETENTION_DAYS,
   purgeStaleGuestCartsInput,
   purgeStaleGuestCartsOutput,
@@ -159,6 +162,34 @@ export function createCartModule(deps: CartModuleDeps) {
     return toCartDto(ctx.tx, cart, deps.defaultCurrency, ctx.now, ctx.logger);
   };
 
+  const applyCouponCommand = cartCommand('commerce.cart.applyCoupon', '套用折扣碼', applyCouponInput, 'cart.coupon-applied');
+  const removeCouponCommand = cartCommand('commerce.cart.removeCoupon', '移除折扣碼', removeCouponInput, 'cart.coupon-removed');
+
+  /**
+   * 套用折扣碼。當場就驗，理由分得細——顧客看到「無效」只會再打一次，
+   * 看到「已過期」才會去找別張。
+   *
+   * 這裡**不**扣任何額度：限量的扣減只發生在結帳（工單 32）。
+   */
+  const applyCouponHandler = async (input: z.infer<typeof applyCouponInput>, ctx: CommandContext): Promise<CartDto> => {
+    const cart = await openCart(ctx, input.guestToken);
+    const resolved = await couponService.resolve(ctx.tx, {
+      code: input.code,
+      customerId: cart.customerId,
+      now: ctx.now,
+    });
+    if (!resolved.ok) throw couponError(resolved.reason);
+
+    await repository.setCouponCode(ctx.tx, cart.id, resolved.coupon.code, ctx.now);
+    return toCartDto(ctx.tx, { ...cart, couponCode: resolved.coupon.code }, deps.defaultCurrency, ctx.now, ctx.logger);
+  };
+
+  const removeCouponHandler = async (input: z.infer<typeof removeCouponInput>, ctx: CommandContext): Promise<CartDto> => {
+    const cart = await openCart(ctx, input.guestToken);
+    await repository.setCouponCode(ctx.tx, cart.id, null, ctx.now);
+    return toCartDto(ctx.tx, { ...cart, couponCode: null }, deps.defaultCurrency, ctx.now, ctx.logger);
+  };
+
   const purgeStaleGuestCartsCommand = defineCommand({
     name: 'commerce.cart.purgeStaleGuestCarts',
     summary: '清除長期未更新的訪客購物車',
@@ -198,6 +229,8 @@ export function createCartModule(deps: CartModuleDeps) {
       { descriptor: clearCartCommand, handler: clearCartHandler },
       { descriptor: mergeGuestCartCommand, handler: mergeGuestCartHandler },
       { descriptor: purgeStaleGuestCartsCommand, handler: purgeStaleGuestCartsHandler },
+      { descriptor: applyCouponCommand, handler: applyCouponHandler },
+      { descriptor: removeCouponCommand, handler: removeCouponHandler },
     ],
   };
 }
