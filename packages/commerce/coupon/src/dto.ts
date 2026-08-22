@@ -126,3 +126,20 @@ export const issueBirthdayCouponsOutput = z.object({
   customers: z.number().int().nonnegative(),
   issued: z.number().int().nonnegative(),
 });
+
+export const attributionSummaryInput = z.object({
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  /** 只看某一個合作夥伴。省略是全部。 */
+  partnerCode: z.string().trim().min(1).max(60).optional(),
+}).strict();
+
+export const attributionSummaryOutput = z.object({
+  items: z.array(z.object({
+    partnerCode: z.string(),
+    orderCount: z.number().int().nonnegative(),
+    /** 歸因訂單的應付金額合計。 */
+    revenueCents: z.number().int().nonnegative(),
+    discountCents: z.number().int().nonnegative(),
+  })),
+});

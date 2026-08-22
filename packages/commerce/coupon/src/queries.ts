@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { PlatformError, defineQuery, type QueryContext } from '@storeweave/contracts';
-import { couponDto, getCouponInput, listCouponsInput, listCouponsOutput } from './dto';
+import {
+  attributionSummaryInput,
+  attributionSummaryOutput,
+  couponDto,
+  getCouponInput,
+  listCouponsInput,
+  listCouponsOutput,
+} from './dto';
 import { CouponRepository, toCouponDto } from './repository';
 
 const repository = new CouponRepository();
@@ -31,3 +38,16 @@ export const listCouponsHandler = async (input: z.infer<typeof listCouponsInput>
   const { items, total } = await repository.list(ctx.db, input);
   return { items: items.map(toCouponDto), total };
 };
+
+export const attributionSummaryQuery = defineQuery({
+  name: 'commerce.coupon.attributionSummary',
+  summary: '依合作夥伴分組的行銷碼成效',
+  input: attributionSummaryInput,
+  output: attributionSummaryOutput,
+  permission: 'analytics:read',
+});
+
+export const attributionSummaryHandler = async (
+  input: z.infer<typeof attributionSummaryInput>,
+  ctx: QueryContext,
+) => ({ items: await repository.attributionSummary(ctx.db, input) });

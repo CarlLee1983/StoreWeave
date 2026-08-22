@@ -62,5 +62,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS coupon_coupons_issue_key_idx
   ON coupon_coupons (issue_key) WHERE issue_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS coupon_coupons_batch_idx ON coupon_coupons (batch_id) WHERE batch_id IS NOT NULL;
 `),
+    sqlMigration('0004_attribution', 'expand', `
+-- 一張訂單最多只能歸因給一個合作夥伴。分潤有爭議的成本遠高於一個索引。
+CREATE UNIQUE INDEX IF NOT EXISTS coupon_redemptions_one_attribution_idx
+  ON coupon_redemptions (order_id) WHERE partner_code IS NOT NULL;
+-- 報表查這張表就好，不必掃訂單全表（Spec 0004）。
+ALTER TABLE coupon_redemptions ADD COLUMN IF NOT EXISTS order_total_cents integer NOT NULL DEFAULT 0;
+`),
   ],
 };

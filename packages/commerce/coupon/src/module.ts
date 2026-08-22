@@ -8,7 +8,10 @@ import {
 } from './commands';
 import { BIRTHDAY_COUPONS_JOB, createBirthdayCouponsJob } from './jobs';
 import { couponMigrations } from './migrations';
-import { getCouponHandler, getCouponQuery, listCouponsHandler, listCouponsQuery } from './queries';
+import {
+  attributionSummaryHandler, attributionSummaryQuery,
+  getCouponHandler, getCouponQuery, listCouponsHandler, listCouponsQuery,
+} from './queries';
 
 export function createCouponModule(deps: CouponModuleDeps): PlatformModule {
   return defineModule({
@@ -54,6 +57,7 @@ export function createCouponModule(deps: CouponModuleDeps): PlatformModule {
   queries: [
     { descriptor: getCouponQuery, handler: getCouponHandler },
     { descriptor: listCouponsQuery, handler: listCouponsHandler },
+    { descriptor: attributionSummaryQuery, handler: attributionSummaryHandler },
   ],
   });
 }

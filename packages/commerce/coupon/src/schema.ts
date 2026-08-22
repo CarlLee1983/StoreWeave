@@ -50,6 +50,11 @@ export const couponRedemptions = pgTable('coupon_redemptions', {
   partnerCode: text('partner_code'),
   /** 這張券實際折抵了多少，正數。 */
   discountCents: integer('discount_cents').notNull(),
+  /**
+   * 這張訂單的應付金額。刻意在核銷當下抄一份：行銷報表因此查得出營收
+   * 而不必掃訂單全表，也不必讓 coupon 模組去讀 order 的資料表。
+   */
+  orderTotalCents: integer('order_total_cents').notNull().default(0),
   redeemedAt: timestamp('redeemed_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

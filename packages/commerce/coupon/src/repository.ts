@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, sql, type SQL } from 'drizzle-orm';
 import type { DrizzleDb, Tx } from '@storeweave/contracts';
 import type { CouponDto } from './dto';
 import { couponRedemptions, coupons, type CouponRedemptionRow, type CouponRow } from './schema';
@@ -133,6 +133,39 @@ export class CouponRepository {
       .from(couponRedemptions)
       .where(eq(couponRedemptions.couponId, couponId))
       .orderBy(desc(couponRedemptions.redeemedAt));
+  }
+
+  /**
+   * 依合作夥伴分組的成效。查的是核銷明細本身——這張表就是行銷分析的事實來源，
+   * 報表不掃訂單全表（Spec 0004）。
+   */
+  async attributionSummary(
+    db: DrizzleDb | Tx,
+    filter: { from?: Date; to?: Date; partnerCode?: string },
+  ): Promise<{ partnerCode: string; orderCount: number; revenueCents: number; discountCents: number }[]> {
+    const conditions: SQL[] = [sql`${couponRedemptions.partnerCode} IS NOT NULL`];
+    if (filter.from) conditions.push(gte(couponRedemptions.redeemedAt, filter.from));
+    if (filter.to) conditions.push(lt(couponRedemptions.redeemedAt, filter.to));
+    if (filter.partnerCode) conditions.push(eq(couponRedemptions.partnerCode, filter.partnerCode));
+
+    const rows = await db
+      .select({
+        partnerCode: couponRedemptions.partnerCode,
+        orderCount: sql<number>`count(DISTINCT ${couponRedemptions.orderId})::int`,
+        revenueCents: sql<number>`coalesce(sum(${couponRedemptions.orderTotalCents}), 0)::int`,
+        discountCents: sql<number>`coalesce(sum(${couponRedemptions.discountCents}), 0)::int`,
+      })
+      .from(couponRedemptions)
+      .where(and(...conditions)!)
+      .groupBy(couponRedemptions.partnerCode)
+      .orderBy(desc(sql`coalesce(sum(${couponRedemptions.orderTotalCents}), 0)`), couponRedemptions.partnerCode);
+
+    return rows.map((row) => ({
+      partnerCode: row.partnerCode!,
+      orderCount: Number(row.orderCount),
+      revenueCents: Number(row.revenueCents),
+      discountCents: Number(row.discountCents),
+    }));
   }
 
   async redemptionForOrder(db: DrizzleDb | Tx, orderId: string): Promise<CouponRedemptionRow | null> {

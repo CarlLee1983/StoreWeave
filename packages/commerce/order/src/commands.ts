@@ -290,6 +290,7 @@ async function redeemCoupon(
     code: coupon.code,
     partnerCode: coupon.partnerCode,
     discountCents,
+    orderTotalCents: order.totalCents,
     redeemedAt: ctx.now,
   });
   // 實發券用完就沒了；共用碼還留著給下一個人（額度控制是工單 32）。
