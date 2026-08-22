@@ -70,3 +70,19 @@ ERP 串接與後台，因此先加恆為零的欄位、再讓新舊事件並行�
 | [47](47-analytics-page.md) | 行銷分析頁 | 01, 02, 31, 40 |
 | [48](48-points-expiry-notice.md) | 購物金到期通知 | 03, 06, 40 |
 | [49](49-storefront-points-ui.md) | 前台購物金與等級呈現 | 29, 40, 43 |
+
+## 已知、刻意沒做的
+
+這一批做完之後仍然成立的取捨，寫在這裡免得下一個人以為是漏掉的：
+
+- **購物車每次渲染都讀整本購物金帳，而且商品行是 N+1**（`cart/src/service.ts`）。
+  帳本長度目前是「訂單數 × 2」等級，可以接受。真的變慢時該做的是
+  catalog／inventory 的批次查詢，以及一張定期結算的餘額快照，而不是把餘額改回欄位。
+- **`listMyCoupons` 與 `promotionPerformance` 逐列查活動**。同上，先量再改。
+- **`outstandingRewards` 是近似值**，理由寫在該函式的註解裡。要精確就得先有快照表。
+- **取消訂單時扣回購物金不指名批次**，會扣到別批。今天走不到（累積在付款完成才發生，
+  取消只允許 pending），部分退貨進模型時要一起處理。
+- **`createPromotionInput` 以外的舊模組輸入仍未 `.strict()`**
+  （catalog、inventory、customer、order 的部分 input）。那是既有行為，改動會影響
+  現有客戶端，值得一張獨立的票。
+- **cookie 沒有 `__Host-` 前綴**。加上它需要 Secure，會擋掉本機以 http 開發。
