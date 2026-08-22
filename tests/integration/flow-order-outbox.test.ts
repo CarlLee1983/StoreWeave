@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { ADMIN_ACTOR, createHarness, createProduct, payOrder, placeOrder, stockUp, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, runJobsUntilProcessed, createHarness, createProduct, payOrder, placeOrder, stockUp, type TestHarness } from './helpers';
 
 let h: TestHarness;
 beforeAll(async () => { h = await createHarness(); }, 300_000);
@@ -66,7 +66,7 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
     const order = await placeOrder(h.runtime, product.id, 2);
     const requested = await payOrder(h.runtime, order.id);
     expect(requested.status).toBe('payment_processing');
-    const result = await h.worker.runJobs();
+    const result = await runJobsUntilProcessed(h.worker);
     expect(result).toMatchObject({ processed: 1, failed: 0 });
     const paid = await h.runtime.queries.execute<any>('commerce.order.getOrder', { id: order.id }, { actor: ADMIN_ACTOR });
 
@@ -132,7 +132,7 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
     await h.runtime.commands.execute('commerce.order.payOrder', { orderId: order.id }, { actor: ADMIN_ACTOR, idempotencyKey: key });
     // 換一把新的 key 也不能重複收款
     await h.runtime.commands.execute('commerce.order.payOrder', { orderId: order.id }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
-    const result = await h.worker.runJobs();
+    const result = await runJobsUntilProcessed(h.worker);
     expect(result).toMatchObject({ processed: 1, failed: 0 });
 
     const payments = await h.runtime.database.db.execute<{ count: string }>(sql`
@@ -161,7 +161,7 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
     const order = await placeOrder(h.runtime, product.id, 3);
     await h.runtime.database.db.execute(sql`UPDATE order_orders SET expires_at = now() - interval '1 second' WHERE id = ${order.id}`);
     await h.runtime.database.db.execute(sql`UPDATE platform_jobs SET run_at = now() WHERE dedupe_key = ${`order:expire:${order.id}`}`);
-    const result = await h.worker.runJobs();
+    const result = await runJobsUntilProcessed(h.worker);
     expect(result).toMatchObject({ processed: 1, failed: 0 });
     const stock = await h.runtime.queries.execute<any>('commerce.inventory.getStock', { productId: product.id }, { actor: ADMIN_ACTOR });
     const expired = await h.runtime.queries.execute<any>('commerce.order.getOrder', { id: order.id }, { actor: ADMIN_ACTOR });

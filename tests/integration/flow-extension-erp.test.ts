@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { ADMIN_ACTOR, createHarness, createProduct, payOrder, placeOrder, stockUp, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, runJobsUntilProcessed, createHarness, createProduct, payOrder, placeOrder, stockUp, type TestHarness } from './helpers';
 
 let h: TestHarness;
 beforeAll(async () => { h = await createHarness(); }, 300_000);
@@ -18,7 +18,7 @@ async function paidOrder(harness: TestHarness) {
   await stockUp(harness.runtime, product.id, 10);
   const order = await placeOrder(harness.runtime, product.id, 2);
   await payOrder(harness.runtime, order.id);
-  await harness.worker.runJobs();
+  await runJobsUntilProcessed(harness.worker);
   return order;
 }
 

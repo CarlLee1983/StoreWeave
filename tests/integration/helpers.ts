@@ -164,3 +164,26 @@ export async function payOrder(runtime: Runtime, orderId: string) {
     'commerce.order.payOrder', { orderId }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() },
   );
 }
+
+/**
+ * 跑到工作真的被處理為止。
+ *
+ * `run_at` 由 Node 產生而認領條件的 `now()` 來自 Postgres，兩者之間的毫秒級偏移
+ * 會讓「排入後立刻跑一輪」撲空。這不是行為問題，是時鐘問題——輪詢到處理完成
+ * 才是穩定的斷言方式。
+ */
+export async function runJobsUntilProcessed(
+  worker: TestHarness['worker'],
+  expected = 1,
+  attempts = 60,
+): Promise<{ processed: number; failed: number }> {
+  const total = { processed: 0, failed: 0 };
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const round = await worker.runJobs();
+    total.processed += round.processed;
+    total.failed += round.failed;
+    if (total.processed >= expected || total.failed > 0) return total;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return total;
+}
