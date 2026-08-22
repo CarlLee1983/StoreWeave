@@ -65,11 +65,7 @@ export class AuthController {
 
   @Get('me')
   async me(@Req() req: AuthenticatedRequest) {
-    const token = req.cookies?.[SESSION_COOKIE];
-    if (!token) throw new PlatformError('UNAUTHENTICATED', 'No active session');
-
-    const resolved = await this.runtime.auth.resolveSession(this.runtime.database.db, token);
-    if (!resolved) throw new PlatformError('UNAUTHENTICATED', 'Invalid or expired session');
+    const { resolved } = await this.sessionOf(req);
 
     return ok({
       id: resolved.user.id,
@@ -87,10 +83,7 @@ export class AuthController {
     @Req() req: AuthenticatedRequest,
     @Body() body: { currentPassword?: string; newPassword?: string },
   ) {
-    const token = req.cookies?.[SESSION_COOKIE];
-    if (!token) throw new PlatformError('UNAUTHENTICATED', 'No active session');
-    const resolved = await this.runtime.auth.resolveSession(this.runtime.database.db, token);
-    if (!resolved) throw new PlatformError('UNAUTHENTICATED', 'Invalid or expired session');
+    const { token, resolved } = await this.sessionOf(req);
 
     if (!body?.currentPassword || !body?.newPassword) {
       throw new PlatformError('VALIDATION_ERROR', 'currentPassword 與 newPassword 為必填');
@@ -103,5 +96,19 @@ export class AuthController {
       keepToken: token,
     });
     return ok({ changed: true });
+  }
+
+  /**
+   * 取出這次請求的 session，解析不出來就拒絕。
+   *
+   * 三支端點原本各寫一次「取 cookie → resolveSession → 401」；同一個判斷分三份，
+   * 遲早會有一份的訊息或條件走鐘。
+   */
+  private async sessionOf(req: AuthenticatedRequest) {
+    const token = req.cookies?.[SESSION_COOKIE];
+    if (!token) throw new PlatformError('UNAUTHENTICATED', 'No active session');
+    const resolved = await this.runtime.auth.resolveSession(this.runtime.database.db, token);
+    if (!resolved) throw new PlatformError('UNAUTHENTICATED', 'Invalid or expired session');
+    return { token, resolved };
   }
 }
