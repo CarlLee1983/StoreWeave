@@ -52,5 +52,15 @@ ALTER TABLE coupon_coupons ADD CONSTRAINT coupon_redeemed_count_valid
 CREATE INDEX IF NOT EXISTS coupon_redemptions_customer_idx
   ON coupon_redemptions (promotion_id, customer_id);
 `),
+    sqlMigration('0003_issuance', 'expand', `
+-- 發放來源與去重。事件重投與排程重跑靠唯一索引擋下第二張券，
+-- 而不是靠呼叫端先查一次「這個人領過了嗎」——那是一個會輸給併發的判斷。
+ALTER TABLE coupon_coupons ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'manual';
+ALTER TABLE coupon_coupons ADD COLUMN IF NOT EXISTS batch_id uuid;
+ALTER TABLE coupon_coupons ADD COLUMN IF NOT EXISTS issue_key text;
+CREATE UNIQUE INDEX IF NOT EXISTS coupon_coupons_issue_key_idx
+  ON coupon_coupons (issue_key) WHERE issue_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS coupon_coupons_batch_idx ON coupon_coupons (batch_id) WHERE batch_id IS NOT NULL;
+`),
   ],
 };

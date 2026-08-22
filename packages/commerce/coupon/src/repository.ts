@@ -15,6 +15,8 @@ export function toCouponDto(row: CouponRow): CouponDto {
     maxRedemptions: row.maxRedemptions,
     redeemedCount: row.redeemedCount,
     perCustomerLimit: row.perCustomerLimit,
+    source: row.source,
+    batchId: row.batchId,
     startsAt: row.startsAt,
     endsAt: row.endsAt,
     createdAt: row.createdAt,
@@ -26,6 +28,15 @@ export class CouponRepository {
   async insert(tx: Tx, values: typeof coupons.$inferInsert): Promise<CouponRow> {
     const [row] = await tx.insert(coupons).values(values).returning();
     return row;
+  }
+
+  /**
+   * 發一張券。`issue_key` 撞上就當作已經發過——回 null 而不是丟錯。
+   * 事件重投與排程重跑是常態，不是例外。
+   */
+  async issue(tx: Tx, values: typeof coupons.$inferInsert): Promise<CouponRow | null> {
+    const [row] = await tx.insert(coupons).values(values).onConflictDoNothing().returning();
+    return row ?? null;
   }
 
   async findById(db: DrizzleDb | Tx, id: string): Promise<CouponRow | null> {

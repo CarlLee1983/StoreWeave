@@ -1,4 +1,5 @@
 export * from './dto';
+export * from './code';
 export * from './commands';
 export * from './migrations';
 export * from './module';

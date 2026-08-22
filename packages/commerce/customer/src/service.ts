@@ -36,6 +36,11 @@ export const customerService = {
     return customer.id;
   },
 
+  /** 發券這類「發給全體會員」的動作用它。停用中的帳號不發。 */
+  async activeCustomerIds(db: DrizzleDb | Tx): Promise<string[]> {
+    return customers.activeIds(db);
+  },
+
   async requireByActor(db: DrizzleDb | Tx, actor: Actor): Promise<CustomerIdentity> {
     const accountId = this.accountIdOf(actor);
     if (!accountId) {

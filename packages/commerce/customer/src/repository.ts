@@ -83,6 +83,16 @@ export class CustomerRepository {
     };
   }
 
+  /** 全體有效會員的識別。批次發券掃這一份清單。 */
+  async activeIds(db: DrizzleDb | Tx): Promise<string[]> {
+    const rows = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(eq(customers.status, 'active'))
+      .orderBy(customers.createdAt, customers.id);
+    return rows.map((row) => row.id);
+  }
+
   async findByAccountId(db: DrizzleDb | Tx, accountId: string): Promise<CustomerRow | null> {
     const [row] = await db.select().from(customers).where(eq(customers.accountId, accountId)).limit(1);
     return row ?? null;

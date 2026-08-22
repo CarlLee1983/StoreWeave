@@ -1,5 +1,8 @@
 import { defineModule, type PlatformModule } from '@storeweave/kernel';
-import { createCouponCommand, createCouponHandler, setCouponStatusCommand, setCouponStatusHandler } from './commands';
+import {
+  createCouponCommand, createCouponHandler, issueCouponsCommand, issueCouponsHandler,
+  setCouponStatusCommand, setCouponStatusHandler,
+} from './commands';
 import { couponMigrations } from './migrations';
 import { getCouponHandler, getCouponQuery, listCouponsHandler, listCouponsQuery } from './queries';
 
@@ -13,6 +16,7 @@ export const couponModule: PlatformModule = defineModule({
   commands: [
     { descriptor: createCouponCommand, handler: createCouponHandler },
     { descriptor: setCouponStatusCommand, handler: setCouponStatusHandler },
+    { descriptor: issueCouponsCommand, handler: issueCouponsHandler },
   ],
   queries: [
     { descriptor: getCouponQuery, handler: getCouponHandler },

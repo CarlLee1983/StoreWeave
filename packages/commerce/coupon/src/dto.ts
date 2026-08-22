@@ -22,6 +22,8 @@ export const couponDto = z.object({
   maxRedemptions: z.number().int().positive().nullable(),
   redeemedCount: z.number().int().nonnegative(),
   perCustomerLimit: z.number().int().positive().nullable(),
+  source: z.string(),
+  batchId: z.string().uuid().nullable(),
   startsAt: z.coerce.date().nullable(),
   endsAt: z.coerce.date().nullable(),
   createdAt: z.coerce.date(),
@@ -75,4 +77,26 @@ export const listCouponsInput = z.object({
 export const listCouponsOutput = z.object({
   items: z.array(couponDto),
   total: z.number().int().nonnegative(),
+});
+
+/** 發放來源。三個觸發共用同一支內部發放函式，來源只是為了事後追得回來。 */
+export const couponSource = z.enum(['manual', 'signup', 'birthday']);
+export type CouponSource = z.infer<typeof couponSource>;
+
+export const issueCouponsInput = z.object({
+  promotionId: z.string().uuid(),
+  /** 指名的會員。省略時代表發給全體有效會員。 */
+  customerIds: z.array(z.string().uuid()).min(1).max(5_000).optional(),
+  /** 券碼的前綴，方便經營者在後台一眼認出是哪一批。 */
+  codePrefix: z.string().trim().min(1).max(12).regex(/^[A-Za-z0-9]+$/).optional(),
+  /** 幾天後到期。省略是不設到期日。 */
+  expiresInDays: z.number().int().min(1).max(3_650).optional(),
+  perCustomerLimit: z.number().int().positive().max(1_000).nullable().default(1),
+}).strict();
+
+export const issueCouponsOutput = z.object({
+  batchId: z.string().uuid(),
+  /** 這一批實際發出幾張。已經領過（去重鍵撞上）的不算。 */
+  issued: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
 });

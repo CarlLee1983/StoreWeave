@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { PlatformError, type DrizzleDb, type Tx } from '@storeweave/contracts';
+import { generateCouponCode } from './code';
 import { CouponRepository } from './repository';
 import type { CouponRow } from './schema';
 
@@ -104,5 +106,45 @@ export const couponService = {
     return { ok: true, coupon };
   },
 };
+
+/**
+ * 發一張券給某個人。三個觸發（後台批次、註冊事件、生日排程）共用這一支——
+ * 在只有三種觸發時，「發券活動」那一層抽象是規則引擎的規則引擎（Spec 0004）。
+ *
+ * `issueKey` 撞上就當作已經發過並回 null：事件重投與排程重跑是常態，不是例外。
+ */
+export async function issueCouponTo(
+  tx: Tx,
+  input: {
+    promotionId: string;
+    customerId: string;
+    now: Date;
+    source: string;
+    issueKey?: string | null;
+    batchId?: string | null;
+    codePrefix?: string;
+    expiresAt?: Date | null;
+    perCustomerLimit?: number | null;
+  },
+): Promise<CouponRow | null> {
+  return repository.issue(tx, {
+    id: randomUUID(),
+    code: generateCouponCode(input.codePrefix),
+    promotionId: input.promotionId,
+    status: 'issued',
+    customerId: input.customerId,
+    partnerCode: null,
+    maxRedemptions: null,
+    redeemedCount: 0,
+    perCustomerLimit: input.perCustomerLimit ?? 1,
+    source: input.source,
+    batchId: input.batchId ?? null,
+    issueKey: input.issueKey ?? null,
+    startsAt: null,
+    endsAt: input.expiresAt ?? null,
+    createdAt: input.now,
+    updatedAt: input.now,
+  });
+}
 
 export { CouponRepository };
