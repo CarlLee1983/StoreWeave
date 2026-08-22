@@ -55,7 +55,7 @@ export const placeOrderInput = z.object({
   lines: z.array(z.object({
     productId: z.string().uuid(),
     quantity: z.number().int().min(1).max(999),
-  })).min(1).max(50),
+  }).strict()).min(1).max(50),
   metadata: z.record(z.unknown()).optional(),
 }).strict();
 

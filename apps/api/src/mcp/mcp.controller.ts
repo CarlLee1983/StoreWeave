@@ -13,6 +13,12 @@ const PROTOCOL_VERSION = '2025-06-18';
  * 它唯一能做的事，就是把已註冊的工具轉發給 Command Bus 或 Query Bus ——
  * 這個檔案裡沒有 repository、沒有 SQL、也拿不到資料庫連線。
  */
+function forwardable(args: unknown, kind: 'command' | 'query'): unknown {
+  if (kind !== 'command' || typeof args !== 'object' || args === null) return args;
+  const { idempotencyKey: _dropped, ...rest } = args as Record<string, unknown>;
+  return rest;
+}
+
 @Controller()
 export class McpController {
   constructor(@Inject(RUNTIME) private readonly runtime: Runtime) {}
@@ -80,6 +86,11 @@ export class McpController {
     }));
   }
 
+  /**
+   * 沒有寫 `mapInput` 的工具，輸入原封往下送——但 `idempotencyKey` 是 MCP 這一層的參數，
+   * 不是 command 的欄位。下游的輸入一律 strict（ADR 0024），漏剝掉它就是一個 runtime 才炸的 400。
+   * 目前四支工具都有 `mapInput`，這裡守的是下一支忘了寫的。
+   */
   private async callTool(request: AuthenticatedRequest, params: unknown) {
     const { name, arguments: args } = (params ?? {}) as { name?: string; arguments?: unknown };
     if (!name) throw PlatformError.validation('tools/call requires a tool name');
@@ -92,7 +103,7 @@ export class McpController {
 
     const actor = actorOf(request);
     const correlationId = correlationIdOf(request);
-    const input = definition.mapInput ? definition.mapInput(parsed.data) : parsed.data;
+    const input = definition.mapInput ? definition.mapInput(parsed.data) : forwardable(parsed.data, definition.target.kind);
 
     let output: unknown;
     if (definition.target.kind === 'query') {

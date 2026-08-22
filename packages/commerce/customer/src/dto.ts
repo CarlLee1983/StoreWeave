@@ -9,6 +9,12 @@ export const addressDto = z.object({
   line2: z.string().max(200).nullable().default(null),
 });
 
+/**
+ * 輸入用的嚴格版本。`addressDto` 本身是顧客資料讀回來時走的那一支，收緊它會讓
+ * 舊資料裡多存的鍵變成「這位顧客的資料從此讀不回來」——那比多存一個鍵嚴重得多。
+ */
+export const addressInput = addressDto.strict();
+
 /** 生日只存日期，不存時刻——它是禮券的依據，不是時間戳。 */
 const birthday = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'birthday must be YYYY-MM-DD');
 
@@ -45,7 +51,7 @@ export const updateMyProfileInput = z.object({
   displayName: z.string().min(1).max(120).optional(),
   phone: z.string().min(1).max(40).optional(),
   birthday: birthday.optional(),
-  address: addressDto.optional(),
+  address: addressInput.optional(),
 }).strict();
 
 export const setCustomerBirthdayInput = z.object({

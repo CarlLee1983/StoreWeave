@@ -22,7 +22,7 @@ export const deadJobDto = z.object({
 export const listDeadJobsInput = z.object({
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
-});
+}).strict();
 
 export const listDeadJobsOutput = z.object({
   items: z.array(deadJobDto),
@@ -37,7 +37,7 @@ export const listDeadJobsQuery = defineQuery({
   permission: 'jobs:read',
 });
 
-export const retryJobInput = z.object({ jobId: z.string().uuid() });
+export const retryJobInput = z.object({ jobId: z.string().uuid() }).strict();
 export const retryJobOutput = z.object({ jobId: z.string(), status: z.literal('pending') });
 
 export const retryJobCommand = defineCommand({

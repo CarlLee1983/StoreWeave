@@ -407,13 +407,6 @@ export const api = {
   getOrder(id: string) {
     return request<Order>(`/api/v1/orders/${id}`);
   },
-  createOrder(body: {
-    customerEmail: string;
-    lines: { productId: string; quantity: number }[];
-    currency?: string;
-  }) {
-    return request<Order>('/api/v1/orders', { method: 'POST', body, idempotent: true });
-  },
   payOrder(id: string) {
     return request<Order>(`/api/v1/orders/${id}/pay`, { method: 'POST', body: {}, idempotent: true });
   },

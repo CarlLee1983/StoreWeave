@@ -109,6 +109,8 @@ describe('REST 介面', () => {
 
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('VALIDATION_ERROR');
+    // 訊息裡沒有欄位名，因此 details 必須說得出是哪一個鍵——否則收到 400 的人不知道要拿掉什麼。
+    expect(JSON.stringify(res.json().error.details)).toContain('statuss');
 
     const found = await inject({ method: 'GET', url: '/api/v1/products?q=HTTP-STRICT', headers: auth() });
     expect(found.json().data.items).toHaveLength(0);

@@ -51,14 +51,36 @@ check "重放後庫存仍是 10" "$ON_HAND" "10"
 check "同 key 不同內容會被擋" "$(api POST /api/v1/inventory/adjust "{\"productId\":\"$PRODUCT_ID\",\"delta\":99,\"reason\":\"restock\"}" "$ADJ_KEY")" "422"
 
 say "流程二：訂單與付款"
-check "建立訂單 (201)" "$(api POST /api/v1/orders "{\"customerEmail\":\"smoke@example.com\",\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":2}]}" "smoke-order-$SKU")" "201"
+# 下單者由身分決定（工單 21）：訂單只能由登入的顧客建立，服務 token 會被擋成 403。
+# 因此這一段先註冊一個顧客，用他的 session 下單；付款與後續查詢仍走 admin token。
+BUYER_JAR=$(mktemp)
+BUYER_EMAIL="smoke-$SKU@example.test"
+curl -sS -c "$BUYER_JAR" -o /tmp/smoke_body -w '%{http_code}' -X POST "$BASE_URL/api/v1/customers/register" \
+  -H 'content-type: application/json' \
+  -d "{\"email\":\"$BUYER_EMAIL\",\"password\":\"a-good-smoke-password\"}" > /tmp/smoke_code
+check "註冊下單用的顧客 (201)" "$(cat /tmp/smoke_code)" "201"
+BUYER_CSRF=$(awk '/commerce_csrf/{print $7}' "$BUYER_JAR")
+buyer_api() { # method path body [idempotency-key] -> http code
+  local method="$1" path="$2" body="${3:-}" key="${4:-}"
+  local args=(-sS -b "$BUYER_JAR" -o /tmp/smoke_body -w '%{http_code}' -X "$method" "$BASE_URL$path"
+              -H "x-csrf-token: $BUYER_CSRF")
+  [ -n "$key" ] && args+=(-H "idempotency-key: $key")
+  [ -n "$body" ] && args+=(-H 'content-type: application/json' -d "$body")
+  curl "${args[@]}"
+}
+
+check "建立訂單 (201)" "$(buyer_api POST /api/v1/orders "{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":2}]}" "smoke-order-$SKU")" "201"
 ORDER_ID=$(jqr 'j.data.id' < /tmp/smoke_body)
 ORDER_NUMBER=$(jqr 'j.data.number' < /tmp/smoke_body)
 echo "  orderId=$ORDER_ID number=$ORDER_NUMBER"
 api GET "/api/v1/inventory/$PRODUCT_ID" >/dev/null
 check "下單後實體庫存仍為 10" "$(jqr 'j.data.onHand' < /tmp/smoke_body)" "10"
 check "下單後預留庫存為 2" "$(jqr 'j.data.reserved' < /tmp/smoke_body)" "2"
-check "庫存不足會被擋" "$(api POST /api/v1/orders "{\"customerEmail\":\"smoke@example.com\",\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":999}]}" "smoke-oversell-$SKU")" "409"
+check "庫存不足會被擋" "$(buyer_api POST /api/v1/orders "{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":999}]}" "smoke-oversell-$SKU")" "409"
+check "多帶一個不認得的欄位會被擋 (400)" "$(buyer_api POST /api/v1/orders "{\"customerEmail\":\"$BUYER_EMAIL\",\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":1}]}" "smoke-strict-$SKU")" "400"
+check "400 說得出是哪一個欄位" "$(jqr 'JSON.stringify(j.error.details).includes("customerEmail")' < /tmp/smoke_body)" "true"
+check "服務 token 不能替別人下單 (403)" "$(api POST /api/v1/orders "{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":1}]}" "smoke-svc-order-$SKU")" "403"
+rm -f "$BUYER_JAR"
 check "標記付款" "$(api POST "/api/v1/orders/$ORDER_ID/pay" '{}' "smoke-pay-$SKU")" "200"
 check "付款請求進入處理中" "$(jqr 'j.data.status' < /tmp/smoke_body)" "payment_processing"
 printf '  等待付款 worker'
@@ -160,9 +182,11 @@ check "重送缺 Idempotency-Key 會被拒" "$(api POST /api/v1/system/jobs/dead
 
 say "自省與 Extension 清單"
 check "/api/v1/extensions" "$(api GET /api/v1/extensions)" "200"
-check "掛載 3 個 Extension" "$(jqr 'j.data.items.length' < /tmp/smoke_body)" "3"
+# 這兩個數字是 release 的表面，改了就要一起改——它們的作用正是讓「多掛了一個」被看見。
+check "掛載 4 個 Extension" "$(jqr 'j.data.items.length' < /tmp/smoke_body)" "4"
 check "/api/v1/meta/events" "$(api GET /api/v1/meta/events)" "200"
-check "7 個版本化事件" "$(jqr 'j.data.items.length' < /tmp/smoke_body)" "7"
+# 10 = 8 個現行事件 + 舊版訂單事件 placed.v1 / paid.v1（工單 24 下線後會變成 8）。
+check "10 個版本化事件" "$(jqr 'j.data.items.length' < /tmp/smoke_body)" "10"
 
 printf '\n== 結果：%d 通過，%d 失敗\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

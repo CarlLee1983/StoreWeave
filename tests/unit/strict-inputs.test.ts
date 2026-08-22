@@ -3,6 +3,10 @@ import { z } from 'zod';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
 import { noopLogger } from '@storeweave/contracts';
 import { coreModules } from '@storeweave/bundle';
+import { identityModule } from '@storeweave/identity';
+import { createOpsModule } from '@storeweave/kernel';
+import { addressDto } from '@storeweave/customer';
+import { promotionRule } from '@storeweave/promotion';
 
 /**
  * Command / Query 的輸入一律拒絕未知欄位（ADR 0024）。
@@ -12,13 +16,18 @@ import { coreModules } from '@storeweave/bundle';
  * 靠命名慣例掃永遠看不到它們——第一版就是這樣漏掉的。
  */
 
-const MODULES = coreModules({
-  providers: new ProviderRegistry(noopLogger),
-  defaultCurrency: 'TWD',
-  orderNumberPrefix: 'SW',
-  timezone: 'Asia/Taipei',
-  locale: 'zh-TW',
-});
+/** 與 `createRuntime()` 掛載的一致：ops 與 identity 也是 Command Bus 上的公民（ADR 0024）。 */
+const MODULES = [
+  createOpsModule({} as never),
+  identityModule,
+  ...coreModules({
+    providers: new ProviderRegistry(noopLogger),
+    defaultCurrency: 'TWD',
+    orderNumberPrefix: 'SW',
+    timezone: 'Asia/Taipei',
+    locale: 'zh-TW',
+  }),
+];
 
 /** `.refine()` 之後外面包的是 ZodEffects，要剝到裡面的 object 才看得到 unknownKeys。 */
 function unwrap(schema: unknown): z.ZodTypeAny | null {
@@ -43,27 +52,79 @@ function registeredInputs(): [string, unknown][] {
 }
 
 describe('所有 Command / Query 輸入都拒絕未知欄位', () => {
-  it('掃得到八個模組的註冊——掃不到東西的測試會永遠是綠的', () => {
+  it('掃得到每一個模組的註冊——掃不到東西的測試會永遠是綠的', () => {
     const names = registeredInputs().map(([name]) => name);
     expect(names.length).toBeGreaterThan(50);
-    for (const module of ['catalog', 'inventory', 'customer', 'cart', 'promotion', 'coupon', 'loyalty', 'order']) {
-      expect(names.some((n) => n.startsWith(`commerce.${module}.`))).toBe(true);
-    }
+    const prefixes = [
+      'commerce.catalog.', 'commerce.inventory.', 'commerce.customer.', 'commerce.cart.',
+      'commerce.promotion.', 'commerce.coupon.', 'commerce.loyalty.', 'commerce.order.',
+      'platform.identity.', 'platform.jobs.',
+    ];
+    // 只斷言總數的話，少掉整個模組也看不出來。
+    for (const prefix of prefixes) expect(names.some((n) => n.startsWith(prefix))).toBe(true);
   });
 
-  it.each(registeredInputs())('%s 的輸入是 strict', (_name, schema) => {
+  it.each(registeredInputs())('%s 多帶一個不認得的欄位會被擋', (_name, schema) => {
     const object = unwrap(schema);
     // 輸入不是 object 的話沒有「未知欄位」可言，但這個 repo 目前每一支都是 object；
     // 哪天不是了，這裡要的是一個明確的失敗而不是靜靜跳過。
     expect(object).toBeInstanceOf(z.ZodObject);
-    expect((object as z.ZodObject<z.ZodRawShape>)._def.unknownKeys).toBe('strict');
+
+    // 真的解析一次，不是讀 `_def.unknownKeys`：`.strict().catchall(z.unknown())` 會讓那個欄位
+    // 仍然是 'strict' 而未知鍵照樣通過。這裡要的是行為，不是宣告。
+    const result = (schema as z.ZodTypeAny).safeParse({ __definitely_not_a_field__: 1 });
+    expect(result.success).toBe(false);
+    const codes = result.error!.issues.map((issue) => issue.code);
+    expect(codes).toContain('unrecognized_keys');
   });
 
-  it('多帶一個不認得的欄位會被擋下來，而不是安靜地忽略它', () => {
+  it('拼錯的欄位名擋得下來，而且說得出是哪一個', () => {
     const [, schema] = registeredInputs().find(([name]) => name === 'commerce.catalog.createProduct')!;
     const result = (schema as z.ZodTypeAny).safeParse({
       sku: 'STRICT-1', name: '嚴格', priceCents: 100, statuss: 'active',
     });
     expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error!.issues)).toContain('statuss');
+  });
+});
+
+describe('巢狀的輸入物件也拒絕未知欄位，但讀回來的路徑不變', () => {
+  it('訂單品項多一個欄位會被擋，而不是安靜地丟掉', () => {
+    const [, schema] = registeredInputs().find(([name]) => name === 'commerce.order.placeOrder')!;
+    const result = (schema as z.ZodTypeAny).safeParse({
+      lines: [{ productId: '11111111-1111-4111-8111-111111111111', quantity: 1, note: '禮盒包裝' }],
+    });
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error!.issues)).toContain('note');
+  });
+
+  it('收件地址多一個欄位會被擋', () => {
+    const [, schema] = registeredInputs().find(([name]) => name === 'commerce.customer.updateMyProfile')!;
+    const result = (schema as z.ZodTypeAny).safeParse({
+      address: {
+        recipient: '王小明', phone: '0912345678', postcode: '100', city: '台北市',
+        line1: '中正區重慶南路一段', country: 'TW',
+      },
+    });
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error!.issues)).toContain('country');
+  });
+
+  it('活動規則多一個欄位會被擋', () => {
+    const [, schema] = registeredInputs().find(([name]) => name === 'commerce.promotion.createPromotion')!;
+    const result = (schema as z.ZodTypeAny).safeParse({
+      name: '巢狀', rule: { type: 'order_percentage', percentOffBasisPoints: 500, note: 'x' },
+    });
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error!.issues)).toContain('note');
+  });
+
+  it('但既有資料讀得回來——輸出的形狀刻意維持寬鬆', () => {
+    // 建立時被忽略而存進 jsonb 的多餘鍵，不該讓這檔活動從此讀不回來。
+    expect(promotionRule.safeParse({ type: 'order_percentage', percentOffBasisPoints: 500, note: 'x' }).success).toBe(true);
+    expect(addressDto.safeParse({
+      recipient: '王小明', phone: '0912345678', postcode: '100', city: '台北市',
+      line1: '中正區重慶南路一段', country: 'TW',
+    }).success).toBe(true);
   });
 });

@@ -28,6 +28,17 @@ export const promotionRule = z.discriminatedUnion('type', [
   }),
 ]);
 
+/**
+ * 輸入用的嚴格版本。`promotionRule` 本身**不能**收緊——它同時是活動從 jsonb 讀回來時
+ * 走的那一支，而舊資料裡可能有當初沒被擋下來的多餘鍵；一起收緊會把「建立時被忽略的欄位」
+ * 變成「這檔活動從此讀不回來」，用一個看得見的錯誤換掉另一個更嚴重的。
+ */
+export const promotionRuleInput = z.discriminatedUnion('type', [
+  promotionRule.options[0].strict(),
+  promotionRule.options[1].strict(),
+  promotionRule.options[2].strict(),
+]);
+
 export const promotionStatus = z.enum(['active', 'disabled']);
 export type PromotionStatus = z.infer<typeof promotionStatus>;
 
@@ -64,7 +75,7 @@ const endsAfterStartsMessage = { message: 'endsAt must be later than startsAt', 
 export const createPromotionInput = z
   .object({
     name: z.string().min(1).max(120),
-    rule: promotionRule,
+    rule: promotionRuleInput,
     /** 數字小的先套用。 */
     priority: z.number().int().min(-1000).max(1000).default(0),
     stackable: z.boolean().default(true),
@@ -90,7 +101,7 @@ export const updatePromotionInput = z
   .object({
     id: z.string().uuid(),
     name: z.string().min(1).max(120).optional(),
-    rule: promotionRule.optional(),
+    rule: promotionRuleInput.optional(),
     priority: z.number().int().min(-1000).max(1000).optional(),
     stackable: z.boolean().optional(),
     requiresCoupon: z.boolean().optional(),
@@ -127,7 +138,7 @@ export const quoteInput = z.object({
   lines: z.array(z.object({
     productId: z.string().uuid(),
     quantity: z.number().int().min(1).max(999),
-  })).min(1).max(50),
+  }).strict()).min(1).max(50),
 }).strict();
 
 const quoteAdjustment = z.object({

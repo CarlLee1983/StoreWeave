@@ -16,7 +16,7 @@ export const getProductQuery = defineQuery({
   permission: 'catalog:read',
 });
 
-export const getProductHandler = async (input: { id?: string; sku?: string }, ctx: QueryContext) => {
+export const getProductHandler = async (input: z.infer<typeof getProductQuery.input>, ctx: QueryContext) => {
   const row = input.id
     ? await repository.findById(ctx.db, input.id)
     : await repository.findBySku(ctx.db, input.sku!);

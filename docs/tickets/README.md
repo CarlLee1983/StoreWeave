@@ -83,6 +83,9 @@ ERP 串接與後台，因此先加恆為零的欄位、再讓新舊事件並行�
 - **`outstandingRewards` 是近似值**，理由寫在該函式的註解裡。要精確就得先有快照表。
 - **取消訂單時扣回購物金不指名批次**，會扣到別批。今天走不到（累積在付款完成才發生，
   取消只允許 pending），部分退貨進模型時要一起處理。
+- **Extension 的輸入還沒收緊**（`ext.demo-erp.*` 三支）。`extensions.controller.ts` 的橋接
+  把 query string 整包往下送，先收緊會讓帶 cache-buster 的呼叫立刻 400；要納入 ADR 0024
+  的範圍得先讓橋接明挑欄位。
 - **`POST /api/v1/cart/checkout` 少了 `cartId` 時會問到一台新的空車**
   （`cart.controller.ts` 的 fallback 沒帶 `guestToken`）。正常流程畫面都會帶 `cartId`，
   今天走不到；獨立一張票比較合適。

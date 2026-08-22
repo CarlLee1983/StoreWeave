@@ -31,12 +31,12 @@ export const createUserInput = z.object({
   password: z.string().min(12),
   displayName: z.string().min(1).max(120),
   role: z.string(),
-});
+}).strict();
 
 export const listUsersInput = z.object({
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
-});
+}).strict();
 
 export const createUserCommand = defineCommand({
   name: 'platform.identity.createUser',
