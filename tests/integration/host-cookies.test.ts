@@ -4,7 +4,7 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createServer } from '@storeweave/api';
 import { csrfTokenFor } from '@storeweave/identity';
 import { defaultTheme } from '@storeweave/theme-default';
-import { createHarness, createProduct, stockUp, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
 
 /**
  * https 部署上，所有 cookie 都必須帶 `__Host-` 前綴——子網域因此蓋不掉它們。
@@ -92,7 +92,62 @@ describe('__Host- 前綴', () => {
     expect(bare.json().data.items).toHaveLength(0);
   });
 
-  it('登入時合併訪客購物車走的也是前綴名，合併提示同樣帶前綴', async () => {
+  it('合併提示這張 cookie 也帶前綴，而且下一頁讀得到、讀完就清掉', async () => {
+    const product = await createProduct(h.runtime, { sku: `HOST-GONE-${randomUUID().slice(0, 6)}`, name: '下架商品', priceCents: 1_500 });
+    await stockUp(h.runtime, product.id, 5);
+
+    const added = await inject({
+      method: 'POST', url: '/api/v1/cart/items', payload: { productId: product.id, quantity: 1 },
+    });
+    const guest = added.cookies.find((c) => c.name === '__Host-commerce_cart')!.value;
+
+    // 下架之後才合併：removedNames 非空，提示才會真的被寫出來。
+    await h.runtime.commands.execute('commerce.catalog.updateProduct',
+      { id: product.id, status: 'archived' }, { actor: ADMIN_ACTOR, idempotencyKey: `arch-${product.id}` });
+
+    const registered = await inject({
+      method: 'POST', url: '/api/v1/customers/register',
+      payload: { email: `host-notice-${randomUUID()}@example.test`, password: 'a-good-password', displayName: '提示' },
+      cookies: { '__Host-commerce_cart': guest },
+    });
+    const notice = registered.cookies.find((c) => c.name === '__Host-commerce_cart_notice')!;
+    expect(notice.value).toContain('下架商品');
+    expect(notice.secure).toBe(true);
+    expect(notice.path).toBe('/');
+    expect(registered.cookies.find((c) => c.name === 'commerce_cart_notice')).toBeUndefined();
+
+    // 讀取與清除都得用同一個名字，否則提示會在每一頁重複出現、永遠清不掉。
+    const session = registered.cookies.find((c) => c.name === '__Host-commerce_session')!.value;
+    const page = await inject({
+      method: 'GET', url: '/',
+      cookies: { '__Host-commerce_session': session, '__Host-commerce_cart_notice': notice.value },
+    });
+    expect(page.body).toContain('下架商品');
+    expect(page.cookies.find((c) => c.name === '__Host-commerce_cart_notice')!.value).toBe('');
+
+    const again = await inject({ method: 'GET', url: '/', cookies: { '__Host-commerce_session': session } });
+    expect(again.body).not.toContain('下架商品');
+  });
+
+  it('登入後的伺服器渲染頁面認得出身分，CSRF 隱藏欄位跟著出現', async () => {
+    const product = await createProduct(h.runtime, { sku: `HOST-SSR-${randomUUID().slice(0, 6)}`, name: 'SSR 商品', priceCents: 1_200 });
+    await stockUp(h.runtime, product.id, 5);
+
+    const registered = await register(`host-ssr-${randomUUID()}@example.test`);
+    const session = registered.cookies.find((c) => c.name === '__Host-commerce_session')!.value;
+
+    // themeContext 由 session token 推導出隱藏欄位；名字讀錯的話登入後每一張表單都會變成 403。
+    const page = await inject({
+      method: 'GET', url: `/p/${product.id}`, cookies: { '__Host-commerce_session': session },
+    });
+    expect(page.statusCode).toBe(200);
+    expect(page.body).toContain('name="_csrf"');
+
+    const bare = await inject({ method: 'GET', url: `/p/${product.id}`, cookies: { commerce_session: session } });
+    expect(bare.body).not.toContain('name="_csrf"');
+  });
+
+  it('登入時合併訪客購物車走的也是前綴名', async () => {
     const product = await createProduct(h.runtime, { sku: `HOST-M-${randomUUID().slice(0, 6)}`, name: '合併商品', priceCents: 2_000 });
     await stockUp(h.runtime, product.id, 5);
 

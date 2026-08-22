@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CART_COOKIE, SESSION_COOKIE, cookieName, readCookie, secureCookies } from '@storeweave/api';
+import { CART_COOKIE, SESSION_COOKIE, cookieName, hostCookie, readCookie, secureCookies } from '@storeweave/api';
 
 describe('cookie 名字隨著能不能發 Secure 而變', () => {
   it('https 的部署用 __Host- 前綴', () => {
@@ -22,5 +22,34 @@ describe('cookie 名字隨著能不能發 Secure 而變', () => {
     expect(readCookie(cookies, SESSION_COOKIE, 'https://shop.example.com')).toBe('real');
     expect(readCookie(cookies, SESSION_COOKIE, 'http://localhost:3000')).toBe('forged');
     expect(readCookie({ commerce_session: 'forged' }, SESSION_COOKIE, 'https://shop.example.com')).toBeUndefined();
+  });
+});
+
+describe('hostCookie 把前綴的三個前提綁在名字上', () => {
+  it('前綴名一定配 Secure 與 Path=/，而且沒有 Domain', () => {
+    const { name, options } = hostCookie(SESSION_COOKIE, 'https://shop.example.com', {
+      httpOnly: true, sameSite: 'strict', maxAge: 60,
+    });
+    expect(name).toBe('__Host-commerce_session');
+    expect(options).toMatchObject({ path: '/', secure: true, httpOnly: true, sameSite: 'strict', maxAge: 60 });
+    expect(options).not.toHaveProperty('domain');
+  });
+
+  it('裸名配非 Secure——本機 http 開發', () => {
+    const { name, options } = hostCookie(CART_COOKIE, 'http://localhost:3000', { sameSite: 'lax' });
+    expect(name).toBe('commerce_cart');
+    expect(options.secure).toBe(false);
+    expect(options.path).toBe('/');
+  });
+
+  it('呼叫端蓋不掉 path / secure / domain——蓋得掉的話瀏覽器會靜默丟掉整張 cookie', () => {
+    const { options } = hostCookie(SESSION_COOKIE, 'https://shop.example.com', {
+      sameSite: 'strict',
+      // 型別上就不該傳得進來；這裡繞過型別是為了鎖住執行期的行為。
+      ...({ path: '/api', secure: false, domain: '.shop.example.com' } as Record<string, unknown>),
+    });
+    expect(options.path).toBe('/');
+    expect(options.secure).toBe(true);
+    expect(options).not.toHaveProperty('domain');
   });
 });

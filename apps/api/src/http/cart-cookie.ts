@@ -1,37 +1,31 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyReply } from 'fastify';
-import {
-  CART_COOKIE, CART_NOTICE_COOKIE, HOST_COOKIE_SCOPE, cookieName, readCookie, secureCookies,
-} from './cookie-names';
+import { CART_COOKIE, CART_NOTICE_COOKIE, hostCookie, readCookie } from './cookie-names';
 
 const CART_COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
 const NOTICE_MAX_AGE = 5 * 60;
 
 export function setGuestCartCookie(reply: FastifyReply, publicUrl: string): string {
   const token = randomBytes(32).toString('base64url');
-  reply.setCookie(cookieName(CART_COOKIE, publicUrl), token, {
-    ...HOST_COOKIE_SCOPE, httpOnly: true, sameSite: 'lax', secure: secureCookies(publicUrl), maxAge: CART_COOKIE_MAX_AGE,
-  });
+  const cart = hostCookie(CART_COOKIE, publicUrl, { httpOnly: true, sameSite: 'lax', maxAge: CART_COOKIE_MAX_AGE });
+  reply.setCookie(cart.name, token, cart.options);
   return token;
 }
 
 /** 併過的 token 立刻失效，留著只會讓下一次請求又去找一台已經作廢的車。 */
 export function clearGuestCartCookie(reply: FastifyReply, publicUrl: string): void {
-  reply.clearCookie(cookieName(CART_COOKIE, publicUrl), {
-    ...HOST_COOKIE_SCOPE, sameSite: 'lax', secure: secureCookies(publicUrl), httpOnly: true,
-  });
+  const cart = hostCookie(CART_COOKIE, publicUrl, { httpOnly: true, sameSite: 'lax' });
+  reply.clearCookie(cart.name, cart.options);
 }
 
 export function setCartNoticeCookie(reply: FastifyReply, publicUrl: string, message: string): void {
-  reply.setCookie(cookieName(CART_NOTICE_COOKIE, publicUrl), message, {
-    ...HOST_COOKIE_SCOPE, httpOnly: true, sameSite: 'lax', secure: secureCookies(publicUrl), maxAge: NOTICE_MAX_AGE,
-  });
+  const notice = hostCookie(CART_NOTICE_COOKIE, publicUrl, { httpOnly: true, sameSite: 'lax', maxAge: NOTICE_MAX_AGE });
+  reply.setCookie(notice.name, message, notice.options);
 }
 
 export function clearCartNoticeCookie(reply: FastifyReply, publicUrl: string): void {
-  reply.clearCookie(cookieName(CART_NOTICE_COOKIE, publicUrl), {
-    ...HOST_COOKIE_SCOPE, sameSite: 'lax', secure: secureCookies(publicUrl), httpOnly: true,
-  });
+  const notice = hostCookie(CART_NOTICE_COOKIE, publicUrl, { httpOnly: true, sameSite: 'lax' });
+  reply.clearCookie(notice.name, notice.options);
 }
 
 /** 這次請求帶來的合併提示。 */

@@ -132,6 +132,7 @@ if [ -n "${SMOKE_USER_EMAIL:-}" ] && [ -n "${SMOKE_USER_PASSWORD:-}" ]; then
   check "錯誤密碼被擋" "$(login 'definitely-not-the-password')" "401"
   check "正確帳密登入" "$(login "$SMOKE_USER_PASSWORD")" "200"
   check "登入回應不含 session token" "$(jqr '!JSON.stringify(j.data).includes("commerce_session")' < /tmp/smoke_body)" "true"
+  # 以下兩行刻意用子字串比對：cookie 名字在 https 部署上會多一個 `__Host-` 前綴（ADR 0023）。
   check "session cookie 是 HttpOnly" "$(grep -c '^#HttpOnly_.*commerce_session' "$COOKIE_JAR")" "1"
 
   CSRF=$(awk '/commerce_csrf/{print $7}' "$COOKIE_JAR")

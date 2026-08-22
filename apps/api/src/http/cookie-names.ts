@@ -23,6 +23,13 @@ export const CART_NOTICE_COOKIE = 'commerce_cart_notice';
 
 const HOST_PREFIX = '__Host-';
 
+/** 只有這四張。收成聯集之後，「寫的名字和讀的名字不一致」是編譯期問題而不是執行期問題。 */
+export type CookieBase =
+  | typeof SESSION_COOKIE
+  | typeof CSRF_COOKIE
+  | typeof CART_COOKIE
+  | typeof CART_NOTICE_COOKIE;
+
 /**
  * 只有本機開發才允許非 Secure cookie。TLS 由反向代理終止、publicUrl 卻誤寫成 http 時，
  * 用協定推導會讓 session cookie 靜默地以明文傳送。
@@ -32,7 +39,7 @@ export function secureCookies(publicUrl: string): boolean {
   return protocol === 'https:' || !['localhost', '127.0.0.1', '::1'].includes(hostname);
 }
 
-export function cookieName(base: string, publicUrl: string): string {
+export function cookieName(base: CookieBase, publicUrl: string): string {
   return secureCookies(publicUrl) ? `${HOST_PREFIX}${base}` : base;
 }
 
@@ -43,11 +50,42 @@ export function cookieName(base: string, publicUrl: string): string {
  */
 export function readCookie(
   cookies: Record<string, string | undefined> | undefined,
-  base: string,
+  base: CookieBase,
   publicUrl: string,
 ): string | undefined {
   return cookies?.[cookieName(base, publicUrl)];
 }
 
-/** `__Host-` 要求的另外兩個條件。所有 cookie 都必須用它，包含 clearCookie。 */
-export const HOST_COOKIE_SCOPE = { path: '/' } as const;
+/** 呼叫端能決定的事。`path` / `domain` / `secure` 不在裡面——它們是前綴的前提，不是選項。 */
+export interface HostCookieOptions {
+  httpOnly?: boolean;
+  sameSite: 'strict' | 'lax';
+  maxAge?: number;
+}
+
+/**
+ * 名字與屬性一起產出。
+ *
+ * 分成兩個各自獨立的決定就會走鐘：名字帶了前綴而 `secure` 是 false，或是有人補上
+ * `domain` / 改掉 `path`——三種寫法型別都過得了，瀏覽器卻會把整張 cookie 靜默丟掉，
+ * 而 `app.inject()` 不模擬瀏覽器的接受規則，測試也照樣全綠。因此呼叫端拿不到那三個鍵：
+ * 展開在後面的 `path` / `secure` 蓋得掉傳進來的任何同名值。
+ */
+export function hostCookie(
+  base: CookieBase,
+  publicUrl: string,
+  options: HostCookieOptions,
+): { name: string; options: HostCookieOptions & { path: '/'; secure: boolean } } {
+  // 逐鍵挑出來而不是展開：展開會把呼叫端多帶的 `domain` 一起帶進去，
+  // 而 `domain` 的存在本身就會讓瀏覽器拒收帶前綴的 cookie。
+  return {
+    name: cookieName(base, publicUrl),
+    options: {
+      httpOnly: options.httpOnly,
+      sameSite: options.sameSite,
+      maxAge: options.maxAge,
+      path: '/',
+      secure: secureCookies(publicUrl),
+    },
+  };
+}

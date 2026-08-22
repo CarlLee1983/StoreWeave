@@ -82,6 +82,9 @@ ERP 串接與後台，因此先加恆為零的欄位、再讓新舊事件並行�
 - **`outstandingRewards` 是近似值**，理由寫在該函式的註解裡。要精確就得先有快照表。
 - **取消訂單時扣回購物金不指名批次**，會扣到別批。今天走不到（累積在付款完成才發生，
   取消只允許 pending），部分退貨進模型時要一起處理。
+- **`POST /api/v1/cart/checkout` 少了 `cartId` 時會問到一台新的空車**
+  （`cart.controller.ts` 的 fallback 沒帶 `guestToken`）。正常流程畫面都會帶 `cartId`，
+  今天走不到；獨立一張票比較合適。
 - **`createPromotionInput` 以外的舊模組輸入仍未 `.strict()`**
   （catalog、inventory、customer、order 的部分 input）。那是既有行為，改動會影響
   現有客戶端，值得一張獨立的票。

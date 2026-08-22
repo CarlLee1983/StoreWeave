@@ -20,8 +20,14 @@
 
 **名字跟著 Secure 一起決定**：發得出 `Secure` 就用 `__Host-` 前綴名，發不出就用裸名。
 判斷沿用既有的 `secureCookies(publicUrl)`——https，或非本機的 hostname（TLS 由反向
-代理終止的情況）。單一入口在 `apps/api/src/http/cookie-names.ts`，寫入與讀取都走
-`cookieName()` / `readCookie()`。
+代理終止的情況）。單一入口在 `apps/api/src/http/cookie-names.ts`：寫入走 `hostCookie()`，
+讀取走 `readCookie()`。
+
+**名字與屬性由同一個函式產出**，呼叫端只給得起 `httpOnly` / `sameSite` / `maxAge`。
+分成兩個各自獨立的決定就會走鐘——名字帶了前綴而 `secure` 是 false，或有人補上 `domain`——
+三種寫法型別都過得了，瀏覽器卻會靜默丟掉整張 cookie，而 `app.inject()` 不模擬瀏覽器的
+接受規則，測試也照樣全綠。四張 cookie 的基底名收成 `CookieBase` 聯集，因此「寫的名字和
+讀的名字不一致」是編譯期問題。
 
 兩個附帶決定：
 
@@ -43,7 +49,8 @@ DevTools 上看到的名字會隨環境變。替代方案是全環境一律用�
 
 `apps/api/src/http/cookie-names.ts` 的 `readCookie()` 開始回退到裸名，
 或 `cookieName()` 不再由 `secureCookies()` 決定前綴，
-或任何一處 cookie 的寫入 / 讀取繞過這兩個函式直接寫死名字
+或 `hostCookie()` 讓呼叫端蓋得掉 `path` / `secure` / `domain`，
+或任何一處 cookie 的寫入 / 讀取繞過這些函式直接寫死名字
 （`apps/api/src/http/session-cookies.ts`、`apps/api/src/http/cart-cookie.ts`、
 `apps/api/src/http/session-start.ts`）—— 任一項成立，代表子網域覆寫這條攻擊路徑
 又打開了，這篇記的理由要重新檢視。
