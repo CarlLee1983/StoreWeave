@@ -147,4 +147,26 @@ export async function issueCouponTo(
   });
 }
 
+/**
+ * 訂單取消時的回沖。與取消在同一個交易內——訂單回滾了，回沖就不曾發生。
+ *
+ * 券恢復成 `issued` 而不是「一定可用」：過期的券回沖後仍然過期，
+ * 那個判斷留給 `check`，這裡不重寫一次。
+ */
+export async function reverseCouponForOrder(
+  tx: Tx,
+  input: { orderId: string; now: Date },
+): Promise<{ couponId: string; discountCents: number } | null> {
+  const redemption = await repository.activeRedemptionForOrder(tx, input.orderId);
+  if (!redemption) return null;
+
+  await repository.markRedemptionReversed(tx, redemption.id, input.now);
+  await repository.release(tx, redemption.couponId, input.now);
+  const coupon = await repository.findById(tx, redemption.couponId);
+  if (coupon?.status === 'used') {
+    await repository.update(tx, coupon.id, { status: 'issued', updatedAt: input.now });
+  }
+  return { couponId: redemption.couponId, discountCents: redemption.discountCents };
+}
+
 export { CouponRepository };

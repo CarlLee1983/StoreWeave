@@ -69,5 +69,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS coupon_redemptions_one_attribution_idx
 -- 報表查這張表就好，不必掃訂單全表（Spec 0004）。
 ALTER TABLE coupon_redemptions ADD COLUMN IF NOT EXISTS order_total_cents integer NOT NULL DEFAULT 0;
 `),
+    sqlMigration('0005_reversal', 'expand', `
+-- 訂單取消時回沖。留著核銷列而不是刪掉：發生過的事在報表上要看得見，
+-- 只是不再計入額度、每人次數與成效。
+ALTER TABLE coupon_redemptions ADD COLUMN IF NOT EXISTS reversed_at timestamptz;
+-- 「一張訂單一個歸因」只約束還有效的那一筆：取消後重下單要能再歸因一次。
+DROP INDEX IF EXISTS coupon_redemptions_one_attribution_idx;
+CREATE UNIQUE INDEX IF NOT EXISTS coupon_redemptions_one_attribution_idx
+  ON coupon_redemptions (order_id) WHERE partner_code IS NOT NULL AND reversed_at IS NULL;
+`),
   ],
 };

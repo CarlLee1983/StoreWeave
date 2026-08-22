@@ -56,6 +56,8 @@ export const couponRedemptions = pgTable('coupon_redemptions', {
    */
   orderTotalCents: integer('order_total_cents').notNull().default(0),
   redeemedAt: timestamp('redeemed_at', { withTimezone: true }).notNull().defaultNow(),
+  /** 訂單取消時回沖。留著這一列而不是刪掉：發生過的事在報表上要看得見。 */
+  reversedAt: timestamp('reversed_at', { withTimezone: true }),
 });
 
 export type CouponRow = typeof coupons.$inferSelect;

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, gte, lt, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lt, sql, type SQL } from 'drizzle-orm';
 import type { DrizzleDb, Tx } from '@storeweave/contracts';
 import type { CouponDto } from './dto';
 import { couponRedemptions, coupons, type CouponRedemptionRow, type CouponRow } from './schema';
@@ -115,8 +115,27 @@ export class CouponRepository {
     const [{ count }] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(couponRedemptions)
-      .where(and(eq(couponRedemptions.promotionId, promotionId), eq(couponRedemptions.customerId, customerId))!);
+      .where(and(
+        eq(couponRedemptions.promotionId, promotionId),
+        eq(couponRedemptions.customerId, customerId),
+        // 回沖過的不算：顧客取消了訂單，他就沒有用過。
+        isNull(couponRedemptions.reversedAt),
+      )!);
     return Number(count);
+  }
+
+  /** 這張訂單還有效的核銷。取消時要回沖的就是它。 */
+  async activeRedemptionForOrder(db: DrizzleDb | Tx, orderId: string): Promise<CouponRedemptionRow | null> {
+    const [row] = await db
+      .select()
+      .from(couponRedemptions)
+      .where(and(eq(couponRedemptions.orderId, orderId), isNull(couponRedemptions.reversedAt))!)
+      .limit(1);
+    return row ?? null;
+  }
+
+  async markRedemptionReversed(tx: Tx, id: string, now: Date): Promise<void> {
+    await tx.update(couponRedemptions).set({ reversedAt: now }).where(eq(couponRedemptions.id, id));
   }
 
   async recordRedemption(
@@ -143,7 +162,11 @@ export class CouponRepository {
     db: DrizzleDb | Tx,
     filter: { from?: Date; to?: Date; partnerCode?: string },
   ): Promise<{ partnerCode: string; orderCount: number; revenueCents: number; discountCents: number }[]> {
-    const conditions: SQL[] = [sql`${couponRedemptions.partnerCode} IS NOT NULL`];
+    const conditions: SQL[] = [
+      sql`${couponRedemptions.partnerCode} IS NOT NULL`,
+      // 回沖過的核銷不算業績：訂單已經不存在了。
+      isNull(couponRedemptions.reversedAt),
+    ];
     if (filter.from) conditions.push(gte(couponRedemptions.redeemedAt, filter.from));
     if (filter.to) conditions.push(lt(couponRedemptions.redeemedAt, filter.to));
     if (filter.partnerCode) conditions.push(eq(couponRedemptions.partnerCode, filter.partnerCode));

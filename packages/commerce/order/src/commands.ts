@@ -8,7 +8,7 @@ import { inventoryService } from '@storeweave/inventory';
 import { customerService } from '@storeweave/customer';
 import { pricingService } from '@storeweave/promotion';
 import { CartRepository } from '@storeweave/cart';
-import { CouponRepository, couponError, couponService, type CouponRow } from '@storeweave/coupon';
+import { CouponRepository, couponError, couponService, reverseCouponForOrder, type CouponRow } from '@storeweave/coupon';
 import { cancelOrderInput, checkoutCartInput, markPaidInput, orderDto, payOrderInput, placeOrderInput, type OrderDto } from './dto';
 import { OrderRepository, toOrderDto } from './repository';
 import { orderCancelledV1, orderPaidV1, orderPaidV2, orderPlacedV1, orderPlacedV2, orderPlacedV3 } from './events';
@@ -447,6 +447,10 @@ export function createCancelOrderHandler(_deps: OrderModuleDeps) {
         reference: order.number,
       });
     }
+
+    // 券回沖與取消在同一個交易內：取消失敗，券就沒有被還回去過。
+    const reversed = await reverseCouponForOrder(ctx.tx, { orderId: order.id, now: ctx.now });
+    if (reversed) ctx.logger.info({ orderId: order.id, couponId: reversed.couponId }, 'reversed coupon redemption');
 
     const [updated] = await ctx.tx.update(orders)
       .set({ status: 'cancelled', cancelledAt: ctx.now, updatedAt: ctx.now })
