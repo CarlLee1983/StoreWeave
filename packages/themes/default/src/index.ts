@@ -109,6 +109,33 @@ function couponBox(ctx: ThemeContext, view: ThemeCartView): string {
     </div>`;
 }
 
+/**
+ * 購物金折抵。訪客沒有帳本，因此只對會員顯示；餘額是零時也不顯示——
+ * 給一個永遠只能填 0 的輸入框只是雜訊。
+ */
+function rewardBox(ctx: ThemeContext, view: ThemeCartView): string {
+  const reward = view.reward;
+  if (!reward || (reward.availableCents <= 0 && reward.appliedCents <= 0)) return '';
+  const money = (cents: number) => formatMoney(cents, view.currency, ctx.locale);
+  const shortfall = reward.requestedCents > reward.appliedCents;
+
+  return `
+    <div class="coupon">
+      <p>可用購物金 <strong>${money(reward.availableCents)}</strong>，這次最多可折 ${money(reward.maxCents)}。</p>
+      ${shortfall
+        ? `<p class="muted">你要求折 ${money(reward.requestedCents)}，這次只折得了 ${money(reward.appliedCents)}。</p>`
+        : ''}
+      <form method="post" action="/cart/rewards" class="inline">
+        ${csrfField(ctx)}
+        <label>折抵金額（元）
+          <input type="number" name="amount" min="0" max="${Math.floor(reward.maxCents / 100)}"
+                 value="${Math.floor(reward.appliedCents / 100)}">
+        </label>
+        <button type="submit">套用</button>
+      </form>
+    </div>`;
+}
+
 /** 門檻活動唯一的行銷價值就是這句話：還差多少。 */
 function thresholdHint(ctx: ThemeContext, view: ThemeCartView): string {
   if (!view.nextThreshold) return '';
@@ -189,6 +216,7 @@ export const defaultTheme: StorefrontTheme = {
         : `${cartTable(ctx, view, true)}
            ${thresholdHint(ctx, view)}
            ${couponBox(ctx, view)}
+           ${rewardBox(ctx, view)}
            <p><a class="cta" href="/checkout">${ctx.customerName ? '前往結帳' : '登入後結帳'}</a></p>
            <p><a href="/">繼續購物</a></p>`}`;
     return layout({ title: '購物車', body, ctx });

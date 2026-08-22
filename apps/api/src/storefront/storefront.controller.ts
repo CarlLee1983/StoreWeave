@@ -354,6 +354,27 @@ export class StorefrontController {
     }
   }
 
+  /**
+   * 折抵多少購物金。輸入以「元」為單位——顧客看到的金額就是元，
+   * 讓他在唯一一個會打字的地方改用「分」是自找的客訴。
+   */
+  @Post('cart/rewards')
+  async cartRewards(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: Record<string, string>,
+    @Res() reply: FastifyReply,
+  ) {
+    const actor = actorOf(req);
+    if (actor.type !== 'customer') {
+      void reply.status(303).header('location', `/login?next=${encodeURIComponent('/cart')}`).send();
+      return;
+    }
+    const amount = Math.max(0, Math.floor(Number(body.amount ?? '0')));
+    await this.cartCommand(req, reply, 'commerce.cart.setRewardRedemption', {
+      amountCents: Number.isFinite(amount) ? amount * 100 : 0,
+    });
+  }
+
   /** 確認頁。內容不能在這裡改，否則「確認的東西」與「結出來的單」會是兩份。 */
   @Get('checkout')
   async checkoutPage(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
@@ -572,6 +593,7 @@ export class StorefrontController {
       nextThreshold: cart.nextThreshold,
       coupon: cart.coupon,
       couponError: cart.couponError,
+      reward: cart.reward,
     };
   }
 
@@ -583,9 +605,11 @@ export class StorefrontController {
     input: Record<string, unknown>,
   ): Promise<void> {
     try {
+      const guestToken = guestTokenFor(req, reply, this.runtime.config.http.publicUrl);
       await this.runtime.commands.execute(name, {
         ...input,
-        guestToken: guestTokenFor(req, reply, this.runtime.config.http.publicUrl),
+        // 會員沒有 guestToken；有些購物車命令是 strict 的，多送一個欄位會被擋下。
+        ...(guestToken ? { guestToken } : {}),
       }, { actor: actorOf(req), idempotencyKey: randomUUID(), correlationId: randomUUID(), channel: 'rest' });
       void reply.status(303).header('location', '/cart').send();
     } catch (err) {

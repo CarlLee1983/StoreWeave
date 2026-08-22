@@ -116,9 +116,21 @@ describe('購物車結帳轉單', () => {
     expect((await getCart({}, customer)).items).toHaveLength(2);
   });
 
-  it('空的購物車結不了帳', async () => {
+  it('沒有那台車就結不了帳', async () => {
     const customer = await buyer('void');
-    await expect(checkout(customer, await cartIdOf(customer))).rejects.toThrow(PlatformError);
+    // 空車時 getCart 回的是一個隨機 id，資料庫裡沒有這一列。
+    await expect(checkout(customer, await cartIdOf(customer))).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('車裡的東西全下架時，結帳說得出是空的——不是回一個查無此車', async () => {
+    const customer = await buyer('allgone');
+    const gone = await sellable(`CO-ALLGONE-${randomUUID().slice(0, 6)}`);
+    await addToCart({ productId: gone.id, quantity: 1 }, customer);
+    const cartId = await cartIdOf(customer);
+    await h.runtime.commands.execute('commerce.catalog.updateProduct',
+      { id: gone.id, status: 'archived' }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+
+    await expect(checkout(customer, cartId)).rejects.toThrow(/cart is empty/);
   });
 
   it('未登入結不了帳：那張單沒有歸屬', async () => {

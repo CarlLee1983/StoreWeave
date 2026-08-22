@@ -71,7 +71,11 @@ describe('登入時合併購物車', () => {
   it('已下架的商品在合併時移除，並且說得出是哪一件', async () => {
     const guestToken = randomUUID();
     const customer = await createCustomer(h.runtime, { email: `merge-d-${randomUUID()}@example.test` });
-    const product = await sellable(`MERGE-GONE-${randomUUID().slice(0, 6)}`);
+    // 品名與 sku 刻意不同：相同的話分不出實作回的是品名還是 sku。
+    const product = await createProduct(h.runtime, {
+      sku: `MERGE-GONE-${randomUUID().slice(0, 6)}`, name: '會下架的商品', priceCents: 10_000,
+    });
+    await stockUp(h.runtime, product.id, 20);
     await addToCart({ guestToken, productId: product.id, quantity: 2 });
 
     await h.runtime.commands.execute('commerce.catalog.updateProduct',
@@ -80,7 +84,7 @@ describe('登入時合併購物車', () => {
     const merged = await merge(guestToken, customer);
 
     expect(merged.items).toEqual([]);
-    expect(merged.removedNames).toEqual([product.sku]);
+    expect(merged.removedNames).toEqual(['會下架的商品']);
   });
 
   it('合併後訪客購物車不再有效：同一張 token 拿到的是空車', async () => {

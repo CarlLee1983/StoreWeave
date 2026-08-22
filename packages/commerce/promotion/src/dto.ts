@@ -76,7 +76,14 @@ export const createPromotionInput = z
     status: promotionStatus.default('active'),
     ...period,
   })
-  .refine(endsAfterStarts, endsAfterStartsMessage);
+  // strict：`{"requiresCoupons": true}` 這種拼字錯誤會安靜地建出一檔全站打折的活動並回 200。
+  .strict()
+  .refine(endsAfterStarts, endsAfterStartsMessage)
+  // 自動發出去的是券，券只能指向需要券的活動——否則所有人不用券就有折扣。
+  .refine((v) => !v.autoIssue || v.requiresCoupon, {
+    message: 'autoIssue requires requiresCoupon',
+    path: ['requiresCoupon'],
+  });
 
 /** strict：`{"status":"disabled"}` 這種送錯欄位的請求要回 400，不能回 200 又什麼都沒改。 */
 export const updatePromotionInput = z

@@ -223,7 +223,7 @@ export const recalculateTiersHandler = async (
   ctx: CommandContext,
 ) => {
   const at = input.at ?? ctx.now;
-  const customerIds = (await repository.customersWithTierPoints(ctx.tx)).slice(0, input.limit);
+  const customerIds = await repository.staleTierCustomerIds(ctx.tx, input.limit);
 
   let changed = 0;
   let upgraded = 0;
@@ -235,8 +235,9 @@ export const recalculateTiersHandler = async (
     const result = await tierService.recalculate(ctx.tx, customerId, at);
     if (!result.changed) continue;
     changed += 1;
-    const before = result.from === null ? 0 : rank.get(result.from) ?? 0;
-    if ((rank.get(result.to) ?? 0) > before) upgraded += 1;
+    // 舊等級可能已經被 removeTier 刪掉，那時比不出升降——當成升級會讓統計說謊。
+    const before = result.from === null ? -1 : rank.get(result.from) ?? -1;
+    if ((rank.get(result.to) ?? -1) > before) upgraded += 1;
     else downgraded += 1;
   }
   ctx.logger.info({ evaluated: customerIds.length, changed, upgraded, downgraded }, 'recalculated member tiers');
@@ -311,12 +312,18 @@ export function createNotifyExpiringRewardsHandler(deps: LoyaltyModuleDeps) {
         skipped += 1;
         continue;
       }
-      await sendExpiryNotice(deps, ctx, {
+      const sent = await sendExpiryNotice(deps, ctx, {
         customerId: batch.customerId,
         entryId: batch.id,
         amountCents: remaining,
         expiresAt: batch.expiresAt!,
       });
+      if (!sent) {
+        // 先佔位是為了擋併發；寄不出去就要放掉，否則「下一輪還會再遇到它」是假的。
+        await repository.clearNotified(ctx.tx, batch.id);
+        skipped += 1;
+        continue;
+      }
       notified += 1;
     }
 
@@ -325,23 +332,33 @@ export function createNotifyExpiringRewardsHandler(deps: LoyaltyModuleDeps) {
   };
 }
 
-/** 寄不出去不該讓整批通知失敗：下一輪還會再遇到它。 */
+/**
+ * 寄不出去不讓整批失敗，但要回報成敗——呼叫端據此決定要不要放掉佔位。
+ * 靜靜吞掉例外又回報「已寄出」，等於用一張表把「永遠不通知」記成「通知過了」。
+ */
 async function sendExpiryNotice(
   deps: LoyaltyModuleDeps,
   ctx: CommandContext,
   input: { customerId: string; entryId: string; amountCents: number; expiresAt: Date },
-): Promise<void> {
+): Promise<boolean> {
   try {
     const customer = await customerService.contactFor(ctx.tx, input.customerId);
-    if (!customer) return;
+    // 收件人不存在不是暫時性失敗，重試也沒用——佔位留著。
+    if (!customer) return true;
     const provider = deps.providers.get<NotificationProvider>('notification');
-    await provider.send({
+    const result = await provider.send({
       template: 'customer.reward-expiring',
       to: { email: customer.email, name: customer.displayName },
       variables: { amountCents: input.amountCents, expiresAt: input.expiresAt.toISOString() },
       reference: `reward-expiry:${input.entryId}`,
     });
+    if (result.status !== 'sent') {
+      ctx.logger.warn({ customerId: input.customerId, message: result.message }, 'reward expiry notice not delivered');
+      return false;
+    }
+    return true;
   } catch (err) {
     ctx.logger.error({ error: (err as Error).message, customerId: input.customerId }, 'reward expiry notice failed');
+    return false;
   }
 }

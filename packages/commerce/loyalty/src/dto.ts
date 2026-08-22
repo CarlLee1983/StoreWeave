@@ -54,8 +54,14 @@ export const getMyRewardsOutput = z.object({
 
 export const adjustRewardsInput = z.object({
   customerId: z.string().uuid(),
-  /** 正數是給、負數是收回。 */
-  amountCents: z.number().int().refine((v) => v !== 0, { message: 'amountCents must not be zero' }),
+  /**
+   * 正數是給、負數是收回。
+   *
+   * 有上下界：沒有的話，一個 staff token 一次就能發到 integer 上限，
+   * 只有資料庫溢位擋著。超出這個範圍的補償應該是一個需要更高權限的動作。
+   */
+  amountCents: z.number().int().min(-1_000_000).max(1_000_000)
+    .refine((v) => v !== 0, { message: 'amountCents must not be zero' }),
   reason: z.string().trim().min(1).max(500),
   /** 幾天後到期；省略時沿用店鋪設定。 */
   expiresInDays: z.number().int().positive().max(3_650).nullable().optional(),
@@ -99,7 +105,8 @@ export const removeTierInput = z.object({ name: z.string().trim().min(1).max(60)
 
 export const adjustTierPointsInput = z.object({
   customerId: z.string().uuid(),
-  points: z.number().int().refine((v) => v !== 0, { message: 'points must not be zero' }),
+  points: z.number().int().min(-1_000_000).max(1_000_000)
+    .refine((v) => v !== 0, { message: 'points must not be zero' }),
   reason: z.string().trim().min(1).max(500),
 }).strict();
 

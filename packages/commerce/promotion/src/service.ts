@@ -46,9 +46,13 @@ export const pricingService = {
     }
 
     // 券指名的活動接在後面；排序仍由引擎依優先序決定，載入順序不影響結果。
+    // 以 id 去重：同一檔活動出現兩次會被套用兩次，而引擎只排序不去重。
     const named = await repository.listActiveByIds(db, couponPromotionIds, at);
+    const byId = new Map<string, (typeof items)[number]>();
+    for (const row of [...items, ...named]) byId.set(row.id, row);
+
     const promotions: Promotion[] = [];
-    for (const row of [...items, ...named]) {
+    for (const row of byId.values()) {
       // 一檔活動的規則參數壞掉，不該讓整間店關門——跳過它並留下紀錄。
       const dto = tryToPromotionDto(row);
       if (!dto) {

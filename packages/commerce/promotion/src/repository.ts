@@ -84,17 +84,23 @@ export class PromotionRepository {
     return db
       .select()
       .from(promotions)
-      .where(and(activeAtCondition(at), eq(promotions.autoIssue, trigger))!)
+      // 自動發出去的券也只能指向需要券的活動，理由與 `listActiveByIds` 相同。
+      .where(and(activeAtCondition(at), eq(promotions.autoIssue, trigger), eq(promotions.requiresCoupon, true))!)
       .orderBy(asc(promotions.priority), asc(promotions.id));
   }
 
-  /** 明確指名的活動：券所指向的那一條由這裡載入，生效判斷仍然一樣。 */
+  /**
+   * 明確指名的活動：券所指向的那一條由這裡載入，生效判斷仍然一樣。
+   *
+   * 只載入**需要券**的活動。少了這個條件，一張指向人人適用活動的券會讓那檔活動
+   * 被載入第二次，於是折扣套兩次——那是真的少收錢。
+   */
   async listActiveByIds(db: DrizzleDb | Tx, ids: readonly string[], at: Date): Promise<PromotionRow[]> {
     if (ids.length === 0) return [];
     return db
       .select()
       .from(promotions)
-      .where(and(activeAtCondition(at), inArray(promotions.id, [...ids]))!)
+      .where(and(activeAtCondition(at), inArray(promotions.id, [...ids]), eq(promotions.requiresCoupon, true))!)
       .orderBy(asc(promotions.priority), asc(promotions.id));
   }
 

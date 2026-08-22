@@ -77,6 +77,13 @@ export const updatePromotionHandler = async (
   const existing = await repository.findById(ctx.tx, id);
   if (!existing) throw PlatformError.notFound('Promotion', id);
 
+  // 交叉條件要看合併後的值：這是 patch，兩個欄位可能只改了一個。
+  const autoIssue = patch.autoIssue === undefined ? existing.autoIssue : patch.autoIssue;
+  const requiresCoupon = patch.requiresCoupon === undefined ? existing.requiresCoupon : patch.requiresCoupon;
+  if (autoIssue && !requiresCoupon) {
+    throw PlatformError.validation('A promotion with autoIssue must require a coupon');
+  }
+
   // 期間只改一半時，另一半仍要與資料庫裡的值比對，否則會存出永遠不生效的活動。
   const startsAt = patch.startsAt ?? existing.startsAt;
   const endsAt = patch.endsAt ?? existing.endsAt;

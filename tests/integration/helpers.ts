@@ -187,3 +187,21 @@ export async function runJobsUntilProcessed(
   }
   return total;
 }
+
+/**
+ * 反覆 drain 直到連續兩輪真的沒事可做。
+ *
+ * 單一 `drain()` 在「這一輪剛排進來的工作還不到 run_at」時就會停——
+ * `run_at` 由 Node 產生而認領條件的 `now()` 來自 Postgres，兩者差幾毫秒就足夠。
+ * 工作鏈（付款 → outbox → 投遞）每多一段，撞上這個縫的機率就高一次。
+ */
+export async function settleWorker(worker: TestHarness['worker'], rounds = 20): Promise<void> {
+  let quiet = 0;
+  for (let attempt = 0; attempt < rounds; attempt += 1) {
+    const result = await worker.drain();
+    const idle = result.jobsProcessed === 0 && result.jobsFailed === 0 && result.relayed === 0;
+    if (idle && ++quiet >= 2) return;
+    if (!idle) quiet = 0;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}

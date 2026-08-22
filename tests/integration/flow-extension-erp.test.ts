@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { ADMIN_ACTOR, runJobsUntilProcessed, createHarness, createProduct, payOrder, placeOrder, stockUp, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, runJobsUntilProcessed, settleWorker, createHarness, createProduct, payOrder, placeOrder, stockUp, type TestHarness } from './helpers';
 
 let h: TestHarness;
 beforeAll(async () => { h = await createHarness(); }, 300_000);
@@ -27,8 +27,7 @@ describe('流程三：Outbox → Worker → Demo ERP Extension', () => {
     const order = await paidOrder(h);
     // drain 而不是單一 tick：relayOutbox 一次只取一批，而這個資料庫裡的事件
     // 不只這張訂單的（註冊、商品…）。一輪剛好沒撈到它是排隊順序，不是行為問題。
-    const result = await h.worker.drain();
-    expect(result.relayed).toBeGreaterThan(0);
+    await settleWorker(h.worker);
 
     const jobs = await h.runtime.database.db.execute<{ dedupe_key: string; type: string }>(sql`
       SELECT dedupe_key, type FROM platform_jobs WHERE type = 'ext.demo-erp.push-order'
@@ -39,7 +38,7 @@ describe('流程三：Outbox → Worker → Demo ERP Extension', () => {
 
   it('drain 之後 ERP 投遞成功並記錄 remoteId', async () => {
     const order = await paidOrder(h);
-    await h.worker.drain();
+    await settleWorker(h.worker);
     const record = (await deliveries(h)).items.find((d) => d.orderId === order.id);
     expect(record?.status).toBe('sent');
     expect(record?.attempts).toBe(1);
@@ -49,10 +48,10 @@ describe('流程三：Outbox → Worker → Demo ERP Extension', () => {
 
   it('重複 drain 不會重複送到 ERP', async () => {
     const order = await paidOrder(h);
-    await h.worker.drain();
+    await settleWorker(h.worker);
     const before = (await deliveries(h)).items.find((d) => d.orderId === order.id);
-    await h.worker.drain();
-    await h.worker.drain();
+    await settleWorker(h.worker);
+    await settleWorker(h.worker);
     const after = (await deliveries(h)).items.find((d) => d.orderId === order.id);
     expect(after?.remoteId).toBe(before?.remoteId);
     expect(after?.attempts).toBe(before?.attempts);
@@ -60,7 +59,7 @@ describe('流程三：Outbox → Worker → Demo ERP Extension', () => {
 
   it('outbox 事件全部處理完後標記為 relayed', async () => {
     await paidOrder(h);
-    await h.worker.drain();
+    await settleWorker(h.worker);
     const pending = await h.runtime.database.db.execute<{ count: string }>(sql`
       SELECT count(*)::text AS count FROM platform_outbox WHERE status = 'pending'
     `);
@@ -107,7 +106,7 @@ describe('流程三：Outbox → Worker → Demo ERP Extension', () => {
 
   it('人工重送 command 會重新排入既有工作，遠端仍然只有一張單據', async () => {
     const order = await paidOrder(h);
-    await h.worker.drain();
+    await settleWorker(h.worker);
     const before = (await deliveries(h)).items.find((d) => d.orderId === order.id);
 
     const result = await h.runtime.commands.execute<{ jobId: string | null }>(
@@ -115,7 +114,7 @@ describe('流程三：Outbox → Worker → Demo ERP Extension', () => {
     );
     expect(result.jobId).toBe(before?.jobId);
 
-    await h.worker.drain();
+    await settleWorker(h.worker);
     const after = (await deliveries(h)).items.find((d) => d.orderId === order.id);
     expect(after?.manualResends).toBe(1);
     expect(after?.remoteId).toBe(before?.remoteId);

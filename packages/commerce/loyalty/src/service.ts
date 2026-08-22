@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { DrizzleDb, Tx } from '@storeweave/contracts';
+import type { DrizzleDb, Logger, Tx } from '@storeweave/contracts';
 import { deriveRewardBalance, type RewardBalance } from './balance';
 import { deriveTier, multiplierOf, type TierDefinition, type TierStatus } from './tier';
 import { LoyaltyRepository } from './repository';
@@ -24,8 +24,18 @@ function toEntry(row: RewardEntryRow) {
  * 沒有任何地方存著「目前餘額」。
  */
 export const rewardService = {
-  async balanceFor(db: DrizzleDb | Tx, customerId: string, now: Date): Promise<RewardBalance> {
-    return deriveRewardBalance((await repository.rewardEntriesFor(db, customerId)).map(toEntry), now);
+  async balanceFor(
+    db: DrizzleDb | Tx,
+    customerId: string,
+    now: Date,
+    logger?: Logger,
+  ): Promise<RewardBalance> {
+    const balance = deriveRewardBalance((await repository.rewardEntriesFor(db, customerId)).map(toEntry), now);
+    // 分配不掉的扣抵代表帳本自己對不起來。餘額不會變負數，但這件事要查得到。
+    if (balance.shortfallCents > 0) {
+      logger?.error({ customerId, shortfallCents: balance.shortfallCents }, 'reward ledger shortfall');
+    }
+    return balance;
   },
 
   /**

@@ -90,6 +90,12 @@ export class CartController extends BusController {
     }));
   }
 
+  /** 設定要折抵多少購物金。訪客沒有帳本，因此這支只對會員有意義。 */
+  @Post('rewards')
+  async setRewardRedemption(@Req() req: AuthenticatedRequest, @Body() body: Record<string, unknown>) {
+    return ok(await this.command(req, 'commerce.cart.setRewardRedemption', { amountCents: body.amountCents }));
+  }
+
   @Delete('coupon')
   async removeCoupon(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) reply: FastifyReply) {
     return ok(await this.command(req, 'commerce.cart.removeCoupon', { guestToken: this.guestToken(req, reply) }));

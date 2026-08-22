@@ -133,12 +133,23 @@ export class LoyaltyRepository {
     return row;
   }
 
-  /** 有等級積分紀錄的顧客。重算掃這一份清單。 */
-  async customersWithTierPoints(db: DrizzleDb | Tx): Promise<string[]> {
+  /**
+   * 該重算的顧客，最久沒算過的排前面。
+   *
+   * 上限推進 SQL 而不是在記憶體切：依 customerId 排序再取前 N 筆的話，
+   * 排在後面的人每天都被切掉，等級永遠停在第一次寫入的值——降級對他們不存在。
+   * 排序用 `loyalty_customer_tiers.recalculated_at`，那個索引本來就是為此建的。
+   */
+  async staleTierCustomerIds(db: DrizzleDb | Tx, limit: number): Promise<string[]> {
     const rows = await db
-      .selectDistinct({ customerId: tierEntries.customerId })
+      .selectDistinct({
+        customerId: tierEntries.customerId,
+        recalculatedAt: customerTiers.recalculatedAt,
+      })
       .from(tierEntries)
-      .orderBy(asc(tierEntries.customerId));
+      .leftJoin(customerTiers, eq(customerTiers.customerId, tierEntries.customerId))
+      .orderBy(sql`${customerTiers.recalculatedAt} ASC NULLS FIRST`, asc(tierEntries.customerId))
+      .limit(limit);
     return rows.map((row) => row.customerId);
   }
 
@@ -156,6 +167,11 @@ export class LoyaltyRepository {
   async markNotified(tx: Tx, values: typeof rewardExpiryNotices.$inferInsert): Promise<boolean> {
     const [row] = await tx.insert(rewardExpiryNotices).values(values).onConflictDoNothing().returning();
     return row !== undefined;
+  }
+
+  /** 放掉佔位。寄不出去時要讓下一輪還遇得到它，否則那一批就永遠不會被通知。 */
+  async clearNotified(tx: Tx, entryId: string): Promise<void> {
+    await tx.delete(rewardExpiryNotices).where(eq(rewardExpiryNotices.entryId, entryId));
   }
 
   /** 快到期而且還沒用掉的批次。到期通知掃它（工單 48）。 */

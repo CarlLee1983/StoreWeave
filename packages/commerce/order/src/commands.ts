@@ -259,6 +259,12 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
       }
     }
     if (lines.length === 0) throw PlatformError.validation('Your cart is empty');
+    // 上限與 placeOrder 共用同一份宣告：從購物車進來的路徑本來完全繞過那個 schema，
+    // 於是一張訂單可以帶數千行進 createOrderFromLines，在同一交易內鎖住大量庫存列。
+    const bounded = placeOrderInput.shape.lines.safeParse(lines);
+    if (!bounded.success) {
+      throw PlatformError.validation('Your cart has too many items to check out', bounded.error.issues);
+    }
 
     // 折抵上限在結帳當下重新算：購物車存的是「顧客希望折多少」，
     // 而餘額與小計在那之後都可能變過。
@@ -270,7 +276,7 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
     );
 
     const order = await createOrderFromLines(deps, {
-      lines,
+      lines: bounded.data,
       metadata: input.metadata,
       couponPromotionIds: locked ? [locked.promotionId] : [],
       rewardRedeemCents,
@@ -525,9 +531,12 @@ export function createCancelOrderHandler(_deps: OrderModuleDeps) {
 
     // 券回沖與取消在同一個交易內：取消失敗，券就沒有被還回去過。
     const reversed = await reverseCouponForOrder(ctx.tx, { orderId: order.id, now: ctx.now });
-    // 購物金一併回沖：折抵掉的還回去、那張單累積的扣回來，兩者都是新的反向分錄。
+    // 購物金與等級積分一併回沖：折抵掉的還回去、那張單累積的扣回來，
+    // 兩者都是新的反向分錄。與逾時那條路做的事必須完全一樣——不對齊的話，
+    // 部分退貨進模型時就會有一條路徑忘了扣回積分。
     if (order.customerId) {
       await rewardService.reverseForOrder(ctx.tx, { customerId: order.customerId, orderId: order.id, now: ctx.now });
+      await tierService.reverseForOrder(ctx.tx, { customerId: order.customerId, orderId: order.id, now: ctx.now });
     }
     if (reversed) ctx.logger.info({ orderId: order.id, couponId: reversed.couponId }, 'reversed coupon redemption');
 

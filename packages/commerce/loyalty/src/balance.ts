@@ -28,6 +28,11 @@ export interface RewardBatch {
 }
 
 export interface RewardBalance {
+  /**
+   * 扣抵超過餘額而分配不掉的金額。正常情況恆為 0——不是 0 就代表帳本本身有問題，
+   * 而讓它靜靜消失會讓那個問題事後查不出來。
+   */
+  shortfallCents: number;
   /** 現在就能用的金額。 */
   availableCents: number;
   /** 已經入帳但還沒生效的金額。顧客看到它才不會以為系統壞了。 */
@@ -67,6 +72,7 @@ export function deriveRewardBalance(entries: readonly RewardEntry[], now: Date):
   );
 
   const batches: RewardBatch[] = [];
+  let shortfall = 0;
   for (const entry of ordered) {
     if (entry.amountCents > 0) {
       batches.push({
@@ -89,6 +95,8 @@ export function deriveRewardBalance(entries: readonly RewardEntry[], now: Date):
       batch.remainingCents -= take;
       owed -= take;
     }
+    // 分配不掉的部分不會讓餘額變成負數，但它必須被說出來。
+    shortfall += owed;
   }
 
   let availableCents = 0;
@@ -110,7 +118,13 @@ export function deriveRewardBalance(entries: readonly RewardEntry[], now: Date):
     remaining.push(batch);
   }
 
-  return { availableCents, pendingCents, expiredCents, batches: remaining.sort(byExpiryThenAge) };
+  return {
+    availableCents,
+    pendingCents,
+    expiredCents,
+    shortfallCents: shortfall,
+    batches: remaining.sort(byExpiryThenAge),
+  };
 }
 
 function isExpiredAt(batch: { expiresAt: Date | null }, at: Date): boolean {

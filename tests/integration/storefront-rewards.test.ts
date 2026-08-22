@@ -4,7 +4,7 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { sql } from 'drizzle-orm';
 import { SESSION_COOKIE, createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
-import { ADMIN_ACTOR, createHarness, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
 
 /** 前台購物金與等級呈現（工單 49）。 */
 
@@ -119,5 +119,45 @@ describe('會員中心的購物金', () => {
     expect(page.statusCode).toBe(200);
     expect(page.body).toContain('還沒有任何購物金紀錄');
     expect(page.body).toContain('一般會員');
+  });
+});
+
+describe('購物車頁的折抵', () => {
+  it('會員在購物車頁看得到折抵欄位，送出後金額改變', async () => {
+    const me = await signIn('redeem');
+    await grant(me.customerId, 6_000);
+    const product = await createProduct(h.runtime, { sku: `SFR-${randomUUID().slice(0, 8)}`, name: 'sfr', priceCents: 20_000 });
+    await stockUp(h.runtime, product.id, 10);
+
+    const page0 = await inject({ method: 'GET', url: '/p/' + product.id, cookies: me.cookies });
+    const csrf = /name="_csrf" value="([^"]+)"/.exec(page0.body)![1];
+    const form = (body: string) => ({
+      headers: { 'content-type': 'application/x-www-form-urlencoded' as const },
+      cookies: me.cookies,
+      payload: `${body}&_csrf=${encodeURIComponent(csrf)}`,
+    });
+
+    await inject({ method: 'POST', url: '/cart/items', ...form(`productId=${product.id}&quantity=1`) });
+
+    const cart = await inject({ method: 'GET', url: '/cart', cookies: me.cookies });
+    expect(cart.body).toContain('可用購物金');
+    expect(cart.body).toContain('action="/cart/rewards"');
+
+    // 折 50 元。
+    const applied = await inject({ method: 'POST', url: '/cart/rewards', ...form('amount=50') });
+    expect(applied.statusCode).toBe(303);
+
+    const after = await inject({ method: 'GET', url: '/cart', cookies: me.cookies });
+    expect(after.body).toMatch(/150/);
+  });
+
+  it('訪客沒有折抵欄位——他沒有帳本', async () => {
+    const product = await createProduct(h.runtime, { sku: `SFRG-${randomUUID().slice(0, 8)}`, name: 'sfrg', priceCents: 20_000 });
+    await stockUp(h.runtime, product.id, 10);
+    const added = await inject({ method: 'POST', url: '/cart/items', payload: { productId: product.id, quantity: '1' } });
+    const cookies = { commerce_cart: added.cookies.find((c) => c.name === 'commerce_cart')!.value };
+
+    const cart = await inject({ method: 'GET', url: '/cart', cookies });
+    expect(cart.body).not.toContain('action="/cart/rewards"');
   });
 });

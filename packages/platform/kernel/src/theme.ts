@@ -96,6 +96,16 @@ export interface ThemeCartView {
   coupon: { code: string; discountCents: number } | null;
   /** 券失效或輸入錯誤的原因。留著訊息而不是靜靜拿掉，顧客才知道發生了什麼。 */
   couponError: string | null;
+  /**
+   * 購物金折抵。未登入時為 null——訪客沒有帳本。
+   * `requestedCents` 與 `appliedCents` 不同時，畫面要說得出為什麼。
+   */
+  reward: {
+    requestedCents: number;
+    appliedCents: number;
+    availableCents: number;
+    maxCents: number;
+  } | null;
   error?: string;
 }
 

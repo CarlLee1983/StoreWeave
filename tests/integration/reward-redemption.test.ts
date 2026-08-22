@@ -158,3 +158,15 @@ describe('結帳時折抵', () => {
     expect(order.discountCents).toBe(cart.discountCents);
   });
 });
+
+describe('前台的折抵入口（工單 41 的缺口）', () => {
+  it('REST 端點設定得了折抵金額', async () => {
+    const { customer } = await shopper('rest', 10_000, 5_000);
+
+    const cart = await h.runtime.commands.execute<any>('commerce.cart.setRewardRedemption',
+      { amountCents: 2_500 }, { actor: customer, idempotencyKey: randomUUID() });
+
+    expect(cart.reward).toMatchObject({ requestedCents: 2_500, appliedCents: 2_500 });
+    expect(cart.totalCents).toBe(7_500);
+  });
+});

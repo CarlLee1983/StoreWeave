@@ -51,6 +51,7 @@ export const createCouponHandler = async (
   input: z.infer<typeof createCouponInput>,
   ctx: CommandContext,
 ): Promise<CouponDto> => {
+  await assertCouponOnlyPromotion(ctx, input.promotionId);
   const existing = await repository.findByCode(ctx.tx, input.code);
   // 重複的碼要明講。唯一索引也會擋，但那個錯誤訊息對經營者沒有意義。
   if (existing) throw PlatformError.conflict(`Coupon code ${input.code} already exists`);
@@ -76,6 +77,20 @@ export const createCouponHandler = async (
   return toCouponDto(row);
 };
 
+/**
+ * 券只能指向「需要券」的活動。
+ *
+ * 指向人人適用的活動時，那檔活動會被載入兩次而折扣套兩次——後台 UI 有擋，
+ * 但 REST、MCP 與自動發券都繞得過去。UI 的過濾不是不變式。
+ */
+async function assertCouponOnlyPromotion(ctx: CommandContext, promotionId: string): Promise<void> {
+  const promotion = await promotions.findById(ctx.tx, promotionId);
+  if (!promotion) throw PlatformError.notFound('Promotion', promotionId);
+  if (!promotion.requiresCoupon) {
+    throw PlatformError.validation('Coupons may only point at promotions that require a coupon');
+  }
+}
+
 export const setCouponStatusCommand = defineCommand({
   name: 'commerce.coupon.setCouponStatus',
   summary: '停用或恢復一張券',
@@ -91,10 +106,20 @@ export const setCouponStatusCommand = defineCommand({
   },
 });
 
+/**
+ * 停用與恢復。**用掉的券不能被改回可用**——那等於免費再送一次，
+ * 而且 `redeemedCount` 不會跟著回退。要還給顧客有 `reverseCouponForOrder` 這條正式路徑。
+ */
 export const setCouponStatusHandler = async (
   input: z.infer<typeof setCouponStatusInput>,
   ctx: CommandContext,
 ): Promise<CouponDto> => {
+  const existing = await repository.findById(ctx.tx, input.id);
+  if (!existing) throw PlatformError.notFound('Coupon', input.id);
+  if (existing.status === 'used' || input.status === 'used') {
+    throw PlatformError.validation('A used coupon can only change state by reversing its redemption');
+  }
+
   const row = await repository.update(ctx.tx, input.id, { status: input.status, updatedAt: ctx.now });
   if (!row) throw PlatformError.notFound('Coupon', input.id);
   return toCouponDto(row);
@@ -125,6 +150,7 @@ export const issueCouponsHandler = async (
   input: z.infer<typeof issueCouponsInput>,
   ctx: CommandContext,
 ): Promise<z.infer<typeof issueCouponsOutput>> => {
+  await assertCouponOnlyPromotion(ctx, input.promotionId);
   const batchId = randomUUID();
   const customerIds = input.customerIds ?? await customerService.activeCustomerIds(ctx.tx);
   if (customerIds.length === 0) throw PlatformError.validation('No customers to issue to');

@@ -233,13 +233,20 @@ describe('購物車結帳（工單 28）', () => {
     expect(after.json().data.items).toEqual([]);
   });
 
-  it('訪客結不了帳', async () => {
+  it('訪客結不了帳：擋下他的是身分，不是「沒帶 token」', async () => {
     const product = await sellable('CART-CHECKOUT-ANON');
     const added = await inject({ method: 'POST', url: '/api/v1/cart/items', payload: { productId: product.id, quantity: 1 } });
     const guest = added.cookies.find((c) => c.name === CART_COOKIE)!.value;
+    const cartId = (await inject({
+      method: 'GET', url: '/api/v1/cart', cookies: { [CART_COOKIE]: guest },
+    })).json().data.id;
 
-    const res = await inject({ method: 'POST', url: '/api/v1/cart/checkout', cookies: { [CART_COOKIE]: guest }, payload: {} });
-    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    const res = await inject({
+      method: 'POST', url: '/api/v1/cart/checkout', cookies: { [CART_COOKIE]: guest }, payload: { cartId },
+    });
+
+    // requireByActor 的 403，而不是 resolveOwner 的 400。
+    expect(res.statusCode).toBe(403);
   });
 });
 
