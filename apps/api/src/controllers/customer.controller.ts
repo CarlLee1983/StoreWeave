@@ -73,6 +73,27 @@ export class CustomerController extends BusController {
     return ok(await this.query(req, 'commerce.customer.getCustomer', { id }));
   }
 
+  @Get(':id/loyalty')
+  async loyalty(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+    return ok(await this.query(req, 'commerce.loyalty.getCustomerLoyalty', { customerId: id }));
+  }
+
+  /** 客服補償：增減購物金。金額與原因都會進帳本與稽核紀錄。 */
+  @Post(':id/rewards')
+  async adjustRewards(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return ok(await this.command(req, 'commerce.loyalty.adjustRewards', {
+      customerId: id, amountCents: body.amountCents, reason: body.reason, expiresInDays: body.expiresInDays,
+    }));
+  }
+
+  /** 客服補償：增減等級積分。它不能折抵金額，只影響等級。 */
+  @Post(':id/tier-points')
+  async adjustTierPoints(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return ok(await this.command(req, 'commerce.loyalty.adjustTierPoints', {
+      customerId: id, points: body.points, reason: body.reason,
+    }));
+  }
+
   @Post(':id/status')
   async setStatus(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     return ok(await this.command(req, 'commerce.customer.setCustomerStatus', { customerId: id, status: body.status }));

@@ -25,7 +25,9 @@ async function paidOrder(harness: TestHarness) {
 describe('流程三：Outbox → Worker → Demo ERP Extension', () => {
   it('worker 把 outbox 事件轉成每個訂閱者一筆的投遞工作', async () => {
     const order = await paidOrder(h);
-    const result = await h.worker.tick();
+    // drain 而不是單一 tick：relayOutbox 一次只取一批，而這個資料庫裡的事件
+    // 不只這張訂單的（註冊、商品…）。一輪剛好沒撈到它是排隊順序，不是行為問題。
+    const result = await h.worker.drain();
     expect(result.relayed).toBeGreaterThan(0);
 
     const jobs = await h.runtime.database.db.execute<{ dedupe_key: string; type: string }>(sql`

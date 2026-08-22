@@ -10,6 +10,7 @@ import {
 import { RECALCULATE_TIERS_JOB, createRecalculateTiersJob } from './jobs';
 import { loyaltyMigrations } from './migrations';
 import {
+  getCustomerLoyaltyHandler, getCustomerLoyaltyQuery,
   getMyRewardsHandler, getMyRewardsQuery,
   getMyTierHandler, getMyTierQuery,
   listTiersHandler, listTiersQuery,
@@ -42,5 +43,6 @@ export const loyaltyModule: PlatformModule = defineModule({
     { descriptor: outstandingRewardsQuery, handler: outstandingRewardsHandler },
     { descriptor: getMyTierQuery, handler: getMyTierHandler },
     { descriptor: listTiersQuery, handler: listTiersHandler },
+    { descriptor: getCustomerLoyaltyQuery, handler: getCustomerLoyaltyHandler },
   ],
 });

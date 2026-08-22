@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, type AdminCustomer, type AdminCustomerDetail } from '../api';
+import { api, type AdminCustomer, type AdminCustomerDetail, type CustomerLoyalty } from '../api';
 import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
@@ -78,6 +78,8 @@ function CustomerRow({ customer, onChanged }: { customer: AdminCustomer; onChang
   const { t, formatDateTime } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<AdminCustomerDetail | null>(null);
+  const [loyalty, setLoyalty] = useState<CustomerLoyalty | null>(null);
+  const [loyaltyKey, setLoyaltyKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const nextStatus = customer.status === 'active' ? 'disabled' : 'active';
@@ -90,6 +92,16 @@ function CustomerRow({ customer, onChanged }: { customer: AdminCustomer; onChang
       .catch((err) => !cancelled && setError(err));
     return () => { cancelled = true; };
   }, [expanded, detail, customer.id]);
+
+  // 購物金與等級是另一個模組的資料，因此另外問一次；調整之後重新載入。
+  useEffect(() => {
+    if (!expanded) return;
+    let cancelled = false;
+    api.customerLoyalty(customer.id)
+      .then((result) => !cancelled && setLoyalty(result))
+      .catch((err) => !cancelled && setError(err));
+    return () => { cancelled = true; };
+  }, [expanded, customer.id, loyaltyKey]);
 
   const toggleStatus = async () => {
     setSubmitting(true);
@@ -138,6 +150,11 @@ function CustomerRow({ customer, onChanged }: { customer: AdminCustomer; onChang
                     <dt>{t('address')}</dt>
                     <dd>{detail.address ? `${detail.address.postcode} ${detail.address.city} ${detail.address.line1} ${detail.address.line2 ?? ''}` : '—'}</dd>
                   </dl>
+                  <LoyaltyPanel
+                    customerId={customer.id}
+                    loyalty={loyalty}
+                    onAdjusted={() => setLoyaltyKey((k) => k + 1)}
+                  />
                   <h4>{t('orderHistory')}</h4>
                   {detail.orders.length === 0 ? <p className="muted">{t('noOrders')}</p> : (
                     <table className="data-table data-table--nested">
@@ -158,6 +175,107 @@ function CustomerRow({ customer, onChanged }: { customer: AdminCustomer; onChang
         </tr>
       )}
     </>
+  );
+}
+
+/**
+ * 客服補償的入口。購物金與等級積分刻意分成兩個表單——它們是兩本帳，
+ * 一個能折抵金額、一個只影響等級，共用一個輸入框只會讓人補錯。
+ */
+function LoyaltyPanel({
+  customerId,
+  loyalty,
+  onAdjusted,
+}: {
+  customerId: string;
+  loyalty: CustomerLoyalty | null;
+  onAdjusted: () => void;
+}) {
+  const { t, formatMoney, formatDateTime } = useI18n();
+  if (!loyalty) return <Loading />;
+
+  return (
+    <>
+      <h4>{t('loyalty')}</h4>
+      <dl className="order-totals">
+        <dt>{t('rewardAvailable')}</dt><dd className="mono">{formatMoney(loyalty.balance.availableCents, 'TWD')}</dd>
+        <dt>{t('rewardPending')}</dt><dd className="mono">{formatMoney(loyalty.balance.pendingCents, 'TWD')}</dd>
+        <dt>{t('nextExpiry')}</dt>
+        <dd className="mono">
+          {loyalty.balance.nextExpiry
+            ? `${formatMoney(loyalty.balance.nextExpiry.amountCents, 'TWD')} · ${formatDateTime(loyalty.balance.nextExpiry.expiresAt)}`
+            : '—'}
+        </dd>
+        <dt>{t('memberTier')}</dt><dd>{loyalty.tierName}（{loyalty.tierPoints}）</dd>
+      </dl>
+      <div className="inline-form">
+        <AdjustForm
+          label={t('adjustRewards')}
+          unit={t('rewardUnit')}
+          onSubmit={(amount, reason) => api.adjustRewards(customerId, { amountCents: amount, reason })}
+          onDone={onAdjusted}
+        />
+        <AdjustForm
+          label={t('adjustTierPoints')}
+          unit={t('tierPointUnit')}
+          onSubmit={(points, reason) => api.adjustTierPoints(customerId, { points, reason })}
+          onDone={onAdjusted}
+        />
+      </div>
+    </>
+  );
+}
+
+function AdjustForm({
+  label,
+  unit,
+  onSubmit,
+  onDone,
+}: {
+  label: string;
+  unit: string;
+  onSubmit: (amount: number, reason: string) => Promise<unknown>;
+  onDone: () => void;
+}) {
+  const { t } = useI18n();
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const submit = async (event: { preventDefault: () => void }) => {
+    event.preventDefault();
+    const value = Number(amount);
+    // 原因是必填：沒有原因的調整，事後查帳等於查不到。
+    if (!Number.isInteger(value) || value === 0 || !reason.trim()) {
+      setError(new Error(t('invalidAdjustment')));
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onSubmit(value, reason.trim());
+      setAmount('');
+      setReason('');
+      onDone();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit}>
+      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+      <label>{label}
+        <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={unit} />
+      </label>
+      <label>{t('reason')}
+        <input value={reason} onChange={(e) => setReason(e.target.value)} />
+      </label>
+      <button type="submit" disabled={submitting}>{t('adjust')}</button>
+    </form>
   );
 }
 

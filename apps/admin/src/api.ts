@@ -124,6 +124,27 @@ export type AdminCustomerDetail = AdminCustomer & {
   orders: { id: string; number: string; status: string; currency: string; totalCents: number; placedAt: string }[];
 };
 
+export type CustomerLoyalty = {
+  balance: {
+    availableCents: number;
+    pendingCents: number;
+    expiredCents: number;
+    nextExpiry: { amountCents: number; expiresAt: string } | null;
+  };
+  tierName: string;
+  tierPoints: number;
+  entries: {
+    id: string;
+    amountCents: number;
+    source: string;
+    reference: string | null;
+    effectiveAt: string;
+    expiresAt: string | null;
+    reason: string | null;
+    createdAt: string;
+  }[];
+};
+
 export type SalesSummary = {
   currency: string;
   paidOrderCount: number;
@@ -409,6 +430,15 @@ export const api = {
   },
   getCustomer(id: string) {
     return request<AdminCustomerDetail>(`/api/v1/customers/${id}`);
+  },
+  customerLoyalty(id: string) {
+    return request<CustomerLoyalty>(`/api/v1/customers/${id}/loyalty`);
+  },
+  adjustRewards(id: string, body: { amountCents: number; reason: string }) {
+    return request<{ id: string }>(`/api/v1/customers/${id}/rewards`, { method: 'POST', body, idempotent: true });
+  },
+  adjustTierPoints(id: string, body: { points: number; reason: string }) {
+    return request<{ points: number }>(`/api/v1/customers/${id}/tier-points`, { method: 'POST', body, idempotent: true });
   },
   setCustomerStatus(id: string, status: AdminCustomer['status']) {
     return request<AdminCustomer>(`/api/v1/customers/${id}/status`, { method: 'POST', body: { status }, idempotent: true });

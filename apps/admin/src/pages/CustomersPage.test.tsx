@@ -4,13 +4,16 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CustomersPage } from './CustomersPage';
 import { I18nProvider } from '../i18n';
-import { api, type AdminCustomer, type AdminCustomerDetail } from '../api';
+import { api, type AdminCustomer, type AdminCustomerDetail, type CustomerLoyalty } from '../api';
 
 vi.mock('../api', async () => {
   const actual = await vi.importActual<typeof import('../api')>('../api');
   return {
     ...actual,
-    api: { listCustomers: vi.fn(), getCustomer: vi.fn(), setCustomerStatus: vi.fn() },
+    api: {
+      listCustomers: vi.fn(), getCustomer: vi.fn(), setCustomerStatus: vi.fn(),
+      customerLoyalty: vi.fn(), adjustRewards: vi.fn(), adjustTierPoints: vi.fn(),
+    },
   };
 });
 
@@ -34,12 +37,22 @@ const detail: AdminCustomerDetail = {
   ],
 };
 
+const loyalty: CustomerLoyalty = {
+  balance: { availableCents: 12_000, pendingCents: 3_000, expiredCents: 0, nextExpiry: null },
+  tierName: '銀卡',
+  tierPoints: 4_200,
+  entries: [],
+};
+
 const renderPage = () => render(<I18nProvider><CustomersPage /></I18nProvider>);
 
 beforeEach(() => {
   vi.mocked(api.listCustomers).mockReset().mockResolvedValue({ items: [customer], total: 1 });
   vi.mocked(api.getCustomer).mockReset().mockResolvedValue(detail);
   vi.mocked(api.setCustomerStatus).mockReset().mockResolvedValue({ ...customer, status: 'disabled' });
+  vi.mocked(api.customerLoyalty).mockReset().mockResolvedValue(loyalty);
+  vi.mocked(api.adjustRewards).mockReset().mockResolvedValue({ id: 'entry-1' });
+  vi.mocked(api.adjustTierPoints).mockReset().mockResolvedValue({ points: 4_300 });
 });
 
 describe('CustomersPage', () => {
@@ -99,5 +112,61 @@ describe('CustomersPage', () => {
     await screen.findByText('buyer@example.com');
 
     expect(document.body.textContent).not.toMatch(/password|hash|scrypt/i);
+  });
+});
+
+describe('客服補償（工單 46）', () => {
+  it('展開後看得到目前的購物金與等級', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByText('buyer@example.com'));
+
+    expect(await screen.findByText('銀卡（4200）')).toBeInTheDocument();
+    expect(screen.getByText('可用購物金')).toBeInTheDocument();
+  });
+
+  it('調整購物金要帶原因，送出後重新讀取餘額', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByText('buyer@example.com'));
+    await screen.findByText('銀卡（4200）');
+
+    await user.type(screen.getByLabelText('調整購物金'), '5000');
+    await user.type(screen.getAllByLabelText('原因')[0], '客訴補償');
+    await user.click(screen.getAllByRole('button', { name: '調整' })[0]);
+
+    await waitFor(() => expect(api.adjustRewards).toHaveBeenCalledWith(customer.id, {
+      amountCents: 5_000, reason: '客訴補償',
+    }));
+    await waitFor(() => expect(api.customerLoyalty).toHaveBeenCalledTimes(2));
+  });
+
+  it('等級積分是另一個表單——兩本帳不共用一個輸入框', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByText('buyer@example.com'));
+    await screen.findByText('銀卡（4200）');
+
+    await user.type(screen.getByLabelText('調整等級積分'), '-100');
+    await user.type(screen.getAllByLabelText('原因')[1], '重複計算，收回');
+    await user.click(screen.getAllByRole('button', { name: '調整' })[1]);
+
+    await waitFor(() => expect(api.adjustTierPoints).toHaveBeenCalledWith(customer.id, {
+      points: -100, reason: '重複計算，收回',
+    }));
+    expect(api.adjustRewards).not.toHaveBeenCalled();
+  });
+
+  it('沒填原因就不送出：沒有原因的調整事後查不到帳', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByText('buyer@example.com'));
+    await screen.findByText('銀卡（4200）');
+
+    await user.type(screen.getByLabelText('調整購物金'), '5000');
+    await user.click(screen.getAllByRole('button', { name: '調整' })[0]);
+
+    expect(await screen.findByText('請輸入非零整數與調整原因')).toBeInTheDocument();
+    expect(api.adjustRewards).not.toHaveBeenCalled();
   });
 });

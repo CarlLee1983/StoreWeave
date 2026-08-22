@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { defineQuery, type QueryContext } from '@storeweave/contracts';
 import { customerService } from '@storeweave/customer';
 import {
+  customerLoyaltyInput, customerLoyaltyOutput,
   getMyRewardsInput, getMyRewardsOutput, listTiersOutput, myTierOutput,
   outstandingRewardsOutput, rewardSettingsDto,
 } from './dto';
@@ -103,3 +104,43 @@ export const listTiersQuery = defineQuery({
 export const listTiersHandler = async (_input: unknown, ctx: QueryContext) => ({
   items: await tierService.definitions(ctx.db),
 });
+
+export const getCustomerLoyaltyQuery = defineQuery({
+  name: 'commerce.loyalty.getCustomerLoyalty',
+  summary: '後台：某位會員的購物金與等級',
+  input: customerLoyaltyInput,
+  output: customerLoyaltyOutput,
+  permission: 'customers:manage',
+});
+
+/** 客服在處理客訴時要看得到「他現在有多少、怎麼來的」，否則補償只能用猜的。 */
+export const getCustomerLoyaltyHandler = async (
+  input: z.infer<typeof customerLoyaltyInput>,
+  ctx: QueryContext,
+) => {
+  const balance = await rewardService.balanceFor(ctx.db, input.customerId, ctx.now);
+  const status = await tierService.statusFor(ctx.db, input.customerId, ctx.now);
+  const rows = await repository.rewardEntriesFor(ctx.db, input.customerId);
+  const soonest = balance.batches.find((batch) => batch.expiresAt !== null);
+
+  return {
+    balance: {
+      availableCents: balance.availableCents,
+      pendingCents: balance.pendingCents,
+      expiredCents: balance.expiredCents,
+      nextExpiry: soonest ? { amountCents: soonest.remainingCents, expiresAt: soonest.expiresAt! } : null,
+    },
+    tierName: status.current.name,
+    tierPoints: status.points,
+    entries: [...rows].reverse().slice(0, 50).map((row) => ({
+      id: row.id,
+      amountCents: row.amountCents,
+      source: row.source,
+      reference: row.reference,
+      effectiveAt: row.effectiveAt,
+      expiresAt: row.expiresAt,
+      reason: row.reason,
+      createdAt: row.createdAt,
+    })),
+  };
+};

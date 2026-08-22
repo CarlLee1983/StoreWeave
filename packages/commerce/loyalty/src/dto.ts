@@ -112,3 +112,12 @@ export const recalculateTiersOutput = z.object({
   upgraded: z.number().int().nonnegative(),
   downgraded: z.number().int().nonnegative(),
 });
+
+export const customerLoyaltyInput = z.object({ customerId: z.string().uuid() }).strict();
+
+export const customerLoyaltyOutput = z.object({
+  balance: rewardBalanceDto,
+  tierName: z.string(),
+  tierPoints: z.number().int().nonnegative(),
+  entries: z.array(rewardEntryDto),
+});
