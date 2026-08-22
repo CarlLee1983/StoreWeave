@@ -5,9 +5,12 @@ import {
   addToCartInput,
   cartDto,
   clearCartInput,
+  mergeGuestCartInput,
+  mergedCartDto,
   removeCartItemInput,
   setCartItemQuantityInput,
   type CartDto,
+  type MergedCartDto,
 } from './dto';
 import { CartRepository, resolveOwner } from './repository';
 import { toCartDto } from './service';
@@ -88,6 +91,64 @@ export function createCartModule(deps: CartModuleDeps) {
     return toCartDto(ctx.tx, cart, deps.defaultCurrency, ctx.now, ctx.logger);
   };
 
+  const mergeGuestCartCommand = defineCommand({
+    name: 'commerce.cart.mergeGuestCart',
+    summary: '把訪客購物車併入會員購物車',
+    input: mergeGuestCartInput,
+    output: mergedCartDto,
+    permission: 'cart:write',
+    idempotency: 'optional',
+    audit: {
+      action: 'cart.merged',
+      resourceType: 'cart',
+      resourceId: (_i, o: MergedCartDto) => o.id,
+      redact: () => ({}),
+    },
+  });
+
+  /**
+   * 登入的那一刻把訪客車併進會員車。
+   *
+   * 同一件商品兩邊都有時取**較大**數量而不是相加：在兩個裝置各放一件的人，
+   * 意圖幾乎總是「我要一件」。相加會製造客訴。
+   *
+   * 下架的商品進不了會員車，但要說得出被拿掉的是什麼——靜默消失比消失更糟。
+   */
+  const mergeGuestCartHandler = async (
+    input: z.infer<typeof mergeGuestCartInput>,
+    ctx: CommandContext,
+  ): Promise<MergedCartDto> => {
+    if (ctx.actor.type !== 'customer') {
+      throw PlatformError.validation('Merging a guest cart needs a signed-in customer');
+    }
+    const target = await openCart(ctx, undefined);
+    const guest = await repository.findGuestCart(ctx.tx, input.guestToken);
+    if (!guest) {
+      return { ...(await toCartDto(ctx.tx, target, deps.defaultCurrency, ctx.now, ctx.logger)), removedNames: [] };
+    }
+
+    const mine = new Map((await repository.items(ctx.tx, target.id)).map((row) => [row.productId, row.quantity]));
+    const removedNames: string[] = [];
+
+    for (const row of await repository.items(ctx.tx, guest.id)) {
+      const product = await catalogService.findById(ctx.tx, row.productId);
+      if (!product || product.status !== 'active') {
+        // 商品連紀錄都沒了就講不出名字，這時候不編一個——只是不提它。
+        if (product) removedNames.push(product.name);
+        continue;
+      }
+      const quantity = Math.max(row.quantity, mine.get(row.productId) ?? 0);
+      await repository.setQuantity(ctx.tx, target.id, row.productId, quantity, ctx.now);
+    }
+
+    await repository.markMerged(ctx.tx, guest.id, ctx.now);
+    await repository.touch(ctx.tx, target.id, ctx.now);
+    return {
+      ...(await toCartDto(ctx.tx, target, deps.defaultCurrency, ctx.now, ctx.logger)),
+      removedNames,
+    };
+  };
+
   const clearCartHandler = async (input: z.infer<typeof clearCartInput>, ctx: CommandContext): Promise<CartDto> => {
     const cart = await openCart(ctx, input.guestToken);
     await repository.clear(ctx.tx, cart.id);
@@ -101,6 +162,7 @@ export function createCartModule(deps: CartModuleDeps) {
       { descriptor: setCartItemQuantityCommand, handler: setCartItemQuantityHandler },
       { descriptor: removeCartItemCommand, handler: removeCartItemHandler },
       { descriptor: clearCartCommand, handler: clearCartHandler },
+      { descriptor: mergeGuestCartCommand, handler: mergeGuestCartHandler },
     ],
   };
 }

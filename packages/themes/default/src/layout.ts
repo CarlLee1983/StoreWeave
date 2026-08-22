@@ -55,7 +55,7 @@ export function layout({ title, body, ctx }: LayoutOptions): string {
   ${tagline ? `<p class="tagline">${tagline}</p>` : ''}
   <nav class="account">${accountNav(ctx)}</nav>
 </header>
-<main>${body}</main>
+<main>${ctx.notice ? `<p class="notice">${escapeHtml(ctx.notice)}</p>` : ''}${body}</main>
 <footer class="site-footer">
   <span>&copy; ${new Date().getFullYear()} ${escapeHtml(ctx.storeName)}</span>
   ${ctx.supportEmail ? `<a href="mailto:${escapeHtml(ctx.supportEmail)}">${escapeHtml(ctx.supportEmail)}</a>` : ''}
@@ -91,6 +91,7 @@ button[disabled] { opacity: .5; cursor: not-allowed; }
 table { width: 100%; border-collapse: collapse; margin-top: 16px; }
 th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); font-size: 14px; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
+.notice { border: 1px solid var(--accent); background: var(--card); padding: 12px; border-radius: 8px; margin-bottom: 16px; }
 .error { border: 1px solid #ef4444; background: rgba(239,68,68,.1); padding: 12px; border-radius: 8px; }
 `;
 }

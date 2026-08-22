@@ -72,6 +72,11 @@ export interface ThemeContext {
   customerName?: string | null;
   /** 登入者的 CSRF token。寫入表單必須把它放進隱藏欄位 `_csrf`。 */
   csrfToken?: string | null;
+  /**
+   * 一次性提示，例如「登入時有下架商品被移出購物車」。
+   * 由 Storefront 讀取後即清除，Theme 只負責顯示。
+   */
+  notice?: string | null;
 }
 
 /**

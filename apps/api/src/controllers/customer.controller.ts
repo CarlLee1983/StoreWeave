@@ -3,7 +3,7 @@ import type { FastifyReply } from 'fastify';
 import { BusController } from './base';
 import { ok } from '../http/envelope';
 import { Anonymous, Public, type AuthenticatedRequest } from '../http/auth';
-import { setSessionCookies } from '../http/session-cookies';
+import { startSession } from '../http/session-start';
 import { RUNTIME, type Runtime } from '../tokens';
 
 interface RegisterBody {
@@ -41,16 +41,13 @@ export class CustomerController extends BusController {
       email: registered.email,
       password: body.password!,
     });
-    setSessionCookies(reply, {
-      publicUrl: this.runtime.config.http.publicUrl,
-      token: session.token,
-      expiresAt: session.expiresAt,
-    });
+    const cartNotice = await startSession(this.runtime, req, reply, session);
 
     return ok({
       id: registered.customer.id,
       email: registered.email,
       displayName: registered.customer.displayName,
+      cartNotice,
     });
   }
 

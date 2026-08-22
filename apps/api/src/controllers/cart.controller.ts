@@ -1,14 +1,10 @@
-import { randomBytes } from 'node:crypto';
 import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Req, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { BusController } from './base';
 import { ok } from '../http/envelope';
 import { Public, type AuthenticatedRequest } from '../http/auth';
+import { CART_COOKIE, setGuestCartCookie } from '../http/cart-cookie';
 import { RUNTIME, type Runtime } from '../tokens';
-
-/** 訪客購物車的識別碼。會員不需要它——他們的車綁在身分上。 */
-export const CART_COOKIE = 'commerce_cart';
-const CART_COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
 
 @Public()
 @Controller('api/v1/cart')
@@ -67,20 +63,10 @@ export class CartController extends BusController {
 
   /**
    * 訪客第一次碰購物車時發一張 token；會員不發，也不用既有的那張——
-   * 兩台車的合併是工單 27 的事，在那之前不要讓身分與 token 同時生效。
+   * 登入的那一刻兩台車就合併了（工單 27），身分與 token 不會同時生效。
    */
   private guestToken(req: AuthenticatedRequest, reply: FastifyReply): string | undefined {
     if (req.actor?.type === 'customer') return undefined;
-
-    const existing = req.cookies?.[CART_COOKIE];
-    if (existing) return existing;
-
-    const token = randomBytes(32).toString('base64url');
-    const { protocol, hostname } = new URL(this.runtime.config.http.publicUrl);
-    const secure = protocol === 'https:' || !['localhost', '127.0.0.1', '::1'].includes(hostname);
-    reply.setCookie(CART_COOKIE, token, {
-      path: '/', httpOnly: true, sameSite: 'lax', secure, maxAge: CART_COOKIE_MAX_AGE,
-    });
-    return token;
+    return req.cookies?.[CART_COOKIE] ?? setGuestCartCookie(reply, this.runtime.config.http.publicUrl);
   }
 }

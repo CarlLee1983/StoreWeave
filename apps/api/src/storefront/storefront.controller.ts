@@ -6,7 +6,9 @@ import { csrfTokenFor } from '@storeweave/identity';
 import type { StorefrontTheme, ThemeContext } from '@storeweave/kernel';
 import type { NotificationProvider } from '@storeweave/extension-sdk';
 import { Anonymous, Public, SESSION_COOKIE, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
-import { clearSessionCookies, setSessionCookies } from '../http/session-cookies';
+import { clearSessionCookies } from '../http/session-cookies';
+import { CART_NOTICE_COOKIE, clearCartNoticeCookie } from '../http/cart-cookie';
+import { startSession } from '../http/session-start';
 import { RUNTIME, THEME, type Runtime } from '../tokens';
 
 /** 重設連結的時效。夠久到收得到信，短到外洩的信件不會長期有效。 */
@@ -49,7 +51,18 @@ export class StorefrontController {
     @Inject(THEME) private readonly theme: StorefrontTheme,
   ) {}
 
-  private themeContext(req?: AuthenticatedRequest): ThemeContext {
+  /**
+   * 一次性提示：讀到就清掉。合併發生在轉址之前，訊息沒有別的地方可以放。
+   * 清除要落在同一個回應上，否則它會在每一頁重複出現。
+   */
+  private takeNotice(req?: AuthenticatedRequest, reply?: FastifyReply): string | null {
+    const notice = req?.cookies?.[CART_NOTICE_COOKIE];
+    if (!notice) return null;
+    if (reply) clearCartNoticeCookie(reply, this.runtime.config.http.publicUrl);
+    return notice;
+  }
+
+  private themeContext(req?: AuthenticatedRequest, reply?: FastifyReply): ThemeContext {
     const store = this.runtime.config.store;
     const sessionToken = req?.cookies?.[SESSION_COOKIE];
     const actor = req?.actor;
@@ -65,6 +78,7 @@ export class StorefrontController {
       // 有 session 就發 token：守衛對任何 cookie 身分都會驗 CSRF，只發給顧客的話，
       // 後台身分逛前台送出表單會拿到裸的 403，而不是那句「請先登入」。
       csrfToken: sessionToken && actor && actor.type !== 'service' ? csrfTokenFor(sessionToken) : null,
+      notice: this.takeNotice(req, reply),
     };
   }
 
@@ -81,7 +95,7 @@ export class StorefrontController {
       { actor, channel: 'rest' },
     );
     const products = await Promise.all(result.items.map((p) => this.withStock(actor, p)));
-    this.html(reply, 200, this.theme.renderHome(this.themeContext(req), { products }));
+    this.html(reply, 200, this.theme.renderHome(this.themeContext(req, reply), { products }));
   }
 
   @Get('p/:id')
@@ -91,7 +105,7 @@ export class StorefrontController {
       const product = await this.runtime.queries.execute<ProductDtoShape>(
         'commerce.catalog.getProduct', { id }, { actor, channel: 'rest' },
       );
-      this.html(reply, 200, this.theme.renderProduct(this.themeContext(req), { product: await this.withStock(actor, product) }));
+      this.html(reply, 200, this.theme.renderProduct(this.themeContext(req, reply), { product: await this.withStock(actor, product) }));
     } catch (err) {
       this.renderError(reply, err, req);
     }
@@ -117,7 +131,7 @@ export class StorefrontController {
         { limit: limit ?? 20, offset: offset ?? 0 },
         { actor, channel: 'rest' },
       );
-      this.html(reply, 200, this.theme.renderAccountOrders(this.themeContext(req), {
+      this.html(reply, 200, this.theme.renderAccountOrders(this.themeContext(req, reply), {
         orders: result.items.map((order) => ({
           number: order.number,
           status: order.status,
@@ -186,7 +200,7 @@ export class StorefrontController {
     const profile = await this.runtime.queries.execute<any>(
       'commerce.customer.getMyProfile', {}, { actor: actorOf(req), channel: 'rest' },
     );
-    this.html(reply, 200, this.theme.renderAccountProfile(this.themeContext(req), {
+    this.html(reply, 200, this.theme.renderAccountProfile(this.themeContext(req, reply), {
       displayName: profile.displayName,
       phone: profile.phone,
       birthday: profile.birthday,
@@ -206,7 +220,7 @@ export class StorefrontController {
       const order = await this.runtime.queries.execute<any>(
         'commerce.order.getOrder', { number }, { actor, channel: 'rest' },
       );
-      this.html(reply, 200, this.theme.renderOrder(this.themeContext(req), { order }));
+      this.html(reply, 200, this.theme.renderOrder(this.themeContext(req, reply), { order }));
     } catch (err) {
       this.renderError(reply, err, req);
     }
@@ -315,14 +329,18 @@ export class StorefrontController {
 
   @Anonymous()
   @Post('login')
-  async login(@Body() body: Record<string, string>, @Res() reply: FastifyReply) {
+  async login(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: Record<string, string>,
+    @Res() reply: FastifyReply,
+  ) {
     const next = safeNext(body.next);
     try {
       const session = await this.runtime.auth.authenticate(this.runtime.database.db, {
         email: body.email,
         password: body.password,
       });
-      this.startSession(reply, session.token, session.expiresAt);
+      await startSession(this.runtime, req, reply, session);
       void reply.status(303).header('location', next).send();
     } catch {
       // 訊息一律中性：區分「沒這個帳號」與「密碼錯」等於送出帳號枚舉管道。
@@ -334,7 +352,11 @@ export class StorefrontController {
 
   @Anonymous()
   @Post('register')
-  async register(@Body() body: Record<string, string>, @Res() reply: FastifyReply) {
+  async register(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: Record<string, string>,
+    @Res() reply: FastifyReply,
+  ) {
     const next = safeNext(body.next);
     try {
       await this.runtime.commands.execute('commerce.customer.registerCustomer', {
@@ -348,7 +370,7 @@ export class StorefrontController {
         email: body.email,
         password: body.password,
       });
-      this.startSession(reply, session.token, session.expiresAt);
+      await startSession(this.runtime, req, reply, session);
       void reply.status(303).header('location', next).send();
     } catch (err) {
       // 已存在的帳號不能在這裡說出來——那是一條比登入更明確的帳號枚舉管道。
@@ -373,10 +395,6 @@ export class StorefrontController {
     void reply.status(303).header('location', '/').send();
   }
 
-  private startSession(reply: FastifyReply, token: string, expiresAt: Date): void {
-    setSessionCookies(reply as never, { publicUrl: this.runtime.config.http.publicUrl, token, expiresAt });
-  }
-
   private async withStock(actor: Actor, product: ProductDtoShape) {
     let available: number | null = null;
     try {
@@ -394,6 +412,6 @@ export class StorefrontController {
     const status = err instanceof PlatformError ? err.httpStatus : 500;
     const message = err instanceof PlatformError && status < 500 ? err.message : '發生未預期的錯誤';
     if (status >= 500) this.runtime.logger.error({ error: (err as Error).message }, 'storefront error');
-    this.html(reply, status, this.theme.renderError(this.themeContext(req), { status, message }));
+    this.html(reply, status, this.theme.renderError(this.themeContext(req, reply), { status, message }));
   }
 }

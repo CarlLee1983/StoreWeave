@@ -48,3 +48,16 @@ export const setCartItemQuantityInput = z.object({
 });
 export const removeCartItemInput = z.object({ ...owner, productId: z.string().uuid() });
 export const clearCartInput = z.object({ ...owner });
+
+export const mergeGuestCartInput = z.object({
+  guestToken: z.string().min(16).max(200),
+}).strict();
+
+/**
+ * 合併的結果。`removedNames` 是「合併時被靜默移除的下架商品」——
+ * 顧客必須知道發生了什麼，否則他會以為東西是自己弄丟的。
+ */
+export const mergedCartDto = cartDto.extend({
+  removedNames: z.array(z.string()),
+});
+export type MergedCartDto = z.infer<typeof mergedCartDto>;

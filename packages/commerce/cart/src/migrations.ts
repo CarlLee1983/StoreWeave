@@ -33,5 +33,12 @@ CREATE TABLE IF NOT EXISTS cart_items (
 );
 CREATE INDEX IF NOT EXISTS cart_items_cart_idx ON cart_items (cart_id);
 `),
+    sqlMigration('0002_merged_status', 'expand', `
+-- 併進會員車的訪客車就地作廢。用新狀態而不是刪除：清理工作（工單 30）
+-- 才有辦法把「併過的」與「放著沒動的」分開處理。
+ALTER TABLE cart_carts DROP CONSTRAINT IF EXISTS cart_carts_status_check;
+ALTER TABLE cart_carts ADD CONSTRAINT cart_carts_status_check
+  CHECK (status IN ('open', 'checked_out', 'merged'));
+`),
   ],
 };

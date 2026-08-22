@@ -3,7 +3,8 @@ import type { FastifyReply } from 'fastify';
 import { PlatformError } from '@storeweave/contracts';
 import { ok } from '../http/envelope';
 import { Anonymous, Public, SESSION_COOKIE, type AuthenticatedRequest } from '../http/auth';
-import { clearSessionCookies, setSessionCookies } from '../http/session-cookies';
+import { clearSessionCookies } from '../http/session-cookies';
+import { startSession } from '../http/session-start';
 import { RUNTIME, type Runtime } from '../tokens';
 
 interface LoginBody {
@@ -39,13 +40,15 @@ export class AuthController {
       userAgent,
     });
 
-    setSessionCookies(reply, { publicUrl: this.runtime.config.http.publicUrl, token: session.token, expiresAt: session.expiresAt });
+    // 顧客也走這支登入：session 一發出去，訪客車就併進他的車（工單 27）。
+    const cartNotice = await startSession(this.runtime, req, reply, session);
 
     return ok({
       id: session.user.id,
       email: session.user.email,
       displayName: session.user.displayName,
       role: session.user.role,
+      cartNotice,
     });
   }
 

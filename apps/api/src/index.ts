@@ -1,4 +1,4 @@
-export { CART_COOKIE } from './controllers/cart.controller';
+export * from './http/cart-cookie';
 export * from './http/auth';
 export * from './server';
 export * from './tokens';

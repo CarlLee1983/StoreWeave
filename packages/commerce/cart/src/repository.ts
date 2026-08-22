@@ -101,6 +101,21 @@ export class CartRepository {
     await tx.delete(cartItems).where(eq(cartItems.cartId, cartId));
   }
 
+  /** 訪客那台車，不看身分——合併是唯一一個同時碰到兩台車的動作。 */
+  async findGuestCart(db: DrizzleDb | Tx, guestToken: string): Promise<CartRow | null> {
+    const [row] = await db
+      .select()
+      .from(carts)
+      .where(and(eq(carts.guestTokenHash, hashGuestToken(guestToken)), eq(carts.status, 'open'), isNull(carts.customerId))!)
+      .limit(1);
+    return row ?? null;
+  }
+
+  /** 併過的車就地作廢：狀態一離開 open，它就不再被任何查詢找到，token 也不能復活它。 */
+  async markMerged(tx: Tx, cartId: string, now: Date): Promise<void> {
+    await tx.update(carts).set({ status: 'merged', updatedAt: now }).where(eq(carts.id, cartId));
+  }
+
   async touch(tx: Tx, cartId: string, now: Date): Promise<void> {
     await tx.update(carts).set({ updatedAt: now }).where(eq(carts.id, cartId));
   }
