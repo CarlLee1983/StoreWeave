@@ -3,7 +3,7 @@ import { catalogService } from '@storeweave/catalog';
 import { inventoryService } from '@storeweave/inventory';
 import { pricingService } from '@storeweave/promotion';
 import { couponService } from '@storeweave/coupon';
-import { maxRedeemableCents, rewardService } from '@storeweave/loyalty';
+import { maxRedeemableCents, rewardService, tierService } from '@storeweave/loyalty';
 import type { CartDto } from './dto';
 import { CartRepository } from './repository';
 import type { CartRow } from './schema';
@@ -70,9 +70,13 @@ export async function toCartDto(
   const rewardRedeemCents = Math.min(cart.rewardRedeemCents, maxCents);
 
   // lineId 用 productId：一台車裡一件商品只有一行，這個對應是唯一的。
+  // 等級只是定價引擎的一個輸入變數，不是另一套折扣路徑（Spec 0005）。
+  const membershipTier = cart.customerId ? (await tierService.currentTierFor(db, cart.customerId)).name : null;
+
   const pricing = await pricingService.quote(db, {
     couponPromotionIds,
     rewardRedeemCents,
+    membershipTier,
     lines: items.map((item) => ({
       lineId: item.productId,
       productId: item.productId,

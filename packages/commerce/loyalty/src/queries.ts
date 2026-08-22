@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { defineQuery, type QueryContext } from '@storeweave/contracts';
 import { customerService } from '@storeweave/customer';
-import { getMyRewardsInput, getMyRewardsOutput, outstandingRewardsOutput, rewardSettingsDto } from './dto';
+import {
+  getMyRewardsInput, getMyRewardsOutput, listTiersOutput, myTierOutput,
+  outstandingRewardsOutput, rewardSettingsDto,
+} from './dto';
 import { LoyaltyRepository } from './repository';
-import { rewardService } from './service';
+import { rewardService, tierService } from './service';
+import { TIER_WINDOW_MONTHS } from './tier';
 
 const repository = new LoyaltyRepository();
 
@@ -71,3 +75,31 @@ export const outstandingRewardsQuery = defineQuery({
 
 export const outstandingRewardsHandler = async (_input: unknown, ctx: QueryContext) =>
   repository.outstandingRewards(ctx.db, ctx.now);
+
+export const getMyTierQuery = defineQuery({
+  name: 'commerce.loyalty.getMyTier',
+  summary: '我的會員等級與距離下一級還差多少',
+  input: z.object({}).strict(),
+  output: myTierOutput,
+  // 範圍限縮在 handler：這支只回自己的等級。
+  permission: 'customer:read',
+});
+
+export const getMyTierHandler = async (_input: unknown, ctx: QueryContext) => {
+  const me = await customerService.requireByActor(ctx.db, ctx.actor);
+  const status = await tierService.statusFor(ctx.db, me.customerId, ctx.now);
+  return { ...status, windowMonths: TIER_WINDOW_MONTHS };
+};
+
+export const listTiersQuery = defineQuery({
+  name: 'commerce.loyalty.listTiers',
+  summary: '等級的門檻與名稱',
+  input: z.object({}).strict(),
+  output: listTiersOutput,
+  // 等級是公開資訊：顧客要看得到「下一級有什麼」才有努力的方向。
+  permission: 'catalog:read',
+});
+
+export const listTiersHandler = async (_input: unknown, ctx: QueryContext) => ({
+  items: await tierService.definitions(ctx.db),
+});

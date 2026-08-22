@@ -23,6 +23,7 @@ function toPromotionShell(row: PromotionRow): Omit<PromotionDto, 'rule'> {
     stackable: row.stackable,
     requiresCoupon: row.requiresCoupon,
     autoIssue: row.autoIssue as PromotionDto['autoIssue'],
+    tierNames: row.tierNames,
     autoIssueValidDays: row.autoIssueValidDays,
     startsAt: row.startsAt,
     endsAt: row.endsAt,

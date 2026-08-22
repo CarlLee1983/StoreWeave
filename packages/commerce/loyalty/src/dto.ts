@@ -64,3 +64,51 @@ export const outstandingRewardsOutput = z.object({
   pendingCents: z.number().int().nonnegative(),
   customerCount: z.number().int().nonnegative(),
 });
+
+export const tierDto = z.object({
+  name: z.string(),
+  thresholdPoints: z.number().int().nonnegative(),
+  multiplierBasisPoints: z.number().int().positive(),
+});
+
+export const myTierOutput = z.object({
+  points: z.number().int().nonnegative(),
+  current: tierDto,
+  next: z.object({
+    tier: tierDto,
+    remainingPoints: z.number().int().positive(),
+  }).nullable(),
+  /** 滾動期間的起點。降級時要解釋得了為什麼，UI 必須說得出這個日期。 */
+  windowStartsAt: z.coerce.date(),
+  windowMonths: z.number().int().positive(),
+});
+
+export const listTiersOutput = z.object({ items: z.array(tierDto) });
+
+export const saveTierInput = z.object({
+  name: z.string().trim().min(1).max(60),
+  thresholdPoints: z.number().int().min(0).max(10_000_000),
+  /** 10_000 = 1 倍。畫面上永遠寫成倍數。 */
+  multiplierBasisPoints: z.number().int().min(10_000).max(100_000),
+}).strict();
+
+export const removeTierInput = z.object({ name: z.string().trim().min(1).max(60) }).strict();
+
+export const adjustTierPointsInput = z.object({
+  customerId: z.string().uuid(),
+  points: z.number().int().refine((v) => v !== 0, { message: 'points must not be zero' }),
+  reason: z.string().trim().min(1).max(500),
+}).strict();
+
+export const recalculateTiersInput = z.object({
+  /** 以哪一個時刻的滾動期間重算。省略就是現在——測試靠它驗降級。 */
+  at: z.coerce.date().optional(),
+  limit: z.coerce.number().int().min(1).max(5_000).default(1_000),
+}).strict();
+
+export const recalculateTiersOutput = z.object({
+  evaluated: z.number().int().nonnegative(),
+  changed: z.number().int().nonnegative(),
+  upgraded: z.number().int().nonnegative(),
+  downgraded: z.number().int().nonnegative(),
+});

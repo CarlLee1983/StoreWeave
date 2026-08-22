@@ -13,6 +13,8 @@ export const promotions = pgTable('promotion_promotions', {
   requiresCoupon: boolean('requires_coupon').notNull().default(false),
   /** 自動發券的觸發：`signup`、`birthday`，或 null（不自動發）。 */
   autoIssue: text('auto_issue'),
+  /** 只有這些等級適用。空陣列代表人人適用。 */
+  tierNames: text('tier_names').array().notNull().default([]),
   /** 自動發出的券幾天後到期。null 是不設到期日。 */
   autoIssueValidDays: integer('auto_issue_valid_days'),
   startsAt: timestamp('starts_at', { withTimezone: true }),

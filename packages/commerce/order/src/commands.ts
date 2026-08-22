@@ -9,7 +9,7 @@ import { customerService } from '@storeweave/customer';
 import { pricingService } from '@storeweave/promotion';
 import { CartRepository } from '@storeweave/cart';
 import { CouponRepository, couponError, couponService, reverseCouponForOrder, type CouponRow } from '@storeweave/coupon';
-import { maxRedeemableCents, rewardService } from '@storeweave/loyalty';
+import { maxRedeemableCents, rewardService, tierService } from '@storeweave/loyalty';
 import { cancelOrderInput, checkoutCartInput, markPaidInput, orderDto, payOrderInput, placeOrderInput, type OrderDto } from './dto';
 import { OrderRepository, toOrderDto } from './repository';
 import { orderCancelledV1, orderPaidV1, orderPaidV2, orderPlacedV1, orderPlacedV2, orderPlacedV3 } from './events';
@@ -109,9 +109,13 @@ export async function createOrderFromLines(
   }
 
   // 定價與訂單建立在同一個交易內：折扣依據的活動狀態與寫進訂單的金額必定一致。
+  // 等級限定的活動要看得到下單者的等級。與購物車的試算讀的是同一支。
+  const membershipTier = (await tierService.currentTierFor(ctx.tx, buyer.customerId)).name;
+
   const pricing = await pricingService.quote(ctx.tx, {
     couponPromotionIds: input.couponPromotionIds,
     rewardRedeemCents: input.rewardRedeemCents,
+    membershipTier,
     lines: lines.map((l) => ({
       lineId: l.id!,
       productId: l.productId,
@@ -397,6 +401,7 @@ export function createExpireOrderHandler() {
     await reverseCouponForOrder(ctx.tx, { orderId: order.id, now: ctx.now });
     if (order.customerId) {
       await rewardService.reverseForOrder(ctx.tx, { customerId: order.customerId, orderId: order.id, now: ctx.now });
+      await tierService.reverseForOrder(ctx.tx, { customerId: order.customerId, orderId: order.id, now: ctx.now });
     }
     const [updated] = await ctx.tx.update(orders).set({ status: 'expired', updatedAt: ctx.now }).where(eq(orders.id, order.id)).returning();
     return toOrderDto(updated, lines, adjustments);
@@ -420,7 +425,17 @@ export function createMarkPaidHandler() {
     // 購物金在付款完成時入帳，與付款同一個交易——付款回滾了，購物金就不曾發生。
     // 生效日往後推，因此取消回沖只是扣掉一筆還沒生效的分錄（Spec 0005）。
     if (order.customerId) {
+      // 倍率取自會員等級：等級的實質待遇之一（工單 45）。
+      const multiplier = await tierService.multiplierFor(ctx.tx, order.customerId);
       await rewardService.accrueForOrder(ctx.tx, {
+        customerId: order.customerId,
+        orderId: order.id,
+        netCents: order.totalCents,
+        now: ctx.now,
+        multiplier,
+      });
+      // 等級積分是另一本帳：同一個時機累積，但它不能折抵金額。
+      await tierService.accrueForOrder(ctx.tx, {
         customerId: order.customerId,
         orderId: order.id,
         netCents: order.totalCents,

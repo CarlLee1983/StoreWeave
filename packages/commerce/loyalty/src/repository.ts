@@ -1,6 +1,9 @@
 import { and, asc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { DrizzleDb, Tx } from '@storeweave/contracts';
-import { loyaltySettings, rewardEntries, type LoyaltySettingsRow, type RewardEntryRow } from './schema';
+import {
+  customerTiers, loyaltySettings, rewardEntries, tierEntries, tiers,
+  type CustomerTierRow, type LoyaltySettingsRow, type RewardEntryRow, type TierEntryRow, type TierRow,
+} from './schema';
 
 const SETTINGS_ID = 'singleton';
 
@@ -66,6 +69,77 @@ export class LoyaltyRepository {
       pendingCents: Math.max(0, Number(row.pendingCents)),
       customerCount: Number(row.customerCount),
     };
+  }
+
+  /** 一位顧客的等級積分帳本。等級是它的推導值。 */
+  async tierEntriesFor(db: DrizzleDb | Tx, customerId: string): Promise<TierEntryRow[]> {
+    return db
+      .select()
+      .from(tierEntries)
+      .where(eq(tierEntries.customerId, customerId))
+      .orderBy(asc(tierEntries.earnedAt), asc(tierEntries.id));
+  }
+
+  async addTierEntry(tx: Tx, values: typeof tierEntries.$inferInsert): Promise<TierEntryRow | null> {
+    const [row] = await tx.insert(tierEntries).values(values).onConflictDoNothing().returning();
+    return row ?? null;
+  }
+
+  async tiers(db: DrizzleDb | Tx): Promise<TierRow[]> {
+    return db.select().from(tiers).orderBy(asc(tiers.thresholdPoints));
+  }
+
+  async upsertTier(tx: Tx, values: typeof tiers.$inferInsert): Promise<TierRow> {
+    const [row] = await tx
+      .insert(tiers)
+      .values(values)
+      .onConflictDoUpdate({
+        target: tiers.name,
+        set: {
+          thresholdPoints: values.thresholdPoints,
+          multiplierBasisPoints: values.multiplierBasisPoints,
+          updatedAt: values.updatedAt,
+        },
+      })
+      .returning();
+    return row;
+  }
+
+  async deleteTier(tx: Tx, name: string): Promise<number> {
+    const deleted = await tx.delete(tiers).where(eq(tiers.name, name)).returning({ name: tiers.name });
+    return deleted.length;
+  }
+
+  async customerTier(db: DrizzleDb | Tx, customerId: string): Promise<CustomerTierRow | null> {
+    const [row] = await db.select().from(customerTiers).where(eq(customerTiers.customerId, customerId)).limit(1);
+    return row ?? null;
+  }
+
+  /** 快取目前的等級。真相永遠是帳本，這只是讓熱路徑不必每次重算整本帳。 */
+  async saveCustomerTier(tx: Tx, values: typeof customerTiers.$inferInsert): Promise<CustomerTierRow> {
+    const [row] = await tx
+      .insert(customerTiers)
+      .values(values)
+      .onConflictDoUpdate({
+        target: customerTiers.customerId,
+        set: {
+          tierName: values.tierName,
+          points: values.points,
+          previousTierName: values.previousTierName,
+          recalculatedAt: values.recalculatedAt,
+        },
+      })
+      .returning();
+    return row;
+  }
+
+  /** 有等級積分紀錄的顧客。重算掃這一份清單。 */
+  async customersWithTierPoints(db: DrizzleDb | Tx): Promise<string[]> {
+    const rows = await db
+      .selectDistinct({ customerId: tierEntries.customerId })
+      .from(tierEntries)
+      .orderBy(asc(tierEntries.customerId));
+    return rows.map((row) => row.customerId);
   }
 
   /** 快到期而且還沒用掉的批次。到期通知掃它（工單 48）。 */

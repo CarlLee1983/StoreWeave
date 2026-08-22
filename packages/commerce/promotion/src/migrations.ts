@@ -37,5 +37,10 @@ ALTER TABLE promotion_promotions ADD CONSTRAINT promotion_auto_issue_valid
 CREATE INDEX IF NOT EXISTS promotion_auto_issue_idx ON promotion_promotions (auto_issue)
   WHERE auto_issue IS NOT NULL;
 `),
+    sqlMigration('0004_tier_scope', 'expand', `
+-- 等級限定的活動。空陣列代表人人適用——等級不是另一套折扣系統，
+-- 它只是「這條規則套不套用」的一個條件（Spec 0005）。
+ALTER TABLE promotion_promotions ADD COLUMN IF NOT EXISTS tier_names text[] NOT NULL DEFAULT '{}';
+`),
   ],
 };

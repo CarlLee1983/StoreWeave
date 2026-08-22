@@ -37,3 +37,48 @@ export const loyaltySettings = pgTable('loyalty_settings', {
 
 export type RewardEntryRow = typeof rewardEntries.$inferSelect;
 export type LoyaltySettingsRow = typeof loyaltySettings.$inferSelect;
+
+/**
+ * 等級積分帳本。與購物金同樣只增不改，但它**不能折抵金額**——
+ * 它唯一的能力是決定等級（`CONTEXT.md`）。
+ */
+export const tierEntries = pgTable('loyalty_tier_entries', {
+  id: uuid('id').primaryKey(),
+  customerId: uuid('customer_id').notNull(),
+  points: integer('points').notNull(),
+  source: text('source').notNull(),
+  reference: text('reference'),
+  /** 這筆積分算在哪一天。滾動期間看的是它。 */
+  earnedAt: timestamp('earned_at', { withTimezone: true }).notNull(),
+  actorId: text('actor_id'),
+  reason: text('reason'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** 等級的門檻與名稱。由後台設定，因此是一張表而不是常數。 */
+export const tiers = pgTable('loyalty_tiers', {
+  id: uuid('id').primaryKey(),
+  name: text('name').notNull(),
+  thresholdPoints: integer('threshold_points').notNull(),
+  /** 購物金累積倍率，基點。10_000 = 1 倍。 */
+  multiplierBasisPoints: integer('multiplier_basis_points').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * 顧客目前的等級。它是帳本的**快取**而不是真相——真相永遠是
+ * `deriveTier(帳本)`。存下來是為了讓定價的熱路徑不必每次重算整本帳，
+ * 以及讓「等級變動」這件事有地方被記錄下來（工單 44）。
+ */
+export const customerTiers = pgTable('loyalty_customer_tiers', {
+  customerId: uuid('customer_id').primaryKey(),
+  tierName: text('tier_name').notNull(),
+  points: integer('points').notNull(),
+  /** 上一次重算的時間與當時的等級，讓變動看得出來。 */
+  previousTierName: text('previous_tier_name'),
+  recalculatedAt: timestamp('recalculated_at', { withTimezone: true }).notNull(),
+});
+
+export type TierEntryRow = typeof tierEntries.$inferSelect;
+export type TierRow = typeof tiers.$inferSelect;
+export type CustomerTierRow = typeof customerTiers.$inferSelect;

@@ -62,6 +62,7 @@ export const pricingService = {
         stackable: dto.stackable,
         startsAt: dto.startsAt,
         endsAt: dto.endsAt,
+        tierNames: dto.tierNames,
         rule: dto.rule,
       });
     }

@@ -1,4 +1,5 @@
 export * from './balance';
+export * from './tier';
 export * from './commands';
 export * from './dto';
 export * from './migrations';

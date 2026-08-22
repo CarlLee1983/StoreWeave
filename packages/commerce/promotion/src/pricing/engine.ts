@@ -20,6 +20,12 @@ export function subtotalOf(lines: readonly PricingLineInput[]): number {
   return lines.reduce((sum, line) => sum + lineTotalCents(line), 0);
 }
 
+/** 等級限定的活動只對名單上的等級套用。未登入（沒有等級）一律不符。 */
+function appliesToTier(promotion: Promotion, membershipTier: string | null | undefined): boolean {
+  if (!promotion.tierNames || promotion.tierNames.length === 0) return true;
+  return membershipTier !== null && membershipTier !== undefined && promotion.tierNames.includes(membershipTier);
+}
+
 function isActive(promotion: Promotion, now: Date): boolean {
   if (promotion.startsAt && now.getTime() < promotion.startsAt.getTime()) return false;
   if (promotion.endsAt && now.getTime() >= promotion.endsAt.getTime()) return false;
@@ -42,10 +48,17 @@ function thresholdOf(promotion: Promotion): number | null {
  * 最接近、但還沒達成的門檻。差距相同時沿用套用順序（優先序、然後 id），
  * 輸出因此與輸入陣列的排列無關。
  */
-function nextThresholdOf(promotions: readonly Promotion[], subtotalCents: number, now: Date): ThresholdHint | null {
+function nextThresholdOf(
+  promotions: readonly Promotion[],
+  subtotalCents: number,
+  now: Date,
+  membershipTier: string | null | undefined,
+): ThresholdHint | null {
   let best: ThresholdHint | null = null;
   for (const promotion of inApplicationOrder(promotions)) {
     if (!isActive(promotion, now)) continue;
+    // 套不到的活動不該出現在「還差多少」裡：那只是讓顧客白跑一趟。
+    if (!appliesToTier(promotion, membershipTier)) continue;
     const thresholdCents = thresholdOf(promotion);
     if (thresholdCents === null || subtotalCents >= thresholdCents) continue;
     const remainingCents = thresholdCents - subtotalCents;
@@ -82,6 +95,7 @@ export function calculatePricing(input: PricingInput): PricingResult {
 
   for (const promotion of inApplicationOrder(input.context.promotions)) {
     if (!isActive(promotion, input.now)) continue;
+    if (!appliesToTier(promotion, input.context.membershipTier)) continue;
     // 不可疊加的活動一旦套用，後續不可疊加的活動就出局；可疊加的活動不受影響。
     if (!promotion.stackable && exclusiveApplied) continue;
 
@@ -153,6 +167,6 @@ export function calculatePricing(input: PricingInput): PricingResult {
     adjustments,
     appliedPromotions,
     lines: pricedLines,
-    nextThreshold: nextThresholdOf(input.context.promotions, subtotalCents, input.now),
+    nextThreshold: nextThresholdOf(input.context.promotions, subtotalCents, input.now, input.context.membershipTier),
   };
 }

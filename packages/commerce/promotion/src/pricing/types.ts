@@ -36,6 +36,11 @@ export interface Promotion {
   stackable: boolean;
   startsAt: Date | null;
   endsAt: Date | null;
+  /**
+   * 只有這些等級適用。空陣列代表人人適用。
+   * 等級不是另一套折扣系統——它只是「這條規則套不套用」的一個條件。
+   */
+  tierNames?: readonly string[];
   rule: PromotionRule;
 }
 
