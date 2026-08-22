@@ -39,7 +39,8 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
   // 記憶體困難的 scrypt —— 未授權請求會變成 CPU 與記憶體的放大攻擊面。
   // 計數存在行程記憶體裡：單站部署只有一個 API 行程，這與 Redis 選配的前提一致（ADR 0003）。
   await app.register(fastifyRateLimit, { global: false });
-  const LOGIN_ROUTE = '/api/v1/auth/login';
+  // 註冊也要節流：它同樣跑一次 scrypt，而且沒有節流就是一條免費的帳號枚舉與洗帳號管道。
+  const THROTTLED_ROUTES = new Set(['/api/v1/auth/login', '/api/v1/customers/register']);
 
   // 兩層節流。第一層綁帳號：擋針對特定帳號的爆破。
   const perAccountLimiter = app.getHttpAdapter().getInstance().createRateLimit({
@@ -48,7 +49,7 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
     keyGenerator: (request) => {
       const body = request.body as { email?: unknown } | undefined;
       const email = typeof body?.email === 'string' ? body.email.toLowerCase() : '';
-      return `login:${request.ip}|${email}`;
+      return `auth:${request.ip}|${email}`;
     },
   });
   // 第二層只綁 IP：每次嘗試都逼伺服器跑一次記憶體困難的 scrypt，
@@ -56,14 +57,14 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
   const perIpLimiter = app.getHttpAdapter().getInstance().createRateLimit({
     max: 60,
     timeWindow: '1 minute',
-    keyGenerator: (request) => `login-ip:${request.ip}`,
+    keyGenerator: (request) => `auth-ip:${request.ip}`,
   });
 
   app.getHttpAdapter().getInstance().addHook('preHandler', async (request, reply) => {
     // 比對正規化後的路由，不是原始 URL：request.url 保留百分比編碼，
     // 而 Fastify 是解碼後才比對路由，因此 /api/v1/auth/%6cogin 會打到 login
     // 卻繞過任何用 startsWith(request.url) 寫成的條件。
-    if (request.method !== 'POST' || request.routeOptions?.url !== LOGIN_ROUTE) return;
+    if (request.method !== 'POST' || !THROTTLED_ROUTES.has(request.routeOptions?.url ?? '')) return;
 
     for (const limiter of [perIpLimiter, perAccountLimiter]) {
       const result = await limiter(request);
@@ -72,7 +73,7 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
         reply.header('retry-after', String(result.ttlInSeconds));
         await reply.status(429).send({
           success: false,
-          error: { code: 'RATE_LIMITED', message: 'Too many login attempts, please try again later' },
+          error: { code: 'RATE_LIMITED', message: 'Too many attempts, please try again later' },
         });
         return;
       }

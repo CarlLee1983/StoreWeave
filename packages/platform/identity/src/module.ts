@@ -1,11 +1,10 @@
-import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PlatformError, defineCommand, defineQuery, type CommandContext, type QueryContext } from '@storeweave/contracts';
 import { BUILT_IN_ROLES } from '@storeweave/authorization';
 // 只取型別：kernel 會在執行期匯入這個模組，反向的執行期相依會形成循環。
 import type { PlatformModule } from '@storeweave/kernel';
 import { identityMigrations } from './migrations';
-import { hashPassword } from './password';
+import { accountService } from './account-service';
 import { UserRepository, toUserDto } from './repository';
 
 export const IDENTITY_MODULE_NAME = 'platform-identity';
@@ -73,17 +72,7 @@ export const identityModule: PlatformModule = {
             `Unknown role "${input.role}"; expected one of ${Object.keys(BUILT_IN_ROLES).join(', ')}`,
           );
         }
-        const existing = await repository.findByEmail(ctx.tx, input.email);
-        if (existing) throw PlatformError.conflict(`User ${input.email} already exists`);
-
-        const row = await repository.insert(ctx.tx, {
-          id: randomUUID(),
-          email: input.email,
-          passwordHash: await hashPassword(input.password),
-          displayName: input.displayName,
-          role: input.role,
-        });
-        return toUserDto(row);
+        return accountService.createAccount(ctx.tx, input);
       },
     },
   ],

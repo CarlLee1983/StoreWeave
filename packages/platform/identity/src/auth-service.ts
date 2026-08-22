@@ -16,6 +16,9 @@ export interface ResolvedSession {
   user: UserDto;
 }
 
+/** 顧客帳號的角色名。identity 只認得「這是一個角色」，顧客的領域資料在 commerce/customer。 */
+export const CUSTOMER_ROLE = 'customer';
+
 /** 認證失敗一律用同一句話：區分「沒這個帳號」與「密碼錯」等於送出帳號枚舉管道。 */
 const FAILED = 'Invalid email or password';
 
@@ -39,7 +42,12 @@ export function csrfTokenFor(sessionToken: string): string {
 export class AuthService {
   private readonly users = new UserRepository();
 
-  constructor(private readonly sessionTtlMs: number) {}
+  /** TTL 依帳號角色而異：顧客的 session 活得比後台操作者久。 */
+  constructor(private readonly sessionTtl: { operatorMs: number; customerMs: number }) {}
+
+  private ttlFor(role: string): number {
+    return role === CUSTOMER_ROLE ? this.sessionTtl.customerMs : this.sessionTtl.operatorMs;
+  }
 
   async authenticate(
     db: DrizzleDb,
@@ -55,7 +63,7 @@ export class AuthService {
     }
 
     const token = randomBytes(32).toString('base64url');
-    const expiresAt = new Date(Date.now() + this.sessionTtlMs);
+    const expiresAt = new Date(Date.now() + this.ttlFor(user.role));
     await db.execute(sql`
       INSERT INTO platform_sessions (id, user_id, token_hash, expires_at, user_agent)
       VALUES (${randomUUID()}, ${user.id}, ${hashToken(token)}, ${expiresAt.toISOString()}, ${input.userAgent ?? null})
@@ -86,8 +94,9 @@ export class AuthService {
     return {
       user,
       actor: {
+        // id 一律是帳號 id：顧客與後台操作者共用同一套帳號，分辨誰是誰的是 type。
         id: `user:${row.user_id}`,
-        type: 'user',
+        type: row.role === CUSTOMER_ROLE ? 'customer' : 'user',
         displayName: row.display_name,
         permissions: permissionsForRole(row.role),
       },

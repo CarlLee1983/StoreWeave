@@ -1,9 +1,9 @@
 import { Body, Controller, HttpCode, Inject, Post, Req, Res, Get } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { PlatformError } from '@storeweave/contracts';
-import { csrfTokenFor } from '@storeweave/identity';
 import { ok } from '../http/envelope';
-import { Anonymous, CSRF_COOKIE, Public, SESSION_COOKIE, type AuthenticatedRequest } from '../http/auth';
+import { Anonymous, Public, SESSION_COOKIE, type AuthenticatedRequest } from '../http/auth';
+import { clearSessionCookies, setSessionCookies } from '../http/session-cookies';
 import { RUNTIME, type Runtime } from '../tokens';
 
 interface LoginBody {
@@ -39,7 +39,7 @@ export class AuthController {
       userAgent,
     });
 
-    this.setSessionCookies(reply, session.token, session.expiresAt);
+    setSessionCookies(reply, { publicUrl: this.runtime.config.http.publicUrl, token: session.token, expiresAt: session.expiresAt });
 
     return ok({
       id: session.user.id,
@@ -56,7 +56,7 @@ export class AuthController {
   async logout(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) reply: FastifyReply) {
     const token = req.cookies?.[SESSION_COOKIE];
     if (token) await this.runtime.auth.revokeSession(this.runtime.database.db, token);
-    this.clearSessionCookies(reply);
+    clearSessionCookies(reply, this.runtime.config.http.publicUrl);
     return ok({ loggedOut: true });
   }
 
@@ -76,26 +76,4 @@ export class AuthController {
     });
   }
 
-  private setSessionCookies(reply: FastifyReply, token: string, expiresAt: Date): void {
-    const maxAge = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
-    // 只有本機開發才允許非 Secure cookie。TLS 由反向代理終止、publicUrl 卻誤寫成 http 時，
-    // 用協定推導會讓 session cookie 靜默地以明文傳送。
-    const { protocol, hostname } = new URL(this.runtime.config.http.publicUrl);
-    const secure = protocol === 'https:' || !['localhost', '127.0.0.1', '::1'].includes(hostname);
-
-    reply.setCookie(SESSION_COOKIE, token, {
-      path: '/', httpOnly: true, sameSite: 'strict', maxAge, secure,
-    });
-    // CSRF cookie 不設 HttpOnly——前端要能讀出來放進 header，做雙提交比對。
-    reply.setCookie(CSRF_COOKIE, csrfTokenFor(token), {
-      path: '/', httpOnly: false, sameSite: 'strict', maxAge, secure,
-    });
-  }
-
-  private clearSessionCookies(reply: FastifyReply): void {
-    const { protocol, hostname } = new URL(this.runtime.config.http.publicUrl);
-    const secure = protocol === 'https:' || !['localhost', '127.0.0.1', '::1'].includes(hostname);
-    reply.clearCookie(SESSION_COOKIE, { path: '/', sameSite: 'strict', secure, httpOnly: true });
-    reply.clearCookie(CSRF_COOKIE, { path: '/', sameSite: 'strict', secure });
-  }
 }

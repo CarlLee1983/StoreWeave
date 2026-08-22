@@ -56,6 +56,14 @@ export const commerceConfigSchema = z.object({
       /** 讀取 token 值的環境變數名稱。 */
       secretRef: z.string().min(1),
     })).default([]),
+    /**
+     * Session 存活時間。前台會員與後台操作者分開：購物站被每 12 小時踢出去會很痛，
+     * 而後台是操作者帳號，暴露窗口短一點合理。
+     */
+    sessionTtlMinutes: z.object({
+      operator: z.number().int().min(5).max(60 * 24 * 30).default(12 * 60),
+      customer: z.number().int().min(5).max(60 * 24 * 365).default(30 * 24 * 60),
+    }).default({}),
   }).default({}),
   extensions: z.array(extensionConfigSchema).default([]),
   logging: z.object({

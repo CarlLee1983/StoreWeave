@@ -3,6 +3,7 @@ import type { ExtensionDefinition, ProviderRegistry } from '@storeweave/extensio
 import { catalogModule } from '@storeweave/catalog';
 import { inventoryModule } from '@storeweave/inventory';
 import { createOrderModule } from '@storeweave/order';
+import { customerModule } from '@storeweave/customer';
 import { createPromotionModule } from '@storeweave/promotion';
 import { mockPaymentExtension } from '@storeweave/ext-mock-payment';
 import { mockNotificationExtension } from '@storeweave/ext-mock-notification';
@@ -22,6 +23,7 @@ export function coreModules(options: {
   return [
     catalogModule,
     inventoryModule,
+    customerModule,
     createPromotionModule({ defaultCurrency: options.defaultCurrency }),
     createOrderModule({
       providers: options.providers,

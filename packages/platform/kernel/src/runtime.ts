@@ -22,7 +22,6 @@ import { createOpsModule } from './ops-module';
 import { AuthService, identityModule } from '@storeweave/identity';
 
 /** 後台 session 存活時間：12 小時，一個工作天結束就要重新登入。 */
-const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 export interface RuntimeOptions {
   config: CommerceConfig;
@@ -77,7 +76,10 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
     ssl: config.database.ssl,
   });
   const authorization = new AuthorizationService();
-  const auth = new AuthService(SESSION_TTL_MS);
+  const auth = new AuthService({
+    operatorMs: config.auth.sessionTtlMinutes.operator * 60_000,
+    customerMs: config.auth.sessionTtlMinutes.customer * 60_000,
+  });
   const audit = new AuditWriter();
   const outbox = new OutboxStore();
   const jobs = new JobQueue();
