@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { defineQuery, type QueryContext } from '@storeweave/contracts';
 import { cartDto, getCartInput } from './dto';
 import { CartRepository, resolveOwner } from './repository';
-import { toCartDto } from './service';
+import { emptyCartDto, toCartDto } from './service';
 
 const repository = new CartRepository();
 
@@ -21,9 +21,9 @@ export function createCartQueries(deps: { defaultCurrency: string }) {
     const owner = await resolveOwner(ctx.db, ctx.actor, input.guestToken);
     const cart = await repository.find(ctx.db, owner);
     if (!cart) {
-      return { id: randomUUID(), currency: deps.defaultCurrency, items: [], subtotalCents: 0 };
+      return emptyCartDto(randomUUID(), deps.defaultCurrency);
     }
-    return toCartDto(ctx.db, cart, deps.defaultCurrency);
+    return toCartDto(ctx.db, cart, deps.defaultCurrency, ctx.now, ctx.logger);
   };
 
   return { queries: [{ descriptor: getCartQuery, handler: getCartHandler }] };

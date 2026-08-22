@@ -60,7 +60,7 @@ export function createCartModule(deps: CartModuleDeps) {
     // 再加一次同一件商品是累加：使用者的意圖是「再來一個」，不是「覆蓋成一個」。
     await repository.addQuantity(ctx.tx, cart.id, input.productId, input.quantity, ctx.now);
     await repository.touch(ctx.tx, cart.id, ctx.now);
-    return toCartDto(ctx.tx, cart, deps.defaultCurrency);
+    return toCartDto(ctx.tx, cart, deps.defaultCurrency, ctx.now, ctx.logger);
   };
 
   const setCartItemQuantityHandler = async (
@@ -75,7 +75,7 @@ export function createCartModule(deps: CartModuleDeps) {
       await repository.setQuantity(ctx.tx, cart.id, input.productId, input.quantity, ctx.now);
     }
     await repository.touch(ctx.tx, cart.id, ctx.now);
-    return toCartDto(ctx.tx, cart, deps.defaultCurrency);
+    return toCartDto(ctx.tx, cart, deps.defaultCurrency, ctx.now, ctx.logger);
   };
 
   const removeCartItemHandler = async (
@@ -85,14 +85,14 @@ export function createCartModule(deps: CartModuleDeps) {
     const cart = await openCart(ctx, input.guestToken);
     await repository.removeItem(ctx.tx, cart.id, input.productId);
     await repository.touch(ctx.tx, cart.id, ctx.now);
-    return toCartDto(ctx.tx, cart, deps.defaultCurrency);
+    return toCartDto(ctx.tx, cart, deps.defaultCurrency, ctx.now, ctx.logger);
   };
 
   const clearCartHandler = async (input: z.infer<typeof clearCartInput>, ctx: CommandContext): Promise<CartDto> => {
     const cart = await openCart(ctx, input.guestToken);
     await repository.clear(ctx.tx, cart.id);
     await repository.touch(ctx.tx, cart.id, ctx.now);
-    return toCartDto(ctx.tx, cart, deps.defaultCurrency);
+    return toCartDto(ctx.tx, cart, deps.defaultCurrency, ctx.now, ctx.logger);
   };
 
   return {

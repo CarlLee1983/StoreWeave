@@ -11,8 +11,19 @@ export const cartItemDto = z.object({
   unitPriceCents: z.number().int().nonnegative(),
   quantity: z.number().int().positive(),
   lineTotalCents: z.number().int().nonnegative(),
+  /** 攤到這一行的折扣與折後金額，來源與結帳同一個定價引擎。 */
+  discountCents: z.number().int().nonnegative(),
+  netCents: z.number().int().nonnegative(),
   /** 目前可售量，null 代表沒有庫存紀錄。購物車不預留，這只是顯示用。 */
   available: z.number().int().nullable(),
+});
+
+/** 與 `quoteOutput` 的調整明細同形：兩個入口說的是同一件事。 */
+export const cartAdjustmentDto = z.object({
+  source: z.literal('promotion'),
+  sourceId: z.string(),
+  name: z.string(),
+  amountCents: z.number().int(),
 });
 
 export const cartDto = z.object({
@@ -20,6 +31,10 @@ export const cartDto = z.object({
   currency: z.string().length(3),
   items: z.array(cartItemDto),
   subtotalCents: z.number().int().nonnegative(),
+  /** 以下三項是**當下**重算的預估金額：購物車不凍結價格，也不鎖定任何額度。 */
+  discountCents: z.number().int().nonnegative(),
+  totalCents: z.number().int().nonnegative(),
+  adjustments: z.array(cartAdjustmentDto),
 });
 export type CartDto = z.infer<typeof cartDto>;
 

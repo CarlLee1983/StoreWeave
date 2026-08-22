@@ -1,20 +1,31 @@
-import type { DrizzleDb, Tx } from '@storeweave/contracts';
+import type { DrizzleDb, Logger, Tx } from '@storeweave/contracts';
 import { catalogService } from '@storeweave/catalog';
 import { inventoryService } from '@storeweave/inventory';
+import { pricingService } from '@storeweave/promotion';
 import type { CartDto } from './dto';
 import { CartRepository } from './repository';
 import type { CartRow } from './schema';
 
 const repository = new CartRepository();
 
+/** 沒有內容時的試算結果。空車不必進定價引擎，答案恆定。 */
+export function emptyCartDto(id: string, currency: string): CartDto {
+  return { id, currency, items: [], subtotalCents: 0, discountCents: 0, totalCents: 0, adjustments: [] };
+}
+
 /**
- * 把購物車讀成 DTO。價格與可售量都是**當下**查出來的：購物車不凍結價格，
+ * 把購物車讀成 DTO。價格、可售量與折扣都是**當下**算出來的：購物車不凍結價格，
  * 顧客看到的永遠是現在的金額，結帳時才不會突然變動。
+ *
+ * 折扣走的是 `pricingService.quote`——與 `placeOrder` 同一支、同一份活動載入。
+ * 這裡刻意不重寫一套定價：兩個入口算出不同金額就是客訴。
  */
 export async function toCartDto(
   db: DrizzleDb | Tx,
   cart: CartRow,
   defaultCurrency: string,
+  now: Date,
+  logger?: Logger,
 ): Promise<CartDto> {
   const rows = await repository.items(db, cart.id);
   const items = [];
@@ -23,6 +34,8 @@ export async function toCartDto(
     const product = await catalogService.findById(db, row.productId);
     // 下架或刪除的商品不在購物車裡顯示；合併與結帳各自處理它們（工單 27、28）。
     if (!product || product.status !== 'active') continue;
+    // 幣別不同的商品進不了同一張訂單，因此也不該混進同一次試算。
+    if (product.currency !== defaultCurrency) continue;
 
     const available = await inventoryService.availableFor(db, row.productId).catch(() => null);
     items.push({
@@ -36,10 +49,32 @@ export async function toCartDto(
     });
   }
 
+  if (items.length === 0) return emptyCartDto(cart.id, defaultCurrency);
+
+  // lineId 用 productId：一台車裡一件商品只有一行，這個對應是唯一的。
+  const pricing = await pricingService.quote(db, {
+    lines: items.map((item) => ({
+      lineId: item.productId,
+      productId: item.productId,
+      unitPriceCents: item.unitPriceCents,
+      quantity: item.quantity,
+    })),
+    now,
+    logger,
+  });
+  const priced = new Map(pricing.lines.map((line) => [line.lineId, line]));
+
   return {
     id: cart.id,
-    currency: items.length > 0 ? defaultCurrency : defaultCurrency,
-    items,
-    subtotalCents: items.reduce((sum, i) => sum + i.lineTotalCents, 0),
+    currency: defaultCurrency,
+    items: items.map((item) => ({
+      ...item,
+      discountCents: priced.get(item.productId)!.discountCents,
+      netCents: priced.get(item.productId)!.netCents,
+    })),
+    subtotalCents: pricing.subtotalCents,
+    discountCents: pricing.discountCents,
+    totalCents: pricing.totalCents,
+    adjustments: pricing.adjustments,
   };
 }
