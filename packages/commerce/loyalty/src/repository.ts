@@ -45,8 +45,12 @@ export class LoyaltyRepository {
   /**
    * 流通在外的購物金。這是一本負債帳，經營者要看得出自己背了多少。
    *
-   * 精確的可用金額需要逐人推導（先到期先用），資料量大時不能在報表裡做。
-   * 這裡回的是帳本淨額——它與逐人推導的差異只在「扣抵超過餘額」這種不該存在的情況。
+   * 這是**近似值**，不是逐人推導的結果。它把分錄依生效／到期分兩堆加總，
+   * 因此某一批過期之後，那批的入帳被濾掉、對應的折抵（不設到期日）卻還留著，
+   * 兩端不對稱會讓數字略低於真實負債。
+   *
+   * 精確的數字要逐人跑 `deriveRewardBalance`，那是 O(顧客數 × 帳本長度)，
+   * 不能放在報表的同步路徑上。要精確就得先有一張定期結算的快照表。
    */
   async outstandingRewards(
     db: DrizzleDb | Tx,
@@ -138,7 +142,10 @@ export class LoyaltyRepository {
    *
    * 上限推進 SQL 而不是在記憶體切：依 customerId 排序再取前 N 筆的話，
    * 排在後面的人每天都被切掉，等級永遠停在第一次寫入的值——降級對他們不存在。
-   * 排序用 `loyalty_customer_tiers.recalculated_at`，那個索引本來就是為此建的。
+   *
+   * 成本是每一輪都要全掃一次分錄表去重再排序（驅動表是 `loyalty_tier_entries`）。
+   * 會員數大到這件事會痛的時候，該做的是一張「有積分的顧客」的物化清單，
+   * 而不是把上限退回記憶體。
    */
   async staleTierCustomerIds(db: DrizzleDb | Tx, limit: number): Promise<string[]> {
     const rows = await db

@@ -24,7 +24,7 @@ export const getMyRewardsQuery = defineQuery({
 export const getMyRewardsHandler = async (input: z.infer<typeof getMyRewardsInput>, ctx: QueryContext) => {
   const me = await customerService.requireByActor(ctx.db, ctx.actor);
   const rows = await repository.rewardEntriesFor(ctx.db, me.customerId);
-  const balance = await rewardService.balanceFor(ctx.db, me.customerId, ctx.now);
+  const balance = await rewardService.balanceFor(ctx.db, me.customerId, ctx.now, ctx.logger);
   const soonest = balance.batches.find((batch) => batch.expiresAt !== null);
 
   return {
@@ -121,7 +121,7 @@ export const getCustomerLoyaltyQuery = defineQuery({
 /** 客服在處理客訴時要看得到「他現在有多少、怎麼來的」，否則補償只能用猜的。 */
 export function createGetCustomerLoyaltyHandler(deps: { currency: string }) {
   return async (input: z.infer<typeof customerLoyaltyInput>, ctx: QueryContext) => {
-  const balance = await rewardService.balanceFor(ctx.db, input.customerId, ctx.now);
+  const balance = await rewardService.balanceFor(ctx.db, input.customerId, ctx.now, ctx.logger);
   const status = await tierService.statusFor(ctx.db, input.customerId, ctx.now);
   const rows = await repository.rewardEntriesFor(ctx.db, input.customerId);
   const soonest = balance.batches.find((batch) => batch.expiresAt !== null);

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext } from '@storeweave/contracts';
 import type { NotificationProvider, ProviderRegistry } from '@storeweave/extension-sdk';
@@ -98,15 +99,17 @@ export const adjustRewardsHandler = async (
     reason: input.reason,
     createdAt: ctx.now,
   });
+  // 手動調整沒有去重鍵，因此 insert 不會回 null；真的回了就是資料層壞了，要出聲。
+  if (!row) throw PlatformError.internal('Manual reward adjustment was not written');
   return {
-    id: row!.id,
-    amountCents: row!.amountCents,
-    source: row!.source,
-    reference: row!.reference,
-    effectiveAt: row!.effectiveAt,
-    expiresAt: row!.expiresAt,
-    reason: row!.reason,
-    createdAt: row!.createdAt,
+    id: row.id,
+    amountCents: row.amountCents,
+    source: row.source,
+    reference: row.reference,
+    effectiveAt: row.effectiveAt,
+    expiresAt: row.expiresAt,
+    reason: row.reason,
+    createdAt: row.createdAt,
   };
 };
 
@@ -157,6 +160,13 @@ export const removeTierCommand = defineCommand({
 });
 
 export const removeTierHandler = async (input: z.infer<typeof removeTierInput>, ctx: CommandContext) => {
+  // 還有活動指名這一級的話，刪掉它會讓那檔活動安靜地永遠不套用。
+  const referencing = await promotionsReferencingTier(ctx, input.name);
+  if (referencing.length > 0) {
+    throw PlatformError.validation(
+      `Tier "${input.name}" is still used by ${referencing.length} promotion(s); update them first`,
+    );
+  }
   await repository.deleteTier(ctx.tx, input.name);
   const items = await tierService.definitions(ctx.tx);
   // 保底那一級不能消失：沒有門檻為零的等級，新會員不屬於任何等級。
@@ -165,6 +175,14 @@ export const removeTierHandler = async (input: z.infer<typeof removeTierInput>, 
   }
   return { items };
 };
+
+/** 哪些活動限定了這一級。刪除等級之前要問一次。 */
+async function promotionsReferencingTier(ctx: CommandContext, name: string): Promise<string[]> {
+  const rows = await ctx.tx.execute<{ id: string }>(
+    sql`SELECT id FROM promotion_promotions WHERE ${name} = ANY(tier_names)`,
+  );
+  return rows.rows.map((row) => row.id);
+}
 
 export const adjustTierPointsCommand = defineCommand({
   name: 'commerce.loyalty.adjustTierPoints',
@@ -230,6 +248,7 @@ export const recalculateTiersHandler = async (
   let changed = 0;
   let upgraded = 0;
   let downgraded = 0;
+  let initialised = 0;
   const definitions = await tierService.definitions(ctx.tx);
   const rank = new Map(definitions.map((tier, index) => [tier.name, index]));
 
@@ -237,12 +256,21 @@ export const recalculateTiersHandler = async (
     const result = await tierService.recalculate(ctx.tx, customerId, at);
     if (!result.changed) continue;
     changed += 1;
-    // 舊等級可能已經被 removeTier 刪掉，那時比不出升降——當成升級會讓統計說謊。
-    const before = result.from === null ? -1 : rank.get(result.from) ?? -1;
+    // 第一次算到這位顧客不是升級，是建立快取；舊等級被 removeTier 刪掉時也比不出升降。
+    // 兩者都當成升級的話，統計會虛胖到看不出真正的變動。
+    if (result.from === null) {
+      initialised += 1;
+      continue;
+    }
+    const before = rank.get(result.from);
+    if (before === undefined) continue;
     if ((rank.get(result.to) ?? -1) > before) upgraded += 1;
     else downgraded += 1;
   }
-  ctx.logger.info({ evaluated: customerIds.length, changed, upgraded, downgraded }, 'recalculated member tiers');
+  ctx.logger.info(
+    { evaluated: customerIds.length, changed, upgraded, downgraded, initialised },
+    'recalculated member tiers',
+  );
   return { evaluated: customerIds.length, changed, upgraded, downgraded };
 };
 
@@ -294,7 +322,7 @@ export function createNotifyExpiringRewardsHandler(deps: LoyaltyModuleDeps) {
       const entries = await repository.rewardEntriesFor(ctx.tx, batch.customerId);
       const balance = deriveRewardBalance(
         entries.map((row) => ({
-          id: row.id, amountCents: row.amountCents, effectiveAt: row.effectiveAt,
+          id: row.id, amountCents: row.amountCents, source: row.source, effectiveAt: row.effectiveAt,
           expiresAt: row.expiresAt, createdAt: row.createdAt,
         })),
         at,

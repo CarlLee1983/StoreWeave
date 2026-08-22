@@ -82,7 +82,7 @@ export async function toCartDto(
 
   // 購物金折抵的上限在這裡重新算：餘額與小計都會變，存下來的只是「顧客希望折多少」。
   const subtotalCents = items.reduce((sum, item) => sum + item.lineTotalCents, 0);
-  const balance = cart.customerId ? await rewardService.balanceFor(db, cart.customerId, now) : null;
+  const balance = cart.customerId ? await rewardService.balanceFor(db, cart.customerId, now, logger) : null;
   const maxCents = balance ? maxRedeemableCents(balance.availableCents, subtotalCents) : 0;
   const rewardRedeemCents = Math.min(cart.rewardRedeemCents, maxCents);
 

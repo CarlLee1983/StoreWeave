@@ -10,6 +10,11 @@ export interface RewardEntry {
   id: string;
   /** 正數是入帳，負數是折抵或回沖。 */
   amountCents: number;
+  /**
+   * 這一筆的來源。推導只用它來分辨「扣不到」是不是異常：
+   * 折抵扣不到代表帳本壞了，取消時的扣回扣不到只代表那筆錢已經花掉了。
+   */
+  source: string;
   /** 這一批什麼時候開始可用。 */
   effectiveAt: Date;
   /** 什麼時候過期；null 是不過期。 */
@@ -29,8 +34,10 @@ export interface RewardBatch {
 
 export interface RewardBalance {
   /**
-   * 扣抵超過餘額而分配不掉的金額。正常情況恆為 0——不是 0 就代表帳本本身有問題，
+   * **折抵**超過餘額而分配不掉的金額。正常情況恆為 0——不是 0 就代表帳本本身有問題，
    * 而讓它靜靜消失會讓那個問題事後查不出來。
+   *
+   * 取消時的扣回不算在內：那筆錢可能已經被花掉，扣不回來是合法的結果。
    */
   shortfallCents: number;
   /** 現在就能用的金額。 */
@@ -86,8 +93,15 @@ export function deriveRewardBalance(entries: readonly RewardEntry[], now: Date):
     }
     let owed = -entry.amountCents;
     // 扣抵發生在它自己的時點：那時還沒過期的批次才扣得到。
+    //
+    // 生效與否只約束**折抵**：顧客花不到還沒生效的錢，少了這個條件，
+    // 一筆折抵會吃掉還不能用的批次，可用餘額就看起來沒有變少。
+    // 取消時的扣回相反——它要扣的正是那筆還沒生效的累積，那是生效日存在的理由。
+    const clawback = entry.source === 'reversal';
     const usable = batches
-      .filter((batch) => batch.remainingCents > 0 && !isExpiredAt(batch, entry.createdAt))
+      .filter((batch) => batch.remainingCents > 0
+        && !isExpiredAt(batch, entry.createdAt)
+        && (clawback || batch.effectiveAt.getTime() <= entry.createdAt.getTime()))
       .sort(byExpiryThenAge);
     for (const batch of usable) {
       if (owed <= 0) break;
@@ -95,8 +109,8 @@ export function deriveRewardBalance(entries: readonly RewardEntry[], now: Date):
       batch.remainingCents -= take;
       owed -= take;
     }
-    // 分配不掉的部分不會讓餘額變成負數，但它必須被說出來。
-    shortfall += owed;
+    // 分配不掉的部分不會讓餘額變成負數，但折抵扣不到就是帳本壞了，必須被說出來。
+    if (!clawback) shortfall += owed;
   }
 
   let availableCents = 0;

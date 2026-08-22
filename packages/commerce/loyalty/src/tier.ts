@@ -58,8 +58,9 @@ function ordered(tiers: readonly TierDefinition[]): TierDefinition[] {
 /**
  * 滾動期間內的積分總和與對應的等級。
  *
- * 期間含頭不含尾，與定價引擎與券的期間判斷逐字相同：
- * 剛好落在起點那一刻的分錄算進來，落在 `at` 那一刻的也算。
+ * 期間是**兩端都含**的閉區間 `[windowStartsAt, at]`：起點那一刻的分錄算進來，
+ * `at` 那一刻的也算。與定價引擎的「含頭不含尾」不同——那裡判斷的是「活動現在生不生效」，
+ * 這裡是「這段期間內累積了多少」，尾端排除會讓剛剛才發生的那一筆不算數。
  */
 export function deriveTier(
   entries: readonly TierEntry[],

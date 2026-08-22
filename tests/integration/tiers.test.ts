@@ -175,3 +175,25 @@ describe('等級的實質待遇', () => {
     }
   });
 });
+
+describe('等級的刪除', () => {
+  it('還有活動指名這一級時刪不掉——刪掉會讓那檔活動安靜地永遠不套用', async () => {
+    await saveTier({ name: '鑽石卡', thresholdPoints: 90_000, multiplierBasisPoints: 30_000 });
+    const promotion = await h.runtime.commands.execute<any>('commerce.promotion.createPromotion', {
+      name: `鑽石限定-${randomUUID().slice(0, 6)}`,
+      rule: { type: 'order_percentage', percentOffBasisPoints: 1_000 },
+      tierNames: ['鑽石卡'],
+    }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+
+    try {
+      await expect(h.runtime.commands.execute('commerce.loyalty.removeTier', { name: '鑽石卡' },
+        { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    } finally {
+      await h.runtime.commands.execute('commerce.promotion.setPromotionStatus',
+        { id: promotion.id, status: 'disabled' }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+      await h.runtime.database.db.execute(sql`DELETE FROM promotion_promotions WHERE id = ${promotion.id}`);
+      await h.runtime.commands.execute('commerce.loyalty.removeTier', { name: '鑽石卡' },
+        { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+    }
+  });
+});

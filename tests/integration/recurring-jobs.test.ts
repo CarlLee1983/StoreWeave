@@ -27,7 +27,10 @@ afterAll(async () => { await h?.close(); });
 async function runQueuedJobs(): Promise<void> {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const result = await h.worker.runJobs();
-    if (result.processed === 0 && result.failed === 0) return;
+    // 失敗的工作要讓測試紅，不是當成「還有事做」繼續轉——這個檔案裡
+    // 只有明確宣告會失敗的那條測試會踩到它，而它用的是自己的工作型別。
+    if (result.failed > 0) return;
+    if (result.processed === 0) return;
   }
 }
 

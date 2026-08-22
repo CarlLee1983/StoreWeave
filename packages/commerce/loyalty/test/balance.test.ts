@@ -11,6 +11,7 @@ function entry(overrides: Partial<RewardEntry> & { amountCents: number }): Rewar
   seq += 1;
   return {
     id: `e${String(seq).padStart(3, '0')}`,
+    source: overrides.amountCents > 0 ? 'manual' : 'redemption',
     effectiveAt: AT('2026-01-01T00:00:00.000Z'),
     expiresAt: null,
     createdAt: AT('2026-01-01T00:00:00.000Z'),
@@ -181,5 +182,44 @@ describe('折抵上限', () => {
   it('永遠不為負', () => {
     expect(maxRedeemableCents(-100, 5_000)).toBe(0);
     expect(maxRedeemableCents(1_000, 0)).toBe(0);
+  });
+});
+
+describe('折抵與扣回的差別', () => {
+  it('折抵扣不到還沒生效的批次——顧客花不到那筆錢', () => {
+    const balance = deriveRewardBalance([
+      entry({ amountCents: 1_000, createdAt: AT('2026-02-01T00:00:00.000Z'), effectiveAt: AT('2026-12-01T00:00:00.000Z') }),
+      { ...entry({ amountCents: -1_000, createdAt: AT('2026-03-01T00:00:00.000Z') }), source: 'redemption' },
+    ], NOW);
+
+    // 那一批仍然完好地掛在未生效，折抵沒有吃到它。
+    expect(balance.pendingCents).toBe(1_000);
+    expect(balance.availableCents).toBe(0);
+    // 折抵扣不到就是帳本壞了，這件事要說得出來。
+    expect(balance.shortfallCents).toBe(1_000);
+  });
+
+  it('取消時的扣回扣得到還沒生效的批次——那正是生效日存在的理由', () => {
+    const balance = deriveRewardBalance([
+      entry({ amountCents: 1_000, createdAt: AT('2026-02-01T00:00:00.000Z'), effectiveAt: AT('2026-12-01T00:00:00.000Z') }),
+      { ...entry({ amountCents: -1_000, createdAt: AT('2026-03-01T00:00:00.000Z') }), source: 'reversal' },
+    ], NOW);
+
+    expect(balance.pendingCents).toBe(0);
+    expect(balance.availableCents).toBe(0);
+    // 扣回扣不到只代表那筆錢已經花掉，不是異常。
+    expect(balance.shortfallCents).toBe(0);
+  });
+
+  it('扣回超過剩餘不算短缺，折抵超過剩餘才算', () => {
+    const clawback = deriveRewardBalance([
+      { ...entry({ amountCents: -500, createdAt: AT('2026-03-01T00:00:00.000Z') }), source: 'reversal' },
+    ], NOW);
+    const redemption = deriveRewardBalance([
+      { ...entry({ amountCents: -500, createdAt: AT('2026-03-01T00:00:00.000Z') }), source: 'redemption' },
+    ], NOW);
+
+    expect(clawback.shortfallCents).toBe(0);
+    expect(redemption.shortfallCents).toBe(500);
   });
 });

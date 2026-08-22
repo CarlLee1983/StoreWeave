@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { sql } from 'drizzle-orm';
 import type { DrizzleDb, Logger, Tx } from '@storeweave/contracts';
 import { deriveRewardBalance, type RewardBalance } from './balance';
 import { deriveTier, multiplierOf, type TierDefinition, type TierStatus } from './tier';
@@ -13,6 +14,7 @@ function toEntry(row: RewardEntryRow) {
   return {
     id: row.id,
     amountCents: row.amountCents,
+    source: row.source,
     effectiveAt: row.effectiveAt,
     expiresAt: row.expiresAt,
     createdAt: row.createdAt,
@@ -72,12 +74,24 @@ export const rewardService = {
     });
   },
 
+  /**
+   * 一位顧客的購物金操作在交易內序列化。
+   *
+   * 餘額是推導值，因此沒有一列可以鎖。今天併發折抵撞不到是因為「一位顧客只有一台
+   * 開著的購物車」而結帳會鎖那一列——但那是 cart 模組的不變式，loyalty 不該依賴它。
+   * advisory lock 讓這件事變成這裡自己的保證。
+   */
+  async lockCustomer(tx: Tx, customerId: string): Promise<void> {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`loyalty:${customerId}`}))`);
+  },
+
   /** 結帳折抵。負分錄，立刻生效、不過期——它只是把已經有的錢用掉。 */
   async redeemForOrder(
     tx: Tx,
     input: { customerId: string; orderId: string; amountCents: number; now: Date },
   ): Promise<RewardEntryRow | null> {
     if (input.amountCents <= 0) return null;
+    await this.lockCustomer(tx, input.customerId);
     return repository.addRewardEntry(tx, {
       id: randomUUID(),
       customerId: input.customerId,

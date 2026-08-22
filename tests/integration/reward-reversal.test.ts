@@ -155,3 +155,26 @@ describe('取消時回沖', () => {
     expect(await ledgerTotal(customer.customerId)).toBe(0);
   });
 });
+
+describe('取消時等級積分也扣回', () => {
+  it('與逾時那條路做的事一樣', async () => {
+    const customer = await shopper('tierback', 300_000, 0);
+    const cartId = (await getCart(customer)).id;
+    const order = await checkout(customer, cartId);
+
+    // 積分在付款完成才累積，這裡直接寫一筆掛在這張訂單上，驗的是回沖那一段。
+    await h.runtime.database.db.execute(sql`
+      INSERT INTO loyalty_tier_entries (id, customer_id, points, source, reference, earned_at)
+      -- 往前一分鐘：資料庫的 now() 可能比查詢用的時鐘快幾毫秒，而滾動期間的上界是
+      -- 「查詢的當下」——差幾毫秒就會把這一筆排除在期間之外。
+      VALUES (${randomUUID()}, ${customer.customerId}, 3000, 'order', ${order.id}, now() - interval '1 minute')
+    `);
+    expect((await h.runtime.queries.execute<any>('commerce.loyalty.getMyTier', {}, { actor: customer })).points)
+      .toBe(3_000);
+
+    await cancel(order.id);
+
+    expect((await h.runtime.queries.execute<any>('commerce.loyalty.getMyTier', {}, { actor: customer })).points)
+      .toBe(0);
+  });
+});

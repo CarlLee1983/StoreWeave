@@ -126,3 +126,44 @@ describe('到期通知', () => {
     expect(rows.rows.map((r) => r.dedupe_key)).toContain(occurrenceKeyFor(NOTICE_JOB, bucketFor(t0, DAY)));
   });
 });
+
+/**
+ * 寄不出去的那條路。用另一個 harness（`deliver: false` 的通知實作），
+ * 因為那是啟動時的設定，不能中途改。
+ */
+describe('寄不出去時', () => {
+  let broken: TestHarness;
+
+  beforeAll(async () => {
+    broken = await createHarness({
+      extensions: {
+        'mock-payment': { autoApprove: true },
+        'mock-notification': { deliver: false, retainSensitiveVariables: true },
+        'demo-erp': { endpoint: 'mock://demo-erp' },
+        mcp: {},
+      },
+    });
+  }, 300_000);
+
+  afterAll(async () => { await broken?.close(); });
+
+  it('不佔住那一批：下一輪還會再遇到它', async () => {
+    const customer = await createCustomer(broken.runtime, { email: `exp-fail-${randomUUID()}@example.test` });
+    const id = randomUUID();
+    await broken.runtime.database.db.execute(sql`
+      INSERT INTO loyalty_reward_entries (id, customer_id, amount_cents, source, effective_at, expires_at, created_at)
+      VALUES (${id}, ${customer.customerId}, 5000, 'manual', now() - interval '1 day',
+              now() + interval '3 days', now() - interval '1 day')
+    `);
+
+    const first = await broken.runtime.commands.execute<any>('commerce.loyalty.notifyExpiringRewards', {},
+      { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+
+    // 沒有寄出去就不能算成已通知，佔位也要放掉。
+    expect(first.notified).toBe(0);
+    const rows = await broken.runtime.database.db.execute<{ count: string }>(sql`
+      SELECT count(*)::text AS count FROM loyalty_reward_expiry_notices WHERE entry_id = ${id}
+    `);
+    expect(rows.rows[0].count).toBe('0');
+  });
+});

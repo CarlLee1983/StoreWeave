@@ -272,9 +272,11 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
     }
 
     // 折抵上限在結帳當下重新算：購物車存的是「顧客希望折多少」，
-    // 而餘額與小計在那之後都可能變過。
+    // 而餘額與小計在那之後都可能變過。先鎖住這位顧客的購物金，
+    // 讀餘額與寫負分錄之間才不會有別人插進來。
+    await rewardService.lockCustomer(ctx.tx, buyer.customerId);
     const subtotalCents = await subtotalOfLines(ctx, lines);
-    const balance = await rewardService.balanceFor(ctx.tx, buyer.customerId, ctx.now);
+    const balance = await rewardService.balanceFor(ctx.tx, buyer.customerId, ctx.now, ctx.logger);
     const rewardRedeemCents = Math.min(
       cart.rewardRedeemCents,
       maxRedeemableCents(balance.availableCents, subtotalCents),
