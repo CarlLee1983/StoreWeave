@@ -124,15 +124,27 @@ importers:
 
   apps/worker: {}
 
+  packages/commerce/cart: {}
+
   packages/commerce/catalog: {}
+
+  packages/commerce/coupon: {}
+
+  packages/commerce/customer: {}
 
   packages/commerce/inventory: {}
 
+  packages/commerce/loyalty: {}
+
   packages/commerce/order: {}
+
+  packages/commerce/promotion: {}
 
   packages/extensions/demo-erp: {}
 
   packages/extensions/mcp: {}
+
+  packages/extensions/mock-notification: {}
 
   packages/extensions/mock-payment: {}
 

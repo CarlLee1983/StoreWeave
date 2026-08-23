@@ -110,15 +110,17 @@ describe('登入與 session', () => {
     const email = `wrong-${randomUUID().slice(0, 8)}@example.com`;
     await createUser(email);
 
-    const wrongPassword = h.runtime.auth.authenticate(h.runtime.database.db, { email, password: 'definitely-not-it' });
-    const noSuchUser = h.runtime.auth.authenticate(h.runtime.database.db, { email: 'ghost@example.com', password });
-
-    await expect(wrongPassword).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
-    await expect(noSuchUser).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
-    const [a, b] = await Promise.all([
-      wrongPassword.catch((e) => e.message), noSuchUser.catch((e) => e.message),
+    // 兩個 promise 同時起飛（要比的就是它們的失敗長不長得一樣），因此 handler 必須當場掛上：
+    // 先 await 其中一個再掛另一個，中間那段空窗期一旦被拒絕就是一個 unhandled rejection，
+    // 而 vitest 會把它算成整輪失敗——即使每一條斷言都是綠的。
+    const [wrongPassword, noSuchUser] = await Promise.all([
+      h.runtime.auth.authenticate(h.runtime.database.db, { email, password: 'definitely-not-it' }).catch((e) => e),
+      h.runtime.auth.authenticate(h.runtime.database.db, { email: 'ghost@example.com', password }).catch((e) => e),
     ]);
-    expect(a).toBe(b);
+
+    expect(wrongPassword).toMatchObject({ code: 'UNAUTHENTICATED' });
+    expect(noSuchUser).toMatchObject({ code: 'UNAUTHENTICATED' });
+    expect(wrongPassword.message).toBe(noSuchUser.message);
   });
 
   it('登出後同一個 token 立刻失效', async () => {

@@ -2,7 +2,7 @@
   "name": "storeweave",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@10.22.0",
+  "packageManager": "pnpm@11.22.0",
   "engines": {
     "node": ">=22"
   },
