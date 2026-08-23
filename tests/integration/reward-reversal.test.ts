@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
+import { loyaltyMigrations } from '@storeweave/loyalty';
 import {
   ADMIN_ACTOR, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
 } from './helpers';
@@ -138,21 +139,63 @@ describe('取消時回沖', () => {
 
   it('扣回尚未生效的累積不會讓餘額變成負數', async () => {
     const customer = await createCustomer(h.runtime, { email: `rvs-neg-${randomUUID()}@example.test` });
+    const accrualId = randomUUID();
     // 模擬「累積了但還沒生效，然後被扣回」：兩筆分錄互相抵銷，可用餘額仍是零。
     // created_at 明確錯開——推導依帳本順序處理扣抵，扣抵排在累積之前是另一種情況。
     await h.runtime.database.db.execute(sql`
-      INSERT INTO loyalty_reward_entries (id, customer_id, amount_cents, source, reference, effective_at, expires_at, created_at)
+      INSERT INTO loyalty_reward_entries (id, customer_id, amount_cents, source, reference, batch_id, effective_at, expires_at, created_at)
       VALUES
-        (${randomUUID()}, ${customer.customerId}, 1000, 'order-accrual', ${randomUUID()},
-         now() + interval '7 days', NULL, now() - interval '2 minutes'),
+        (${accrualId}, ${customer.customerId}, 1000, 'order-accrual', ${randomUUID()},
+         NULL, now() + interval '7 days', NULL, now() - interval '2 minutes'),
         (${randomUUID()}, ${customer.customerId}, -1000, 'reversal', ${randomUUID()},
-         now(), NULL, now() - interval '1 minute')
+         ${accrualId}, now(), NULL, now() - interval '1 minute')
     `);
 
     const { balance } = await myRewards(customer);
     expect(balance.availableCents).toBe(0);
     expect(balance.pendingCents).toBe(0);
     expect(await ledgerTotal(customer.customerId)).toBe(0);
+  });
+
+  it('扣回只動那張單累積的那一批，別人的批次原封不動（工單 54）', async () => {
+    const customer = await createCustomer(h.runtime, { email: `rvs-batch-${randomUUID()}@example.test` });
+    // 客服補償的一批，**比訂單累積的那一批早到期**——不指名批次就會先被扣掉。
+    await grant(customer.customerId, 3_000);
+    const compensationId = (await myRewards(customer)).entries[0].id;
+    await h.runtime.database.db.execute(sql`
+      UPDATE loyalty_reward_entries SET expires_at = now() + interval '7 days' WHERE id = ${compensationId}
+    `);
+
+    const product = await sellable(50_000);
+    await addToCart(product.id, customer);
+    const order = await checkout(customer, (await getCart(customer)).id);
+
+    // 累積在付款完成才發生，而取消只允許 pending——這兩條路徑今天走不到一起，
+    // 因此這一筆直接寫進帳本，驗的是回沖那一段（與上面等級積分那條同樣的做法）。
+    const accrualId = randomUUID();
+    await h.runtime.database.db.execute(sql`
+      INSERT INTO loyalty_reward_entries (id, customer_id, amount_cents, source, reference, effective_at, expires_at, created_at)
+      VALUES (${accrualId}, ${customer.customerId}, 500, 'order-accrual', ${order.id},
+              now() + interval '7 days', now() + interval '372 days', now() - interval '1 minute')
+    `);
+
+    await cancel(order.id);
+
+    const { balance } = await myRewards(customer);
+    // 補償那一批雖然先到期，但它不是這張單累積的那一批。
+    expect(balance.availableCents).toBe(3_000);
+    expect(balance.pendingCents).toBe(0);
+    expect(balance.availableCents + balance.pendingCents + balance.expiredCents)
+      .toBe(await ledgerTotal(customer.customerId));
+
+    // 直接看那一列：ADR 0025 的 Falsified if 守的就是「扣回不帶 batchId」，
+    // 從餘額反推守得到它，但寫壞時看不出是哪一段壞掉。
+    const clawback = await h.runtime.database.db.execute<{ batch_id: string }>(sql`
+      SELECT batch_id FROM loyalty_reward_entries
+      WHERE customer_id = ${customer.customerId} AND reference = ${`clawback:${order.id}`}
+    `);
+    expect(clawback.rows).toHaveLength(1);
+    expect(clawback.rows[0].batch_id).toBe(accrualId);
   });
 });
 
@@ -176,5 +219,76 @@ describe('取消時等級積分也扣回', () => {
 
     expect((await h.runtime.queries.execute<any>('commerce.loyalty.getMyTier', {}, { actor: customer })).points)
       .toBe(0);
+  });
+});
+
+describe('帳本擋掉扣不到任何東西的指名（工單 54）', () => {
+  it('指名別位顧客的批次寫不進去', async () => {
+    const owner = await createCustomer(h.runtime, { email: `rvs-fk-a-${randomUUID()}@example.test` });
+    const other = await createCustomer(h.runtime, { email: `rvs-fk-b-${randomUUID()}@example.test` });
+    await grant(owner.customerId, 1_000);
+    const batchId = (await myRewards(owner)).entries[0].id;
+
+    // 推導只讀這位顧客的帳本，所以別人的批次會安靜地變成一筆扣不到東西的負分錄。
+    // 那是寫入錯誤，該在寫入的時候就擋掉。
+    await expect(h.runtime.database.db.execute(sql`
+      INSERT INTO loyalty_reward_entries (id, customer_id, amount_cents, source, batch_id, effective_at)
+      VALUES (${randomUUID()}, ${other.customerId}, -100, 'reversal', ${batchId}, now())
+    `)).rejects.toThrow();
+  });
+
+  it('正分錄不能指名批次——它自己就是一批', async () => {
+    const customer = await createCustomer(h.runtime, { email: `rvs-fk-c-${randomUUID()}@example.test` });
+    await grant(customer.customerId, 1_000);
+    const batchId = (await myRewards(customer)).entries[0].id;
+
+    await expect(h.runtime.database.db.execute(sql`
+      INSERT INTO loyalty_reward_entries (id, customer_id, amount_cents, source, batch_id, effective_at)
+      VALUES (${randomUUID()}, ${customer.customerId}, 100, 'manual', ${batchId}, now())
+    `)).rejects.toThrow();
+  });
+
+  it('分錄不能指名自己', async () => {
+    const customer = await createCustomer(h.runtime, { email: `rvs-fk-d-${randomUUID()}@example.test` });
+    const id = randomUUID();
+
+    await expect(h.runtime.database.db.execute(sql`
+      INSERT INTO loyalty_reward_entries (id, customer_id, amount_cents, source, batch_id, effective_at)
+      VALUES (${id}, ${customer.customerId}, -100, 'reversal', ${id}, now())
+    `)).rejects.toThrow();
+  });
+});
+
+describe('回填既有的扣回（migration 0005）', () => {
+  it('把舊的不指名扣回接回它那張單的累積', async () => {
+    const customer = await createCustomer(h.runtime, { email: `rvs-bf-${randomUUID()}@example.test` });
+    const orderId = randomUUID();
+    const accrualId = randomUUID();
+    const clawbackId = randomUUID();
+    const strayId = randomUUID();
+
+    // 升級前的形狀：扣回只有 reference，沒有 batch_id。
+    await h.runtime.database.db.execute(sql`
+      INSERT INTO loyalty_reward_entries (id, customer_id, amount_cents, source, reference, effective_at)
+      VALUES
+        (${accrualId}, ${customer.customerId}, 500, 'order-accrual', ${orderId}, now()),
+        (${clawbackId}, ${customer.customerId}, -500, 'reversal', ${`clawback:${orderId}`}, now()),
+        -- 對不上任何累積的那一筆要維持 NULL，不能被亂接。
+        (${strayId}, ${customer.customerId}, -100, 'reversal', ${`clawback:${randomUUID()}`}, now())
+    `);
+
+    const backfill = loyaltyMigrations.migrations.find((m) => m.id === '0005_backfill_clawback_batch');
+    expect(backfill).toBeDefined();
+    // 跑兩次：batch_id IS NULL 的守衛要讓重跑安全。
+    await h.runtime.database.db.execute(sql.raw(backfill!.up));
+    await h.runtime.database.db.execute(sql.raw(backfill!.up));
+
+    const rows = await h.runtime.database.db.execute<{ id: string; batch_id: string | null }>(sql`
+      SELECT id, batch_id FROM loyalty_reward_entries WHERE customer_id = ${customer.customerId}
+    `);
+    const byId = new Map(rows.rows.map((row) => [row.id, row.batch_id]));
+    expect(byId.get(clawbackId)).toBe(accrualId);
+    expect(byId.get(strayId)).toBeNull();
+    expect(byId.get(accrualId)).toBeNull();
   });
 });

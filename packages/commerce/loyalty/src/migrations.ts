@@ -98,5 +98,54 @@ CREATE TABLE IF NOT EXISTS loyalty_reward_expiry_notices (
   notified_at timestamptz NOT NULL
 );
 `),
+    sqlMigration('0004_clawback_names_batch', 'expand', `
+-- 負分錄指名要扣哪一批。不指名的（折抵）照「先到期先用」由推導決定，
+-- 指名的（取消訂單的扣回）只扣那一批——不指名會扣到別批頭上（工單 54、ADR 0025）。
+ALTER TABLE loyalty_reward_entries ADD COLUMN IF NOT EXISTS batch_id uuid;
+
+-- 外鍵與約束分開下，而且都具名：ADD COLUMN ... REFERENCES 在欄位已經存在時
+-- 會連外鍵一起跳過，而自動命名的約束之後要 drop 得先知道 PostgreSQL 的命名規則。
+--
+-- 複合外鍵而不是 (batch_id) -> (id)：指名別位顧客的批次在推導裡會安靜地變成
+-- 一筆扣不到任何東西的負分錄，那是寫入錯誤，該在寫入的時候就擋掉。
+CREATE UNIQUE INDEX IF NOT EXISTS loyalty_reward_id_customer_idx
+  ON loyalty_reward_entries (id, customer_id);
+ALTER TABLE loyalty_reward_entries DROP CONSTRAINT IF EXISTS loyalty_reward_batch_same_customer;
+ALTER TABLE loyalty_reward_entries ADD CONSTRAINT loyalty_reward_batch_same_customer
+  FOREIGN KEY (batch_id, customer_id) REFERENCES loyalty_reward_entries (id, customer_id);
+
+-- 只有負分錄能指名：正分錄自己就是一批，它身上的 batch_id 推導根本不會讀。
+ALTER TABLE loyalty_reward_entries DROP CONSTRAINT IF EXISTS loyalty_reward_batch_only_on_negative;
+ALTER TABLE loyalty_reward_entries ADD CONSTRAINT loyalty_reward_batch_only_on_negative
+  CHECK (batch_id IS NULL OR amount_cents < 0);
+
+ALTER TABLE loyalty_reward_entries DROP CONSTRAINT IF EXISTS loyalty_reward_batch_not_self;
+ALTER TABLE loyalty_reward_entries ADD CONSTRAINT loyalty_reward_batch_not_self
+  CHECK (batch_id IS NULL OR batch_id <> id);
+
+-- 擋不掉的只剩「指名另一筆負分錄」：批次必須是正分錄這件事外鍵表達不了
+-- （部分唯一索引不能當外鍵目標）。那一種靠推導回傳的 unappliedClawbackCents 揭露。
+`),
+    sqlMigration('0005_backfill_clawback_batch', 'migrate', `
+-- 既有的扣回列回填，讓推導只留一條路徑。reference 是 'clawback:<orderId>'，
+-- 對應的累積是 (source='order-accrual', reference=<orderId>)，一對一查得到。
+--
+-- 與 0004 分開是因為 DDL 的 ACCESS EXCLUSIVE 會持有到交易結束——擠在一起等於讓
+-- 這段全表掃描期間整張表讀寫全停。它搬的是資料不是結構，phase 因此是 migrate。
+--
+-- 這段假設執行時沒有並行的舊版程式在寫新的扣回列。成立的理由是扣回今天走不到
+-- （累積在付款完成才發生，取消只允許 pending），正式環境的扣回列數是 0。
+-- batch_id IS NULL 的守衛讓重跑安全。
+UPDATE loyalty_reward_entries AS clawback
+SET batch_id = accrual.id
+FROM loyalty_reward_entries AS accrual
+WHERE clawback.source = 'reversal'
+  AND clawback.amount_cents < 0
+  AND clawback.batch_id IS NULL
+  AND clawback.reference LIKE 'clawback:%'
+  AND accrual.source = 'order-accrual'
+  AND accrual.customer_id = clawback.customer_id
+  AND accrual.reference = substring(clawback.reference FROM 10);
+`),
   ],
 };

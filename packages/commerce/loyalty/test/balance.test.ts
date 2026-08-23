@@ -11,7 +11,7 @@ function entry(overrides: Partial<RewardEntry> & { amountCents: number }): Rewar
   seq += 1;
   return {
     id: `e${String(seq).padStart(3, '0')}`,
-    source: overrides.amountCents > 0 ? 'manual' : 'redemption',
+    batchId: null,
     effectiveAt: AT('2026-01-01T00:00:00.000Z'),
     expiresAt: null,
     createdAt: AT('2026-01-01T00:00:00.000Z'),
@@ -189,7 +189,7 @@ describe('折抵與扣回的差別', () => {
   it('折抵扣不到還沒生效的批次——顧客花不到那筆錢', () => {
     const balance = deriveRewardBalance([
       entry({ amountCents: 1_000, createdAt: AT('2026-02-01T00:00:00.000Z'), effectiveAt: AT('2026-12-01T00:00:00.000Z') }),
-      { ...entry({ amountCents: -1_000, createdAt: AT('2026-03-01T00:00:00.000Z') }), source: 'redemption' },
+      entry({ amountCents: -1_000, createdAt: AT('2026-03-01T00:00:00.000Z') }),
     ], NOW);
 
     // 那一批仍然完好地掛在未生效，折抵沒有吃到它。
@@ -199,27 +199,166 @@ describe('折抵與扣回的差別', () => {
     expect(balance.shortfallCents).toBe(1_000);
   });
 
-  it('取消時的扣回扣得到還沒生效的批次——那正是生效日存在的理由', () => {
+  it('扣回扣得到還沒生效的批次——那正是生效日存在的理由', () => {
+    const accrual = entry({
+      amountCents: 1_000,
+      createdAt: AT('2026-02-01T00:00:00.000Z'),
+      effectiveAt: AT('2026-12-01T00:00:00.000Z'),
+    });
     const balance = deriveRewardBalance([
-      entry({ amountCents: 1_000, createdAt: AT('2026-02-01T00:00:00.000Z'), effectiveAt: AT('2026-12-01T00:00:00.000Z') }),
-      { ...entry({ amountCents: -1_000, createdAt: AT('2026-03-01T00:00:00.000Z') }), source: 'reversal' },
+      accrual,
+      {
+        ...entry({ amountCents: -1_000, createdAt: AT('2026-03-01T00:00:00.000Z') }),
+        batchId: accrual.id,
+      },
     ], NOW);
 
     expect(balance.pendingCents).toBe(0);
     expect(balance.availableCents).toBe(0);
-    // 扣回扣不到只代表那筆錢已經花掉，不是異常。
     expect(balance.shortfallCents).toBe(0);
   });
 
-  it('扣回超過剩餘不算短缺，折抵超過剩餘才算', () => {
+  it('指名的批次扣不到不算短缺，不指名的折抵扣不到才算', () => {
     const clawback = deriveRewardBalance([
-      { ...entry({ amountCents: -500, createdAt: AT('2026-03-01T00:00:00.000Z') }), source: 'reversal' },
+      {
+        ...entry({ amountCents: -500, createdAt: AT('2026-03-01T00:00:00.000Z') }),
+        // 指名一批不在帳本裡的批次：那筆錢已經花掉、或那一批根本不屬於這個人。
+        batchId: 'gone',
+      },
     ], NOW);
     const redemption = deriveRewardBalance([
-      { ...entry({ amountCents: -500, createdAt: AT('2026-03-01T00:00:00.000Z') }), source: 'redemption' },
+      entry({ amountCents: -500, createdAt: AT('2026-03-01T00:00:00.000Z') }),
     ], NOW);
 
     expect(clawback.shortfallCents).toBe(0);
+    // 但它也不能就這樣消失——不算短缺不等於不用交代。
+    expect(clawback.unappliedClawbackCents).toBe(500);
     expect(redemption.shortfallCents).toBe(500);
+    expect(redemption.unappliedClawbackCents).toBe(0);
+  });
+});
+
+describe('指名批次的扣回（工單 54）', () => {
+  /** 客服補償的那一批先到期，訂單累積的那一批後到期——不指名就會扣錯人。 */
+  const compensation = () => entry({
+    amountCents: 300,
+    createdAt: AT('2026-02-01T00:00:00.000Z'),
+    effectiveAt: AT('2026-02-01T00:00:00.000Z'),
+    expiresAt: AT('2026-09-01T00:00:00.000Z'),
+  });
+  const accrual = () => entry({
+    amountCents: 100,
+    createdAt: AT('2026-02-10T00:00:00.000Z'),
+    effectiveAt: AT('2026-02-17T00:00:00.000Z'),
+    expiresAt: AT('2027-02-17T00:00:00.000Z'),
+  });
+  const clawbackOf = (batch: RewardEntry): RewardEntry => ({
+    ...entry({ amountCents: -batch.amountCents, createdAt: AT('2026-03-01T00:00:00.000Z') }),
+    batchId: batch.id,
+  });
+
+  it('只扣指名的那一批，先到期的別批原封不動', () => {
+    const compensated = compensation();
+    const earned = accrual();
+
+    const balance = deriveRewardBalance([compensated, earned, clawbackOf(earned)], NOW);
+
+    // 補償那一批雖然先到期，但它不是被指名的那一批。
+    expect(balance.batches).toHaveLength(1);
+    expect(balance.batches[0]).toMatchObject({ id: compensated.id, remainingCents: 300 });
+    expect(balance.availableCents).toBe(300);
+  });
+
+  it('指名的批次已經被折抵掉一部分時，只扣得回剩下的', () => {
+    const earned = accrual();
+    const balance = deriveRewardBalance([
+      earned,
+      // 生效之後花掉 60，那一批只剩 40。
+      entry({ amountCents: -60, createdAt: AT('2026-02-20T00:00:00.000Z') }),
+      clawbackOf(earned),
+    ], NOW);
+
+    // 扣不回來的 60 是已經花掉的錢，丟掉而不是變成短缺，也不去別批補。
+    expect(balance.availableCents).toBe(0);
+    expect(balance.shortfallCents).toBe(0);
+  });
+
+  it('指名的批次已經過期也扣得到——那筆錢從來沒有被用掉', () => {
+    const expired = entry({
+      amountCents: 500,
+      createdAt: AT('2026-01-01T00:00:00.000Z'),
+      effectiveAt: AT('2026-01-01T00:00:00.000Z'),
+      expiresAt: AT('2026-06-01T00:00:00.000Z'),
+    });
+
+    const balance = deriveRewardBalance([expired, clawbackOf(expired)], NOW);
+
+    // 不扣的話它會一直掛在「已過期」上，而帳本總和已經因為那筆負分錄變成 0。
+    expect(balance.expiredCents).toBe(0);
+    expect(balance.availableCents).toBe(0);
+  });
+
+  it('指名的批次已經花掉時，扣不到的量要回報得出來', () => {
+    const earned = accrual();
+    const balance = deriveRewardBalance([
+      earned,
+      entry({ amountCents: -60, createdAt: AT('2026-02-20T00:00:00.000Z') }),
+      clawbackOf(earned),
+    ], NOW);
+
+    // 那 60 元收不回來——但它計進了帳本總和卻沒扣到任何批次，差額要對得出來。
+    expect(balance.unappliedClawbackCents).toBe(60);
+    expect(balance.shortfallCents).toBe(0);
+  });
+
+  it('資料庫擋不住的錯誤指名不會靜靜消失：指名另一筆負分錄', () => {
+    const earned = accrual();
+    const redemption = entry({ amountCents: -60, createdAt: AT('2026-02-20T00:00:00.000Z') });
+    // 批次必須是正分錄這件事外鍵表達不了，所以推導這一端要說得出來。
+    const balance = deriveRewardBalance([
+      earned,
+      redemption,
+      { ...clawbackOf(earned), amountCents: -100, batchId: redemption.id },
+    ], NOW);
+
+    expect(balance.unappliedClawbackCents).toBe(100);
+    // 那一批完好無缺——錯誤的指名沒有扣到任何人。
+    expect(balance.batches).toHaveLength(1);
+    expect(balance.batches[0]).toMatchObject({ id: earned.id, remainingCents: 40 });
+  });
+
+  it('同一批被兩筆扣回指名時，第二筆只扣得到剩下的', () => {
+    const earned = accrual();
+    const balance = deriveRewardBalance([
+      earned,
+      { ...clawbackOf(earned), amountCents: -70, createdAt: AT('2026-03-01T00:00:00.000Z') },
+      { ...clawbackOf(earned), amountCents: -70, createdAt: AT('2026-03-02T00:00:00.000Z') },
+    ], NOW);
+
+    expect(balance.availableCents).toBe(0);
+    expect(balance.pendingCents).toBe(0);
+    // 第一筆扣掉 70，第二筆只剩 30 可扣。
+    expect(balance.unappliedClawbackCents).toBe(40);
+  });
+
+  it('零元的分錄什麼都不做——它既不是批次也不扣任何東西', () => {
+    const earned = accrual();
+    const balance = deriveRewardBalance([
+      earned,
+      entry({ amountCents: 0, createdAt: AT('2026-03-01T00:00:00.000Z') }),
+    ], NOW);
+
+    expect(balance.availableCents).toBe(100);
+    expect(balance.batches).toHaveLength(1);
+    expect(balance.unappliedClawbackCents).toBe(0);
+    expect(balance.shortfallCents).toBe(0);
+  });
+
+  it('指名之後與帳本順序無關：同一組分錄換個順序結果一樣', () => {
+    const compensated = compensation();
+    const earned = accrual();
+    const entries = [compensated, earned, clawbackOf(earned)];
+
+    expect(deriveRewardBalance(entries, NOW)).toEqual(deriveRewardBalance([...entries].reverse(), NOW));
   });
 });

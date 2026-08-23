@@ -11,6 +11,11 @@ export const rewardEntries = pgTable('loyalty_reward_entries', {
   amountCents: integer('amount_cents').notNull(),
   /** 這一筆是怎麼來的：訂單累積、結帳折抵、取消回沖、手動調整。 */
   source: text('source').notNull(),
+  /**
+   * 負分錄指名要扣哪一批（指向那一批的入帳分錄）；null 是不指名，由推導決定。
+   * 取消訂單的扣回一定指名——不指名會照「先到期先用」扣到別批頭上（工單 54）。
+   */
+  batchId: uuid('batch_id'),
   /** 對應的訂單或其他來源識別，供對帳追溯。 */
   reference: text('reference'),
   /** 什麼時候開始可用。付款後 N 天，避免「下單拿金、取消訂單、購物金留著」的套利。 */
