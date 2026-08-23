@@ -139,12 +139,12 @@ correlation id，以及經過遮蔽的請求摘要。
 
 **要知道哪一支慢** — 每一次 Command / Query 執行完都會寫一行帶 `latencyMs` 的日誌（工單 53）：
 
-| | 一般 | 超過 500ms |
+| | 一般 | 達到 500ms |
 | --- | --- | --- |
 | Command 成功 | `info` | `warn`（`slow command executed`） |
 | Query 成功 | `debug` | `warn`（`slow query executed`） |
 | 失敗 4xx | `debug` | `warn` |
-| 失敗 5xx | `warn` | `warn` |
+| 失敗 5xx | `error` | `error` |
 
 Query 成功停在 `debug`，是因為前台每渲染一次就會打好幾支，逐次 `info` 會把日誌淹掉；
 要看全部的話把 `logging.level` 調到 `debug`。慢的那幾筆在預設 level 就看得見：
@@ -155,7 +155,10 @@ docker compose logs api | grep '"msg":"slow '
 ```
 
 那一行帶 `command` 或 `query` 的名字、`latencyMs`、`correlationId` 與 `channel`，
-失敗的還多一個 `code`。
+失敗的還多一個 `code`，冪等重放的多一個 `replayed: true`。
+5xx 走 `error` 是為了與 HTTP 那層的 exception filter 對齊——Bus 是所有通道的共同咽喉，
+以 `level >= error` 設告警的部署不該只抓到走 REST 的那一半而漏掉 worker 與 CLI。
+同一次請求在 Bus 與 filter 各留一行（前者有耗時、後者有訊息與細節），靠 `correlationId` 串起來。
 
 **升級後出現沒看過的 400 `VALIDATION_ERROR`** — 從這一版起，Command 與 Query 的輸入
 一律拒絕未知欄位（ADR 0024）。過去送了多餘欄位而被安靜忽略的請求，現在會被擋下來。

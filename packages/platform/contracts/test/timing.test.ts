@@ -42,14 +42,23 @@ describe('logBusCall', () => {
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
-  it('5xx 與不是 PlatformError 的例外都走 warn', () => {
+  it('5xx 與不是 PlatformError 的例外都走 error——與 HTTP 那層的 filter 對齊', () => {
     const logger = fakeLogger();
     logBusCall(logger as unknown as Logger, 'command', { latencyMs: 3, error: PlatformError.internal('boom') });
     logBusCall(logger as unknown as Logger, 'query', { latencyMs: 3, error: new TypeError('undefined is not a function') });
 
-    expect(logger.warn).toHaveBeenCalledTimes(2);
+    expect(logger.error).toHaveBeenCalledTimes(2);
+    expect(logger.warn).not.toHaveBeenCalled();
     // 不認得的例外仍要有一個 code，否則日誌上那一行看不出是什麼。
-    expect(logger.warn.mock.calls[1][0]).toMatchObject({ code: 'INTERNAL_ERROR' });
+    expect(logger.error.mock.calls[1][0]).toMatchObject({ code: 'INTERNAL_ERROR' });
+  });
+
+  it('慢的 5xx 停在 error，不會被降級成 warn', () => {
+    const logger = fakeLogger();
+    logBusCall(logger as unknown as Logger, 'command', { latencyMs: SLOW_CALL_MS + 10, error: PlatformError.internal('boom') });
+
+    expect(logger.error).toHaveBeenCalledWith({ latencyMs: SLOW_CALL_MS + 10, code: 'INTERNAL_ERROR' }, 'slow command failed');
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('慢的 4xx 也升到 warn——慢才是這裡要抓的東西', () => {

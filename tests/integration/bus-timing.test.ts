@@ -46,9 +46,8 @@ afterAll(async () => {
 });
 
 /** 只看這一次呼叫寫出來的行：每個案例開始前先清空。 */
-function freshLines(): Line[] {
+function freshLines(): void {
   lines.length = 0;
-  return lines;
 }
 
 describe('Bus 記下執行時間（工單 53）', () => {
@@ -86,6 +85,44 @@ describe('Bus 記下執行時間（工單 53）', () => {
     expect(failed[0].level).toBe('debug');
     expect(failed[0].fields).toMatchObject({ code: 'NOT_FOUND' });
     expect(failed[0].fields.latencyMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('冪等重放也有數字——重試風暴時最該量的就是它（工單 53 的審查發現）', async () => {
+    const product = await createProduct(h.runtime, { sku: `TIMING-REPLAY-${randomUUID().slice(0, 8)}` });
+    const idempotencyKey = randomUUID();
+    const input = { productId: product.id, delta: 1, reason: 'restock' as const };
+    await h.runtime.commands.execute('commerce.inventory.adjustStock', input, { actor: ADMIN_ACTOR, idempotencyKey });
+
+    freshLines();
+    await h.runtime.commands.execute('commerce.inventory.adjustStock', input, { actor: ADMIN_ACTOR, idempotencyKey });
+
+    // 重放走的是交易內的捷徑，不經過成功那一行；沒有這條測試，重放就是量不到的黑洞。
+    const replayed = lines.filter((l) => l.fields.command === 'commerce.inventory.adjustStock' && l.msg === 'command executed');
+    expect(replayed).toHaveLength(1);
+    expect(replayed[0].fields).toMatchObject({ replayed: true, idempotencyKey });
+    expect(replayed[0].fields.latencyMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('Command 失敗那一行也有數字，而且例外原樣傳出去', async () => {
+    // 扣到負數會被擋下（CONFLICT）。挑一個 handler 內部才失敗的情況，
+    // 才驗得到 run() 抽出來之後「交易回滾 + 例外原樣往上」這條路。
+    const product = await createProduct(h.runtime, { sku: `TIMING-FAIL-${randomUUID().slice(0, 8)}` });
+
+    freshLines();
+    await expect(
+      h.runtime.commands.execute('commerce.inventory.adjustStock',
+        { productId: product.id, delta: -5, reason: 'correction' },
+        { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() }),
+    ).rejects.toThrow(/Insufficient stock/);
+
+    const failed = lines.filter((l) => l.fields.command === 'commerce.inventory.adjustStock' && l.msg === 'command failed');
+    expect(failed).toHaveLength(1);
+    expect(failed[0].fields.latencyMs).toBeGreaterThanOrEqual(0);
+    // 409 是 4xx：停在 debug，不吵。
+    expect(failed[0].level).toBe('debug');
+    expect(failed[0].fields).toMatchObject({ code: 'CONFLICT', owner: 'inventory' });
+    // 成功那一行不該同時出現——交易回滾了，這次呼叫只有一個結局。
+    expect(lines.filter((l) => l.msg === 'command executed')).toEqual([]);
   });
 
   it('correlationId 跟著那一行走——沒有它就串不回是哪一次請求', async () => {

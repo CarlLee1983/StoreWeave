@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   PlatformError,
+  elapsed,
   logBusCall,
   type Actor,
   type AuditEntryInput,
@@ -75,15 +76,24 @@ export class CommandBus {
   }
 
   async execute<O = unknown>(name: string, rawInput: unknown, options: ExecuteOptions): Promise<O> {
-    const startedAt = Date.now();
+    // 單調時鐘：`Date.now()` 會被 NTP 校時往回拉，而這個數字的用途正是分級與比較。
+    const startedAt = performance.now();
+    // `get()` 刻意留在計時之外：查無此 command 的時候還沒有 logger child 可用，
+    // 而那是註冊期的錯誤，不是一次「執行」。
     const { descriptor, handler, owner } = this.get(name);
     const correlationId = options.correlationId ?? cryptoRandom();
     const logger = this.deps.logger.child({ command: name, correlationId, actor: options.actor.id, channel: options.channel ?? 'internal' });
 
     try {
-      return await this.run<O>({ descriptor, handler, owner }, name, rawInput, options, logger, correlationId, startedAt);
+      const output = await this.run<O>({ descriptor, handler, owner, name, rawInput, options, logger, correlationId, startedAt });
+      // 成功那一行寫在交易外：寫在裡面的話，commit 自己失敗時會先吐一行「成功」
+      // 再吐一行「失敗」，同一次呼叫兩個 latencyMs，其中一個是假的。
+      if (!output.alreadyLogged) {
+        logBusCall(logger, 'command', { fields: { owner }, latencyMs: elapsed(startedAt) });
+      }
+      return output.value;
     } catch (error) {
-      logBusCall(logger, 'command', { fields: { owner }, latencyMs: Date.now() - startedAt, error });
+      logBusCall(logger, 'command', { fields: { owner }, latencyMs: elapsed(startedAt), error });
       throw error;
     }
   }
@@ -91,18 +101,21 @@ export class CommandBus {
   /**
    * `execute()` 的本體。抽出來是為了讓計時與失敗那一行只寫一次——
    * 這支從授權一路做到 commit，中間任何一步丟出來都會被上面接住並記下耗時。
+   *
+   * `alreadyLogged` 是給冪等重放用的：它在交易內就返回了，那一行由它自己寫。
    */
-  private async run<O>(
-    registration: CommandRegistration,
-    name: string,
-    rawInput: unknown,
-    options: ExecuteOptions,
-    logger: Logger,
-    correlationId: string,
-    startedAt: number,
-  ): Promise<O> {
-    const { descriptor, handler, owner } = registration;
-
+  private async run<O>(call: {
+    descriptor: CommandDescriptor;
+    handler: CommandHandler;
+    owner: string;
+    name: string;
+    rawInput: unknown;
+    options: ExecuteOptions;
+    logger: Logger;
+    correlationId: string;
+    startedAt: number;
+  }): Promise<{ value: O; alreadyLogged: boolean }> {
+    const { descriptor, handler, owner, name, rawInput, options, logger, correlationId, startedAt } = call;
     this.deps.authorization.assert({
       actor: options.actor,
       permission: descriptor.permission,
@@ -125,8 +138,13 @@ export class CommandBus {
       if (options.idempotencyKey) {
         const replay = await this.claimIdempotency(tx, name, options.idempotencyKey, hash, options.actor.id);
         if (replay.kind === 'replay') {
-          logger.info({ idempotencyKey: options.idempotencyKey }, 'command replayed from idempotency record');
-          return replay.response as O;
+          // 重放走的是這條捷徑，不會經過下面成功那一行。少了它，客戶端重試風暴時
+          // 看到的是流量進來、`command executed` 的計數卻不動——那正是最該量的一種。
+          logBusCall(logger, 'command', {
+            fields: { owner, replayed: true, idempotencyKey: options.idempotencyKey },
+            latencyMs: elapsed(startedAt),
+          });
+          return { value: replay.response as O, alreadyLogged: true };
         }
       }
 
@@ -187,8 +205,7 @@ export class CommandBus {
         `);
       }
 
-      logBusCall(logger, 'command', { fields: { owner }, latencyMs: Date.now() - startedAt });
-      return output as O;
+      return { value: output as O, alreadyLogged: false };
     });
   }
 
