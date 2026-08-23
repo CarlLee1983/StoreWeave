@@ -39,6 +39,8 @@ mkdir -p "$STAGE"/{app,bin,config,systemd,scripts}
 
 cp -R dist/app/. "$STAGE/app/"
 [ -d dist/admin ] && cp -R dist/admin "$STAGE/admin"
+[ -d dist/theme-assets ] && cp -R dist/theme-assets "$STAGE/theme-assets"
+node scripts/theme-assets.mjs verify --assets "$STAGE/theme-assets/default"
 cp dist/VERSION dist/build-info.json "$STAGE/"
 
 # 固定版本的 Node runtime，只留執行所需的部分
@@ -93,6 +95,9 @@ TARBALL="$RELEASE_ROOT/commerce-$VERSION.tar.gz"
 TAR_FLAGS=""
 if tar --no-xattrs --version >/dev/null 2>&1; then TAR_FLAGS="--no-xattrs"; fi
 COPYFILE_DISABLE=1 tar $TAR_FLAGS -czf "$TARBALL" -C "$RELEASE_ROOT" "commerce-$VERSION"
+for THEME_ASSET in NotoSansTC-Variable.woff2 NotoSerifTC-Variable.woff2 OFL.txt; do
+  tar -tzf "$TARBALL" | grep -Fqx "commerce-$VERSION/theme-assets/default/fonts/$THEME_ASSET"
+done
 echo "    $TARBALL ($(du -h "$TARBALL" | cut -f1))"
 
 if command -v dpkg-deb >/dev/null 2>&1; then

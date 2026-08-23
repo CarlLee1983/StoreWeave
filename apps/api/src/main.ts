@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { bootstrap } from '@storeweave/bundle';
 import { createServer } from './server';
@@ -17,10 +18,17 @@ async function main(): Promise<void> {
   await runtime.extensions.persistRegistry();
 
   const adminDir = process.env.COMMERCE_ADMIN_DIR ?? join(__dirname, '..', 'admin');
+  const themeAssetsDir = theme.id === 'default'
+    ? (() => {
+      const bundled = join(__dirname, '..', 'theme-assets', 'default');
+      const source = join(__dirname, '..', '..', '..', 'packages', 'themes', 'default', 'assets');
+      return process.env.COMMERCE_THEME_ASSETS_DIR ?? (existsSync(bundled) ? bundled : source);
+    })()
+    : undefined;
   const app = await createServer({
     runtime,
     theme,
-    release: { version: RELEASE_VERSION, configPath: loaded.sourcePath, adminDir },
+    release: { version: RELEASE_VERSION, configPath: loaded.sourcePath, adminDir, themeAssetsDir },
   });
 
   const { host, port } = runtime.config.http;

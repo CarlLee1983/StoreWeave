@@ -1,0 +1,155 @@
+import { describe, expect, it } from 'vitest';
+import type { ThemeCartView, ThemeContext, ThemeProductView } from '@storeweave/kernel';
+import { defaultTheme } from '../src/index';
+
+const context = (overrides: Partial<ThemeContext> = {}): ThemeContext => ({
+  storeName: '織日選物',
+  storeId: 'woven-day',
+  currency: 'TWD',
+  locale: 'zh-TW',
+  publicUrl: 'https://woven-day.example.test',
+  supportEmail: 'hello@woven-day.example.test',
+  options: { accentColor: '#8C3E28', tagline: '日常用品，認真挑選。', showSku: true },
+  customerName: null,
+  csrfToken: null,
+  notice: null,
+  ...overrides,
+});
+
+const product: ThemeProductView = {
+  id: 'product-1',
+  sku: 'WD-001',
+  name: '日常托盤',
+  description: '真實商品資料提供的描述。',
+  priceCents: 128_000,
+  currency: 'TWD',
+  available: 3,
+};
+
+const cart: ThemeCartView = {
+  cartId: 'cart-1',
+  currency: 'TWD',
+  lines: [{
+    productId: 'product-1',
+    sku: 'WD-001',
+    name: '日常托盤',
+    unitPriceCents: 128_000,
+    quantity: 1,
+    lineTotalCents: 128_000,
+    discountCents: 10_000,
+    netCents: 118_000,
+    available: 3,
+  }],
+  subtotalCents: 128_000,
+  discountCents: 10_000,
+  totalCents: 118_000,
+  adjustments: [{ name: '夏日折扣', amountCents: -10_000 }],
+  removedNames: ['停售商品'],
+  nextThreshold: { name: '滿額折抵', remainingCents: 12_000 },
+  coupon: { code: 'WOVEN10', discountCents: 10_000 },
+  couponError: null,
+  reward: { requestedCents: 3_000, appliedCents: 2_000, availableCents: 5_000, maxCents: 2_000 },
+};
+
+describe('Default Theme 的商品瀏覽切片', () => {
+  it('以 ThemeProductView 的資料建立可連到商品頁的型錄，且使用同源字型資產', () => {
+    const html = defaultTheme.renderHome(context(), { products: [product] });
+
+    expect(html).toContain('class="catalog-page"');
+    expect(html).toContain('class="product-card"');
+    expect(html).toContain('href="/p/product-1"');
+    expect(html).toContain('真實商品資料提供的描述。');
+    expect(html).toContain('可售 3 件');
+    expect(html).toContain('@font-face');
+    expect(html).toContain('/theme/default/fonts/NotoSansTC-Variable.woff2');
+    expect(html).toContain('/theme/default/fonts/NotoSerifTC-Variable.woff2');
+    expect(html).not.toContain('fonts.googleapis.com');
+  });
+
+  it('保留商品詳情的真實加車表單、session CSRF 與庫存上限', () => {
+    const html = defaultTheme.renderProduct(context({ csrfToken: 'csrf-token' }), { product });
+
+    expect(html).toContain('class="product-page"');
+    expect(html).toContain('action="/cart/items"');
+    expect(html).toContain('name="productId" value="product-1"');
+    expect(html).toContain('name="_csrf" value="csrf-token"');
+    expect(html).toContain('name="quantity" value="1" min="1" max="3" required');
+    expect(html).toContain('加入購物車');
+  });
+
+  it('只在 available 小於等於零時停用加車，訪客不被要求不存在的 CSRF token', () => {
+    const soldOut = defaultTheme.renderProduct(context(), {
+      product: { ...product, available: 0 },
+    });
+    const untracked = defaultTheme.renderProduct(context(), {
+      product: { ...product, available: null },
+    });
+
+    expect(soldOut).toContain('已售完');
+    expect(soldOut).toContain('button type="submit" disabled');
+    expect(soldOut).not.toContain('name="_csrf"');
+    expect(untracked).not.toContain('已售完');
+    expect(untracked).not.toContain('name="_csrf"');
+    expect(untracked).toContain('action="/cart/items"');
+  });
+
+  it('把購物車的真實品項、優惠與會員操作放進可近用的摘要版面，並保留所有寫入契約', () => {
+    const html = defaultTheme.renderCart(context({ customerName: '小美', csrfToken: 'csrf-token' }), cart);
+
+    expect(html).toContain('class="cart-layout"');
+    expect(html).toContain('class="cart-table"');
+    expect(html).toContain('action="/cart/items/product-1"');
+    expect(html).toContain('name="quantity" value="1" min="0"');
+    expect(html).toContain('max="3" required');
+    expect(html).toContain('name="_csrf" value="csrf-token"');
+    expect(html).toContain('action="/cart/coupon"');
+    expect(html).toContain('name="remove" value="1"');
+    expect(html).toContain('action="/cart/rewards"');
+    expect(html).toContain('action="/cart/clear"');
+    expect(html).toContain('href="/checkout">前往結帳</a>');
+    expect(html).toContain('夏日折扣');
+    expect(html).toContain('再買');
+    expect(html).toContain('這些商品已經買不到');
+    expect(html).toContain('role="status"');
+  });
+
+  it('空車與確認訂單都有可理解的下一步，確認頁仍只送既有 cartId 與 confirm 欄位', () => {
+    const empty = defaultTheme.renderCart(context(), { ...cart, lines: [] });
+    const checkout = defaultTheme.renderCheckout(context({ customerName: '小美', csrfToken: 'csrf-token' }), {
+      ...cart,
+      customerEmail: 'buyer@example.test',
+    });
+
+    expect(empty).toContain('購物車是空的');
+    expect(empty).toContain('href="/">返回商品列表</a>');
+    expect(checkout).toContain('class="checkout-layout"');
+    expect(checkout).toContain('buyer@example.test');
+    expect(checkout).toContain('action="/checkout"');
+    expect(checkout).toContain('name="cartId" value="cart-1"');
+    expect(checkout).toContain('name="confirm" value="1"');
+    expect(checkout).toContain('name="_csrf" value="csrf-token"');
+    expect(checkout).toContain('建立訂單');
+    expect(checkout).not.toContain('action="/cart/items/product-1"');
+  });
+
+  it('讓帳戶存取與個人資料沿用同一套頁面結構，而不改變欄位名稱', () => {
+    const login = defaultTheme.renderAuth(context(), { mode: 'login', next: '/checkout', error: '登入失敗' });
+    const profile = defaultTheme.renderAccountProfile(context({ customerName: '小美', csrfToken: 'csrf-token' }), {
+      displayName: '小美',
+      phone: '0911222333',
+      birthday: null,
+      address: null,
+    });
+
+    expect(login).toContain('class="auth-card"');
+    expect(login).toContain('action="/login"');
+    expect(login).toContain('name="next" value="/checkout"');
+    expect(login).toContain('role="alert"');
+    expect(profile).toContain('class="account-tabs"');
+    expect(profile).toContain('action="/account/profile"');
+    expect(profile).toContain('name="_csrf" value="csrf-token"');
+    expect(profile).toContain('name="displayName"');
+    expect(profile).toContain('name="recipient"');
+    expect(profile).toContain('name="line2"');
+  });
+});

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { join } from 'node:path';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
@@ -25,7 +26,11 @@ beforeAll(async () => {
   app = await createServer({
     runtime: h.runtime,
     theme: defaultTheme,
-    release: { version: 'test', configPath: '<test>' },
+    release: {
+      version: 'test',
+      configPath: '<test>',
+      themeAssetsDir: join(process.cwd(), 'packages/themes/default/assets'),
+    },
   });
 }, 300_000);
 
@@ -184,6 +189,14 @@ describe('REST 介面', () => {
 });
 
 describe('Storefront SSR', () => {
+  it('Default Theme 字型經由同源靜態路徑提供', async () => {
+    const res = await inject({ method: 'GET', url: '/theme/default/fonts/NotoSansTC-Variable.woff2' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toMatch(/woff2|octet-stream/);
+    expect(Number(res.headers['content-length'])).toBeGreaterThan(0);
+  });
+
   it('首頁輸出 Theme 產生的 HTML', async () => {
     const product = await createProduct(h.runtime, { sku: 'SSR-1', name: 'SSR 商品' });
     await stockUp(h.runtime, product.id, 3);

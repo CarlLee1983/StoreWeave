@@ -8,6 +8,8 @@ export interface ReleaseInfo {
   version: string;
   configPath: string;
   adminDir?: string;
+  /** Default Theme 的同源靜態資產；release 與本機開發都由啟動程式提供。 */
+  themeAssetsDir?: string;
 }
 
 export type { Runtime, StorefrontTheme };
