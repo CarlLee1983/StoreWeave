@@ -20,11 +20,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      # pnpm/setup 一步裝好 pnpm 與 Node runtime，取代 action-setup + setup-node 兩步。
+      # pnpm 的版本它自己去讀 package.json 的 packageManager，這裡不重複宣告一次。
+      # install: false 是刻意的——安裝留在下一行明寫，`--frozen-lockfile` 才看得見。
+      - uses: pnpm/setup@v2
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
+          runtime: node@${{ env.NODE_VERSION }}
+          cache: true
+          install: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm typecheck:admin
@@ -36,11 +39,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: pnpm/setup@v2
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
+          runtime: node@${{ env.NODE_VERSION }}
+          cache: true
+          install: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:integration
 
@@ -63,11 +66,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: pnpm/setup@v2
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
+          runtime: node@${{ env.NODE_VERSION }}
+          cache: true
+          install: false
       - run: pnpm install --frozen-lockfile
       # 固定版本的 Node runtime 會被下載進 .cache，跨次執行快取起來。
       - uses: actions/cache@v6

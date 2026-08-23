@@ -5,7 +5,12 @@ WORKDIR /src
 
 RUN corepack enable
 
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
+# 只先帶進每一個 workspace 的 manifest，讓相依安裝可以被 layer cache 命中。
+# 這份清單必須與實際的 workspace 一一對應——少一個，lockfile 裡就有一個
+# 找不到 manifest 的 importer，pnpm 會放棄 frozen lockfile 改成整包重解，
+# 症狀是安裝階段開始下載所有平台的 esbuild／rollup 然後卡住。
+# `tests/unit/dockerfile-workspaces.test.ts` 守著這件事。
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/admin/package.json apps/admin/
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
@@ -16,17 +21,24 @@ COPY packages/platform/command-bus/package.json packages/platform/command-bus/
 COPY packages/platform/config/package.json packages/platform/config/
 COPY packages/platform/contracts/package.json packages/platform/contracts/
 COPY packages/platform/db/package.json packages/platform/db/
+COPY packages/platform/identity/package.json packages/platform/identity/
 COPY packages/platform/event-bus/package.json packages/platform/event-bus/
 COPY packages/platform/extension-sdk/package.json packages/platform/extension-sdk/
 COPY packages/platform/jobs/package.json packages/platform/jobs/
 COPY packages/platform/kernel/package.json packages/platform/kernel/
 COPY packages/platform/outbox/package.json packages/platform/outbox/
 COPY packages/platform/query-bus/package.json packages/platform/query-bus/
+COPY packages/commerce/cart/package.json packages/commerce/cart/
 COPY packages/commerce/catalog/package.json packages/commerce/catalog/
+COPY packages/commerce/coupon/package.json packages/commerce/coupon/
+COPY packages/commerce/customer/package.json packages/commerce/customer/
 COPY packages/commerce/inventory/package.json packages/commerce/inventory/
+COPY packages/commerce/loyalty/package.json packages/commerce/loyalty/
 COPY packages/commerce/order/package.json packages/commerce/order/
+COPY packages/commerce/promotion/package.json packages/commerce/promotion/
 COPY packages/extensions/demo-erp/package.json packages/extensions/demo-erp/
 COPY packages/extensions/mcp/package.json packages/extensions/mcp/
+COPY packages/extensions/mock-notification/package.json packages/extensions/mock-notification/
 COPY packages/extensions/mock-payment/package.json packages/extensions/mock-payment/
 COPY packages/themes/default/package.json packages/themes/default/
 COPY tools/cli/package.json tools/cli/

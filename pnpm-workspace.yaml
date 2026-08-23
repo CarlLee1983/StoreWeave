@@ -1,3 +1,8 @@
+# pnpm 11 只從這個檔案讀設定，`.npmrc` 那兩行（node-linker / shamefully-hoist）
+# 從 10 升上來時完全不生效——症狀是 `fastify` 這類靠提升才看得到的傳遞相依整批解析不到。
+nodeLinker: hoisted
+shamefullyHoist: true
+
 packages:
   - 'apps/*'
   - 'packages/platform/*'
@@ -5,3 +10,13 @@ packages:
   - 'packages/extensions/*'
   - 'packages/themes/*'
   - 'tools/*'
+# pnpm 11 起，依賴的 build script 要在這裡逐一表態（pnpm 10 是一律不跑）。
+# 四支全部維持 false，也就是升級前的實際行為：esbuild 自 0.18 起靠 optional 的
+# 平台套件取得執行檔，不需要 postinstall；cpu-features 是 ssh2 的原生加速，
+# protobufjs 的 postinstall 只產生型別，兩者都只走 testcontainers 那條測試路徑。
+# 哪天真的需要某一支，改成 true 並在這裡寫清楚為什麼。
+allowBuilds:
+  cpu-features: false
+  esbuild: false
+  protobufjs: false
+  ssh2: false
