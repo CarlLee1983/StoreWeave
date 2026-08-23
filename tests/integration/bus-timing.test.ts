@@ -35,14 +35,40 @@ function freshLines(): void {
   lines.length = 0;
 }
 
+/**
+ * Bus 那一行的訊息在慢的時候會多一個 `slow ` 前綴（`logBusCall`），而這支測試**控制不了
+ * 這次呼叫要跑多久**——機器一忙就超過 `SLOW_CALL_MS`，精確比對 `msg` 於是一筆都撈不到，
+ * 斷言收到空陣列（工單 55）。兩個變體都算數：這裡要驗的是那一行寫出來了、而且欄位對。
+ *
+ * 它自己有一條迴歸測試：認不得 `slow` 變體的過濾器，在「不該出現的那一行剛好很慢」時
+ * 會安靜地放行，而那正是這支測試最該攔到迴歸的時候。
+ */
+function isBusMessage(msg: string | undefined, base: string): boolean {
+  // msg 缺席就不是這一行。`CapturedLine.msg` 是選填的，pino 可以寫出不帶訊息的行。
+  return msg === base || msg === `slow ${base}`;
+}
+
+function busLines(kind: 'command' | 'query', name: string, outcome: 'executed' | 'failed'): CapturedLine[] {
+  return lines.filter((l) => l.fields[kind] === name && isBusMessage(l.msg, `${kind} ${outcome}`));
+}
+
+/**
+ * 快慢各自該走哪個 level。訊息的前綴與 level 都由 `logBusCall` 裡的同一個 `slow` 決定，
+ * 所以「訊息說慢、level 就得是 warn」是一個恆成立的關係——耗時控制不了，這個控制得了。
+ * 這樣 level 那一格仍然驗得到，而不是為了不 flake 就整條放掉。
+ */
+function expectLevelMatchesSpeed(line: CapturedLine, fastLevel: 'info' | 'debug' | 'error'): void {
+  expect(line.level).toBe(line.msg?.startsWith('slow ') ? 'warn' : fastLevel);
+}
+
 describe('Bus 記下執行時間（工單 53）', () => {
   it('成功的 Command 那一行帶得出 latencyMs', async () => {
     freshLines();
     await createProduct(h.runtime, { sku: `TIMING-${randomUUID().slice(0, 8)}` });
 
-    const executed = lines.filter((l) => l.fields.command === 'commerce.catalog.createProduct' && l.msg === 'command executed');
+    const executed = busLines('command', 'commerce.catalog.createProduct', 'executed');
     expect(executed).toHaveLength(1);
-    expect(executed[0].level).toBe('info');
+    expectLevelMatchesSpeed(executed[0], 'info');
     expect(executed[0].fields.latencyMs).toBeGreaterThanOrEqual(0);
     // 既有的欄位沒有掉：那一行本來就帶得出是誰註冊的。
     expect(executed[0].fields.owner).toBe('catalog');
@@ -52,9 +78,9 @@ describe('Bus 記下執行時間（工單 53）', () => {
     freshLines();
     await h.runtime.queries.execute('commerce.catalog.searchProducts', {}, { actor: ADMIN_ACTOR });
 
-    const executed = lines.filter((l) => l.fields.query === 'commerce.catalog.searchProducts' && l.msg === 'query executed');
+    const executed = busLines('query', 'commerce.catalog.searchProducts', 'executed');
     expect(executed).toHaveLength(1);
-    expect(executed[0].level).toBe('debug');
+    expectLevelMatchesSpeed(executed[0], 'debug');
     expect(executed[0].fields.latencyMs).toBeGreaterThanOrEqual(0);
   });
 
@@ -65,9 +91,9 @@ describe('Bus 記下執行時間（工單 53）', () => {
     ).rejects.toBeInstanceOf(PlatformError);
 
     // 找不到商品是 4xx：帶著數字與錯誤碼，但停在 debug，不吵。
-    const failed = lines.filter((l) => l.fields.query === 'commerce.catalog.getProduct' && l.msg === 'query failed');
+    const failed = busLines('query', 'commerce.catalog.getProduct', 'failed');
     expect(failed).toHaveLength(1);
-    expect(failed[0].level).toBe('debug');
+    expectLevelMatchesSpeed(failed[0], 'debug');
     expect(failed[0].fields).toMatchObject({ code: 'NOT_FOUND' });
     expect(failed[0].fields.latencyMs).toBeGreaterThanOrEqual(0);
   });
@@ -82,7 +108,7 @@ describe('Bus 記下執行時間（工單 53）', () => {
     await h.runtime.commands.execute('commerce.inventory.adjustStock', input, { actor: ADMIN_ACTOR, idempotencyKey });
 
     // 重放走的是交易內的捷徑，不經過成功那一行；沒有這條測試，重放就是量不到的黑洞。
-    const replayed = lines.filter((l) => l.fields.command === 'commerce.inventory.adjustStock' && l.msg === 'command executed');
+    const replayed = busLines('command', 'commerce.inventory.adjustStock', 'executed');
     expect(replayed).toHaveLength(1);
     expect(replayed[0].fields).toMatchObject({ replayed: true, idempotencyKey });
     expect(replayed[0].fields.latencyMs).toBeGreaterThanOrEqual(0);
@@ -100,21 +126,41 @@ describe('Bus 記下執行時間（工單 53）', () => {
         { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() }),
     ).rejects.toThrow(/Insufficient stock/);
 
-    const failed = lines.filter((l) => l.fields.command === 'commerce.inventory.adjustStock' && l.msg === 'command failed');
+    const failed = busLines('command', 'commerce.inventory.adjustStock', 'failed');
     expect(failed).toHaveLength(1);
     expect(failed[0].fields.latencyMs).toBeGreaterThanOrEqual(0);
-    // 409 是 4xx：停在 debug，不吵。
-    expect(failed[0].level).toBe('debug');
+    // 409 是 4xx：停在 debug，不吵；慢的那次升 warn，不會變成 error。
+    expectLevelMatchesSpeed(failed[0], 'debug');
     expect(failed[0].fields).toMatchObject({ code: 'CONFLICT', owner: 'inventory' });
     // 成功那一行不該同時出現——交易回滾了，這次呼叫只有一個結局。
-    expect(lines.filter((l) => l.msg === 'command executed')).toEqual([]);
+    // 這裡尤其要認得 slow 變體：精確比對的話，真的多寫了一行而那次剛好慢，它會安靜放行。
+    expect(lines.filter((l) => isBusMessage(l.msg, 'command executed'))).toEqual([]);
   });
 
   it('correlationId 跟著那一行走——沒有它就串不回是哪一次請求', async () => {
     freshLines();
     await h.runtime.queries.execute('commerce.catalog.searchProducts', {}, { actor: ADMIN_ACTOR, correlationId: 'timing-corr-1' });
 
-    const executed = lines.find((l) => l.msg === 'query executed');
+    const executed = lines.find((l) => isBusMessage(l.msg, 'query executed'));
     expect(executed!.fields.correlationId).toBe('timing-corr-1');
+  });
+});
+
+describe('過濾器認得慢的那個變體（工單 55）', () => {
+  // 這一組是純函式，跟機器忙不忙無關——上面那些斷言全都建立在它身上，
+  // 而它壞掉的方式是「安靜地少撈到東西」，不會自己吵。
+  it('快慢兩種訊息都算同一件事', () => {
+    expect(isBusMessage('command executed', 'command executed')).toBe(true);
+    expect(isBusMessage('slow command executed', 'command executed')).toBe(true);
+    expect(isBusMessage('query failed', 'query failed')).toBe(true);
+    expect(isBusMessage('slow query failed', 'query failed')).toBe(true);
+  });
+
+  it('不同的一件事就是不同的一件事', () => {
+    expect(isBusMessage('command failed', 'command executed')).toBe(false);
+    expect(isBusMessage('slow command failed', 'command executed')).toBe(false);
+    expect(isBusMessage('query executed', 'command executed')).toBe(false);
+    // 前綴要整段對上，不是 includes——否則 'not slow command executed' 也會算數。
+    expect(isBusMessage('very slow command executed', 'command executed')).toBe(false);
   });
 });
