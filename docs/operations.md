@@ -137,6 +137,26 @@ correlation id，以及經過遮蔽的請求摘要。
 `POST /api/v1/extensions/demo-erp/commands/ext.demo-erp.resendOrder`。
 遠端以 `reference` 去重，重送不會產生第二張單據。
 
+**要知道哪一支慢** — 每一次 Command / Query 執行完都會寫一行帶 `latencyMs` 的日誌（工單 53）：
+
+| | 一般 | 超過 500ms |
+| --- | --- | --- |
+| Command 成功 | `info` | `warn`（`slow command executed`） |
+| Query 成功 | `debug` | `warn`（`slow query executed`） |
+| 失敗 4xx | `debug` | `warn` |
+| 失敗 5xx | `warn` | `warn` |
+
+Query 成功停在 `debug`，是因為前台每渲染一次就會打好幾支，逐次 `info` 會把日誌淹掉；
+要看全部的話把 `logging.level` 調到 `debug`。慢的那幾筆在預設 level 就看得見：
+
+```bash
+journalctl -u commerce-api | grep '"msg":"slow ' | tail -50
+docker compose logs api | grep '"msg":"slow '
+```
+
+那一行帶 `command` 或 `query` 的名字、`latencyMs`、`correlationId` 與 `channel`，
+失敗的還多一個 `code`。
+
 **升級後出現沒看過的 400 `VALIDATION_ERROR`** — 從這一版起，Command 與 Query 的輸入
 一律拒絕未知欄位（ADR 0024）。過去送了多餘欄位而被安靜忽略的請求，現在會被擋下來。
 回應的 `error.details` 會指出是哪一個鍵（同一份也寫進 `logger.warn`）；正確的處置是把

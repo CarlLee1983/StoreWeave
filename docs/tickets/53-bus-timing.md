@@ -4,13 +4,13 @@
 
 **Blocked by:** —
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `CommandBus.execute()` 與 `QueryBus.execute()` 記下耗時，欄位沿用既有的 `latencyMs`（`db/src/client.ts` 與健檢已經是這個名字）
-- [ ] 失敗的那次也要有數字：逾時與慢查詢往往就是失敗的那幾筆，只記成功等於把最需要的樣本丟掉
-- [ ] 決定 Query 成功時要不要每次都寫一行，以及寫在哪個 level（見下）
-- [ ] 有一條測試真的斷言那個欄位出現在 log 裡，而不是只斷言函式跑得完
-- [ ] `docs/operations.md` 說明怎麼從 log 撈這個數字
+- [x] `CommandBus.execute()` 與 `QueryBus.execute()` 記下耗時，欄位沿用既有的 `latencyMs`
+- [x] 失敗的那次也有數字，計時從最上面起算（授權與輸入驗證都算進去）
+- [x] 拍板了 Query 的 level：成功走 `debug`、慢的升 `warn`（下方「拍板」）
+- [x] 測試真的斷言 log 上有那個欄位：整合測試打快與 4xx，單元測試打慢與 5xx
+- [x] `docs/operations.md` 說明怎麼從 log 撈這個數字
 
 ## 為什麼現在需要它
 
@@ -21,11 +21,24 @@
 
 所以那句「先量再改」今天不是待辦，是一句空話。這張票把它變成可執行的。
 
-## 要先決定的事
+## 拍板（2026-08-23）
 
-**Query 的日誌量。** 前台每渲染一次就會打好幾支 Query，逐次寫 info 會把日誌淹掉。三個選項：
-寫 debug（預設看不到，要查時調 level）、只在超過門檻時寫 warn（門檻要有人選）、
-或永遠寫 info 但接受量。這是這張票唯一需要拍板的決定，做之前先問。
+**Query 成功走 `debug`，超過 500ms 升 `warn`。** 兩個都要：逐次 `info` 會把日誌淹到沒人讀，
+但只在超過門檻時才寫，等於平常什麼都沒有——要回答「這支平均多久」時就沒有樣本可看。
+分成兩個 level 之後，預設看得見的是異常，要看全貌把 `logging.level` 調成 `debug`。
+
+| | 一般 | 超過 `SLOW_CALL_MS`（500ms） |
+| --- | --- | --- |
+| Command 成功 | `info`（本來就有那行） | `warn` |
+| Query 成功 | `debug` | `warn` |
+| 失敗 4xx | `debug` | `warn` |
+| 失敗 5xx | `warn` | `warn` |
+
+4xx 停在 `debug`：那是呼叫端送錯東西，不是這座部署的問題，吵起來只會讓真的問題被蓋掉。
+門檻寫死成常數而不是設定——沒有任何一座部署提過不同的數字，真的有人要再開成設定。
+
+規則寫在 `contracts/src/timing.ts` 的 `logBusCall()`，兩支 Bus 共用：
+各寫一次遲早會有一邊漏掉 `latencyMs` 或選了不同的 level。
 
 **不要在這張票裡加指標系統。** Prometheus／OpenTelemetry 是另一個決定，會帶進新的相依與部署面。
 先把數字寫進既有的結構化日誌——那是今天就有的東西，而且三筆效能債要的只是「哪一支慢」的量級。

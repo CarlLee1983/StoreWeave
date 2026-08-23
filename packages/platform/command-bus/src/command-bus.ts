@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   PlatformError,
+  logBusCall,
   type Actor,
   type AuditEntryInput,
   type CommandContext,
@@ -74,9 +75,33 @@ export class CommandBus {
   }
 
   async execute<O = unknown>(name: string, rawInput: unknown, options: ExecuteOptions): Promise<O> {
+    const startedAt = Date.now();
     const { descriptor, handler, owner } = this.get(name);
     const correlationId = options.correlationId ?? cryptoRandom();
     const logger = this.deps.logger.child({ command: name, correlationId, actor: options.actor.id, channel: options.channel ?? 'internal' });
+
+    try {
+      return await this.run<O>({ descriptor, handler, owner }, name, rawInput, options, logger, correlationId, startedAt);
+    } catch (error) {
+      logBusCall(logger, 'command', { fields: { owner }, latencyMs: Date.now() - startedAt, error });
+      throw error;
+    }
+  }
+
+  /**
+   * `execute()` 的本體。抽出來是為了讓計時與失敗那一行只寫一次——
+   * 這支從授權一路做到 commit，中間任何一步丟出來都會被上面接住並記下耗時。
+   */
+  private async run<O>(
+    registration: CommandRegistration,
+    name: string,
+    rawInput: unknown,
+    options: ExecuteOptions,
+    logger: Logger,
+    correlationId: string,
+    startedAt: number,
+  ): Promise<O> {
+    const { descriptor, handler, owner } = registration;
 
     this.deps.authorization.assert({
       actor: options.actor,
@@ -162,7 +187,7 @@ export class CommandBus {
         `);
       }
 
-      logger.info({ owner }, 'command executed');
+      logBusCall(logger, 'command', { fields: { owner }, latencyMs: Date.now() - startedAt });
       return output as O;
     });
   }
