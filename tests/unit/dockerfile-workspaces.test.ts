@@ -11,7 +11,8 @@ import { describe, expect, it } from 'vitest';
  * 這在 pnpm 10 走得過去（那時 lockfile 根本沒有那些 importer 條目），升到 11 才炸開來。
  * 判準對齊真正的邊界：實際存在的 workspace 目錄，不是誰記得改這份清單。
  */
-const ROOT = new URL('../..', import.meta.url).pathname;
+/** vitest 從 repo 根目錄跑，`import.meta` 在這份 tsconfig 的 module 設定下不合法。 */
+const ROOT = process.cwd();
 
 function workspaceManifests(dir: string, found: string[] = []): string[] {
   for (const entry of readdirSync(join(ROOT, dir))) {
