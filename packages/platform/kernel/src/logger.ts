@@ -11,6 +11,8 @@ export interface LoggerOptions {
   destination: 'stdout' | 'stderr' | 'file';
   file?: string;
   name?: string;
+  /** 直接指定寫到哪裡；給 `createMemoryLogger()` 用，正式路徑不傳。 */
+  stream?: pino.DestinationStream;
 }
 
 /** 建立 pino logger。所有結構化欄位都會先經過 redact，機密不會進 log。 */
@@ -27,7 +29,43 @@ export function createLogger(options: LoggerOptions): Logger {
   return wrap(base);
 }
 
+export interface CapturedLine {
+  level: 'debug' | 'info' | 'warn' | 'error';
+  msg?: string;
+  /** pino 寫出去的其餘欄位（含 `child()` 的 binding）。 */
+  fields: Record<string, unknown>;
+}
+
+const PINO_LEVELS: Record<number, CapturedLine['level']> = { 20: 'debug', 30: 'info', 40: 'warn', 50: 'error' };
+
+/**
+ * 寫進記憶體的 logger，給要斷言「log 上出現了什麼」的測試用。
+ *
+ * 它走的是與正式環境同一條 `createLogger()`——手刻一個假 logger 驗不到兩件事：
+ * `redact()` 有沒有蓋到那個欄位，以及 level 過濾擋不擋得掉那一行。
+ * 那兩件事正是這一層存在的理由。
+ */
+export function createMemoryLogger(options: { level?: LoggerOptions['level']; name?: string } = {}): {
+  logger: Logger;
+  lines: CapturedLine[];
+} {
+  const lines: CapturedLine[] = [];
+  const logger = createLogger({
+    level: options.level ?? 'debug',
+    destination: 'stdout',
+    name: options.name,
+    stream: {
+      write(chunk: string) {
+        const { level, msg, time: _time, pid: _pid, hostname: _hostname, name: _name, ...fields } = JSON.parse(chunk);
+        lines.push({ level: PINO_LEVELS[level] ?? 'debug', msg, fields });
+      },
+    },
+  });
+  return { logger, lines };
+}
+
 function destinationFor(options: LoggerOptions): pino.DestinationStream | undefined {
+  if (options.stream) return options.stream;
   if (options.destination === 'file' && options.file) {
     return pino.destination({ dest: options.file, mkdir: true, sync: false });
   }

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PlatformError, type Logger } from '@storeweave/contracts';
+import { PlatformError } from '@storeweave/contracts';
+import { createMemoryLogger, type CapturedLine } from '@storeweave/kernel';
 import { ADMIN_ACTOR, createHarness, createProduct, type TestHarness } from './helpers';
 
 /**
@@ -12,33 +13,17 @@ import { ADMIN_ACTOR, createHarness, createProduct, type TestHarness } from './h
  * Query 的量級是「渲染次數」，所以成功走 debug、慢的走 warn：
  * 逐次 info 會把日誌淹掉，但慢的那幾筆必須在預設 level 就看得見。
  */
-interface Line {
-  level: 'debug' | 'info' | 'warn' | 'error';
-  fields: Record<string, unknown>;
-  msg?: string;
-}
-
-/**
- * 會保留 `child()` binding 的假 logger。
- * noopLogger 的 `child()` 回自己，於是 `command` / `query` 這些名字整個消失——
- * 用它來斷言，測到的只會是「有一行 log」而不是「哪一支的 log」。
- */
-function recordingLogger(lines: Line[], bindings: Record<string, unknown> = {}): Logger {
-  const write = (level: Line['level']) => (obj: unknown, msg?: string) => {
-    const fields = typeof obj === 'object' && obj !== null ? obj as Record<string, unknown> : {};
-    lines.push({ level, fields: { ...bindings, ...fields }, msg: typeof obj === 'string' ? obj : msg });
-  };
-  return {
-    debug: write('debug'), info: write('info'), warn: write('warn'), error: write('error'),
-    child: (extra) => recordingLogger(lines, { ...bindings, ...extra }),
-  };
-}
-
 let h: TestHarness;
-const lines: Line[] = [];
+/**
+ * 走正式那條 `createLogger()`，只是寫到記憶體：手刻的假 logger 驗不到 `redact()`
+ * 與 level 過濾，而 Query 成功那一行正好停在 debug——那條路徑要真的能被擋掉才算數。
+ */
+let lines: CapturedLine[];
 
 beforeAll(async () => {
-  h = await createHarness({ logger: recordingLogger(lines) });
+  const memory = createMemoryLogger();
+  lines = memory.lines;
+  h = await createHarness({ logger: memory.logger });
 }, 300_000);
 
 afterAll(async () => {
