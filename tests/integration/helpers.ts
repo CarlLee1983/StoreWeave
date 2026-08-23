@@ -3,7 +3,7 @@ import { Client } from 'pg';
 import { commerceConfigSchema, type CommerceConfig, type SecretProvider } from '@storeweave/config';
 import { createRuntime, Worker, type Runtime } from '@storeweave/kernel';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
-import { noopLogger, type Actor } from '@storeweave/contracts';
+import { noopLogger, type Actor, type Logger } from '@storeweave/contracts';
 import { permissionsForRole } from '@storeweave/authorization';
 import { AVAILABLE_EXTENSIONS, coreModules } from '@storeweave/bundle';
 
@@ -34,6 +34,8 @@ export interface TestRuntimeOptions {
   extensions?: Record<string, unknown>;
   secrets?: Record<string, string>;
   storeId?: string;
+  /** 要斷言 log 內容的測試用得到；沒給就是 noopLogger（`child()` 的 binding 會被丟掉）。 */
+  logger?: Logger;
 }
 
 export interface TestHarness {
@@ -78,12 +80,13 @@ export async function createHarness(options: TestRuntimeOptions = {}): Promise<T
   const url = await createTestDatabase();
   const config = testConfig(url, options);
   const secrets = testSecretProvider({ DEMO_ERP_API_KEY: 'test-key', ...options.secrets });
-  const providers = new ProviderRegistry(noopLogger);
+  const logger = options.logger ?? noopLogger;
+  const providers = new ProviderRegistry(logger);
 
   const runtime = await createRuntime({
     config,
     secrets,
-    logger: noopLogger,
+    logger,
     providers,
     modules: coreModules({ providers, defaultCurrency: config.store.currency, orderNumberPrefix: 'TST', timezone: config.store.timezone, locale: config.store.locale }),
     availableExtensions: AVAILABLE_EXTENSIONS,

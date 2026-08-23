@@ -37,6 +37,10 @@ function destinationFor(options: LoggerOptions): pino.DestinationStream | undefi
 }
 
 function log(instance: pino.Logger, level: 'debug' | 'info' | 'warn' | 'error', obj: unknown, msg?: string) {
+  // level 先判斷再 redact：redact 是一次遞迴 clone，而 Query 成功那一行走 debug，
+  // 落在前台每次渲染都會打好幾次的路徑上。pino 自己會擋掉被 level 過濾的那一行，
+  // 但擋不住我們在它之前就做完的那次 clone。
+  if (!instance.isLevelEnabled(level)) return;
   if (typeof obj === 'string') instance[level](obj);
   else instance[level](redact(obj) as Record<string, unknown>, msg);
 }

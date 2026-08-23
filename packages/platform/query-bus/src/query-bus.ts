@@ -1,5 +1,7 @@
 import {
   PlatformError,
+  elapsed,
+  logBusCall,
   type Actor,
   type Logger,
   type QueryContext,
@@ -56,33 +58,45 @@ export class QueryBus {
   }
 
   async execute<O = unknown>(name: string, rawInput: unknown, options: QueryExecuteOptions): Promise<O> {
+    // 單調時鐘：`Date.now()` 會被 NTP 校時往回拉。`get()` 留在計時之外——
+    // 查無此 query 是註冊期的錯誤，不是一次「執行」，那時也還沒有 logger child。
+    const startedAt = performance.now();
     const { descriptor, handler } = this.get(name);
     const correlationId = options.correlationId ?? require('node:crypto').randomUUID();
 
-    this.deps.authorization.assert({
-      actor: options.actor,
-      permission: descriptor.permission,
-      resource: { type: descriptor.name.split('.')[1] ?? 'unknown' },
-    });
+    // 計時從最上面起算、涵蓋授權與驗證：慢的原因不見得在 handler 裡，
+    // 只量 handler 會讓「為什麼這支要 800ms」變成量不到的那一半。
+    const logger = this.deps.logger.child({ query: name, correlationId, channel: options.channel ?? 'internal' });
+    try {
+      this.deps.authorization.assert({
+        actor: options.actor,
+        permission: descriptor.permission,
+        resource: { type: descriptor.name.split('.')[1] ?? 'unknown' },
+      });
 
-    const parsed = descriptor.input.safeParse(rawInput);
-    if (!parsed.success) {
-      throw PlatformError.validation(`Invalid input for "${name}"`, parsed.error.issues);
+      const parsed = descriptor.input.safeParse(rawInput);
+      if (!parsed.success) {
+        throw PlatformError.validation(`Invalid input for "${name}"`, parsed.error.issues);
+      }
+
+      const ctx: QueryContext = {
+        actor: options.actor,
+        db: this.deps.database.db,
+        logger,
+        correlationId,
+        now: new Date(),
+      };
+
+      const result = await handler(parsed.data, ctx);
+      const output = descriptor.output.safeParse(result);
+      if (!output.success) {
+        throw PlatformError.internal(`Query "${name}" produced invalid output`, output.error.issues);
+      }
+      logBusCall(logger, 'query', { latencyMs: elapsed(startedAt) });
+      return output.data as O;
+    } catch (error) {
+      logBusCall(logger, 'query', { latencyMs: elapsed(startedAt), error });
+      throw error;
     }
-
-    const ctx: QueryContext = {
-      actor: options.actor,
-      db: this.deps.database.db,
-      logger: this.deps.logger.child({ query: name, correlationId, channel: options.channel ?? 'internal' }),
-      correlationId,
-      now: new Date(),
-    };
-
-    const result = await handler(parsed.data, ctx);
-    const output = descriptor.output.safeParse(result);
-    if (!output.success) {
-      throw PlatformError.internal(`Query "${name}" produced invalid output`, output.error.issues);
-    }
-    return output.data as O;
   }
 }
