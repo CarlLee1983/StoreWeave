@@ -100,7 +100,7 @@ describe('下單套用定價引擎', () => {
     expect(placed.totalCents).toBe(20_000);
   });
 
-  it('新版事件帶出正確的調整明細，舊版仍是折扣前後一致的總額語意', async () => {
+  it('訂單成立事件帶出調整明細，而且只發一個版本', async () => {
     const promotion = await createPromotion({
       name: '全站九折',
       rule: { type: 'order_percentage', percentOffBasisPoints: 1_000 },
@@ -122,10 +122,8 @@ describe('下單套用定價引擎', () => {
       { source: 'promotion', sourceId: promotion.id, name: '全站九折', amountCents: -1_000 },
     ]);
     expect(byName['commerce.order.placed.v3'].lines[0].netCents).toBe(9_000);
-    // 舊版沒有折扣欄位，它的 totalCents 一律是這張訂單的應付金額
-    expect(byName['commerce.order.placed.v1'].totalCents).toBe(9_000);
-    expect(byName['commerce.order.placed.v1']).not.toHaveProperty('discountCents');
-
+    // 舊版已經下線（工單 24）：折扣後金額現在只有一個地方說得出來。
+    expect(Object.keys(byName)).toEqual(['commerce.order.placed.v3']);
   });
 
   it('定價與訂單建立在同一個交易內：下單失敗時不留下任何調整明細', async () => {

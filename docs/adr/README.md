@@ -18,7 +18,7 @@
 | [0014](0014-customer-identity.md) | 顧客身分：認證共用平台，顧客資料歸 Commerce | accepted |
 | [0015](0015-order-money-model.md) | 訂單金額模型：Adjustment 必定分攤到 line，金額欄位一次補齊 | accepted |
 | [0016](0016-recurring-jobs-by-time-buckets.md) | 週期性工作用時間切片，不用自我續排的鏈 | accepted |
-| [0017](0017-legacy-order-events-carry-net-total.md) | 舊版訂單事件在過渡期帶折扣後金額 | accepted |
+| [0017](0017-legacy-order-events-carry-net-total.md) | 舊版訂單事件在過渡期帶折扣後金額 | obsolete |
 | [0018](0018-csrf-on-anonymous-write-endpoints.md) | 強制匿名的寫入端點以 Origin 檢查代替 CSRF token | accepted |
 | [0019](0019-ledger-derived-balances.md) | 購物金與等級積分是分批帳本，餘額與等級是推導值 | accepted |
 | [0020](0020-core-modules-subscribe-to-events.md) | Core 模組可以訂閱其他模組的事件 | accepted |

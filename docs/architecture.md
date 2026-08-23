@@ -58,7 +58,7 @@ deployments/            example-store、example-store-two、systemd unit、設�
    - 以 `INSERT ... ON CONFLICT DO NOTHING` 宣告 Idempotency Key。併發的第二個請求會卡在
      唯一索引上直到第一個 commit，然後讀到已完成的結果 —— 不會重複執行。
    - Handler 鎖住訂單列、呼叫 Payment Provider、寫入付款紀錄、更新訂單狀態。
-   - `ctx.publish()` 把 `commerce.order.paid.v1` 寫進 `platform_outbox`（**同一個交易**）。
+   - `ctx.publish()` 把 `commerce.order.paid.v2` 寫進 `platform_outbox`（**同一個交易**）。
    - `ctx.audit()` 寫入 Audit Log（同一個交易），機密欄位先經 `redact()`。
    - 驗證輸出符合 descriptor 的 output schema，再把結果存回 Idempotency 紀錄。
 5. **commit**。到這裡「訂單已付款」與「事件已排入」要嘛都成立，要嘛都不成立。
