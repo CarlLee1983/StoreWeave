@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import type { DrizzleDb, Logger, Tx } from '@storeweave/contracts';
-import { deriveRewardBalance, type RewardBalance } from './balance';
+import { deriveRewardBalance, type RewardBalance, type RewardEntry } from './balance';
 import { deriveTier, multiplierOf, type TierDefinition, type TierStatus } from './tier';
 import { LoyaltyRepository } from './repository';
 import type { RewardEntryRow } from './schema';
@@ -10,11 +10,12 @@ const repository = new LoyaltyRepository();
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function toEntry(row: RewardEntryRow) {
+/** 資料列轉成推導看得懂的分錄。只有一份，漏掉新欄位就會漏在所有呼叫端。 */
+export function toRewardEntry(row: RewardEntryRow): RewardEntry {
   return {
     id: row.id,
     amountCents: row.amountCents,
-    source: row.source,
+    batchId: row.batchId,
     effectiveAt: row.effectiveAt,
     expiresAt: row.expiresAt,
     createdAt: row.createdAt,
@@ -32,10 +33,18 @@ export const rewardService = {
     now: Date,
     logger?: Logger,
   ): Promise<RewardBalance> {
-    const balance = deriveRewardBalance((await repository.rewardEntriesFor(db, customerId)).map(toEntry), now);
+    const balance = deriveRewardBalance((await repository.rewardEntriesFor(db, customerId)).map(toRewardEntry), now);
     // 分配不掉的扣抵代表帳本自己對不起來。餘額不會變負數，但這件事要查得到。
     if (balance.shortfallCents > 0) {
       logger?.error({ customerId, shortfallCents: balance.shortfallCents }, 'reward ledger shortfall');
+    }
+    // 指名的扣回沒扣到不是錯誤（那一批已經花掉了），但它讓推導值高於帳本總和，
+    // 對帳時得知道差額從哪來，所以是 warn 而不是 error。
+    if (balance.unappliedClawbackCents > 0) {
+      logger?.warn(
+        { customerId, unappliedClawbackCents: balance.unappliedClawbackCents },
+        'reward clawback not fully applied',
+      );
     }
     return balance;
   },
@@ -110,9 +119,8 @@ export const rewardService = {
    * 訂單取消時的回沖：折抵掉的還回去、那張單累積的扣回來。
    * 兩者都是**新的反向分錄**，不是把原本那一列改掉——帳本只增不改。
    *
-   * 已知限制：扣回是一筆不指名批次的負分錄，因此會按「先到期先用」扣到別批
-   * （例如客服補償的那一批）。今天走不到——累積在付款完成才發生，而取消只允許
-   * pending 的訂單。部分退貨進模型時要改成指名批次扣回。
+   * 扣回**指名**它要扣的那一批（工單 54）：不指名的話推導會照「先到期先用」
+   * 扣到別批頭上，例如客服補償的那一批——金額對得起來，歸屬卻是錯的。
    */
   async reverseForOrder(
     tx: Tx,
@@ -121,13 +129,11 @@ export const rewardService = {
     const entries = await repository.rewardEntriesFor(tx, input.customerId);
     const forOrder = entries.filter((row) => row.reference === input.orderId);
 
-    let refundedCents = 0;
-    let clawedBackCents = 0;
-
-    for (const row of forOrder) {
-      if (row.source === 'redemption') refundedCents += -row.amountCents;
-      if (row.source === 'order-accrual') clawedBackCents += row.amountCents;
-    }
+    // `(source, reference)` 在 `reference` 非 null 時唯一（`loyalty_reward_reference_idx`），
+    // 而這裡正是以非 null 的 `reference` 過濾，所以這兩者各至多一列。
+    const redemption = forOrder.find((row) => row.source === 'redemption');
+    const accrual = forOrder.find((row) => row.source === 'order-accrual');
+    const refundedCents = redemption ? -redemption.amountCents : 0;
 
     let refunded = 0;
     let clawedBack = 0;
@@ -149,20 +155,23 @@ export const rewardService = {
       // 撞上唯一索引代表已經回沖過。回報 0 才不會讓呼叫端以為這次真的退了錢。
       refunded = row ? refundedCents : 0;
     }
-    if (clawedBackCents > 0) {
+    if (accrual && accrual.amountCents > 0) {
       const row = await repository.addRewardEntry(tx, {
         id: randomUUID(),
         customerId: input.customerId,
-        amountCents: -clawedBackCents,
+        amountCents: -accrual.amountCents,
         source: 'reversal',
         reference: `clawback:${input.orderId}`,
+        // 指名那張單累積的那一批。它可能還沒生效、甚至已經過期，兩者都扣得到——
+        // 推導對指名的扣回不看生效與到期，那筆錢本來就該被收回去。
+        batchId: accrual.id,
         effectiveAt: input.now,
         expiresAt: null,
         actorId: null,
         reason: null,
         createdAt: input.now,
       });
-      clawedBack = row ? clawedBackCents : 0;
+      clawedBack = row ? accrual.amountCents : 0;
     }
     return { refundedCents: refunded, clawedBackCents: clawedBack };
   },

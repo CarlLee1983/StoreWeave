@@ -12,7 +12,7 @@ import {
 } from './dto';
 import { LoyaltyRepository } from './repository';
 import { deriveRewardBalance } from './balance';
-import { rewardService, tierService } from './service';
+import { rewardService, tierService, toRewardEntry } from './service';
 
 export interface LoyaltyModuleDeps {
   providers: ProviderRegistry;
@@ -320,13 +320,7 @@ export function createNotifyExpiringRewardsHandler(deps: LoyaltyModuleDeps) {
       }
       // 剩多少要由帳本推導：這一批可能早就被花掉了。
       const entries = await repository.rewardEntriesFor(ctx.tx, batch.customerId);
-      const balance = deriveRewardBalance(
-        entries.map((row) => ({
-          id: row.id, amountCents: row.amountCents, source: row.source, effectiveAt: row.effectiveAt,
-          expiresAt: row.expiresAt, createdAt: row.createdAt,
-        })),
-        at,
-      );
+      const balance = deriveRewardBalance(entries.map(toRewardEntry), at);
       const remaining = balance.batches.find((candidate) => candidate.id === batch.id)?.remainingCents ?? 0;
       if (remaining <= 0) {
         skipped += 1;
