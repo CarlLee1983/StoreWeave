@@ -20,13 +20,23 @@ export interface BootstrapResult {
  * API、Worker、CLI 共用的啟動路徑。
  * 三者拿到的是同一份設定、同一組模組、同一批 Extension —— 行為不可能分歧。
  */
-export async function bootstrap(options: { configPath?: string; loggerName: string }): Promise<BootstrapResult> {
+export async function bootstrap(options: {
+  configPath?: string;
+  loggerName: string;
+  /**
+   * 設定寫 `logging.destination: stdout` 時，日誌改寫到哪裡。CLI 傳 `stderr`：
+   * 指令的答案要留給 stdout。設定寫 `file` 的部署不受影響——那是維運選的地方。
+   */
+  logDestination?: 'stdout' | 'stderr';
+}): Promise<BootstrapResult> {
   const loaded = loadConfig(options.configPath);
   const { config, secrets } = loaded;
 
   const logger = createLogger({
     level: config.logging.level,
-    destination: config.logging.destination,
+    destination: config.logging.destination === 'stdout'
+      ? options.logDestination ?? 'stdout'
+      : config.logging.destination,
     file: config.logging.file,
     name: options.loggerName,
   });

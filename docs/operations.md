@@ -5,6 +5,11 @@
 同一支指令在 Docker 容器內、原生主機上、以及開發機（`pnpm commerce ...`）行為一致，
 因為三者走的是同一個 `bootstrap()` 與同一份 Runtime。
 
+**指令的輸出走 stdout，runtime 的日誌走 stderr**，因此 `--json` 那幾支可以直接接管線：
+`commerce extension:list --json | jq '.items[].subscribedEvents'`。日誌沒有被關掉，
+人在終端機看到的還是一樣。設定寫 `logging.destination: file` 的部署不受影響。
+（開發機上多一層 pnpm，它自己會 echo 一行 `$ tsx ...` 到 stdout，要接管線得加 `--silent`。）
+
 | 指令 | 用途 |
 | --- | --- |
 | `commerce install` | 建立目錄、放置設定範本、驗證設定 schema、套用 migration |

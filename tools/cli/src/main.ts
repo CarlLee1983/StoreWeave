@@ -18,7 +18,10 @@ const RELEASE_VERSION = process.env.COMMERCE_RELEASE_VERSION ?? '0.1.0';
 
 async function withRuntime<T>(fn: (runtime: Runtime, configPath: string) => Promise<T>): Promise<T> {
   const paths = resolvePaths();
-  const { runtime, loaded } = await bootstrap({ configPath: paths.configFile, loggerName: 'commerce-cli' });
+  // 日誌走 stderr：`--json` 的輸出得能直接餵給 jq，混進一行 log 就整份解析失敗。
+  const { runtime, loaded } = await bootstrap({
+    configPath: paths.configFile, loggerName: 'commerce-cli', logDestination: 'stderr',
+  });
   try {
     return await fn(runtime, loaded.sourcePath);
   } finally {

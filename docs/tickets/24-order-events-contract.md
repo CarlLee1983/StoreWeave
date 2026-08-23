@@ -38,7 +38,7 @@
 commerce extension:list --json   # 看每一支的 subscribedEvents
 ```
 
-（注意 `--json` 目前會與 pino 的日誌一起寫到 stdout，要餵給程式的話得先濾掉 log 行。）
+輸出可以直接接管線——日誌走 stderr（`commerce extension:list --json | jq '.items[].subscribedEvents'`）。
 
 第 2、3 種沒有任何程式化的辦法可以查出來：outbox 是一張表，誰 SELECT 過它不會留下痕跡。
 那是一個要去問人的問題，不是一個查得到的問題。
