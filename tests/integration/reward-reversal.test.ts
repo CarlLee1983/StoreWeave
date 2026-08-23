@@ -222,6 +222,8 @@ describe('取消時等級積分也扣回', () => {
   });
 });
 
+// 斷言的是約束**名字**而不只是「有丟例外」：batch_id 欄位整個不見時 INSERT 也會失敗，
+// 只寫 toThrow() 的話這三條會在最該變紅的時候全綠。
 describe('帳本擋掉扣不到任何東西的指名（工單 54）', () => {
   it('指名別位顧客的批次寫不進去', async () => {
     const owner = await createCustomer(h.runtime, { email: `rvs-fk-a-${randomUUID()}@example.test` });
@@ -234,7 +236,7 @@ describe('帳本擋掉扣不到任何東西的指名（工單 54）', () => {
     await expect(h.runtime.database.db.execute(sql`
       INSERT INTO loyalty_reward_entries (id, customer_id, amount_cents, source, batch_id, effective_at)
       VALUES (${randomUUID()}, ${other.customerId}, -100, 'reversal', ${batchId}, now())
-    `)).rejects.toThrow();
+    `)).rejects.toThrow(/loyalty_reward_batch_same_customer/);
   });
 
   it('正分錄不能指名批次——它自己就是一批', async () => {
@@ -245,7 +247,7 @@ describe('帳本擋掉扣不到任何東西的指名（工單 54）', () => {
     await expect(h.runtime.database.db.execute(sql`
       INSERT INTO loyalty_reward_entries (id, customer_id, amount_cents, source, batch_id, effective_at)
       VALUES (${randomUUID()}, ${customer.customerId}, 100, 'manual', ${batchId}, now())
-    `)).rejects.toThrow();
+    `)).rejects.toThrow(/loyalty_reward_batch_only_on_negative/);
   });
 
   it('分錄不能指名自己', async () => {
@@ -255,7 +257,7 @@ describe('帳本擋掉扣不到任何東西的指名（工單 54）', () => {
     await expect(h.runtime.database.db.execute(sql`
       INSERT INTO loyalty_reward_entries (id, customer_id, amount_cents, source, batch_id, effective_at)
       VALUES (${id}, ${customer.customerId}, -100, 'reversal', ${id}, now())
-    `)).rejects.toThrow();
+    `)).rejects.toThrow(/loyalty_reward_batch_not_self/);
   });
 });
 

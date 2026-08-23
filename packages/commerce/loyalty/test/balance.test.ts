@@ -155,6 +155,8 @@ describe('先到期的先用', () => {
   });
 
   it('一連串入帳、折抵、回沖、到期之後，帳本總和與可用餘額仍然對得起來', () => {
+    // 這一批指名的批次先被折抵掉一半，扣回因此扣不滿——差額要落在 unappliedClawbackCents。
+    const partlySpent = entry({ amountCents: 800, createdAt: AT('2026-05-06T00:00:00.000Z') });
     const entries = [
       entry({ amountCents: 1_000, createdAt: AT('2026-01-05T00:00:00.000Z'), expiresAt: AT('2026-08-01T00:00:00.000Z') }),
       entry({ amountCents: 2_000, createdAt: AT('2026-02-05T00:00:00.000Z'), expiresAt: AT('2027-02-05T00:00:00.000Z') }),
@@ -162,14 +164,37 @@ describe('先到期的先用', () => {
       entry({ amountCents: 600, createdAt: AT('2026-03-06T00:00:00.000Z') }),
       entry({ amountCents: -1_500, createdAt: AT('2026-04-05T00:00:00.000Z') }),
       entry({ amountCents: 500, createdAt: AT('2026-05-05T00:00:00.000Z'), effectiveAt: AT('2026-12-01T00:00:00.000Z') }),
+      partlySpent,
+      { ...entry({ amountCents: -400, createdAt: AT('2026-06-01T00:00:00.000Z') }), batchId: partlySpent.id },
+      { ...entry({ amountCents: -800, createdAt: AT('2026-06-02T00:00:00.000Z') }), batchId: partlySpent.id },
     ];
     const balance = deriveRewardBalance(entries, NOW);
     const ledgerTotal = entries.reduce((sum, e) => sum + e.amountCents, 0);
 
-    // 帳本總和 = 可用 + 未生效 + 已過期。這條等式是「餘額是推導值」的守門員。
-    expect(balance.availableCents + balance.pendingCents + balance.expiredCents).toBe(ledgerTotal);
+    // 「餘額是推導值」的守門員。兩個差額項都要在：分配不掉的量只走其中一條分支，
+    // 少一項就會在另一種情況下對不起來（ADR 0025）。
+    expect(balance.availableCents + balance.pendingCents + balance.expiredCents)
+      .toBe(ledgerTotal + balance.shortfallCents + balance.unappliedClawbackCents);
+    // 這一組資料真的走到了指名扣不滿那條路，等式才不是恰好成立。
+    expect(balance.unappliedClawbackCents).toBe(400);
     expect(balance.batches.reduce((sum, b) => sum + b.remainingCents, 0))
       .toBe(balance.availableCents + balance.pendingCents);
+  });
+
+  it('不指名的扣抵扣不滿時，等式一樣要靠 shortfallCents 才成立', () => {
+    // ADR 0019 那條「帳本總和 = 可用 + 未生效 + 已過期」的反例：
+    // 少了 shortfallCents，左邊 0、右邊 -400。
+    const entries = [
+      entry({ amountCents: 100, createdAt: AT('2026-01-01T00:00:00.000Z') }),
+      entry({ amountCents: -500, createdAt: AT('2026-02-01T00:00:00.000Z') }),
+    ];
+    const balance = deriveRewardBalance(entries, NOW);
+    const ledgerTotal = entries.reduce((sum, e) => sum + e.amountCents, 0);
+
+    expect(ledgerTotal).toBe(-400);
+    expect(balance.shortfallCents).toBe(400);
+    expect(balance.availableCents + balance.pendingCents + balance.expiredCents)
+      .toBe(ledgerTotal + balance.shortfallCents + balance.unappliedClawbackCents);
   });
 });
 
