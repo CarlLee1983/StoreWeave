@@ -29,7 +29,15 @@ docker compose up -d
 # MCP 端點      http://localhost:3000/mcp
 ```
 
-本機開發（需要自備一個 PostgreSQL）：
+本機開發（需要 Node.js 22 以上、pnpm 11 以上，以及自備一個 PostgreSQL）：
+
+pnpm 的版本釘在 `package.json` 的 `packageManager`（目前 `pnpm@11.22.0`），
+CI 與 Docker 建置都以它為準。用 Corepack（`corepack enable pnpm`）就不必自己裝：
+它會依那一行取用對應的版本。獨立安裝的 pnpm 則要自己是 11 以上。
+
+**pnpm 10 以下跑不起來**：設定從 `.npmrc` 搬到了 `pnpm-workspace.yaml`
+（`nodeLinker` / `shamefullyHoist`），舊版讀不到那些鍵，症狀是 `fastify`
+這類靠提升才看得到的傳遞相依整批解析不到。
 
 ```bash
 pnpm install
