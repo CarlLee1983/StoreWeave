@@ -178,7 +178,7 @@ describe('REST 介面', () => {
     const commands = await inject({ method: 'GET', url: '/api/v1/meta/commands', headers: auth() });
     const events = await inject({ method: 'GET', url: '/api/v1/meta/events', headers: auth() });
     expect(commands.json().data.items.map((c: any) => c.name)).toContain('commerce.order.payOrder');
-    expect(events.json().data.items.map((e: any) => e.name)).toContain('commerce.order.paid.v1');
+    expect(events.json().data.items.map((e: any) => e.name)).toContain('commerce.order.paid.v2');
     expect(events.json().data.items[0].payload).toHaveProperty('type');
   });
 });

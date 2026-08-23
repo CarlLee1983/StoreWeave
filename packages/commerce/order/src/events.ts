@@ -8,9 +8,6 @@ const lineSchema = z.object({
   quantity: z.number().int().positive(),
   unitPriceCents: z.number().int().nonnegative(),
   lineTotalCents: z.number().int().nonnegative(),
-});
-
-const lineWithDiscountSchema = lineSchema.extend({
   discountCents: z.number().int().nonnegative(),
   netCents: z.number().int().nonnegative(),
 });
@@ -22,33 +19,11 @@ const adjustmentSchema = z.object({
   amountCents: z.number().int(),
 });
 
-export const orderPlacedV1 = defineEvent({
-  name: 'commerce.order.placed.v1',
-  summary: '訂單成立',
-  payload: z.object({
-    orderId: z.string().uuid(),
-    orderNumber: z.string(),
-    customerEmail: z.string().email(),
-    currency: z.string().length(3),
-    totalCents: z.number().int().nonnegative(),
-    placedAt: z.coerce.date(),
-    lines: z.array(lineSchema),
-  }),
-});
-
-/** v1 曾被部署描述為「已扣庫存」；v2 明確承諾的是預留，保留 v1 供既有訂閱者遷移。 */
-export const orderPlacedV2 = defineEvent({
-  name: 'commerce.order.placed.v2',
-  summary: '訂單成立並預留庫存',
-  payload: z.object({
-    orderId: z.string().uuid(), orderNumber: z.string(), customerEmail: z.string().email(),
-    currency: z.string().length(3), totalCents: z.number().int().nonnegative(), placedAt: z.coerce.date(),
-    expiresAt: z.coerce.date(), lines: z.array(lineSchema),
-  }),
-});
-
-/** v3 補上折扣、運費、稅與調整明細；金額欄位在定價引擎接上（工單 15）前恆為 0。 */
-/** v3 與 paid.v2 加上 customerId：帶預設值的選填欄位，既有欄位語意不動（ADR 0006）。 */
+/**
+ * 訂單成立。v1 與 v2 已於工單 24 下線——它們少了折扣、運費、稅與調整明細，
+ * 而 `totalCents` 在兩個版本裡的語意還不一樣（ADR 0017）。
+ * `customerId` 是帶預設值的選填欄位，既有欄位語意不動（ADR 0006）。
+ */
 export const orderPlacedV3 = defineEvent({
   name: 'commerce.order.placed.v3',
   summary: '訂單成立並預留庫存，含金額與調整明細',
@@ -60,27 +35,11 @@ export const orderPlacedV3 = defineEvent({
     subtotalCents: z.number().int().nonnegative(), discountCents: z.number().int().nonnegative(),
     shippingCents: z.number().int().nonnegative(), taxCents: z.number().int().nonnegative(),
     totalCents: z.number().int().nonnegative(), adjustments: z.array(adjustmentSchema),
-    lines: z.array(lineWithDiscountSchema),
-  }),
-});
-
-export const orderPaidV1 = defineEvent({
-  name: 'commerce.order.paid.v1',
-  summary: '訂單付款成功',
-  payload: z.object({
-    orderId: z.string().uuid(),
-    orderNumber: z.string(),
-    customerEmail: z.string().email(),
-    currency: z.string().length(3),
-    totalCents: z.number().int().nonnegative(),
-    paidAt: z.coerce.date(),
-    paymentProvider: z.string(),
-    paymentRef: z.string(),
     lines: z.array(lineSchema),
   }),
 });
 
-/** v2 補上折扣、運費、稅與調整明細；金額欄位在定價引擎接上（工單 15）前恆為 0。 */
+/** 訂單付款成功。v1 已於工單 24 下線，理由與 placed 那一組相同。 */
 export const orderPaidV2 = defineEvent({
   name: 'commerce.order.paid.v2',
   summary: '訂單付款成功，含金額與調整明細',
@@ -92,7 +51,7 @@ export const orderPaidV2 = defineEvent({
     subtotalCents: z.number().int().nonnegative(), discountCents: z.number().int().nonnegative(),
     shippingCents: z.number().int().nonnegative(), taxCents: z.number().int().nonnegative(),
     totalCents: z.number().int().nonnegative(), adjustments: z.array(adjustmentSchema),
-    lines: z.array(lineWithDiscountSchema),
+    lines: z.array(lineSchema),
   }),
 });
 
@@ -108,4 +67,4 @@ export const orderCancelledV1 = defineEvent({
   }),
 });
 
-export const orderEvents = [orderPlacedV1, orderPlacedV2, orderPlacedV3, orderPaidV1, orderPaidV2, orderCancelledV1];
+export const orderEvents = [orderPlacedV3, orderPaidV2, orderCancelledV1];

@@ -4,7 +4,7 @@ import { defineEvent, EVENT_NAME_PATTERN } from '@storeweave/contracts';
 
 describe('defineEvent', () => {
   it('從名稱推出版本號', () => {
-    const e = defineEvent({ name: 'commerce.order.paid.v1', payload: z.object({}) });
+    const e = defineEvent({ name: 'shop.thing.happened.v1', payload: z.object({}) });
     expect(e.version).toBe(1);
   });
 

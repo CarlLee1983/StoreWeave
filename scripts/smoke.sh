@@ -185,8 +185,9 @@ check "/api/v1/extensions" "$(api GET /api/v1/extensions)" "200"
 # 這兩個數字是 release 的表面，改了就要一起改——它們的作用正是讓「多掛了一個」被看見。
 check "掛載 4 個 Extension" "$(jqr 'j.data.items.length' < /tmp/smoke_body)" "4"
 check "/api/v1/meta/events" "$(api GET /api/v1/meta/events)" "200"
-# 10 = 8 個現行事件 + 舊版訂單事件 placed.v1 / paid.v1（工單 24 下線後會變成 8）。
-check "10 個版本化事件" "$(jqr 'j.data.items.length' < /tmp/smoke_body)" "10"
+# 7 個現行事件。舊版 placed.v1 / placed.v2 / paid.v1 已於工單 24 下線——
+# 原本這裡寫「10 = 8 + 舊版兩個」，那個算式漏數了 placed.v2。
+check "7 個版本化事件" "$(jqr 'j.data.items.length' < /tmp/smoke_body)" "7"
 
 printf '\n== 結果：%d 通過，%d 失敗\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

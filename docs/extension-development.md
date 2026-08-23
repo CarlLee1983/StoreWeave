@@ -34,7 +34,7 @@ manifest: {
   ],
   requiredSecrets: ['DEMO_ERP_API_KEY'],// 只放名稱；值永遠來自環境變數或 Secret Provider
   configuration: demoErpConfig,         // Zod schema
-  subscribedEvents: ['commerce.order.paid.v1'],
+  subscribedEvents: ['commerce.order.paid.v2'],
   registeredCommands: ['ext.demo-erp.resendOrder'],
   registeredQueries:  ['ext.demo-erp.listDeliveries'],
   registeredProviders: [{ kind: 'erp', id: 'demo-erp', isDefault: true }],
@@ -113,7 +113,7 @@ export const giftWrapExtension = defineExtension<Config>({
       { key: 'gift-wrap:write', description: '新增禮品包裝加購' },
     ],
     configuration: config,
-    subscribedEvents: ['commerce.order.paid.v1'],
+    subscribedEvents: ['commerce.order.paid.v2'],
     registeredCommands: [requestWrapCommand.name],
     registeredQueries: [listWrapsQuery.name],
     registeredProviders: [],
@@ -149,7 +149,7 @@ export const giftWrapExtension = defineExtension<Config>({
 
       // 5. Domain Event Subscription —— 只記錄與排工作，外部呼叫留給背景工作
       events: [{
-        event: 'commerce.order.paid.v1',
+        event: 'commerce.order.paid.v2',
         maxAttempts: 8,
         handler: async (event) => {
           const payload = event.payload as { orderId: string };

@@ -64,9 +64,9 @@ pnpm "dev:worker"
 
 1. **商品與庫存** — 建立商品 → 查詢 → 調整庫存 → 產生 `commerce.product.created.v1` 與
    `commerce.inventory.adjusted.v1`，權限與 Idempotency Key 全程強制。
-2. **訂單** — 建立訂單（同一交易內扣庫存）→ Mock Payment 收款 → `commerce.order.paid.v1`
+2. **訂單** — 建立訂單（同一交易內扣庫存）→ Mock Payment 收款 → `commerce.order.paid.v2`
    與訂單狀態寫進**同一個交易**的 Outbox → Worker 可靠處理，重複處理不產生重複外部副作用。
-3. **Extension** — Demo ERP 訂閱 `commerce.order.paid.v1`，轉成 ERP 單據後以背景工作送出，
+3. **Extension** — Demo ERP 訂閱 `commerce.order.paid.v2`，轉成 ERP 單據後以背景工作送出，
    記錄成功／失敗／重試次數／最後錯誤，並提供人工重送 Command；MCP Extension 以
    `search_products` / `get_order` / `get_sales_summary` / `adjust_inventory` 四個工具公開能力，
    **只能**經由 Command Bus 與 Query Bus。

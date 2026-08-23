@@ -15,7 +15,7 @@ async function outboxFor(orderId: string) {
 }
 
 describe('流程二：訂單、付款與 Transactional Outbox', () => {
-  it('下單會預留庫存並同時發出 placed v1/v2', async () => {
+  it('下單會預留庫存並發出 placed.v3', async () => {
     const product = await createProduct(h.runtime, { priceCents: 2500 });
     await stockUp(h.runtime, product.id, 10);
     const order = await placeOrder(h.runtime, product.id, 3);
@@ -30,18 +30,16 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
     const stock = await h.runtime.queries.execute<any>('commerce.inventory.getStock', { productId: product.id }, { actor: ADMIN_ACTOR });
     expect(stock.onHand).toBe(10);
     expect(stock.reserved).toBe(3);
-    expect((await outboxFor(order.id)).map((r) => r.event_name)).toEqual([
-      'commerce.order.placed.v1', 'commerce.order.placed.v2', 'commerce.order.placed.v3',
-    ]);
+    // 下單只發一個版本（工單 24）。placed.v1 / v2 已經下線。
+    expect((await outboxFor(order.id)).map((r) => r.event_name)).toEqual(['commerce.order.placed.v3']);
 
     const payloads = await h.runtime.database.db.execute<{ event_name: string; payload: any }>(sql`
       SELECT event_name, payload FROM platform_outbox WHERE payload->>'orderId' = ${order.id} ORDER BY event_name
     `);
     const byName = Object.fromEntries(payloads.rows.map((r) => [r.event_name, r.payload]));
-    expect(byName['commerce.order.placed.v1']).toMatchObject({ orderId: order.id, totalCents: 7500 });
-    expect(byName['commerce.order.placed.v1'].expiresAt).toBeUndefined();
-    expect(byName['commerce.order.placed.v2']).toMatchObject({ orderId: order.id, totalCents: 7500 });
-    expect(byName['commerce.order.placed.v2'].expiresAt).toBeDefined();
+    expect(byName['commerce.order.placed.v1']).toBeUndefined();
+    expect(byName['commerce.order.placed.v2']).toBeUndefined();
+    expect(byName['commerce.order.placed.v3'].expiresAt).toBeDefined();
     expect(byName['commerce.order.placed.v3']).toMatchObject({
       orderId: order.id, subtotalCents: 7500, discountCents: 0, shippingCents: 0, taxCents: 0, totalCents: 7500, adjustments: [],
     });
@@ -60,7 +58,7 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
     expect(orders.items.every((o: any) => o.lines.every((l: any) => l.productId !== product.id))).toBe(true);
   });
 
-  it('付款工作在交易外完成，成功才扣庫存並發出 commerce.order.paid.v1', async () => {
+  it('付款工作在交易外完成，成功才扣庫存並發出 commerce.order.paid.v2', async () => {
     const product = await createProduct(h.runtime, { priceCents: 1200 });
     await stockUp(h.runtime, product.id, 5);
     const order = await placeOrder(h.runtime, product.id, 2);
@@ -77,18 +75,11 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
     const stock = await h.runtime.queries.execute<any>('commerce.inventory.getStock', { productId: product.id }, { actor: ADMIN_ACTOR });
     expect(stock).toMatchObject({ onHand: 3, reserved: 0, available: 3 });
     const events = await outboxFor(order.id);
+    // 一張訂單走完下單與付款只留兩列（工單 24）：過渡期的三筆舊版已經不發了。
     expect(events.map((e) => e.event_name)).toEqual([
-      'commerce.order.placed.v1', 'commerce.order.placed.v2', 'commerce.order.placed.v3',
-      'commerce.order.paid.v1', 'commerce.order.paid.v2',
+      'commerce.order.placed.v3', 'commerce.order.paid.v2',
     ]);
-    expect(events).toHaveLength(5);
-
-    const payload = await h.runtime.database.db.execute<{ payload: any }>(sql`
-      SELECT payload FROM platform_outbox WHERE event_name = 'commerce.order.paid.v1' AND payload->>'orderId' = ${order.id}
-    `);
-    expect(payload.rows[0].payload.paymentProvider).toBe('mock-payment');
-    expect(payload.rows[0].payload.totalCents).toBe(2400);
-    expect(payload.rows[0].payload.lines).toHaveLength(1);
+    expect(events).toHaveLength(2);
 
     const paidV2 = await h.runtime.database.db.execute<{ payload: any }>(sql`
       SELECT payload FROM platform_outbox WHERE event_name = 'commerce.order.paid.v2' AND payload->>'orderId' = ${order.id}
@@ -114,7 +105,7 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
       expect(fetched.status).toBe('payment_processing');
 
       const events = await failing.runtime.database.db.execute<{ count: string }>(sql`
-        SELECT count(*)::text AS count FROM platform_outbox WHERE event_name = 'commerce.order.paid.v1'
+        SELECT count(*)::text AS count FROM platform_outbox WHERE event_name = 'commerce.order.paid.v2'
       `);
       expect(Number(events.rows[0].count)).toBe(0);
     } finally {
@@ -139,7 +130,7 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
       SELECT count(*)::text AS count FROM order_payments WHERE order_id = ${order.id}
     `);
     expect(Number(payments.rows[0].count)).toBe(1);
-    const paidEvents = (await outboxFor(order.id)).filter((e) => e.event_name === 'commerce.order.paid.v1');
+    const paidEvents = (await outboxFor(order.id)).filter((e) => e.event_name === 'commerce.order.paid.v2');
     expect(paidEvents).toHaveLength(1);
   });
 

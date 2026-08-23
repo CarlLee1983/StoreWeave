@@ -12,7 +12,7 @@ import { CouponRepository, couponError, couponService, reverseCouponForOrder, ty
 import { maxRedeemableCents, rewardService, tierService } from '@storeweave/loyalty';
 import { cancelOrderInput, checkoutCartInput, markPaidInput, orderDto, payOrderInput, placeOrderInput, type OrderDto } from './dto';
 import { OrderRepository, toOrderDto } from './repository';
-import { orderCancelledV1, orderPaidV1, orderPaidV2, orderPlacedV1, orderPlacedV2, orderPlacedV3 } from './events';
+import { orderCancelledV1, orderPaidV2, orderPlacedV3 } from './events';
 import { orderAdjustments, orderLines, orderPayments, orders } from './schema';
 
 const repository = new OrderRepository();
@@ -159,26 +159,6 @@ export async function createOrderFromLines(
 
   const dto = toOrderDto(orderRow, lineRows, adjustmentRows);
   await ctx.enqueue({ type: EXPIRE_ORDER_JOB, payload: { orderId }, dedupeKey: `order:expire:${orderId}`, runAt: expiresAt });
-  await ctx.publish({
-    name: orderPlacedV1.name,
-    payload: {
-      orderId: dto.id,
-      orderNumber: dto.number,
-      customerEmail: dto.customerEmail,
-      currency: dto.currency,
-      totalCents: dto.totalCents,
-      placedAt: dto.placedAt,
-      lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents }) => ({
-        productId, sku, name, quantity, unitPriceCents, lineTotalCents,
-      })),
-    },
-  });
-  await ctx.publish({
-    name: orderPlacedV2.name,
-    payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency,
-      totalCents: dto.totalCents, placedAt: dto.placedAt, expiresAt: expiresAt,
-      lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents }) => ({ productId, sku, name, quantity, unitPriceCents, lineTotalCents })), },
-  });
   await ctx.publish({
     name: orderPlacedV3.name,
     payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, customerId: dto.customerId,
@@ -460,7 +440,6 @@ export function createMarkPaidHandler() {
     }
 
     const dto = toOrderDto(updated, lines, adjustments);
-    await ctx.publish({ name: orderPaidV1.name, payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, currency: dto.currency, totalCents: dto.totalCents, paidAt: dto.paidAt!, paymentProvider: input.provider, paymentRef: input.providerRef, lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents }) => ({ productId, sku, name, quantity, unitPriceCents, lineTotalCents })) } });
     await ctx.publish({
       name: orderPaidV2.name,
       payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, customerId: dto.customerId,
