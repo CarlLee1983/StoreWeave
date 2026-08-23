@@ -12,6 +12,7 @@
 - [x] 用單調時鐘（`performance.now()`）：`Date.now()` 會被 NTP 校時往回拉
 - [x] 拍板了 Query 的 level：成功走 `debug`、慢的升 `warn`（下方「拍板」）
 - [x] 測試真的斷言 log 上有那個欄位：整合測試打快與 4xx，單元測試打慢與 5xx
+- [x] 測試用的 logger 走正式那條 `createLogger()`（`createMemoryLogger()`）——手刻的假 logger 驗不到 `redact()` 與 level 過濾
 - [x] `docs/operations.md` 說明怎麼從 log 撈這個數字
 
 ## 為什麼現在需要它
