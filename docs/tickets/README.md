@@ -81,11 +81,25 @@ ERP 串接與後台，因此先加恆為零的欄位、再讓新舊事件並行�
 
 這一批做完之後仍然成立的取捨，寫在這裡免得下一個人以為是漏掉的：
 
-- **購物車每次渲染都讀整本購物金帳，而且商品行是 N+1**（`cart/src/service.ts`）。
-  帳本長度目前是「訂單數 × 2」等級，可以接受。真的變慢時該做的是
-  catalog／inventory 的批次查詢，以及一張定期結算的餘額快照，而不是把餘額改回欄位。
-- **`listMyCoupons` 與 `promotionPerformance` 逐列查活動**。同上，先量再改。
-- **`outstandingRewards` 是近似值**，理由寫在該函式的註解裡。要精確就得先有快照表。
+### 讀取路徑上的三筆效能債
+
+三筆都是「今天不痛」的取捨。共同的前提是**這個 repo 現在量不到自己**：
+Command / Query Bus 沒有記執行時間（`query-bus.ts` 與 `command-bus.ts` 都沒有計時），
+所以「先量再改」的第一步是讓它量得到，而不是直接動手改這三處。
+沒有數字就改，只會把一個看不出效果的複雜度加進來。
+
+| 在哪裡 | 現在做了什麼 | 屆時該做什麼 |
+| --- | --- | --- |
+| `cart/src/service.ts` 的 `toCartDto` | 每一行商品各查一次 catalog 與 inventory（2N 次往返）；會員還會整本讀購物金帳（`balanceFor` → `rewardEntriesFor`），因為餘額是 ledger 的推導值而不是欄位 | catalog／inventory 改批次查詢；餘額改讀一張定期結算的快照表 |
+| `coupon/src/queries.ts` 的 `listMyCoupons`、`promotionPerformance` | 兩支都在迴圈裡逐列 `promotions.findById` | 一次撈齊該批活動，或在 repository 那層 join |
+| `loyalty/src/repository.ts` 的 `outstandingRewards` | 依生效／到期分兩堆加總，**略低於真實負債**（過期批次的入帳被濾掉、對應的折抵卻還留著）；理由與量級寫在該函式的註解 | 要精確就得先有快照表——逐人跑 `deriveRewardBalance` 是 O(顧客數 × 帳本長度)，不能放在報表的同步路徑 |
+
+**三者都不該用「把推導值改回欄位」來解**。餘額是 ledger 的推導值是 ADR 0019 的決定，
+快取一份是可以的，換掉事實來源不是。今天的量級撐得住：購物金帳本每張訂單大約兩筆
+（累積、折抵），券與活動都是後台維護的數量級。
+
+### 其他
+
 - **取消訂單時扣回購物金不指名批次**，會扣到別批。今天走不到（累積在付款完成才發生，
   取消只允許 pending），部分退貨進模型時要一起處理。
 - **Extension Command 的 JSON body 不挑欄位**（工單 51 只挑 query string 那一側）。
