@@ -88,13 +88,13 @@ export class Worker {
             executeCommand: (name: string, input: unknown, idempotencyKey: string) => this.runtime.commands.execute(name, input, { actor: SYSTEM_ACTOR, idempotencyKey, channel: 'worker' }),
             executeQuery: (name: string, input: unknown) => this.runtime.queries.execute(name, input, { actor: SYSTEM_ACTOR, channel: 'worker' }),
           } as any);
-          await this.runtime.jobs.complete(this.runtime.database.db, job.id);
+          await this.runtime.jobs.complete(this.runtime.database.db, job.id, this.workerId);
           processed += 1;
         } catch (err) {
           failed += 1;
           const permanent = err instanceof PermanentJobError;
           const outcome = await this.runtime.jobs.fail(
-            this.runtime.database.db, job, (err as Error).message, permanent,
+            this.runtime.database.db, job, (err as Error).message, permanent, this.workerId,
           );
           logger.warn({ error: (err as Error).message, outcome }, 'job failed');
         }

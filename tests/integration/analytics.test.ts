@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
-  ADMIN_ACTOR, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
+  ADMIN_ACTOR, checkoutInput, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
 } from './helpers';
 
 /** 行銷分析的數字（工單 47）。資料來自核銷明細，不掃訂單全表。 */
@@ -43,7 +43,7 @@ async function buyWith(couponCode: string, priceCents: number) {
   await h.runtime.commands.execute('commerce.cart.applyCoupon', { code: couponCode },
     { actor: customer, idempotencyKey: randomUUID() });
   const cart = await h.runtime.queries.execute<any>('commerce.cart.getCart', {}, { actor: customer });
-  return h.runtime.commands.execute<any>('commerce.order.checkoutCart', { cartId: cart.id },
+  return h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cart.id),
     { actor: customer, idempotencyKey: randomUUID() });
 }
 
@@ -64,7 +64,7 @@ describe('活動成效', () => {
       redemptionCount: 2,
       orderCount: 2,
       discountCents: 15_000,
-      revenueCents: 135_000,
+      revenueCents: 135_200,
     });
   });
 

@@ -36,7 +36,9 @@ COPY packages/commerce/inventory/package.json packages/commerce/inventory/
 COPY packages/commerce/loyalty/package.json packages/commerce/loyalty/
 COPY packages/commerce/order/package.json packages/commerce/order/
 COPY packages/commerce/promotion/package.json packages/commerce/promotion/
+COPY packages/commerce/shipping/package.json packages/commerce/shipping/
 COPY packages/extensions/demo-erp/package.json packages/extensions/demo-erp/
+COPY packages/extensions/ecpay/package.json packages/extensions/ecpay/
 COPY packages/extensions/mcp/package.json packages/extensions/mcp/
 COPY packages/extensions/mock-notification/package.json packages/extensions/mock-notification/
 COPY packages/extensions/mock-payment/package.json packages/extensions/mock-payment/

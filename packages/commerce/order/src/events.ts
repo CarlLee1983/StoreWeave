@@ -67,4 +67,18 @@ export const orderCancelledV1 = defineEvent({
   }),
 });
 
-export const orderEvents = [orderPlacedV3, orderPaidV2, orderCancelledV1];
+/** Non-immediate methods publish their customer-facing payment information once it is durable. */
+export const orderPaymentInfoIssuedV1 = defineEvent({
+  name: 'commerce.order.paymentInfoIssued.v1',
+  summary: '付款資訊已取得，等待顧客於期限前繳款',
+  payload: z.object({
+    orderId: z.string().uuid(),
+    orderNumber: z.string(),
+    paymentAttemptRef: z.string(),
+    paymentProvider: z.string(),
+    instructions: z.array(z.object({ label: z.string(), value: z.string() })),
+    expiresAt: z.coerce.date(),
+  }),
+});
+
+export const orderEvents = [orderPlacedV3, orderPaidV2, orderCancelledV1, orderPaymentInfoIssuedV1];

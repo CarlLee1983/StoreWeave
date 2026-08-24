@@ -27,6 +27,12 @@
 | [0023](0023-host-prefixed-cookies.md) | Cookie 名字帶 `__Host-` 前綴，有無由部署的協定決定 | accepted |
 | [0024](0024-strict-command-inputs.md) | Command / Query 的輸入一律拒絕未知欄位 | accepted |
 | [0025](0025-clawback-names-its-batch.md) | 扣回指名批次，是「先到期先用」的唯一例外 | accepted |
+| [0026](0026-storefront-fonts-from-google-cdn.md) | 前台字型由 Google Fonts CDN 提供 | accepted |
+| [0027](0027-external-callbacks-belong-to-the-platform.md) | 外部回呼的端點屬於平台，Extension 沒有自己的 URL | accepted |
+| [0028](0028-shipping-fees-are-not-priced-by-the-engine.md) | 運費與免運不經定價引擎，也不問物流商 | accepted |
+| [0029](0029-shipping-is-a-module-payment-is-not.md) | 物流獨立成模組，付款留在 order | accepted |
+| [0030](0030-awaiting-payment-and-variable-reservation.md) | `awaiting_payment` 與依付款方式而異的預留期限 | accepted |
+| [0031](0031-shipment-events-are-domain-stages.md) | 出貨事件只表達領域階段，不轉述廠商狀態碼 | accepted |
 
 寫法：每篇結尾用 `## Falsified if` 這個標題起一段，段落裡以反引號標出這個決策所依賴的檔案；
 那些檔案就是這個決策的邊界清單，條件本身要寫成某個東西可以檢查的形式。

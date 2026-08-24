@@ -76,23 +76,7 @@ export async function dependencies(runtime: Runtime): Promise<DependencyHealth> 
 
   checks.push(await workerHeartbeatCheck(runtime));
 
-  for (const provider of runtime.providers.list()) {
-    const instance = runtime.providers.get(provider.kind, provider.id);
-    if (!instance.healthCheck) {
-      checks.push({ name: `provider:${provider.kind}:${provider.id}`, status: 'pass', detail: 'no health check' });
-      continue;
-    }
-    try {
-      const result = await instance.healthCheck();
-      checks.push({
-        name: `provider:${provider.kind}:${provider.id}`,
-        status: result.ok ? 'pass' : 'warn',
-        detail: result.message,
-      });
-    } catch (err) {
-      checks.push({ name: `provider:${provider.kind}:${provider.id}`, status: 'warn', detail: (err as Error).message });
-    }
-  }
+  checks.push(...await providerHealthChecks(runtime, 'warn'));
 
   for (const ext of runtime.extensions.list()) {
     if (!ext.definition.healthCheck) {
@@ -186,6 +170,13 @@ export async function doctor(runtime: Runtime, options: { releaseVersion: string
     });
   }
 
+  // `commerce doctor` is a release gate rather than a dashboard. A provider
+  // that reports itself unhealthy therefore fails the command, while the HTTP
+  // dependency view remains degraded so operators can inspect it during an
+  // incident. This also makes every enabled payment provider visible to the
+  // same pre-deployment check; no provider receives a special case here.
+  checks.push(...await providerHealthChecks(runtime, 'fail'));
+
   for (const id of ['mcp', 'demo-erp']) {
     const ext = runtime.extensions.find(id);
     if (!ext) {
@@ -221,6 +212,25 @@ function directoryCheck(dir: string): Check {
   } catch {
     return { name: `storage directory: ${dir}`, status: 'fail', detail: 'not writable by this user' };
   }
+}
+
+async function providerHealthChecks(runtime: Runtime, unhealthyStatus: Extract<CheckStatus, 'warn' | 'fail'>): Promise<Check[]> {
+  const checks: Check[] = [];
+  for (const provider of runtime.providers.list()) {
+    const name = `provider:${provider.kind}:${provider.id}`;
+    try {
+      const instance = runtime.providers.get(provider.kind, provider.id);
+      if (!instance.healthCheck) {
+        checks.push({ name, status: 'pass', detail: 'no health check' });
+        continue;
+      }
+      const result = await instance.healthCheck();
+      checks.push({ name, status: result.ok ? 'pass' : unhealthyStatus, detail: result.message });
+    } catch (err) {
+      checks.push({ name, status: unhealthyStatus, detail: (err as Error).message });
+    }
+  }
+  return checks;
 }
 
 function summarize(checks: Check[]): DependencyHealth {

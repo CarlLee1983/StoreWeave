@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type {
-  StorefrontTheme, ThemeAccountCouponsView, ThemeAuthView, ThemeCartView, ThemeContext,
+  StorefrontTheme, ThemeAccountCouponsView, ThemeAuthView, ThemeCartView, ThemeContext, ThemeOrderView,
 } from '@storeweave/kernel';
 import { escapeHtml, formatMoney, layout } from './layout';
 
@@ -44,12 +44,48 @@ function orderStatus(status: string): string {
   const labels: Record<string, string> = {
     pending: '訂單已建立',
     payment_processing: '付款處理中',
+    awaiting_payment: '等待付款',
     paid: '付款完成',
     expired: '已逾時',
     cancelled: '已取消',
   };
   const label = Object.hasOwn(labels, status) ? labels[status] : status;
   return `<span class="order-status" data-status="${escapeHtml(status)}">${escapeHtml(label)}</span>`;
+}
+
+/** Payment providers may return a hosted page, but never get to choose an executable URL scheme. */
+function safeExternalUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function paymentContinuation(payment: NonNullable<ThemeOrderView['payment']>): string {
+  if ((payment.status !== 'submitted' && payment.status !== 'awaiting_payment') || !payment.action) return '';
+  const url = safeExternalUrl(payment.action.url);
+  if (!url) return feedback('付款連結無效，請聯絡客服協助。', 'error');
+
+  if (payment.action.type === 'redirect') {
+    return `<section class="checkout-submit" aria-label="繼續付款">
+      <p>付款頁面已準備完成，請主動前往繼續付款。</p>
+      <a class="cta" href="${escapeHtml(url)}" rel="noopener noreferrer">前往付款</a>
+    </section>`;
+  }
+
+  const fields = Object.entries(payment.action.fields)
+    .filter(([name]) => /^[A-Za-z][A-Za-z0-9_]*$/.test(name))
+    .map(([name, value]) => `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`)
+    .join('');
+  return `<section class="checkout-submit" aria-label="繼續付款">
+    <p>付款資料已準備完成，請主動前往付款頁面。</p>
+    <form method="post" action="${escapeHtml(url)}">
+      ${fields}
+      <button type="submit">前往付款</button>
+    </form>
+  </section>`;
 }
 
 /** 忘記密碼與重設密碼：兩張表單長得夠像，共用一支。 */
@@ -151,6 +187,23 @@ function cartSummary(
       <div class="order-summary__row"><dt>商品小計</dt><dd>${money(view.subtotalCents)}</dd></div>
       ${adjustments}
       <div class="order-summary__row order-summary__row--total"><dt>${escapeHtml(totalLabel)}</dt><dd>${money(view.totalCents)}</dd></div>
+    </dl>
+  </section>`;
+}
+
+/** Checkout adds a server-quoted shipping fee to the server-derived cart amount. */
+function checkoutSummary(ctx: ThemeContext, view: import('@storeweave/kernel').ThemeCheckoutView): string {
+  const money = (cents: number) => formatMoney(cents, view.currency, ctx.locale);
+  const adjustments = view.adjustments.map((adjustment) => `
+    <div class="order-summary__row"><dt>${escapeHtml(adjustment.name)}</dt><dd>${money(adjustment.amountCents)}</dd></div>`).join('');
+  return `<section class="order-summary" aria-labelledby="checkout-summary-title">
+    <h2 id="checkout-summary-title">訂單摘要</h2>
+    <dl>
+      <div class="order-summary__row"><dt>商品小計</dt><dd>${money(view.subtotalCents)}</dd></div>
+      ${adjustments}
+      <div class="order-summary__row"><dt>商品與折扣小計</dt><dd>${money(view.totalCents)}</dd></div>
+      <div class="order-summary__row"><dt>運費</dt><dd>${money(view.shippingPreview.shippingCents)}</dd></div>
+      <div class="order-summary__row order-summary__row--total"><dt>含運費總額</dt><dd>${money(view.shippingPreview.totalCents)}</dd></div>
     </dl>
   </section>`;
 }
@@ -395,6 +448,24 @@ export const defaultTheme: StorefrontTheme = {
   },
 
   renderCheckout(ctx, view) {
+    const address = view.deliveryAddress;
+    const money = (cents: number) => formatMoney(cents, view.currency, ctx.locale);
+    const shippingOptions = view.shippingMethods.map((method) => {
+      const freeAt = method.freeShippingThresholdCents === null
+        ? ''
+        : `，滿 ${money(method.freeShippingThresholdCents)} 免運`;
+      const shippingCents = method.freeShippingThresholdCents !== null && view.subtotalCents >= method.freeShippingThresholdCents
+        ? 0
+        : method.feeCents;
+      const shippingText = shippingCents === 0 && method.feeCents > 0 ? '免運' : `運費 ${money(shippingCents)}`;
+      return `<option value="${escapeHtml(method.id)}"${method.id === view.selectedShippingMethodId ? ' selected' : ''}>${escapeHtml(method.name)}（${shippingText}${freeAt}）</option>`;
+    }).join('');
+    const paymentOptions = view.payment.methods.map((method) =>
+      `<option value="${escapeHtml(method.code)}">${escapeHtml(method.label)}（${method.timing === 'deferred' ? '取得繳費資訊後付款' : '立即付款'}）</option>`,
+    ).join('');
+    const field = (label: string, name: string, value: string | null | undefined, extra = '') =>
+      `<label>${label}<input name="${name}" value="${escapeHtml(value ?? '')}" ${extra}></label>`;
+    const canCheckout = view.shippingMethods.length > 0 && view.payment.methods.length > 0;
     const body = `
       <article class="checkout-page">
         ${pageHeading('建立訂單', '確認訂單', '請核對這次訂單的品項、金額與通知信箱。')}
@@ -413,14 +484,46 @@ export const defaultTheme: StorefrontTheme = {
             ${cartTable(ctx, view, false)}
           </section>
           <aside class="checkout-sidebar" aria-label="建立訂單">
-            ${cartSummary(ctx, view, 'checkout-summary-title', '訂單摘要', '訂單總額')}
+            ${checkoutSummary(ctx, view)}
             <section class="checkout-submit">
-              <p>建立後可在「我的訂單」查看目前狀態。</p>
+              <p>先選配送方式並更新總額；建立訂單時仍會由伺服器再次確認費率與總額。</p>
+              ${!view.shippingMethods.length ? feedback('目前沒有可用的配送方式，請聯絡商店。', 'error') : ''}
+              ${!view.payment.methods.length ? feedback('目前沒有可用的付款方式，請聯絡商店。', 'error') : ''}
+              <form method="get" action="/checkout" class="checkout-shipping-quote">
+                <label>配送方式
+                  <select name="shippingMethodId" required ${view.shippingMethods.length ? '' : 'disabled'}>
+                    ${shippingOptions}
+                  </select>
+                </label>
+                <button type="submit" ${view.shippingMethods.length ? '' : 'disabled'}>更新含運費總額</button>
+              </form>
               <form method="post" action="/checkout">
                 ${csrfField(ctx)}
                 <input type="hidden" name="cartId" value="${escapeHtml(view.cartId)}">
                 <input type="hidden" name="confirm" value="1">
-                <button type="submit">建立訂單</button>
+                <input type="hidden" name="paymentProvider" value="${escapeHtml(view.payment.provider)}">
+                <input type="hidden" name="shippingMethodId" value="${escapeHtml(view.selectedShippingMethodId)}">
+                <fieldset class="profile-form__section">
+                  <legend>配送方式與收件地址</legend>
+                  <div class="form-grid">
+                    ${field('收件人', 'recipient', address?.recipient, 'required maxlength="120" autocomplete="shipping name"')}
+                    ${field('收件電話', 'phone', address?.phone, 'required type="tel" maxlength="40" autocomplete="shipping tel"')}
+                    ${field('郵遞區號', 'postcode', address?.postcode, 'required maxlength="20" autocomplete="shipping postal-code"')}
+                    ${field('縣市', 'city', address?.city, 'required maxlength="80" autocomplete="shipping address-level1"')}
+                    ${field('鄉鎮市區', 'district', address?.district, 'required maxlength="80" autocomplete="shipping address-level2"')}
+                    ${field('地址', 'line1', address?.line1, 'required maxlength="200" autocomplete="shipping address-line1"')}
+                    ${field('地址第二行', 'line2', address?.line2, 'maxlength="200" autocomplete="shipping address-line2"')}
+                  </div>
+                </fieldset>
+                <fieldset class="profile-form__section">
+                  <legend>付款方式</legend>
+                  <label>付款方式
+                    <select name="paymentMethod" required ${view.payment.methods.length ? '' : 'disabled'}>
+                      ${paymentOptions}
+                    </select>
+                  </label>
+                </fieldset>
+                <button type="submit" ${canCheckout ? '' : 'disabled'}>建立訂單並前往付款</button>
               </form>
               <a class="secondary-action" href="/cart">回購物車修改</a>
             </section>
@@ -526,7 +629,56 @@ export const defaultTheme: StorefrontTheme = {
       </tr>`).join('');
     const paymentNotice = order.status === 'payment_processing'
       ? feedback('付款處理中；此頁會在重新整理後顯示最新結果。')
+      : order.status === 'awaiting_payment' ? feedback('請依下方繳費資訊完成付款。')
       : order.status === 'expired' ? feedback('付款逾時，已釋放保留庫存。') : '';
+    const payment = order.payment
+      ? `<section class="account-panel" aria-labelledby="payment-title">
+          <div class="section-heading"><h2 id="payment-title">付款資訊</h2><p>${escapeHtml(order.payment.method)}</p></div>
+          <p>付款狀態：${escapeHtml(order.payment.status)}</p>
+          ${order.payment.status === 'awaiting_payment' && order.payment.expiresAt ? `<p class="muted">請於 ${escapeHtml(order.payment.expiresAt.toLocaleString(ctx.locale))} 前完成付款。</p>` : ''}
+          ${order.payment.status === 'failed' ? feedback('付款未完成，請重新選擇付款方式後再試。', 'error') : ''}
+          ${order.payment.status === 'awaiting_payment' && order.payment.instructions
+            ? `<dl>${order.payment.instructions.map((instruction) => `<div class="order-summary__row"><dt>${escapeHtml(instruction.label)}</dt><dd>${escapeHtml(instruction.value)}</dd></div>`).join('')}</dl>`
+            : ''}
+          ${paymentContinuation(order.payment)}
+        </section>`
+      : '';
+    const paymentRetry = order.paymentRetry
+      ? `<section class="account-panel" aria-labelledby="payment-retry-title">
+          <div class="section-heading"><h2 id="payment-retry-title">重新付款</h2><p>建立新的付款嘗試</p></div>
+          <p>先前付款未完成時，可以選擇方式後重新付款；舊的付款資訊不會重複使用。</p>
+          <form method="post" action="/orders/${escapeHtml(order.number)}/pay">
+            ${csrfField(ctx)}
+            <input type="hidden" name="paymentProvider" value="${escapeHtml(order.paymentRetry.provider)}">
+            <label>付款方式
+              <select name="paymentMethod" required>
+                ${order.paymentRetry.methods.map((method) => `<option value="${escapeHtml(method.code)}">${escapeHtml(method.label)}（${method.timing === 'deferred' ? '取得繳費資訊後付款' : '立即付款'}）</option>`).join('')}
+              </select>
+            </label>
+            <button type="submit">重新付款</button>
+          </form>
+        </section>`
+      : '';
+    const cancellation = order.canCancel
+      ? `<section class="account-panel" aria-labelledby="cancel-order-title">
+          <div class="section-heading"><h2 id="cancel-order-title">取消訂單</h2><p>尚未付款且未進入出貨流程</p></div>
+          <p>取消後會釋放這張訂單保留的商品與折抵。</p>
+          <form method="post" action="/orders/${escapeHtml(order.number)}/cancel">
+            ${csrfField(ctx)}
+            <button type="submit" class="linklike">取消此訂單</button>
+          </form>
+        </section>`
+      : '';
+    const delivery = order.delivery
+      ? `<section class="account-panel" aria-labelledby="delivery-title">
+          <div class="section-heading"><h2 id="delivery-title">配送資訊</h2><p>${escapeHtml(order.delivery.shippingMethodName)}</p></div>
+          ${order.delivery.destination.kind === 'taiwan_home'
+            ? `<p>${escapeHtml(order.delivery.destination.recipient)}（${escapeHtml(order.delivery.destination.phone)}）</p>
+               <p>${escapeHtml(`${order.delivery.destination.postcode} ${order.delivery.destination.city}${order.delivery.destination.district}${order.delivery.destination.line1}${order.delivery.destination.line2 ?? ''}`)}</p>`
+            : `<p>${escapeHtml(order.delivery.destination.recipient)}（${escapeHtml(order.delivery.destination.phone)}）</p>
+               <p>${escapeHtml(order.delivery.destination.storeName)}：${escapeHtml(order.delivery.destination.storeAddress)}</p>`}
+        </section>`
+      : '';
     const body = `
       <article class="order-page">
         ${pageHeading('訂單紀錄', `訂單 ${order.number}`, '訂單建立後的狀態以此頁資訊為準。')}
@@ -535,6 +687,9 @@ export const defaultTheme: StorefrontTheme = {
           <div><p class="order-meta__label">通知信箱</p><p>${escapeHtml(order.customerEmail)}</p></div>
         </div>
         ${paymentNotice}
+        ${payment}
+        ${paymentRetry}
+        ${cancellation}
         <div class="order-layout">
           <section class="account-panel" aria-labelledby="order-lines-title">
             <div class="section-heading"><h2 id="order-lines-title">訂單品項</h2><p>${order.lines.length} 項商品</p></div>
@@ -548,6 +703,7 @@ export const defaultTheme: StorefrontTheme = {
             <strong>${formatMoney(order.totalCents, order.currency, ctx.locale)}</strong>
           </aside>
         </div>
+        ${delivery}
         <p class="page-return"><a href="/">繼續購物</a></p>
       </article>`;
     return layout({ title: `訂單 ${order.number}`, body, ctx });
@@ -620,6 +776,7 @@ export const defaultTheme: StorefrontTheme = {
               ${field('收件電話', 'addressPhone', address?.phone ?? null, 'type="tel" maxlength="40" autocomplete="shipping tel"')}
               ${field('郵遞區號', 'postcode', address?.postcode ?? null, 'maxlength="20" autocomplete="shipping postal-code"')}
               ${field('縣市', 'city', address?.city ?? null, 'maxlength="80" autocomplete="shipping address-level1"')}
+              ${field('鄉鎮市區', 'district', address?.district ?? null, 'maxlength="80" autocomplete="shipping address-level2"')}
               ${field('地址', 'line1', address?.line1 ?? null, 'maxlength="200" autocomplete="shipping address-line1"')}
               ${field('地址第二行', 'line2', address?.line2 ?? null, 'maxlength="200" autocomplete="shipping address-line2"')}
             </div>

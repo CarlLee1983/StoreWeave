@@ -25,7 +25,11 @@ export class OrderController extends BusController {
   @Post(':id/pay')
   @HttpCode(200)
   async pay(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: Record<string, unknown>) {
-    return ok(await this.command(req, 'commerce.order.payOrder', { orderId: id, provider: body?.provider }));
+    return ok(await this.command(req, 'commerce.order.payOrder', {
+      orderId: id,
+      provider: body?.provider,
+      method: body?.method,
+    }));
   }
 
   @Post(':id/cancel')

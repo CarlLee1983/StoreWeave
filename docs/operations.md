@@ -37,6 +37,7 @@ job queue backlog           pending / running / completed / dead
 storage directory           /var/lib/commerce 等目錄是否可讀寫
 extension compatibility     每個 Extension 的 platformVersion 是否相容
 secret present              每個必要機密是否存在（只檢查存在，不印出值）
+provider:<kind>:<id>        每個啟用 Provider 的 health；不健康會讓 doctor fail
 extension status: mcp       公開了幾個工具
 extension status: demo-erp  投遞成功 / 待處理 / 失敗筆數
 service: commerce-api/worker  行程是否在跑
@@ -76,10 +77,16 @@ service: commerce-api/worker  行程是否在跑
 | --- | --- | --- |
 | `/health/live` | 行程還活著 | 恆 200 |
 | `/health/ready` | 可以接流量：資料庫連得上且沒有待套用的 migration | 200 / 503 |
-| `/health/dependencies` | 資料庫、Outbox、佇列、Worker 心跳、各 Provider、各 Extension | 200 / 503 |
+| `/health/dependencies` | 資料庫、Outbox、佇列、Worker 心跳、各 Provider、各 Extension | 200 / 503（需 bearer token） |
 
-三個端點都不需要 API token，可直接給負載平衡器與監控使用。
-`/health/dependencies` 與 `commerce doctor` 共用同一份實作，兩邊不會給出不同結論。
+`/health/live` 與 `/health/ready` 不需要 API token，可直接給負載平衡器使用。
+`/health/dependencies` 是含有 provider 錯誤訊息、佇列深度與 worker id 的維運視圖，必須使用具權限的
+bearer token；監控應以安全的憑證或內網呼叫它。它與 `commerce doctor` 共用依賴檢查邏輯，但 doctor
+另有安裝、設定、目錄與 secret 檢查。
+
+啟用 ECPay 時，`provider:payment:ecpay` 會標示離線設定已驗證、外部連通性與 callback delivery 仍需 UAT：
+它只驗證離線設定與 extension health，不會探測 ECPay 或證明 callback 可達。正式切換與 callback 失敗處置見
+[ECPay Checkout 上線 Runbook](runbooks/ecpay-release.md)。
 
 ## 監控建議
 

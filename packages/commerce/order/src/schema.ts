@@ -49,13 +49,53 @@ export const orderAdjustments = pgTable('order_adjustments', {
 export const orderPayments = pgTable('order_payments', {
   id: uuid('id').primaryKey(),
   orderId: uuid('order_id').notNull(),
+  /** 平台自己的付款嘗試識別；provider callback 只能拿它回來找同一筆嘗試。 */
+  attemptRef: text('attempt_ref').notNull().unique(),
   provider: text('provider').notNull(),
-  providerRef: text('provider_ref').notNull(),
+  method: text('method').notNull(),
+  /** Provider 可能在啟動失敗前就沒有配置外部交易號，因此允許空值。 */
+  providerRef: text('provider_ref'),
   amountCents: integer('amount_cents').notNull(),
   status: text('status').notNull(),
+  /** 導轉／表單送出動作由平台持久化，不能在 worker 記憶體裡等顧客回來。 */
+  action: jsonb('action'),
+  instructions: jsonb('instructions'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  failureMessage: text('failure_message'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Checkout freezes the customer-facing delivery choice here. It deliberately
+ * references shipping by value instead of a cross-module FK: the order must
+ * remain readable even after a merchant retires or renames that method.
+ */
+export const orderDeliveries = pgTable('order_deliveries', {
+  orderId: uuid('order_id').primaryKey().references(() => orders.id, { onDelete: 'cascade' }),
+  shippingMethodId: uuid('shipping_method_id').notNull(),
+  shippingMethodCode: text('shipping_method_code').notNull(),
+  shippingMethodName: text('shipping_method_name').notNull(),
+  provider: text('provider').notNull(),
+  type: text('type').notNull(),
+  destinationKind: text('destination_kind').notNull(),
+  recipient: text('recipient').notNull(),
+  phone: text('phone').notNull(),
+  countryCode: text('country_code'),
+  postcode: text('postcode'),
+  city: text('city'),
+  district: text('district'),
+  line1: text('line1'),
+  line2: text('line2'),
+  providerStoreId: text('provider_store_id'),
+  storeName: text('store_name'),
+  storeAddress: text('store_address'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type OrderRow = typeof orders.$inferSelect;
 export type OrderLineRow = typeof orderLines.$inferSelect;
 export type OrderAdjustmentRow = typeof orderAdjustments.$inferSelect;
+export type OrderPaymentRow = typeof orderPayments.$inferSelect;
+export type OrderDeliveryRow = typeof orderDeliveries.$inferSelect;

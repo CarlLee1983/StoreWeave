@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import {
-  ADMIN_ACTOR, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
+  ADMIN_ACTOR, checkoutInput, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
 } from './helpers';
 
 /** 訂單取消時券回沖（工單 37）。 */
@@ -57,7 +57,7 @@ async function buyWith(couponCode: string, customer?: any) {
   await h.runtime.commands.execute('commerce.cart.applyCoupon', { code: couponCode },
     { actor: buyer, idempotencyKey: randomUUID() });
   const cart = await h.runtime.queries.execute<any>('commerce.cart.getCart', {}, { actor: buyer });
-  const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', { cartId: cart.id },
+  const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cart.id),
     { actor: buyer, idempotencyKey: randomUUID() });
   return { order, buyer };
 }

@@ -13,6 +13,7 @@ const sessionActor: Actor = { id: 'user:1', type: 'user', displayName: '店員',
 function guardWith(options: {
   isPublic?: boolean;
   isAnonymous?: boolean;
+  isExternalCallback?: boolean;
   tokenSecret?: string;
   resolveSession?: (token: string) => Promise<{ actor: Actor } | null>;
 }) {
@@ -27,7 +28,12 @@ function guardWith(options: {
     database: { db: {} },
   };
   const reflector = {
-    getAllAndOverride: (key: string) => (key === 'commerce:public' ? options.isPublic : options.isAnonymous),
+    getAllAndOverride: (key: string) => {
+      if (key === 'commerce:public') return options.isPublic;
+      if (key === 'commerce:anonymous') return options.isAnonymous;
+      if (key === 'commerce:external-callback') return options.isExternalCallback;
+      return undefined;
+    },
   };
   return new ApiTokenGuard(runtime as never, reflector as never);
 }
@@ -114,6 +120,14 @@ describe('@Anonymous() 強制當訪客', () => {
         .canActivate(contextFor(req)),
     ).resolves.toBe(true);
   });
+
+  it('仍拒絕跨站表單，避免登入端點被外站觸發', async () => {
+    const req = request({ method: 'POST', headers: { origin: 'https://evil.example' } });
+
+    await expect(guardWith({ isPublic: true, isAnonymous: true }).canActivate(contextFor(req))).rejects.toThrow(
+      /Cross-site form submissions/,
+    );
+  });
 });
 
 describe('CSRF 只擋 cookie 帶進來的寫入', () => {
@@ -136,5 +150,29 @@ describe('CSRF 只擋 cookie 帶進來的寫入', () => {
   it('GET 不需要 CSRF token', async () => {
     const req = request({ cookies: { [SESSION_COOKIE]: 'session-token' } });
     await expect(guardWith(withSession).canActivate(contextFor(req))).resolves.toBe(true);
+  });
+
+  it('沒有 session 的公開 POST 仍拒絕跨站請求', async () => {
+    const req = request({ method: 'POST', headers: { 'sec-fetch-site': 'cross-site' } });
+
+    await expect(guardWith({ isPublic: true }).canActivate(contextFor(req))).rejects.toThrow(/Cross-site form submissions/);
+  });
+});
+
+describe('@ExternalCallback() 外部回呼', () => {
+  it('跨站 POST 可進入 provider 驗簽流程，且 guard 不會賦予任何 actor', async () => {
+    const req = request({
+      method: 'POST',
+      headers: { origin: 'https://payment.example', 'sec-fetch-site': 'cross-site' },
+      cookies: { [SESSION_COOKIE]: 'session-token' },
+    });
+    const resolveSession = vi.fn(async () => ({ actor: sessionActor }));
+
+    await expect(
+      guardWith({ isExternalCallback: true, resolveSession }).canActivate(contextFor(req)),
+    ).resolves.toBe(true);
+
+    expect(req.actor).toBeUndefined();
+    expect(resolveSession).not.toHaveBeenCalled();
   });
 });

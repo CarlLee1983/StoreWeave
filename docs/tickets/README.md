@@ -3,13 +3,17 @@
 由 `docs/specs/` 的五份規格拆出，共 49 張，之後補了第 50、51、52、53、54、55 張。依相依順序編號。詞彙見根目錄 `CONTEXT.md`，
 決策見 `docs/adr/`（本批為 0013、0014、0015，並補充了 0009）。
 
-**已完成**：01–55。定價引擎、顧客身分、購物車、優惠券與行銷碼、
+**已完成**：01–56。定價引擎、顧客身分、購物車、優惠券與行銷碼、
 購物金與會員等級、行銷分析頁都已落地。50 是後補的契約收斂票，51 與 52 是它做完之後
 從「刻意沒做」那一段畢業的兩張：前者把 extension 的輸入也收進 ADR 0024，
 後者修掉結帳沒帶 `cartId` 時的退路。53 補上「量得到自己」——那是三筆效能債的前置。
 54 把「取消訂單扣回購物金會扣到別批」從下面那段「刻意沒做」畢業。
 55 是做 54 的時候查出來的：`bus-timing` 那支整合測試在斷言一個由耗時決定的值——
 交接文件裡那筆「至今沒有解釋」的 `test:all` 失敗就是它。
+
+**下一批**：57–67 落實 Spec 0006 的購物營運閉環。57–62 是上線閉環（結帳透明、
+ECPay UAT、綠界物流、超商選店、後台出貨、追蹤與通知）；63–66 是售後與帳務；67 是
+不阻擋出貨的商品探索改善。所有外部服務能力先以 UAT／商家設定驗證，不能由程式碼假設。
 
 **24（舊版訂單事件下線）於 2026-08-23 完成**。卡住它的一直是「外部部署有沒有人還在訂閱」，
 而 2026-08-23 問出來的答案是**這套系統還沒有正式部署**——投遞是行程內的，沒有行程就沒有
@@ -85,6 +89,17 @@
 | [54](54-clawback-names-its-batch.md) | 取消訂單扣回購物金要指名批次 | 40, 42 |
 | [55](55-bus-timing-slow-msg.md) | Bus 計時的整合測試會被機器忙碌搞紅，也會被搞綠 | 53 |
 | [56](56-default-storefront-theme.md) | Default Theme 顧客前台 | 14, 20, 29, 38, 49 |
+| [57](57-checkout-total-and-self-service.md) | 結帳總額透明與顧客自助付款操作 | 56 |
+| [58](58-ecpay-release-validation.md) | ECPay 正式上線驗證與營運手冊 | — |
+| [59](59-ecpay-logistics-adapter.md) | 綠界物流 Adapter：建單、標籤與追蹤號 | 58 |
+| [60](60-convenience-store-picker.md) | 超商門市選店與目的地回填 | 59 |
+| [61](61-admin-shipping-and-fulfillment.md) | 後台配送方式與出貨管理 | 59 |
+| [62](62-shipment-tracking-and-order-notifications.md) | 物流追蹤與訂單生命週期通知 | 59, 61 |
+| [63](63-refund-domain-and-operations.md) | 已付款訂單退款模型與後台作業 | 58 |
+| [64](64-ecpay-refund-and-reconciliation.md) | ECPay 退款 Adapter 與付款對帳 | 58, 63 |
+| [65](65-returns-and-exchanges.md) | 退貨與換貨案件（RMA） | 62, 63, 64 |
+| [66](66-electronic-invoice-provider.md) | 台灣電子發票 Provider 與帳務流程 | 63 |
+| [67](67-storefront-product-discovery.md) | 前台商品搜尋、篩選與分頁 | 56 |
 
 ## 已知、刻意沒做的
 

@@ -86,7 +86,15 @@ const cart: ThemeCartView = {
   error: PROBE,
 };
 
-const checkout: ThemeCheckoutView = { ...cart, customerEmail: PROBE };
+const checkout: ThemeCheckoutView = {
+  ...cart,
+  customerEmail: PROBE,
+  shippingMethods: [{ id: PROBE, name: PROBE, feeCents: 100, freeShippingThresholdCents: 1_000 }],
+  selectedShippingMethodId: PROBE,
+  shippingPreview: { shippingCents: 100, totalCents: 118_100 },
+  deliveryAddress: { recipient: PROBE, phone: PROBE, postcode: PROBE, city: PROBE, district: PROBE, line1: PROBE, line2: PROBE },
+  payment: { provider: PROBE, methods: [{ code: PROBE, label: PROBE, timing: 'immediate' }] },
+};
 
 const order: ThemeOrderView = {
   number: PROBE,
@@ -95,6 +103,13 @@ const order: ThemeOrderView = {
   totalCents: 118_000,
   customerEmail: PROBE,
   lines: [{ sku: PROBE, name: PROBE, quantity: 1, lineTotalCents: 118_000 }],
+  payment: {
+    status: 'submitted', method: PROBE, action: { type: 'form_post', url: 'https://payment.example.test/pay', fields: { MerchantTradeNo: PROBE } },
+    instructions: [{ label: PROBE, value: PROBE }], expiresAt: DATE,
+  },
+  paymentRetry: { provider: PROBE, methods: [{ code: PROBE, label: PROBE, timing: 'immediate' }] },
+  canCancel: true,
+  delivery: { shippingMethodName: PROBE, destination: { kind: 'taiwan_home', recipient: PROBE, phone: PROBE, postcode: PROBE, city: PROBE, district: PROBE, line1: PROBE, line2: PROBE } },
 };
 
 const rewards: ThemeAccountRewardsView = {
@@ -132,7 +147,7 @@ const profile: ThemeAccountProfileView = {
   displayName: PROBE,
   phone: PROBE,
   birthday: PROBE,
-  address: { recipient: PROBE, phone: PROBE, postcode: PROBE, city: PROBE, line1: PROBE, line2: PROBE },
+  address: { countryCode: 'TW', recipient: PROBE, phone: PROBE, postcode: PROBE, city: PROBE, district: PROBE, line1: PROBE, line2: PROBE },
   saved: true,
   error: PROBE,
 };

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
-import { createHarness, createProduct, stockUp, type TestHarness } from './helpers';
+import { createHarness, createProduct, stockUp, storefrontCheckoutForm, type TestHarness } from './helpers';
 
 const ADMIN_TOKEN = 'test-admin-token-abcdefghijklmnop';
 const MCP_TOKEN = 'test-mcp-token-abcdefghijklmnop';
@@ -267,7 +267,7 @@ describe('Storefront SSR', () => {
     const confirm = await inject({ method: 'GET', url: '/checkout', cookies: { commerce_session: session } });
     const cartId = /name="cartId" value="([^"]+)"/.exec(confirm.body)![1];
 
-    const res = await inject({ method: 'POST', url: '/checkout', ...form(`cartId=${cartId}`) });
+    const res = await inject({ method: 'POST', url: '/checkout', ...form(storefrontCheckoutForm(h, cartId)) });
     expect(res.statusCode).toBe(303);
     const location = res.headers.location as string;
     const orderPage = await inject({ method: 'GET', url: location, cookies: { commerce_session: session } });

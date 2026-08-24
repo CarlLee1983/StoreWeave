@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import {
-  ADMIN_ACTOR, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
+  ADMIN_ACTOR, checkoutInput, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
 } from './helpers';
 
 /** 行銷碼與訂單歸因（工單 36）。 */
@@ -56,7 +56,7 @@ async function buy(priceCents: number, couponCode?: string) {
       { actor: customer, idempotencyKey: randomUUID() });
   }
   const cart = await h.runtime.queries.execute<any>('commerce.cart.getCart', {}, { actor: customer });
-  return h.runtime.commands.execute<any>('commerce.order.checkoutCart', { cartId: cart.id },
+  return h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cart.id),
     { actor: customer, idempotencyKey: randomUUID() });
 }
 
@@ -76,7 +76,7 @@ describe('行銷碼歸因', () => {
       partnerCode: partner,
       orderCount: 2,
       // 折後應付：90,000 + 45,000
-      revenueCents: 135_000,
+      revenueCents: 135_200,
       discountCents: 15_000,
     });
   });

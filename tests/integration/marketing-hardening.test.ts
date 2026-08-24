@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import {
-  ADMIN_ACTOR, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
+  ADMIN_ACTOR, checkoutInput, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
 } from './helpers';
 
 /** 工單 31–49 審查抓到的問題的迴歸測試。每一條對應一個具體的損失路徑。 */
@@ -174,7 +174,7 @@ describe('用掉的券不能被改回可用', () => {
       { actor: customer, idempotencyKey: randomUUID() });
     const cart = await h.runtime.commands.execute<any>('commerce.cart.applyCoupon', { code: value },
       { actor: customer, idempotencyKey: randomUUID() });
-    await h.runtime.commands.execute('commerce.order.checkoutCart', { cartId: cart.id },
+    await h.runtime.commands.execute('commerce.order.checkoutCart', checkoutInput(h, cart.id),
       { actor: customer, idempotencyKey: randomUUID() });
 
     await expect(h.runtime.commands.execute('commerce.coupon.setCouponStatus',
@@ -212,7 +212,7 @@ describe('結帳的商品行數有上限', () => {
       `);
     }
 
-    await expect(h.runtime.commands.execute('commerce.order.checkoutCart', { cartId: realCartId },
+    await expect(h.runtime.commands.execute('commerce.order.checkoutCart', checkoutInput(h, realCartId),
       { actor: customer, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 });

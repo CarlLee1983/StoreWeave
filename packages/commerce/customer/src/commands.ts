@@ -103,8 +103,10 @@ export const updateMyProfileHandler = async (
     ...(input.address === undefined ? {} : {
       addressRecipient: input.address.recipient,
       addressPhone: input.address.phone,
+      addressCountryCode: input.address.countryCode,
       addressPostcode: input.address.postcode,
       addressCity: input.address.city,
+      addressDistrict: input.address.district,
       addressLine1: input.address.line1,
       addressLine2: input.address.line2,
     }),

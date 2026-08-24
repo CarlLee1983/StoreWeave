@@ -1,19 +1,24 @@
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext } from '@storeweave/contracts';
-import type { ProviderRegistry, PaymentProvider } from '@storeweave/extension-sdk';
+import { PermanentJobError } from '@storeweave/jobs';
+import type { PaymentProvider, PaymentStartResult, ProviderRegistry } from '@storeweave/extension-sdk';
 import { catalogService } from '@storeweave/catalog';
 import { inventoryService } from '@storeweave/inventory';
 import { customerService } from '@storeweave/customer';
 import { pricingService } from '@storeweave/promotion';
+import { shippingService, type ShippingDestinationInput } from '@storeweave/shipping';
 import { CartRepository, isPurchasable } from '@storeweave/cart';
 import { CouponRepository, couponError, couponService, reverseCouponForOrder, type CouponRow } from '@storeweave/coupon';
 import { maxRedeemableCents, rewardService, tierService } from '@storeweave/loyalty';
-import { cancelOrderInput, checkoutCartInput, markPaidInput, orderDto, payOrderInput, placeOrderInput, type OrderDto } from './dto';
-import { OrderRepository, toOrderDto } from './repository';
-import { orderCancelledV1, orderPaidV2, orderPlacedV3 } from './events';
-import { orderAdjustments, orderLines, orderPayments, orders } from './schema';
+import {
+  cancelOrderInput, checkoutCartInput, markPaidInput, orderOutputDto, payOrderInput, placeOrderInput,
+  recordPaymentResultInput, type OrderDto, type OrderOutputDto,
+} from './dto';
+import { OrderRepository, toCustomerOrderDto, toOrderDto } from './repository';
+import { orderCancelledV1, orderPaidV2, orderPaymentInfoIssuedV1, orderPlacedV3 } from './events';
+import { orderAdjustments, orderDeliveries, orderLines, orderPayments, orders } from './schema';
 
 const repository = new OrderRepository();
 
@@ -26,6 +31,11 @@ async function assertOwnedByActor(ctx: CommandContext, order: { id: string; cust
   if (ctx.actor.type !== 'customer') return;
   const customerId = await customerService.customerIdOf(ctx.tx, ctx.actor);
   if (order.customerId !== customerId) throw PlatformError.notFound('Order', order.id);
+}
+
+/** Keep operational payment evidence on server-side commands, not customer responses. */
+function orderOutputForActor(ctx: CommandContext, order: OrderDto): OrderOutputDto {
+  return ctx.actor.type === 'customer' ? toCustomerOrderDto(order) : order;
 }
 
 export interface OrderModuleDeps {
@@ -42,13 +52,13 @@ export const placeOrderCommand = defineCommand({
   name: 'commerce.order.placeOrder',
   summary: '建立訂單並預留庫存',
   input: placeOrderInput,
-  output: orderDto,
+  output: orderOutputDto,
   permission: 'order:write',
   idempotency: 'required',
   audit: {
     action: 'order.placed',
     resourceType: 'order',
-    resourceId: (_i, o: OrderDto) => o.id,
+    resourceId: (_i, o: OrderOutputDto) => o.id,
     redact: (i) => ({ lineCount: i.lines.length }),
   },
 });
@@ -67,6 +77,8 @@ export async function createOrderFromLines(
     couponPromotionIds?: readonly string[];
     /** 購物金折抵。上限由呼叫端算好，引擎只負責套用與分攤。 */
     rewardRedeemCents?: number;
+    /** Checkout passes a concrete merchant method and destination; direct back-office orders may omit delivery. */
+    delivery?: { shippingMethodId: string; destination: ShippingDestinationInput };
   },
   ctx: CommandContext,
 ): Promise<OrderDto> {
@@ -108,6 +120,16 @@ export async function createOrderFromLines(
     });
   }
 
+  // 配送費是商家的交易政策：在優惠引擎算總額以前，先把目前可用的方法解成不可變快照。
+  // 之後停用、改名或改價都不會改寫這張訂單。
+  const deliverySnapshot = input.delivery
+    ? await shippingService.resolveCheckoutMethod(ctx.tx, {
+      shippingMethodId: input.delivery.shippingMethodId,
+      subtotalCents: lines.reduce((total, line) => total + line.lineTotalCents, 0),
+      destinationKind: input.delivery.destination.kind,
+    })
+    : null;
+
   // 定價與訂單建立在同一個交易內：折扣依據的活動狀態與寫進訂單的金額必定一致。
   // 等級限定的活動要看得到下單者的等級。與購物車的試算讀的是同一支。
   const membershipTier = (await tierService.currentTierFor(ctx.tx, buyer.customerId)).name;
@@ -116,6 +138,7 @@ export async function createOrderFromLines(
     couponPromotionIds: input.couponPromotionIds,
     rewardRedeemCents: input.rewardRedeemCents,
     membershipTier,
+    shippingCents: deliverySnapshot?.shippingCents,
     lines: lines.map((l) => ({
       lineId: l.id!,
       productId: l.productId,
@@ -138,6 +161,8 @@ export async function createOrderFromLines(
     customerId: buyer.customerId,
     subtotalCents: pricing.subtotalCents,
     discountCents: pricing.discountCents,
+    shippingCents: pricing.shippingCents,
+    taxCents: pricing.taxCents,
     totalCents: pricing.totalCents,
     metadata: input.metadata ?? null,
     placedAt: ctx.now,
@@ -157,8 +182,42 @@ export async function createOrderFromLines(
     })),
   ).returning();
 
-  const dto = toOrderDto(orderRow, lineRows, adjustmentRows);
-  await ctx.enqueue({ type: EXPIRE_ORDER_JOB, payload: { orderId }, dedupeKey: `order:expire:${orderId}`, runAt: expiresAt });
+  let deliveryRow: typeof orderDeliveries.$inferSelect | null = null;
+  if (deliverySnapshot && input.delivery) {
+    const destination = input.delivery.destination;
+    const [inserted] = await ctx.tx.insert(orderDeliveries).values({
+      orderId,
+      shippingMethodId: deliverySnapshot.id,
+      shippingMethodCode: deliverySnapshot.code,
+      shippingMethodName: deliverySnapshot.name,
+      provider: deliverySnapshot.provider,
+      type: deliverySnapshot.type,
+      destinationKind: deliverySnapshot.destinationKind,
+      recipient: destination.recipient,
+      phone: destination.phone,
+      ...(destination.kind === 'taiwan_home'
+        ? {
+          countryCode: destination.countryCode, postcode: destination.postcode, city: destination.city,
+          district: destination.district, line1: destination.line1, line2: destination.line2,
+          providerStoreId: null, storeName: null, storeAddress: null,
+        }
+        : {
+          countryCode: null, postcode: null, city: null, district: null, line1: null, line2: null,
+          providerStoreId: destination.providerStoreId, storeName: destination.storeName, storeAddress: destination.storeAddress,
+        }),
+      createdAt: ctx.now,
+      updatedAt: ctx.now,
+    }).returning();
+    deliveryRow = inserted;
+  }
+
+  const dto = toOrderDto(orderRow, lineRows, adjustmentRows, [], deliveryRow);
+  await ctx.enqueue({
+    type: EXPIRE_ORDER_JOB,
+    payload: { orderId, expiresAt: expiresAt.toISOString() },
+    dedupeKey: `order:expire:${orderId}`,
+    runAt: expiresAt,
+  });
   await ctx.publish({
     name: orderPlacedV3.name,
     payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, customerId: dto.customerId,
@@ -173,8 +232,8 @@ export async function createOrderFromLines(
 }
 
 export function createPlaceOrderHandler(deps: OrderModuleDeps) {
-  return (input: z.infer<typeof placeOrderInput>, ctx: CommandContext): Promise<OrderDto> =>
-    createOrderFromLines(deps, input, ctx);
+  return async (input: z.infer<typeof placeOrderInput>, ctx: CommandContext): Promise<OrderOutputDto> =>
+    orderOutputForActor(ctx, await createOrderFromLines(deps, input, ctx));
 }
 
 const cartRepository = new CartRepository();
@@ -184,13 +243,13 @@ export const checkoutCartCommand = defineCommand({
   name: 'commerce.order.checkoutCart',
   summary: '把購物車轉成訂單',
   input: checkoutCartInput,
-  output: orderDto,
+  output: orderOutputDto,
   permission: 'order:write',
   idempotency: 'required',
   audit: {
     action: 'order.placed',
     resourceType: 'order',
-    resourceId: (_i, o: OrderDto) => o.id,
+    resourceId: (_i, o: OrderOutputDto) => o.id,
     redact: () => ({}),
   },
 });
@@ -201,7 +260,7 @@ export const checkoutCartCommand = defineCommand({
  * 而每次現產一個隨機值等於沒有保護（Spec 0003 要修的就是這個缺陷）。
  */
 export function createCheckoutCartHandler(deps: OrderModuleDeps) {
-  return async (input: z.infer<typeof checkoutCartInput>, ctx: CommandContext): Promise<OrderDto> => {
+  return async (input: z.infer<typeof checkoutCartInput>, ctx: CommandContext): Promise<OrderOutputDto> => {
     const buyer = await customerService.requireByActor(ctx.tx, ctx.actor);
     const cart = await cartRepository.lockById(ctx.tx, input.cartId);
     // 別人的車、或還沒併進來的訪客車，都不是這個人結得了的。
@@ -210,11 +269,13 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
     if (cart.orderId) {
       const existing = await repository.findById(ctx.tx, cart.orderId);
       if (existing) {
-        return toOrderDto(
+        return orderOutputForActor(ctx, toOrderDto(
           existing,
           await repository.linesFor(ctx.tx, existing.id),
           await repository.adjustmentsFor(ctx.tx, existing.id),
-        );
+          await repository.paymentsFor(ctx.tx, existing.id),
+          await repository.deliveryFor(ctx.tx, existing.id),
+        ));
       }
     }
     if (cart.status !== 'open') throw PlatformError.conflict(`Cart ${cart.id} is no longer open`);
@@ -267,6 +328,7 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
       metadata: input.metadata,
       couponPromotionIds: locked ? [locked.promotionId] : [],
       rewardRedeemCents,
+      delivery: { shippingMethodId: input.shippingMethodId, destination: input.destination },
     }, ctx);
 
     // 折抵與訂單在同一個交易內成立：訂單回滾了，購物金就沒有被扣過。
@@ -284,7 +346,7 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
 
     if (locked) await redeemCoupon(ctx, locked, order, buyer.customerId);
     await cartRepository.markCheckedOut(ctx.tx, cart.id, order.id, ctx.now);
-    return order;
+    return orderOutputForActor(ctx, order);
   };
 }
 
@@ -339,44 +401,111 @@ async function subtotalOfLines(
 
 export const payOrderCommand = defineCommand({
   name: 'commerce.order.payOrder',
-  summary: '要求背景工作向 payment provider 收款',
+  summary: '建立付款嘗試並要求背景工作啟動 payment provider',
   input: payOrderInput,
-  output: orderDto,
+  output: orderOutputDto,
   permission: 'order:write',
   idempotency: 'required',
   audit: { action: 'order.paid', resourceType: 'order', resourceId: (i) => i.orderId },
 });
 
 export function createPayOrderHandler(deps: OrderModuleDeps) {
-  return async (input: z.infer<typeof payOrderInput>, ctx: CommandContext): Promise<OrderDto> => {
+  return async (input: z.infer<typeof payOrderInput>, ctx: CommandContext): Promise<OrderOutputDto> => {
     const order = await repository.lockById(ctx.tx, input.orderId);
     if (!order) throw PlatformError.notFound('Order', input.orderId);
     await assertOwnedByActor(ctx, order);
-    const lineRows = await repository.linesFor(ctx.tx, order.id);
-    const adjustmentRows = await repository.adjustmentsFor(ctx.tx, order.id);
+    const [lineRows, adjustmentRows, paymentRows, delivery] = await Promise.all([
+      repository.linesFor(ctx.tx, order.id),
+      repository.adjustmentsFor(ctx.tx, order.id),
+      repository.paymentsFor(ctx.tx, order.id),
+      repository.deliveryFor(ctx.tx, order.id),
+    ]);
 
-    if (order.status === 'paid' || order.status === 'payment_processing') return toOrderDto(order, lineRows, adjustmentRows);
+    // 已送往金流或正在等待繳款時，不建立第二筆 attempt。真正失敗會由
+    // recordPaymentResult 把 Order 放回 pending，屆時才能由顧客重新選方式。
+    if (order.status === 'paid' || order.status === 'payment_processing' || order.status === 'awaiting_payment') {
+      return orderOutputForActor(ctx, toOrderDto(order, lineRows, adjustmentRows, paymentRows, delivery));
+    }
     if (order.status !== 'pending') {
       throw PlatformError.conflict(`Order ${order.number} cannot be paid (status=${order.status})`);
     }
+
+    // 0 元訂單絕不能送到外部金流（綠界的 TotalAmount 也不接受它）。仍留下
+    // 一筆 internal attempt，讓稽核與付款成功路徑只有一份實作。
+    if (order.totalCents === 0) {
+      const attemptRef = `internal:${randomUUID()}`;
+      const [attempt] = await ctx.tx.insert(orderPayments).values({
+        id: randomUUID(), orderId: order.id, attemptRef, provider: 'internal', method: 'internal',
+        providerRef: `internal:${order.id}`, amountCents: 0, status: 'created',
+        createdAt: ctx.now, updatedAt: ctx.now,
+      }).returning();
+      const [processing] = await ctx.tx.update(orders)
+        .set({ status: 'payment_processing', updatedAt: ctx.now })
+        .where(eq(orders.id, order.id))
+        .returning();
+      return orderOutputForActor(ctx, await markOrderPaid(ctx, processing, attempt, { provider: 'internal', providerRef: attempt.providerRef! }));
+    }
+
+    const provider = deps.providers.get<PaymentProvider>('payment', input.provider);
+    const method = resolvePaymentMethod(provider, input.method);
+    const attemptRef = `payment:${randomUUID()}`;
+    const [attempt] = await ctx.tx.insert(orderPayments).values({
+      id: randomUUID(), orderId: order.id, attemptRef, provider: provider.id, method,
+      providerRef: null, amountCents: order.totalCents, status: 'created',
+      createdAt: ctx.now, updatedAt: ctx.now,
+    }).returning();
     const [updated] = await ctx.tx.update(orders)
       .set({ status: 'payment_processing', updatedAt: ctx.now })
       .where(eq(orders.id, order.id))
       .returning();
-    const provider = deps.providers.get<PaymentProvider>('payment', input.provider);
-    await ctx.enqueue({ type: PROCESS_PAYMENT_JOB, payload: { orderId: order.id, orderNumber: order.number, amountCents: order.totalCents, currency: order.currency, provider: provider.id }, dedupeKey: `order:pay:${order.id}` });
-    return toOrderDto(updated, lineRows, adjustmentRows);
+    await ctx.enqueue({
+      type: PROCESS_PAYMENT_JOB,
+      payload: {
+        orderId: order.id, orderNumber: order.number, amountCents: order.totalCents,
+        currency: order.currency, provider: provider.id, method, attemptRef,
+      },
+      // 一次付款嘗試一把 dedupe key；失敗後的新 attempt 不能被已完成的 job 擋住。
+      dedupeKey: `order:pay:${attemptRef}`,
+    });
+    return orderOutputForActor(ctx, toOrderDto(updated, lineRows, adjustmentRows, [...paymentRows, attempt], delivery));
   };
 }
 
+function resolvePaymentMethod(provider: PaymentProvider, requested: string | undefined): string {
+  const methods = provider.paymentMethods();
+  // 單一方式沒有選擇歧義，可由店家設定直接選定；多方式一律要求結帳頁明示。
+  const method = requested ?? (methods.length === 1 ? methods[0].code : undefined);
+  if (!method) throw PlatformError.validation(`Choose a payment method for provider ${provider.id}`);
+  if (!methods.some((candidate) => candidate.code === method)) {
+    throw PlatformError.validation(`Payment method ${method} is not enabled for provider ${provider.id}`);
+  }
+  return method;
+}
+
 export const markPaidCommand = defineCommand({
-  name: 'commerce.order.markPaid', summary: '確認背景付款成功並扣除已預留庫存', input: markPaidInput, output: orderDto,
+  name: 'commerce.order.markPaid', summary: '確認背景付款成功並扣除已預留庫存', input: markPaidInput, output: orderOutputDto,
   permission: 'order:write', idempotency: 'required', audit: { action: 'order.paid', resourceType: 'order', resourceId: (i) => i.orderId },
+});
+
+/** Worker 與 callback controller 都透過這支 command 保存 provider 的標準化結果。 */
+export const recordPaymentResultCommand = defineCommand({
+  name: 'commerce.order.recordPaymentResult',
+  summary: '保存付款嘗試結果並推導訂單付款狀態',
+  input: recordPaymentResultInput,
+  output: orderOutputDto,
+  permission: 'order:write',
+  idempotency: 'required',
+  audit: {
+    action: 'order.payment_result',
+    resourceType: 'order',
+    resourceId: (_input, output: OrderOutputDto) => output.id,
+    redact: (input) => ({ provider: input.provider, status: input.status, attemptRef: input.attemptRef }),
+  },
 });
 
 export const expireOrderCommand = defineCommand({
   name: 'commerce.order.expireOrder', summary: '釋放逾時未付款訂單的庫存預留',
-  input: z.object({ orderId: z.string().uuid() }).strict(), output: orderDto, permission: 'order:write', idempotency: 'required',
+  input: z.object({ orderId: z.string().uuid() }).strict(), output: orderOutputDto, permission: 'order:write', idempotency: 'required',
   audit: { action: 'order.expired', resourceType: 'order', resourceId: (i) => i.orderId },
 });
 
@@ -385,12 +514,18 @@ export function createExpireOrderHandler() {
     if (ctx.actor.type !== 'system') throw PlatformError.forbidden('Only the worker may expire an order');
     const order = await repository.lockById(ctx.tx, input.orderId);
     if (!order) throw PlatformError.notFound('Order', input.orderId);
-    const lines = await repository.linesFor(ctx.tx, order.id);
-    const adjustments = await repository.adjustmentsFor(ctx.tx, order.id);
-    if (order.status === 'expired') return toOrderDto(order, lines, adjustments);
-    if (order.status === 'paid' || order.status === 'cancelled') return toOrderDto(order, lines, adjustments);
+    const [lines, adjustments, payments, delivery] = await Promise.all([
+      repository.linesFor(ctx.tx, order.id),
+      repository.adjustmentsFor(ctx.tx, order.id),
+      repository.paymentsFor(ctx.tx, order.id),
+      repository.deliveryFor(ctx.tx, order.id),
+    ]);
+    if (order.status === 'expired') return toOrderDto(order, lines, adjustments, payments, delivery);
+    if (order.status === 'paid' || order.status === 'cancelled') return toOrderDto(order, lines, adjustments, payments, delivery);
+    // 排程被延後（例如 ATM 取號）時，已被舊 worker 認領的工作仍可能先跑到。
+    // 它不是失敗，不應進 DLQ；新的到期工作會以新的 occurrence key 留在佇列裡。
     if (!order.expiresAt || order.expiresAt.getTime() > ctx.now.getTime()) {
-      throw PlatformError.conflict(`Order ${order.number} has not reached its payment deadline`);
+      return toOrderDto(order, lines, adjustments, payments, delivery);
     }
     for (const line of lines) await inventoryService.release(ctx, { productId: line.productId, quantity: line.quantity, reference: order.number });
     // 逾時與取消對顧客是同一件事：那張單沒有成立，折抵掉的購物金與用掉的券都要還他。
@@ -399,8 +534,14 @@ export function createExpireOrderHandler() {
       await rewardService.reverseForOrder(ctx.tx, { customerId: order.customerId, orderId: order.id, now: ctx.now });
       await tierService.reverseForOrder(ctx.tx, { customerId: order.customerId, orderId: order.id, now: ctx.now });
     }
+    await ctx.tx.update(orderPayments)
+      .set({ status: 'expired', updatedAt: ctx.now })
+      .where(and(
+        eq(orderPayments.orderId, order.id),
+        inArray(orderPayments.status, ['created', 'submitted', 'awaiting_payment']),
+      ));
     const [updated] = await ctx.tx.update(orders).set({ status: 'expired', updatedAt: ctx.now }).where(eq(orders.id, order.id)).returning();
-    return toOrderDto(updated, lines, adjustments);
+    return toOrderDto(updated, lines, adjustments, await repository.paymentsFor(ctx.tx, order.id), delivery);
   };
 }
 
@@ -409,49 +550,202 @@ export function createMarkPaidHandler() {
     if (ctx.actor.type !== 'system') throw PlatformError.forbidden('Only a payment worker may confirm payment');
     const order = await repository.lockById(ctx.tx, input.orderId);
     if (!order) throw PlatformError.notFound('Order', input.orderId);
-    const lines = await repository.linesFor(ctx.tx, order.id);
-    const adjustments = await repository.adjustmentsFor(ctx.tx, order.id);
-    if (order.status === 'paid') return toOrderDto(order, lines, adjustments);
-    if (order.status !== 'payment_processing') throw PlatformError.conflict(`Order ${order.number} cannot be marked paid (status=${order.status})`);
-    // 唯一鍵衝突必須使整筆交易回滾：同一 provider ref 絕不能支付兩張訂單。
-    await ctx.tx.insert(orderPayments).values({ id: randomUUID(), orderId: order.id, provider: input.provider, providerRef: input.providerRef, amountCents: order.totalCents, status: 'succeeded', createdAt: ctx.now });
-    for (const line of lines) await inventoryService.commitReservation(ctx, { productId: line.productId, quantity: line.quantity, reference: order.number });
-    const [updated] = await ctx.tx.update(orders).set({ status: 'paid', paidAt: ctx.now, updatedAt: ctx.now }).where(eq(orders.id, order.id)).returning();
+    // Legacy callers without an attemptRef still get the normal idempotent
+    // terminal response; never manufacture a second legacy attempt after paid.
+    if (order.status === 'paid') return orderDtoWithDetails(ctx, order);
+    let attempt = input.attemptRef ? await repository.lockPaymentByAttemptRef(ctx.tx, input.attemptRef) : null;
+    if (input.attemptRef && !attempt) throw PlatformError.notFound('Payment attempt', input.attemptRef);
+    if (attempt && attempt.orderId !== order.id) throw PlatformError.validation('Payment attempt does not belong to this order');
+    if (!attempt) {
+      const [created] = await ctx.tx.insert(orderPayments).values({
+        id: randomUUID(), orderId: order.id, attemptRef: `legacy:${input.provider}:${input.providerRef}`,
+        provider: input.provider, method: 'legacy', providerRef: input.providerRef,
+        amountCents: order.totalCents, status: 'created', createdAt: ctx.now, updatedAt: ctx.now,
+      }).returning();
+      attempt = created;
+    }
+    return markOrderPaid(ctx, order, attempt, input);
+  };
+}
 
-    // 購物金在付款完成時入帳，與付款同一個交易——付款回滾了，購物金就不曾發生。
-    // 生效日往後推，因此取消回沖只是扣掉一筆還沒生效的分錄（Spec 0005）。
-    if (order.customerId) {
-      // 倍率取自會員等級：等級的實質待遇之一（工單 45）。
-      const multiplier = await tierService.multiplierFor(ctx.tx, order.customerId);
-      await rewardService.accrueForOrder(ctx.tx, {
-        customerId: order.customerId,
-        orderId: order.id,
-        netCents: order.totalCents,
-        now: ctx.now,
-        multiplier,
-      });
-      // 等級積分是另一本帳：同一個時機累積，但它不能折抵金額。
-      await tierService.accrueForOrder(ctx.tx, {
-        customerId: order.customerId,
-        orderId: order.id,
-        netCents: order.totalCents,
-        now: ctx.now,
-      });
+/**
+ * The only transition that commits inventory and grants customer value. Keeping it
+ * shared means synchronous, redirected and callback-confirmed payments cannot drift.
+ */
+async function markOrderPaid(
+  ctx: CommandContext,
+  order: typeof orders.$inferSelect,
+  attempt: typeof orderPayments.$inferSelect,
+  input: { provider: string; providerRef: string },
+): Promise<OrderDto> {
+  const [lines, adjustments, delivery] = await Promise.all([
+    repository.linesFor(ctx.tx, order.id),
+    repository.adjustmentsFor(ctx.tx, order.id),
+    repository.deliveryFor(ctx.tx, order.id),
+  ]);
+  if (order.status === 'paid') return toOrderDto(order, lines, adjustments, await repository.paymentsFor(ctx.tx, order.id), delivery);
+  if (order.status !== 'payment_processing' && order.status !== 'awaiting_payment') {
+    throw PlatformError.conflict(`Order ${order.number} cannot be marked paid (status=${order.status})`);
+  }
+  if (attempt.orderId !== order.id) throw PlatformError.validation('Payment attempt does not belong to this order');
+  if (attempt.provider !== input.provider) throw PlatformError.validation('Payment provider does not match the attempt');
+  if (attempt.status === 'expired') throw PlatformError.conflict(`Payment attempt ${attempt.attemptRef} has expired`);
+  if (attempt.status === 'succeeded' && attempt.providerRef !== input.providerRef) {
+    throw PlatformError.conflict(`Payment attempt ${attempt.attemptRef} was confirmed with a different provider reference`);
+  }
+
+  // A gateway can use one reference for checkout and another for its final charge;
+  // the provider verifies that correspondence before this command is ever invoked.
+  await repository.updatePayment(ctx.tx, attempt.id, {
+    providerRef: input.providerRef,
+    status: 'succeeded',
+    failureMessage: null,
+  }, ctx.now);
+  for (const line of lines) await inventoryService.commitReservation(ctx, { productId: line.productId, quantity: line.quantity, reference: order.number });
+  const [updated] = await ctx.tx.update(orders)
+    .set({ status: 'paid', paidAt: ctx.now, updatedAt: ctx.now })
+    .where(eq(orders.id, order.id))
+    .returning();
+
+  // 購物金在付款完成時入帳，與付款同一個交易——付款回滾了，購物金就不曾發生。
+  // 生效日往後推，因此取消回沖只是扣掉一筆還沒生效的分錄（Spec 0005）。
+  if (order.customerId) {
+    const multiplier = await tierService.multiplierFor(ctx.tx, order.customerId);
+    await rewardService.accrueForOrder(ctx.tx, {
+      customerId: order.customerId, orderId: order.id, netCents: order.totalCents, now: ctx.now, multiplier,
+    });
+    await tierService.accrueForOrder(ctx.tx, {
+      customerId: order.customerId, orderId: order.id, netCents: order.totalCents, now: ctx.now,
+    });
+  }
+
+  const dto = toOrderDto(updated, lines, adjustments, await repository.paymentsFor(ctx.tx, order.id), delivery);
+  await ctx.publish({
+    name: orderPaidV2.name,
+    payload: {
+      orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, customerId: dto.customerId,
+      currency: dto.currency, paidAt: dto.paidAt!, paymentProvider: input.provider, paymentRef: input.providerRef,
+      subtotalCents: dto.subtotalCents, discountCents: dto.discountCents, shippingCents: dto.shippingCents,
+      taxCents: dto.taxCents, totalCents: dto.totalCents, adjustments: dto.adjustments,
+      lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents }) => ({
+        productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents, netCents: lineTotalCents - discountCents,
+      })),
+    },
+  });
+  return dto;
+}
+
+export function createRecordPaymentResultHandler() {
+  return async (input: z.infer<typeof recordPaymentResultInput>, ctx: CommandContext): Promise<OrderDto> => {
+    if (ctx.actor.type !== 'system') throw PlatformError.forbidden('Only a payment worker or callback may record payment results');
+    const found = await repository.findPaymentByAttemptRef(ctx.tx, input.attemptRef);
+    if (!found) throw PlatformError.notFound('Payment attempt', input.attemptRef);
+    // Lock aggregate before attempt, matching pay / expire / markPaid lock order.
+    const order = await repository.lockById(ctx.tx, found.orderId);
+    if (!order) throw PlatformError.notFound('Order', found.orderId);
+    const attempt = await repository.lockPaymentByAttemptRef(ctx.tx, input.attemptRef);
+    if (!attempt) throw PlatformError.notFound('Payment attempt', input.attemptRef);
+    if (attempt.provider !== input.provider) throw PlatformError.validation('Payment provider does not match the attempt');
+
+    if (order.status === 'paid' || order.status === 'expired' || order.status === 'cancelled') {
+      // A trusted provider can be late, but it must never revive an order after
+      // expiry won the row lock. The attempt remains operational evidence for reconciliation.
+      if (order.status !== 'paid') ctx.logger.warn({ orderId: order.id, attemptRef: attempt.attemptRef }, 'ignored payment result for terminal order');
+      return orderDtoWithDetails(ctx, order);
     }
 
-    const dto = toOrderDto(updated, lines, adjustments);
-    await ctx.publish({
-      name: orderPaidV2.name,
-      payload: { orderId: dto.id, orderNumber: dto.number, customerEmail: dto.customerEmail, customerId: dto.customerId,
-        currency: dto.currency, paidAt: dto.paidAt!, paymentProvider: input.provider, paymentRef: input.providerRef,
-        subtotalCents: dto.subtotalCents, discountCents: dto.discountCents, shippingCents: dto.shippingCents,
-        taxCents: dto.taxCents, totalCents: dto.totalCents, adjustments: dto.adjustments,
-        lines: dto.lines.map(({ productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents }) => ({
-          productId, sku, name, quantity, unitPriceCents, lineTotalCents, discountCents, netCents: lineTotalCents - discountCents,
-        })), },
-    });
-    return dto;
+    switch (input.status) {
+      case 'confirmed': {
+        if (attempt.status === 'succeeded') {
+          if (attempt.providerRef !== input.providerRef) {
+            throw PlatformError.conflict(`Payment attempt ${attempt.attemptRef} was confirmed with a different provider reference`);
+          }
+          return orderDtoWithDetails(ctx, order);
+        }
+        if (attempt.status === 'failed' || attempt.status === 'expired') return orderDtoWithDetails(ctx, order);
+        return markOrderPaid(ctx, order, attempt, input);
+      }
+
+      case 'redirect': {
+        // A duplicated worker run after a callback must not replace instructions
+        // or downgrade an already confirmed attempt back to submitted.
+        if (order.status !== 'payment_processing' || !['created', 'submitted'].includes(attempt.status)) {
+          return orderDtoWithDetails(ctx, order);
+        }
+        await repository.updatePayment(ctx.tx, attempt.id, {
+          status: 'submitted', providerRef: input.providerRef, action: input.action,
+          failureMessage: null,
+        }, ctx.now);
+        return orderDtoWithDetails(ctx, order);
+      }
+
+      case 'awaiting_payment': {
+        if (input.expiresAt.getTime() <= ctx.now.getTime()) {
+          throw PlatformError.validation('Payment instructions have already expired');
+        }
+        if (!['payment_processing', 'awaiting_payment'].includes(order.status)
+          || ['succeeded', 'failed', 'expired'].includes(attempt.status)) {
+          return orderDtoWithDetails(ctx, order);
+        }
+        const alreadyRecorded = attempt.status === 'awaiting_payment'
+          && attempt.providerRef === input.providerRef
+          && attempt.expiresAt?.getTime() === input.expiresAt.getTime()
+          && JSON.stringify(attempt.instructions) === JSON.stringify(input.instructions);
+        await repository.updatePayment(ctx.tx, attempt.id, {
+          status: 'awaiting_payment', providerRef: input.providerRef,
+          instructions: [...input.instructions], expiresAt: input.expiresAt, failureMessage: null,
+        }, ctx.now);
+        const [updated] = await ctx.tx.update(orders)
+          .set({ status: 'awaiting_payment', expiresAt: input.expiresAt, updatedAt: ctx.now })
+          .where(eq(orders.id, order.id))
+          .returning();
+        await ctx.enqueue({
+          type: EXPIRE_ORDER_JOB,
+          payload: { orderId: order.id, expiresAt: input.expiresAt.toISOString() },
+          dedupeKey: `order:expire:${order.id}`,
+          runAt: input.expiresAt,
+          replaceExisting: true,
+        });
+        const dto = await orderDtoWithDetails(ctx, updated);
+        if (!alreadyRecorded) {
+          await ctx.publish({
+            name: orderPaymentInfoIssuedV1.name,
+            payload: {
+              orderId: dto.id, orderNumber: dto.number, paymentAttemptRef: attempt.attemptRef,
+              paymentProvider: input.provider, instructions: [...input.instructions], expiresAt: input.expiresAt,
+            },
+          });
+        }
+        return dto;
+      }
+
+      case 'failed': {
+        // A retry has already received a new attemptRef. Replaying the old
+        // failure must not downgrade the newer active attempt back to pending.
+        if (attempt.status === 'succeeded' || attempt.status === 'failed' || attempt.status === 'expired') {
+          return orderDtoWithDetails(ctx, order);
+        }
+        await repository.updatePayment(ctx.tx, attempt.id, {
+          status: 'failed', providerRef: input.providerRef ?? attempt.providerRef,
+          failureMessage: input.message ?? 'Payment provider rejected this attempt',
+        }, ctx.now);
+        const updated = order.status === 'payment_processing' || order.status === 'awaiting_payment'
+          ? (await ctx.tx.update(orders).set({ status: 'pending', updatedAt: ctx.now }).where(eq(orders.id, order.id)).returning())[0]
+          : order;
+        return orderDtoWithDetails(ctx, updated);
+      }
+    }
   };
+}
+
+async function orderDtoWithDetails(ctx: CommandContext, order: typeof orders.$inferSelect): Promise<OrderDto> {
+  const [lines, adjustments, payments, delivery] = await Promise.all([
+    repository.linesFor(ctx.tx, order.id),
+    repository.adjustmentsFor(ctx.tx, order.id),
+    repository.paymentsFor(ctx.tx, order.id),
+    repository.deliveryFor(ctx.tx, order.id),
+  ]);
+  return toOrderDto(order, lines, adjustments, payments, delivery);
 }
 
 type CoreJobContext = {
@@ -461,27 +755,59 @@ type CoreJobContext = {
 
 export function createProcessPaymentJob(deps: OrderModuleDeps) {
   return async (raw: unknown, rawCtx: unknown): Promise<void> => {
-    const { orderId, orderNumber, amountCents, currency, provider: providerId } = z.object({ orderId: z.string().uuid(), orderNumber: z.string(), amountCents: z.number().int(), currency: z.string(), provider: z.string() }).parse(raw);
+    const { orderId, orderNumber, amountCents, currency, provider: providerId, method, attemptRef } = z.object({
+      orderId: z.string().uuid(), orderNumber: z.string(), amountCents: z.number().int().nonnegative(),
+      currency: z.string(), provider: z.string(), method: z.string(), attemptRef: z.string(),
+    }).strict().parse(raw);
     const ctx = rawCtx as CoreJobContext;
     const current = await ctx.executeQuery('commerce.order.getOrder', { id: orderId });
-    if (current.status !== 'payment_processing') return;
+    const attempt = current.paymentAttempts.find((candidate: { attemptRef: string }) => candidate.attemptRef === attemptRef);
+    if (!attempt) throw new PermanentJobError(`Payment attempt ${attemptRef} does not exist on order ${orderId}`);
+    if (current.status !== 'payment_processing' || !['created', 'submitted'].includes(attempt.status)) return;
     if (current.expiresAt && new Date(current.expiresAt).getTime() <= Date.now()) {
-      await ctx.executeCommand('commerce.order.expireOrder', { orderId }, `expire-order:${orderId}`);
+      await ctx.executeCommand('commerce.order.expireOrder', { orderId }, `expire-order:${orderId}:${new Date(current.expiresAt).getTime()}`);
       return;
     }
     const provider = deps.providers.get<PaymentProvider>('payment', providerId);
-    // Job 執行在交易外；provider 的 reference 冪等，worker 重試不會重複扣款。
-    const result = await provider.charge({ orderId, orderNumber, amountCents, currency, reference: `order:${orderId}` });
-    if (result.status !== 'succeeded') throw new Error(`Payment failed: ${result.message ?? 'declined'}`);
-    await ctx.executeCommand('commerce.order.markPaid', { orderId, provider: provider.id, providerRef: result.providerRef }, `mark-paid:${provider.id}:${result.providerRef}`);
+    // Job 在交易外呼叫 provider；同一 attemptRef 重試時 provider 會回放同一筆外部交易。
+    const result = await provider.start({ orderId, orderNumber, amountCents, currency, method, reference: attemptRef });
+    const input = paymentResultFromStart(provider.id, attemptRef, result);
+    const providerRef = 'providerRef' in input && input.providerRef ? input.providerRef : 'none';
+    await ctx.executeCommand(
+      'commerce.order.recordPaymentResult',
+      input,
+      `payment-result:${provider.id}:${attemptRef}:${input.status}:${providerRef}`,
+    );
   };
+}
+
+function paymentResultFromStart(provider: string, attemptRef: string, result: PaymentStartResult): z.input<typeof recordPaymentResultInput> {
+  switch (result.status) {
+    case 'confirmed':
+      return { attemptRef, provider, status: 'confirmed', providerRef: result.providerRef };
+    case 'redirect':
+      return { attemptRef, provider, status: 'redirect', providerRef: result.providerRef, action: result.action };
+    case 'awaiting_payment':
+      return {
+        attemptRef, provider, status: 'awaiting_payment', providerRef: result.providerRef,
+        instructions: [...result.instructions], expiresAt: new Date(result.expiresAt),
+      };
+    case 'failed':
+      return {
+        attemptRef, provider, status: 'failed',
+        ...(result.providerRef ? { providerRef: result.providerRef } : {}),
+        ...(result.message ? { message: result.message } : {}),
+      };
+  }
 }
 
 export function createExpireReservationJob() {
   return async (raw: unknown, rawCtx: unknown): Promise<void> => {
-    const { orderId } = z.object({ orderId: z.string().uuid() }).parse(raw);
+    const { orderId, expiresAt } = z.object({ orderId: z.string().uuid(), expiresAt: z.string().datetime().optional() }).strict().parse(raw);
     const ctx = rawCtx as CoreJobContext;
-    await ctx.executeCommand('commerce.order.expireOrder', { orderId }, `expire-order:${orderId}`);
+    // The occurrence key changes when a deferred payment supplies a later deadline.
+    // An old, already-claimed job can therefore no-op without poisoning the real expiry.
+    await ctx.executeCommand('commerce.order.expireOrder', { orderId }, `expire-order:${orderId}:${expiresAt ?? 'legacy'}`);
   };
 }
 
@@ -489,22 +815,34 @@ export const cancelOrderCommand = defineCommand({
   name: 'commerce.order.cancelOrder',
   summary: '取消訂單並回補庫存',
   input: cancelOrderInput,
-  output: orderDto,
+  output: orderOutputDto,
   permission: 'order:write',
   idempotency: 'required',
   audit: { action: 'order.cancelled', resourceType: 'order', resourceId: (i) => i.orderId, redact: (i) => ({ reason: i.reason }) },
 });
 
 export function createCancelOrderHandler(_deps: OrderModuleDeps) {
-  return async (input: z.infer<typeof cancelOrderInput>, ctx: CommandContext): Promise<OrderDto> => {
+  return async (input: z.infer<typeof cancelOrderInput>, ctx: CommandContext): Promise<OrderOutputDto> => {
     const order = await repository.lockById(ctx.tx, input.orderId);
     if (!order) throw PlatformError.notFound('Order', input.orderId);
     await assertOwnedByActor(ctx, order);
-    const lineRows = await repository.linesFor(ctx.tx, order.id);
-    const adjustmentRows = await repository.adjustmentsFor(ctx.tx, order.id);
-    if (order.status === 'cancelled') return toOrderDto(order, lineRows, adjustmentRows);
+    const [lineRows, adjustmentRows, paymentRows, delivery] = await Promise.all([
+      repository.linesFor(ctx.tx, order.id),
+      repository.adjustmentsFor(ctx.tx, order.id),
+      repository.paymentsFor(ctx.tx, order.id),
+      repository.deliveryFor(ctx.tx, order.id),
+    ]);
+    if (order.status === 'cancelled') {
+      return orderOutputForActor(ctx, toOrderDto(order, lineRows, adjustmentRows, paymentRows, delivery));
+    }
     if (order.status !== 'pending') {
       throw PlatformError.conflict(`Order ${order.number} cannot be cancelled (status=${order.status})`);
+    }
+    // Cancellation and shipment creation both lock Order before this check.
+    // Any shipment means fulfilment has begun and needs its own reversal flow;
+    // this unpaid-order command must not manufacture a cancelled+shipment pair.
+    if (await shippingService.hasShipmentForOrder(ctx.tx, order.id)) {
+      throw PlatformError.conflict(`Order ${order.number} cannot be cancelled after fulfilment has begun`);
     }
 
     for (const line of lineRows) {
@@ -531,7 +869,7 @@ export function createCancelOrderHandler(_deps: OrderModuleDeps) {
       .where(eq(orders.id, order.id))
       .returning();
 
-    const dto = toOrderDto(updated, lineRows, adjustmentRows);
+    const dto = toOrderDto(updated, lineRows, adjustmentRows, paymentRows, delivery);
     await ctx.publish({
       name: orderCancelledV1.name,
       payload: {
@@ -542,6 +880,6 @@ export function createCancelOrderHandler(_deps: OrderModuleDeps) {
         restockedLines: lineRows.map((l) => ({ productId: l.productId, quantity: l.quantity })),
       },
     });
-    return dto;
+    return orderOutputForActor(ctx, dto);
   };
 }

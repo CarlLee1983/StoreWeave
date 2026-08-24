@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { loyaltyMigrations } from '@storeweave/loyalty';
 import {
-  ADMIN_ACTOR, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
+  ADMIN_ACTOR, checkoutInput, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
 } from './helpers';
 
 /** 訂單取消時購物金回沖（工單 42）。 */
@@ -23,7 +23,7 @@ const setRedemption = (amountCents: number, actor: any) =>
 const getCart = (actor: any) => h.runtime.queries.execute<any>('commerce.cart.getCart', {}, { actor });
 
 const checkout = (actor: any, cartId: string) =>
-  h.runtime.commands.execute<any>('commerce.order.checkoutCart', { cartId }, { actor, idempotencyKey: randomUUID() });
+  h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cartId), { actor, idempotencyKey: randomUUID() });
 
 const cancel = (orderId: string) =>
   h.runtime.commands.execute<any>('commerce.order.cancelOrder', { orderId, reason: 'test' },

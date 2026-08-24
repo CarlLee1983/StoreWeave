@@ -23,5 +23,10 @@ ALTER TABLE customer_customers ADD COLUMN IF NOT EXISTS address_city text;
 ALTER TABLE customer_customers ADD COLUMN IF NOT EXISTS address_line1 text;
 ALTER TABLE customer_customers ADD COLUMN IF NOT EXISTS address_line2 text;
 `),
+    sqlMigration('0003_taiwan_address_fields', 'expand', `
+ALTER TABLE customer_customers
+  ADD COLUMN IF NOT EXISTS address_country_code text NOT NULL DEFAULT 'TW';
+ALTER TABLE customer_customers ADD COLUMN IF NOT EXISTS address_district text;
+`),
   ],
 };

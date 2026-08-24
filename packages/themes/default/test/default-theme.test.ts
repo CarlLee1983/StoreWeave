@@ -58,6 +58,10 @@ const order: ThemeOrderView = {
   totalCents: 118_000,
   customerEmail: 'buyer@example.test',
   lines: [{ sku: 'WD-001', name: '日常托盤', quantity: 1, lineTotalCents: 118_000 }],
+  payment: null,
+  paymentRetry: null,
+  canCancel: false,
+  delivery: null,
 };
 
 describe('Default Theme 的商品瀏覽切片', () => {
@@ -152,6 +156,11 @@ describe('Default Theme 的商品瀏覽切片', () => {
     const checkout = defaultTheme.renderCheckout(context({ customerName: '小美', csrfToken: 'csrf-token' }), {
       ...cart,
       customerEmail: 'buyer@example.test',
+      shippingMethods: [{ id: 'shipping-1', name: '宅配', feeCents: 6_000, freeShippingThresholdCents: 100_000 }],
+      selectedShippingMethodId: 'shipping-1',
+      shippingPreview: { shippingCents: 6_000, totalCents: 124_000 },
+      deliveryAddress: { recipient: '小美', phone: '0911222333', postcode: '100', city: '台北市', district: '中正區', line1: '忠孝東路 1 號', line2: null },
+      payment: { provider: 'mock', methods: [{ code: 'mock', label: '測試付款', timing: 'immediate' }] },
     });
 
     expect(empty).toContain('購物車是空的');
@@ -161,6 +170,16 @@ describe('Default Theme 的商品瀏覽切片', () => {
     expect(checkout).toContain('action="/checkout"');
     expect(checkout).toContain('name="cartId" value="cart-1"');
     expect(checkout).toContain('name="confirm" value="1"');
+    expect(checkout).toContain('name="shippingMethodId"');
+    expect(checkout).toContain('name="recipient" value="小美"');
+    expect(checkout).toContain('name="paymentProvider" value="mock"');
+    expect(checkout).toContain('name="paymentMethod"');
+    expect(checkout).toContain('action="/checkout" class="checkout-shipping-quote"');
+    expect(checkout).toContain('value="shipping-1" selected');
+    expect(checkout).toContain('商品與折扣小計');
+    expect(checkout).toContain('含運費總額');
+    expect(checkout).toContain('更新含運費總額');
+    expect(checkout).toContain('伺服器再次確認費率與總額');
     expect(checkout).toContain('name="_csrf" value="csrf-token"');
     expect(checkout).toContain('建立訂單');
     expect(checkout).not.toContain('action="/cart/items/product-1"');
@@ -194,6 +213,47 @@ describe('Default Theme 的商品瀏覽切片', () => {
     expect(known).toContain('付款完成');
     expect(unknown).toContain('>refunded</span>');
     expect(unknown).not.toContain('已退款');
+  });
+
+  it('訂單顯示配送快照、繳費資訊與須由顧客觸發的付款續行', () => {
+    const html = defaultTheme.renderOrder(context(), { order: {
+      ...order,
+      status: 'awaiting_payment',
+      payment: {
+        status: 'awaiting_payment', method: 'ATM', action: { type: 'redirect', url: 'https://payment.example.test/pay' },
+        instructions: [{ label: '虛擬帳號', value: '12345678901234' }], expiresAt: new Date('2026-08-25T00:00:00.000Z'),
+      },
+      delivery: { shippingMethodName: '宅配', destination: { kind: 'taiwan_home', recipient: '小美', phone: '0911222333', postcode: '100', city: '台北市', district: '中正區', line1: '忠孝東路 1 號', line2: null } },
+    } });
+
+    expect(html).toContain('配送資訊');
+    expect(html).toContain('宅配');
+    expect(html).toContain('虛擬帳號');
+    expect(html).toContain('12345678901234');
+    expect(html).toContain('href="https://payment.example.test/pay"');
+    expect(html).not.toContain('onload=');
+  });
+
+  it('失敗付款只顯示安全說明，並提供新的付款嘗試與未付款取消入口', () => {
+    const html = defaultTheme.renderOrder(context({ csrfToken: 'csrf-token' }), { order: {
+      ...order,
+      status: 'pending',
+      payment: {
+        status: 'failed', method: '信用卡',
+        action: { type: 'redirect', url: 'https://provider.example.test/old-payment?CheckMacValue=secret' },
+        instructions: [{ label: 'raw callback', value: 'HashKey=secret' }],
+        expiresAt: new Date('2026-08-25T00:00:00.000Z'),
+      },
+      paymentRetry: { provider: 'mock-payment', methods: [{ code: 'mock', label: 'Mock payment', timing: 'immediate' }] },
+      canCancel: true,
+    } });
+
+    expect(html).toContain('付款未完成，請重新選擇付款方式後再試。');
+    expect(html).toContain('action="/orders/ORD-1/pay"');
+    expect(html).toContain('action="/orders/ORD-1/cancel"');
+    expect(html).toContain('name="_csrf" value="csrf-token"');
+    expect(html).not.toContain('CheckMacValue=secret');
+    expect(html).not.toContain('HashKey=secret');
   });
 
   it('使用指定的表面色與可預期的置頂頁首層級', () => {

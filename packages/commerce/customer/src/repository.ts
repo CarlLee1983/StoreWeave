@@ -12,10 +12,12 @@ export function toCustomerDto(row: CustomerRow): CustomerDto {
     phone: row.phone,
     address: row.addressLine1
       ? {
+          countryCode: 'TW',
           recipient: row.addressRecipient ?? '',
           phone: row.addressPhone ?? '',
           postcode: row.addressPostcode ?? '',
           city: row.addressCity ?? '',
+          district: row.addressDistrict,
           line1: row.addressLine1,
           line2: row.addressLine2,
         }

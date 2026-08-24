@@ -17,6 +17,30 @@ export interface ThemeOrderView {
   totalCents: number;
   customerEmail: string;
   lines: { sku: string; name: string; quantity: number; lineTotalCents: number }[];
+  /** Latest attempt is presented without exposing provider-specific raw callback fields. */
+  payment: {
+    status: 'created' | 'submitted' | 'awaiting_payment' | 'succeeded' | 'failed' | 'expired';
+    method: string;
+    action: { type: 'redirect'; url: string } | { type: 'form_post'; url: string; fields: Record<string, string> } | null;
+    instructions: { label: string; value: string }[] | null;
+    expiresAt: Date | null;
+  } | null;
+  /** Only pending orders get a new attempt; active deferred attempts are resumed in place. */
+  paymentRetry: {
+    provider: string;
+    methods: { code: string; label: string; timing: 'immediate' | 'deferred' }[];
+  } | null;
+  /** The command still rechecks ownership, payment state, and the shipment gate. */
+  canCancel: boolean;
+  /** Immutable delivery snapshot, so an order remains intelligible after merchant policy changes. */
+  delivery: {
+    shippingMethodName: string;
+    destination: {
+      kind: 'taiwan_home'; recipient: string; phone: string; postcode: string; city: string; district: string; line1: string; line2: string | null;
+    } | {
+      kind: 'pickup_store'; recipient: string; phone: string; storeName: string; storeAddress: string;
+    };
+  } | null;
 }
 
 export interface ThemeAccountOrdersView {
@@ -42,7 +66,8 @@ export interface ThemeAccountProfileView {
   /** 已設定的生日不能自己改，畫面要說得出為什麼。 */
   birthday: string | null;
   address: {
-    recipient: string; phone: string; postcode: string; city: string; line1: string; line2: string | null;
+    countryCode: 'TW'; recipient: string; phone: string; postcode: string; city: string; district: string | null;
+    line1: string; line2: string | null;
   } | null;
   saved?: boolean;
   error?: string;
@@ -129,6 +154,31 @@ export interface ThemeAccountCouponsView {
 export interface ThemeCheckoutView extends ThemeCartView {
   /** 訂單會寄到哪裡。結帳必須是會員，因此它一定有值。 */
   customerEmail: string;
+  /** Home-delivery methods are merchant policy, already filtered for the address form on this page. */
+  shippingMethods: {
+    id: string;
+    name: string;
+    feeCents: number;
+    freeShippingThresholdCents: number | null;
+  }[];
+  /** The selected merchant method and all-in amount are server-derived for this render. */
+  selectedShippingMethodId: string;
+  shippingPreview: { shippingCents: number; totalCents: number };
+  /** Prefill only: the form still submits a fresh, explicit destination. */
+  deliveryAddress: {
+    recipient: string;
+    phone: string;
+    postcode: string;
+    city: string;
+    district: string | null;
+    line1: string;
+    line2: string | null;
+  } | null;
+  /** The store selects a provider; the customer must select its configured method before redirection. */
+  payment: {
+    provider: string;
+    methods: { code: string; label: string; timing: 'immediate' | 'deferred' }[];
+  };
 }
 
 export interface ThemeAccountRewardsView {

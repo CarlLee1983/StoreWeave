@@ -14,8 +14,11 @@ export const customers = pgTable('customer_customers', {
   /** 預設收件地址。一位顧客一組，多組地址等真的需要時再開表。 */
   addressRecipient: text('address_recipient'),
   addressPhone: text('address_phone'),
+  /** 目前結帳只支援台灣；保留 ISO code 讓歷史資料的語意明確。 */
+  addressCountryCode: text('address_country_code').notNull().default('TW'),
   addressPostcode: text('address_postcode'),
   addressCity: text('address_city'),
+  addressDistrict: text('address_district'),
   addressLine1: text('address_line1'),
   addressLine2: text('address_line2'),
   status: text('status').notNull().default('active'),

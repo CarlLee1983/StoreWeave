@@ -12,11 +12,22 @@ function report(checks: ContractCheck[]) {
 
 describe('Extension Contract Test', () => {
   it.each(Object.keys(AVAILABLE_EXTENSIONS))('%s 符合 Extension SDK 契約', async (id) => {
+    const sampleConfig = id === 'ecpay'
+      ? {
+        returnUrl: 'https://shop.example.test/callbacks/payment/ecpay',
+        paymentInfoUrl: 'https://shop.example.test/callbacks/payment/ecpay',
+      }
+      : {};
     const checks = await runExtensionContractChecks(AVAILABLE_EXTENSIONS[id], {
       knownEvents,
       knownPermissions,
-      sampleConfig: {},
-      secrets: { DEMO_ERP_API_KEY: 'test-key' },
+      sampleConfig,
+      secrets: {
+        DEMO_ERP_API_KEY: 'test-key',
+        ECPAY_MERCHANT_ID: 'test-merchant-id',
+        ECPAY_HASH_KEY: 'test-hash-key',
+        ECPAY_HASH_IV: 'test-hash-iv',
+      },
       providers: {
         erp: { id: 'demo-erp', kind: 'erp', push: async () => ({ accepted: true, remoteId: 'x' }) } as any,
       },
@@ -94,9 +105,14 @@ describe('Release bundle', () => {
       'commerce.inventory.adjusted.v1',
       'commerce.order.cancelled.v1',
       'commerce.order.paid.v2',
+      'commerce.order.paymentInfoIssued.v1',
       'commerce.order.placed.v3',
       'commerce.product.created.v1',
       'commerce.product.updated.v1',
+      'commerce.shipment.arrived.v1',
+      'commerce.shipment.completed.v1',
+      'commerce.shipment.created.v1',
+      'commerce.shipment.shipped.v1',
     ]);
   });
 

@@ -75,6 +75,7 @@ describe('第二家範例商店', () => {
     const checksB = await doctor(storeB.runtime, { releaseVersion: 'test', configPath: '<test>' });
 
     expect(checksA.find((c) => c.name === 'postgresql connection')?.status).toBe('pass');
+    expect(checksA.find((c) => c.name === 'provider:payment:mock-payment')?.status).toBe('pass');
     expect(checksA.find((c) => c.name === 'extension status: demo-erp')?.status).toBe('pass');
     expect(checksB.find((c) => c.name === 'extension status: demo-erp')?.status).toBe('warn');
     expect(checksB.find((c) => c.name === 'extension status: mcp')?.detail).toContain('aurora-books-commerce');

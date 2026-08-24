@@ -10,43 +10,75 @@ function provider(overrides: Record<string, unknown> = {}) {
   return { provider: createMockPaymentProvider(ctx), ctx };
 }
 
-const charge = {
+const payment = {
   orderId: '11111111-1111-4111-8111-111111111111',
   orderNumber: 'SW-1000',
   amountCents: 1000,
   currency: 'TWD',
+  method: 'mock',
   reference: 'order:11111111-1111-4111-8111-111111111111',
 };
 
 describe('mock payment provider', () => {
-  it('成功收款並回傳 providerRef', async () => {
-    const result = await provider().provider.charge(charge);
-    expect(result.status).toBe('succeeded');
+  it('公開讓商店在付款前選擇的即時付款方式', () => {
+    expect(provider().provider.paymentMethods()).toEqual([
+      { code: 'mock', label: 'Mock payment', timing: 'immediate' },
+    ]);
+  });
+
+  it('成功啟動付款並回傳確認結果', async () => {
+    const result = await provider().provider.start(payment);
+    expect(result.status).toBe('confirmed');
     expect(result.providerRef).toMatch(/^mock_/);
   });
 
   it('同一個 reference 重複請求不會產生第二筆收款', async () => {
     const { provider: p } = provider();
-    const first = await p.charge(charge);
-    const second = await p.charge(charge);
+    const first = await p.start(payment);
+    const second = await p.start(payment);
+    expect(second.status).toBe('confirmed');
+    if (second.status !== 'confirmed') throw new Error('expected a confirmed payment');
     expect(second.providerRef).toBe(first.providerRef);
     expect(second.message).toBe('replayed');
   });
 
   it('autoApprove=false 時拒付', async () => {
-    const result = await provider({ autoApprove: false }).provider.charge(charge);
+    const result = await provider({ autoApprove: false }).provider.start(payment);
     expect(result.status).toBe('failed');
+    if (result.status !== 'failed') throw new Error('expected a failed payment');
     expect(result.message).toMatch(/declined/);
   });
 
   it('超過 declineAboveCents 就拒付', async () => {
-    const result = await provider({ declineAboveCents: 500 }).provider.charge(charge);
+    const result = await provider({ declineAboveCents: 500 }).provider.start(payment);
     expect(result.status).toBe('failed');
+  });
+
+  it('拒絕未設定的付款方式', async () => {
+    const result = await provider().provider.start({ ...payment, method: 'unknown' });
+    expect(result).toEqual({ status: 'failed', message: 'unsupported mock payment method: unknown' });
   });
 
   it('拒付不會留下紀錄，之後仍可成功', async () => {
     const { provider: p, ctx } = provider({ autoApprove: false });
-    await p.charge(charge);
-    expect(await ctx.store.get(`charge:${charge.reference}`)).toBeNull();
+    await p.start(payment);
+    expect(await ctx.store.get(`payment:${payment.reference}`)).toBeNull();
+  });
+
+  it('原子解析 callback 並回傳 provider acknowledgement', async () => {
+    const p = provider().provider;
+    const callback = await p.parseCallback({
+      body: new TextEncoder().encode(JSON.stringify({
+        type: 'payment_info_issued',
+        reference: payment.reference,
+        providerRef: 'mock_callback_1',
+        instructions: [{ label: 'payment code', value: '123456' }],
+        expiresAt: '2026-08-25T00:00:00.000Z',
+      })),
+      headers: {},
+      query: {},
+    });
+    expect(callback).toMatchObject({ type: 'payment_info_issued', reference: payment.reference });
+    expect(p.acknowledgeCallback({ accepted: true })).toEqual({ statusCode: 200, body: 'OK' });
   });
 });

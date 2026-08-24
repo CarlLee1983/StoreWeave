@@ -57,6 +57,7 @@ pnpm "dev:worker"
 | [docs/extension-development.md](docs/extension-development.md) | Extension SDK 十項契約與完整開發範例 |
 | [docs/deployment-docker.md](docs/deployment-docker.md) | Docker 安裝與維運 |
 | [docs/deployment-native.md](docs/deployment-native.md) | 原生 Ubuntu / Debian 安裝、升級與回退 |
+| [docs/ecpay-and-shipping.md](docs/ecpay-and-shipping.md) | 綠界付款、泛用回呼與台灣配送方式設定 |
 | [packages/themes/default/DESIGN.md](packages/themes/default/DESIGN.md) | 顧客前台體驗、字型交付與可下單呈現規格 |
 | [docs/operations.md](docs/operations.md) | `commerce` CLI、健康端點、備份還原 |
 | [docs/adr/](docs/adr/) | 架構決策紀錄（11 篇） |

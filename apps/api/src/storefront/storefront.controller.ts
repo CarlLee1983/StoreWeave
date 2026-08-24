@@ -4,7 +4,7 @@ import type { FastifyReply } from 'fastify';
 import { PlatformError, type Actor } from '@storeweave/contracts';
 import { csrfTokenFor } from '@storeweave/identity';
 import type { StorefrontTheme, ThemeContext } from '@storeweave/kernel';
-import type { NotificationProvider } from '@storeweave/extension-sdk';
+import type { NotificationProvider, PaymentProvider } from '@storeweave/extension-sdk';
 import { Anonymous, Public, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
 import { clearSessionCookies, sessionTokenOf } from '../http/session-cookies';
 import { cartNoticeOf, clearCartNoticeCookie, existingGuestToken, guestTokenFor } from '../http/cart-cookie';
@@ -180,10 +180,12 @@ export class StorefrontController {
 
     const address = body.line1?.trim()
       ? {
+          countryCode: 'TW',
           recipient: body.recipient ?? '',
           phone: body.addressPhone ?? '',
           postcode: body.postcode ?? '',
           city: body.city ?? '',
+          district: body.district?.trim() || null,
           line1: body.line1,
           line2: body.line2?.trim() ? body.line2 : null,
         }
@@ -231,7 +233,118 @@ export class StorefrontController {
       const order = await this.runtime.queries.execute<any>(
         'commerce.order.getOrder', { number }, { actor, channel: 'rest' },
       );
-      this.html(reply, 200, this.theme.renderOrder(this.themeContext(req, reply), { order }));
+      const latestAttempt = order.paymentAttempts.at(-1) ?? null;
+      const canContinuePayment = (order.status === 'payment_processing' && latestAttempt?.status === 'submitted')
+        || (order.status === 'awaiting_payment' && latestAttempt?.status === 'awaiting_payment');
+      const canShowInstructions = order.status === 'awaiting_payment' && latestAttempt?.status === 'awaiting_payment';
+      const retryProvider = order.status === 'pending'
+        ? this.runtime.providers.get<PaymentProvider>('payment')
+        : null;
+      this.html(reply, 200, this.theme.renderOrder(this.themeContext(req, reply), {
+        order: {
+          number: order.number,
+          status: order.status,
+          currency: order.currency,
+          totalCents: order.totalCents,
+          customerEmail: order.customerEmail,
+          lines: order.lines.map((line: any) => ({
+            sku: line.sku, name: line.name, quantity: line.quantity, lineTotalCents: line.lineTotalCents,
+          })),
+          payment: latestAttempt ? {
+            status: latestAttempt.status,
+            method: latestAttempt.method,
+            // Do not carry an action or instructions from a failed/stale
+            // attempt into customer HTML. The active order state is the gate.
+            action: canContinuePayment ? latestAttempt.action : null,
+            instructions: canShowInstructions ? latestAttempt.instructions : null,
+            expiresAt: canShowInstructions ? latestAttempt.expiresAt : null,
+          } : null,
+          paymentRetry: retryProvider && retryProvider.paymentMethods().length > 0 ? {
+            provider: retryProvider.id,
+            methods: retryProvider.paymentMethods().map((method) => ({
+              code: method.code,
+              label: method.label,
+              timing: method.timing,
+            })),
+          } : null,
+          // The command also checks for a shipment under the Order lock. The
+          // page can only use the status projection and never bypasses it.
+          canCancel: order.status === 'pending',
+          delivery: order.delivery ? {
+            shippingMethodName: order.delivery.shippingMethodName,
+            destination: order.delivery.destination,
+          } : null,
+        },
+      }));
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
+  }
+
+  @Post('orders/:number/pay')
+  async retryPayment(
+    @Req() req: AuthenticatedRequest,
+    @Param('number') number: string,
+    @Body() body: Record<string, string>,
+    @Res() reply: FastifyReply,
+  ) {
+    const actor = actorOf(req);
+    if (actor.type !== 'customer') {
+      void reply.status(303).header('location', `/login?next=${encodeURIComponent(`/orders/${number}`)}`).send();
+      return;
+    }
+    try {
+      // Fetch through the scoped query before issuing a write: another
+      // customer's number stays indistinguishable from a missing order.
+      const order = await this.runtime.queries.execute<{ id: string; number: string }>(
+        'commerce.order.getOrder', { number }, { actor, channel: 'rest' },
+      );
+      const provider = this.runtime.providers.get<PaymentProvider>('payment', body.paymentProvider || undefined);
+      const method = provider.paymentMethods().find((candidate) => candidate.code === body.paymentMethod);
+      if (!method) throw PlatformError.validation('請先選擇可用的付款方式');
+      await this.runtime.commands.execute('commerce.order.payOrder', {
+        orderId: order.id,
+        provider: provider.id,
+        method: method.code,
+      }, {
+        actor,
+        // Distinct browser submissions are safe: payOrder serializes on Order
+        // and creates at most one active attempt.
+        idempotencyKey: `storefront-pay:${order.id}:${randomUUID()}`,
+        correlationId: randomUUID(),
+        channel: 'rest',
+      });
+      void reply.status(303).header('location', `/orders/${order.number}`).send();
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
+  }
+
+  @Post('orders/:number/cancel')
+  async cancelOrder(
+    @Req() req: AuthenticatedRequest,
+    @Param('number') number: string,
+    @Res() reply: FastifyReply,
+  ) {
+    const actor = actorOf(req);
+    if (actor.type !== 'customer') {
+      void reply.status(303).header('location', `/login?next=${encodeURIComponent(`/orders/${number}`)}`).send();
+      return;
+    }
+    try {
+      const order = await this.runtime.queries.execute<{ id: string; number: string }>(
+        'commerce.order.getOrder', { number }, { actor, channel: 'rest' },
+      );
+      await this.runtime.commands.execute('commerce.order.cancelOrder', {
+        orderId: order.id,
+        reason: 'customer request',
+      }, {
+        actor,
+        idempotencyKey: `storefront-cancel:${order.id}:${randomUUID()}`,
+        correlationId: randomUUID(),
+        channel: 'rest',
+      });
+      void reply.status(303).header('location', `/orders/${order.number}`).send();
     } catch (err) {
       this.renderError(reply, err, req);
     }
@@ -383,21 +496,83 @@ export class StorefrontController {
 
   /** 確認頁。內容不能在這裡改，否則「確認的東西」與「結出來的單」會是兩份。 */
   @Get('checkout')
-  async checkoutPage(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+  async checkoutPage(
+    @Query('shippingMethodId') requestedShippingMethodId: string | undefined,
+    @Req() req: AuthenticatedRequest,
+    @Res() reply: FastifyReply,
+  ) {
     const actor = actorOf(req);
     if (actor.type !== 'customer') {
       void reply.status(303).header('location', `/login?next=${encodeURIComponent('/checkout')}`).send();
       return;
     }
     try {
-      const view = await this.cartView(req, reply);
+      const [view, profile, methods] = await Promise.all([
+        this.cartView(req, reply),
+        this.runtime.queries.execute<any>('commerce.customer.getMyProfile', {}, { actor, channel: 'rest' }),
+        this.runtime.queries.execute<{ items: any[] }>(
+          'commerce.shipping.listShippingMethods', { enabled: true, limit: 100, offset: 0 }, { actor, channel: 'rest' },
+        ),
+      ]);
       if (view.lines.length === 0) {
         void reply.status(303).header('location', '/cart').send();
         return;
       }
+      // This form captures a Taiwan home address. Pickup-store selection is a separate UX
+      // surface because its provider search cannot be represented by free-form text fields.
+      const shippingMethods = methods.items
+        .filter((method) => method.destinationKind === 'taiwan_home')
+        .map((method) => ({
+          id: method.id,
+          name: method.name,
+          feeCents: method.feeCents,
+          freeShippingThresholdCents: method.freeShippingThresholdCents,
+        }));
+      if (shippingMethods.length === 0) {
+        throw PlatformError.validation('No Taiwan home delivery method is currently available');
+      }
+      const selectedShippingMethodId = requestedShippingMethodId || shippingMethods[0]!.id;
+      if (!shippingMethods.some((method) => method.id === selectedShippingMethodId)) {
+        throw PlatformError.validation('請選擇可用的配送方式');
+      }
+      // The selected fee comes from Shipping, not the form or its displayed
+      // method data. `view` itself is also a fresh server-side cart projection.
+      const shippingPreview = await this.runtime.queries.execute<{ shippingCents: number }>(
+        'commerce.shipping.quoteCheckoutShipping',
+        {
+          shippingMethodId: selectedShippingMethodId,
+          subtotalCents: view.subtotalCents,
+          destinationKind: 'taiwan_home',
+        },
+        { actor, channel: 'rest' },
+      );
+      const provider = this.runtime.providers.get<PaymentProvider>('payment');
+      const paymentMethods = provider.paymentMethods();
+      if (paymentMethods.length === 0) {
+        throw PlatformError.validation(`Payment provider ${provider.id} has no enabled payment methods`);
+      }
       this.html(reply, 200, this.theme.renderCheckout(this.themeContext(req, reply), {
         ...view,
         customerEmail: await this.emailOf(actor),
+        shippingMethods,
+        selectedShippingMethodId,
+        shippingPreview: {
+          shippingCents: shippingPreview.shippingCents,
+          totalCents: view.totalCents + shippingPreview.shippingCents,
+        },
+        deliveryAddress: profile.address ? {
+          recipient: profile.address.recipient,
+          phone: profile.address.phone,
+          postcode: profile.address.postcode,
+          city: profile.address.city,
+          district: profile.address.district,
+          line1: profile.address.line1,
+          line2: profile.address.line2,
+        } : null,
+        payment: {
+          provider: provider.id,
+          methods: paymentMethods.map((method) => ({ code: method.code, label: method.label, timing: method.timing })),
+        },
       }));
     } catch (err) {
       this.renderError(reply, err, req);
@@ -422,14 +597,39 @@ export class StorefrontController {
     try {
       const cartId = body.cartId;
       const correlationId = randomUUID();
+      const paymentProvider = this.runtime.providers.get<PaymentProvider>('payment', body.paymentProvider || undefined);
+      const paymentMethod = paymentProvider.paymentMethods().find((method) => method.code === body.paymentMethod);
+      if (!paymentMethod) {
+        throw PlatformError.validation('請先選擇可用的付款方式');
+      }
       const order = await this.runtime.commands.execute<{ id: string; number: string }>(
         'commerce.order.checkoutCart',
-        { cartId },
+        {
+          cartId,
+          shippingMethodId: body.shippingMethodId,
+          destination: {
+            kind: 'taiwan_home',
+            countryCode: 'TW',
+            recipient: body.recipient?.trim() ?? '',
+            phone: body.phone?.trim() ?? '',
+            postcode: body.postcode?.trim() ?? '',
+            city: body.city?.trim() ?? '',
+            district: body.district?.trim() ?? '',
+            line1: body.line1?.trim() ?? '',
+            line2: body.line2?.trim() || null,
+          },
+        },
         // 鍵綁上身分：冪等鍵是猜得到的（購物車識別碼），而它決定了誰讀得到那份回應。
         { actor, idempotencyKey: `cart:${actor.id}:${cartId}`, correlationId, channel: 'rest' },
       );
-      await this.runtime.commands.execute('commerce.order.payOrder', { orderId: order.id }, {
-        actor, idempotencyKey: `storefront-pay:${order.id}`, correlationId, channel: 'rest',
+      await this.runtime.commands.execute('commerce.order.payOrder', {
+        orderId: order.id,
+        provider: paymentProvider.id,
+        method: paymentMethod.code,
+      }, {
+        // `payOrder` locks the aggregate and refuses a second active attempt. This key is
+        // deliberately per submission so a failed attempt can be retried from the order flow.
+        actor, idempotencyKey: `storefront-pay:${order.id}:${randomUUID()}`, correlationId, channel: 'rest',
       });
       void reply.status(303).header('location', `/orders/${order.number}`).send();
     } catch (err) {

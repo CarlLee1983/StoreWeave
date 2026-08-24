@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import {
-  ADMIN_ACTOR, STOREFRONT_ACTOR, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
+  ADMIN_ACTOR, STOREFRONT_ACTOR, checkoutInput, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
 } from './helpers';
 
 /** 優惠券模型與公開共用碼（工單 31）。 */
@@ -48,7 +48,7 @@ const getCart = (input: Record<string, unknown>, actor: any = STOREFRONT_ACTOR) 
   h.runtime.queries.execute<any>('commerce.cart.getCart', input, { actor });
 
 const checkout = (actor: any, cartId: string) =>
-  h.runtime.commands.execute<any>('commerce.order.checkoutCart', { cartId }, { actor, idempotencyKey: randomUUID() });
+  h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cartId), { actor, idempotencyKey: randomUUID() });
 
 async function sellable(sku: string, priceCents = 10_000) {
   const product = await createProduct(h.runtime, { sku, name: sku, priceCents });

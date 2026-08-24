@@ -41,7 +41,63 @@ export interface TestRuntimeOptions {
 export interface TestHarness {
   runtime: Runtime;
   worker: Worker;
+  defaultShippingMethodId: string;
   close(): Promise<void>;
+}
+
+/** All checkout integration tests use the same enabled home-delivery policy. */
+export function checkoutInput(harness: Pick<TestHarness, 'defaultShippingMethodId'>, cartId: string) {
+  return {
+    cartId,
+    shippingMethodId: harness.defaultShippingMethodId,
+    destination: {
+      kind: 'taiwan_home' as const,
+      countryCode: 'TW' as const,
+      recipient: '測試收件人',
+      phone: '0912345678',
+      postcode: '100',
+      city: '台北市',
+      district: '中正區',
+      line1: '測試路 1 號',
+      line2: null,
+    },
+  };
+}
+
+/** REST checkout uses the same valid Taiwan home-delivery input as command tests. */
+export function checkoutPayload(harness: Pick<TestHarness, 'defaultShippingMethodId'>, cartId?: string) {
+  return {
+    ...(cartId ? { cartId } : {}),
+    shippingMethodId: harness.defaultShippingMethodId,
+    destination: {
+      kind: 'taiwan_home' as const,
+      countryCode: 'TW' as const,
+      recipient: '測試收件人',
+      phone: '0912345678',
+      postcode: '100',
+      city: '台北市',
+      district: '中正區',
+      line1: '測試路 1 號',
+      line2: null,
+    },
+  };
+}
+
+/** Storefront checkout is form-encoded, so it cannot reuse the nested REST payload directly. */
+export function storefrontCheckoutForm(harness: Pick<TestHarness, 'defaultShippingMethodId'>, cartId: string) {
+  return new URLSearchParams({
+    cartId,
+    shippingMethodId: harness.defaultShippingMethodId,
+    recipient: '測試收件人',
+    phone: '0912345678',
+    postcode: '100',
+    city: '台北市',
+    district: '中正區',
+    line1: '測試路 1 號',
+    line2: '',
+    paymentProvider: 'mock-payment',
+    paymentMethod: 'mock',
+  }).toString();
 }
 
 export function testSecretProvider(values: Record<string, string>): SecretProvider {
@@ -92,11 +148,20 @@ export async function createHarness(options: TestRuntimeOptions = {}): Promise<T
     availableExtensions: AVAILABLE_EXTENSIONS,
   });
   await runtime.migrate();
+  const defaultShippingMethod = await runtime.commands.execute<{ id: string }>(
+    'commerce.shipping.createShippingMethod',
+    {
+      code: 'test-home-delivery', name: 'Test Home Delivery', provider: 'manual', type: 'home_delivery',
+      destinationKind: 'taiwan_home', feeCents: 100, enabled: true,
+    },
+    { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() },
+  );
 
   const worker = new Worker(runtime, { pollIntervalMs: 50, workerId: 'test-worker' });
   return {
     runtime,
     worker,
+    defaultShippingMethodId: defaultShippingMethod.id,
     async close() {
       await worker.stop();
       await runtime.close();

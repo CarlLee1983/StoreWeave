@@ -29,7 +29,9 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule.forRuntime(runtime, theme, release),
     adapter,
-    { logger: false, bufferLogs: true },
+    // Providers verify the exact bytes they received. Keep a bounded raw copy in
+    // addition to Fastify's parsed form body for the generic callback controller.
+    { logger: false, bufferLogs: true, rawBody: true },
   );
 
   // Session / CSRF cookie 只做解析與序列化，不簽章——token 本身已經是高熵隨機值。
@@ -79,7 +81,12 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
   const CART_ROUTES = new Set([
     '/api/v1/cart/items', '/api/v1/cart/checkout', '/api/v1/cart/rewards',
     '/cart/items', '/cart/items/:productId', '/cart/rewards', '/cart/clear', '/checkout',
+    '/orders/:number/pay', '/orders/:number/cancel',
   ]);
+  // External payment callbacks are intentionally unauthenticated, but signature
+  // verification still consumes CPU and rejects can generate operational logs.
+  // Keep this generous enough for provider retries while bounding anonymous load.
+  const CALLBACK_ROUTES = new Set(['/callbacks/:kind/:providerId']);
   const cartLimiter = app.getHttpAdapter().getInstance().createRateLimit({
     max: 120,
     timeWindow: '1 minute',
@@ -89,6 +96,11 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
     max: 20,
     timeWindow: '1 minute',
     keyGenerator: (request) => `coupon:${request.ip}`,
+  });
+  const callbackLimiter = app.getHttpAdapter().getInstance().createRateLimit({
+    max: 300,
+    timeWindow: '1 minute',
+    keyGenerator: (request) => `callback:${request.ip}`,
   });
 
   app.getHttpAdapter().getInstance().addHook('preHandler', async (request, reply) => {
@@ -101,7 +113,8 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
     const limiters = THROTTLED_ROUTES.has(route)
       ? [perIpLimiter, perAccountLimiter]
       : COUPON_ROUTES.has(route) ? [couponLimiter]
-        : CART_ROUTES.has(route) ? [cartLimiter] : [];
+        : CART_ROUTES.has(route) ? [cartLimiter]
+          : CALLBACK_ROUTES.has(route) ? [callbackLimiter] : [];
     if (limiters.length === 0) return;
 
     for (const limiter of limiters) {

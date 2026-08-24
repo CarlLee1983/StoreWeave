@@ -102,5 +102,73 @@ ALTER TABLE order_orders ADD COLUMN IF NOT EXISTS customer_id uuid;
 -- 「我的訂單」是會員中心的主要查詢。
 CREATE INDEX IF NOT EXISTS order_orders_customer_idx ON order_orders (customer_id, placed_at DESC);
 `),
+    sqlMigration('0007_payment_attempts_and_awaiting_payment', 'expand', `
+-- 每次向 provider 發起付款都留下自己的本地 reference；舊的成功紀錄補成 legacy attempt。
+ALTER TABLE order_payments ADD COLUMN IF NOT EXISTS attempt_ref text;
+UPDATE order_payments SET attempt_ref = 'legacy:' || id::text WHERE attempt_ref IS NULL;
+ALTER TABLE order_payments ALTER COLUMN attempt_ref SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS order_payments_attempt_ref_idx ON order_payments (attempt_ref);
+
+ALTER TABLE order_payments ADD COLUMN IF NOT EXISTS method text;
+UPDATE order_payments SET method = 'legacy' WHERE method IS NULL;
+ALTER TABLE order_payments ALTER COLUMN method SET NOT NULL;
+
+-- 失敗可能發生在 provider 分配外部交易號以前；成功的唯一性改成 partial index。
+ALTER TABLE order_payments ALTER COLUMN provider_ref DROP NOT NULL;
+ALTER TABLE order_payments DROP CONSTRAINT IF EXISTS order_payments_provider_provider_ref_key;
+CREATE UNIQUE INDEX IF NOT EXISTS order_payments_provider_ref_idx
+  ON order_payments (provider, provider_ref) WHERE provider_ref IS NOT NULL;
+
+ALTER TABLE order_payments ADD COLUMN IF NOT EXISTS action jsonb;
+ALTER TABLE order_payments ADD COLUMN IF NOT EXISTS instructions jsonb;
+ALTER TABLE order_payments ADD COLUMN IF NOT EXISTS expires_at timestamptz;
+ALTER TABLE order_payments ADD COLUMN IF NOT EXISTS failure_message text;
+ALTER TABLE order_payments ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+
+ALTER TABLE order_orders DROP CONSTRAINT IF EXISTS order_orders_status_check;
+ALTER TABLE order_orders ADD CONSTRAINT order_orders_status_check
+  CHECK (status IN ('pending', 'payment_processing', 'awaiting_payment', 'paid', 'cancelled', 'expired'));
+DROP INDEX IF EXISTS order_orders_expiry_idx;
+CREATE INDEX IF NOT EXISTS order_orders_expiry_idx
+  ON order_orders (expires_at) WHERE status IN ('pending', 'payment_processing', 'awaiting_payment');
+`),
+    sqlMigration('0008_order_delivery_snapshot', 'expand', `
+-- This table is an Order-owned fact, not a live join to shipping_methods. A method
+-- can be retired or repriced without changing what the customer agreed to pay.
+CREATE TABLE IF NOT EXISTS order_deliveries (
+  order_id              uuid PRIMARY KEY REFERENCES order_orders(id) ON DELETE CASCADE,
+  shipping_method_id    uuid NOT NULL,
+  shipping_method_code  text NOT NULL,
+  shipping_method_name  text NOT NULL,
+  provider              text NOT NULL,
+  type                  text NOT NULL,
+  destination_kind      text NOT NULL,
+  recipient             text NOT NULL,
+  phone                 text NOT NULL,
+  country_code          text,
+  postcode              text,
+  city                  text,
+  district              text,
+  line1                 text,
+  line2                 text,
+  provider_store_id     text,
+  store_name            text,
+  store_address         text,
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  updated_at            timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT order_deliveries_destination_check CHECK (
+    (
+      destination_kind = 'taiwan_home'
+      AND country_code = 'TW'
+      AND postcode IS NOT NULL AND city IS NOT NULL AND district IS NOT NULL AND line1 IS NOT NULL
+      AND provider_store_id IS NULL AND store_name IS NULL AND store_address IS NULL
+    ) OR (
+      destination_kind = 'pickup_store'
+      AND provider_store_id IS NOT NULL AND store_name IS NOT NULL AND store_address IS NOT NULL
+      AND country_code IS NULL AND postcode IS NULL AND city IS NULL AND district IS NULL AND line1 IS NULL AND line2 IS NULL
+    )
+  )
+);
+`),
   ],
 };

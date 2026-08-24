@@ -140,7 +140,11 @@ importers:
 
   packages/commerce/promotion: {}
 
+  packages/commerce/shipping: {}
+
   packages/extensions/demo-erp: {}
+
+  packages/extensions/ecpay: {}
 
   packages/extensions/mcp: {}
 

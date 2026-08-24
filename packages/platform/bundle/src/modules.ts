@@ -2,13 +2,15 @@ import type { PlatformModule } from '@storeweave/kernel';
 import type { ExtensionDefinition, ProviderRegistry } from '@storeweave/extension-sdk';
 import { catalogModule } from '@storeweave/catalog';
 import { inventoryModule } from '@storeweave/inventory';
-import { createOrderModule } from '@storeweave/order';
+import { createOrderModule, orderFulfillmentService } from '@storeweave/order';
 import { customerModule } from '@storeweave/customer';
 import { createCart } from '@storeweave/cart';
+import { createShippingModule } from '@storeweave/shipping';
 import { createCouponModule } from '@storeweave/coupon';
 import { createLoyaltyModule } from '@storeweave/loyalty';
 import { createPromotionModule } from '@storeweave/promotion';
 import { mockPaymentExtension } from '@storeweave/ext-mock-payment';
+import { ecpayPaymentExtension } from '@storeweave/ext-ecpay';
 import { mockNotificationExtension } from '@storeweave/ext-mock-notification';
 import { demoErpExtension } from '@storeweave/ext-demo-erp';
 import { mcpExtension } from '@storeweave/ext-mcp';
@@ -31,6 +33,7 @@ export function coreModules(options: {
     inventoryModule,
     customerModule,
     createCart({ defaultCurrency: options.defaultCurrency }),
+    createShippingModule(orderFulfillmentService),
     createPromotionModule({ defaultCurrency: options.defaultCurrency }),
     createCouponModule({
       providers: options.providers,
@@ -49,6 +52,7 @@ export function coreModules(options: {
 
 export const AVAILABLE_EXTENSIONS: Record<string, ExtensionDefinition<any>> = {
   'mock-payment': mockPaymentExtension,
+  ecpay: ecpayPaymentExtension,
   'mock-notification': mockNotificationExtension,
   'demo-erp': demoErpExtension,
   mcp: mcpExtension,

@@ -72,7 +72,11 @@ export class CartController extends BusController {
 
     const actor = actorOf(req);
     return ok(await this.runtime.commands.execute('commerce.order.checkoutCart',
-      { cartId },
+      {
+        cartId,
+        shippingMethodId: body.shippingMethodId,
+        destination: body.destination,
+      },
       // 鍵綁上身分：冪等鍵是猜得到的（購物車識別碼），而它決定了誰讀得到那份回應。
       { actor, idempotencyKey: `cart:${actor.id}:${cartId}`, correlationId: correlationIdOf(req), channel: 'rest' }));
   }

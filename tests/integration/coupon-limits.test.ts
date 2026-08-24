@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import {
-  ADMIN_ACTOR, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
+  ADMIN_ACTOR, checkoutInput, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
 } from './helpers';
 
 /** 限量與每人限用一次（工單 32）。 */
@@ -43,7 +43,7 @@ const addToCart = (input: Record<string, unknown>, actor: any) =>
 const getCart = (actor: any) => h.runtime.queries.execute<any>('commerce.cart.getCart', {}, { actor });
 
 const checkout = (actor: any, cartId: string) =>
-  h.runtime.commands.execute<any>('commerce.order.checkoutCart', { cartId }, { actor, idempotencyKey: randomUUID() });
+  h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cartId), { actor, idempotencyKey: randomUUID() });
 
 const code = (prefix: string) => `${prefix}-${randomUUID().slice(0, 8)}`.toUpperCase();
 

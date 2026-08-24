@@ -12,6 +12,11 @@ export interface EnqueueInput {
   dedupeKey?: string;
   runAt?: Date;
   maxAttempts?: number;
+  /**
+   * 同一 dedupeKey 已存在時，以這次 payload 與時間重排它。
+   * 這不是一般去重：只用在「同一件未來工作」改了截止時間的情況。
+   */
+  replaceExisting?: boolean;
 }
 
 export interface DeadJobRow {
@@ -53,9 +58,30 @@ export class PermanentJobError extends Error {
 }
 
 export class JobQueue {
-  /** 在交易內排入工作。dedupeKey 衝突時視為已排入（no-op）。 */
+  /** 在交易內排入工作。dedupeKey 衝突時預設視為已排入（no-op）。 */
   async enqueue(tx: Tx, input: EnqueueInput): Promise<{ id: string; deduped: boolean }> {
     const id = randomUUID();
+    if (input.replaceExisting && input.dedupeKey) {
+      const res = await tx.execute<{ id: string }>(sql`
+        INSERT INTO platform_jobs (id, type, payload, dedupe_key, run_at, max_attempts)
+        VALUES (${id}, ${input.type}, ${JSON.stringify(input.payload ?? {})}::jsonb,
+                ${input.dedupeKey}, ${(input.runAt ?? new Date()).toISOString()}, ${input.maxAttempts ?? 5})
+        ON CONFLICT (dedupe_key) DO UPDATE
+        SET type = EXCLUDED.type,
+            payload = EXCLUDED.payload,
+            run_at = EXCLUDED.run_at,
+            max_attempts = EXCLUDED.max_attempts,
+            status = 'pending',
+            attempts = 0,
+            last_error = NULL,
+            locked_at = NULL,
+            locked_by = NULL,
+            completed_at = NULL,
+            updated_at = now()
+        RETURNING id
+      `);
+      return { id: res.rows[0].id, deduped: false };
+    }
     const res = await tx.execute<{ id: string }>(sql`
       INSERT INTO platform_jobs (id, type, payload, dedupe_key, run_at, max_attempts)
       VALUES (${id}, ${input.type}, ${JSON.stringify(input.payload ?? {})}::jsonb,
@@ -85,14 +111,18 @@ export class JobQueue {
     return res.rows;
   }
 
-  async complete(db: DrizzleDb, id: string): Promise<void> {
+  /**
+   * `workerId` guards a job that was rescheduled while an older worker still
+   * held it: that older worker must not complete the newly queued occurrence.
+   */
+  async complete(db: DrizzleDb, id: string, workerId: string): Promise<void> {
     await db.execute(sql`
       UPDATE platform_jobs SET status = 'completed', completed_at = now(), updated_at = now(), last_error = NULL
-      WHERE id = ${id}
+      WHERE id = ${id} AND status = 'running' AND locked_by = ${workerId}
     `);
   }
 
-  async fail(db: DrizzleDb, job: JobRow, error: string, permanent = false): Promise<'retry' | 'dead'> {
+  async fail(db: DrizzleDb, job: JobRow, error: string, permanent = false, workerId?: string): Promise<'retry' | 'dead'> {
     const exhausted = permanent || job.attempts >= job.max_attempts;
     const delaySeconds = Math.min(600, 2 ** Math.min(job.attempts, 9));
     await db.execute(sql`
@@ -102,6 +132,8 @@ export class JobQueue {
           run_at = now() + (${delaySeconds} * interval '1 second'),
           locked_at = NULL, locked_by = NULL, updated_at = now()
       WHERE id = ${job.id}
+        AND status = 'running'
+        ${workerId ? sql`AND locked_by = ${workerId}` : sql``}
     `);
     return exhausted ? 'dead' : 'retry';
   }

@@ -113,7 +113,8 @@ export type AdminCustomer = {
   birthday: string | null;
   phone: string | null;
   address: {
-    recipient: string; phone: string; postcode: string; city: string; line1: string; line2: string | null;
+    countryCode: 'TW'; recipient: string; phone: string; postcode: string; city: string; district: string | null;
+    line1: string; line2: string | null;
   } | null;
   status: 'active' | 'disabled';
   createdAt: string;

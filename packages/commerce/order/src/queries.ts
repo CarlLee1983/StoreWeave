@@ -2,11 +2,11 @@ import type { z } from 'zod';
 import { sql } from 'drizzle-orm';
 import { PlatformError, defineQuery, type QueryContext } from '@storeweave/contracts';
 import {
-  getOrderInput, listOrdersInput, listOrdersOutput, orderDto,
+  getOrderInput, listOrdersInput, listOrdersOutputForActor, orderOutputDto,
   salesSummaryInput, salesSummaryOutput,
 } from './dto';
 import { customerService } from '@storeweave/customer';
-import { OrderRepository, toOrderDto } from './repository';
+import { OrderRepository, toCustomerOrderDto, toOrderDto } from './repository';
 
 const repository = new OrderRepository();
 
@@ -14,7 +14,7 @@ export const getOrderQuery = defineQuery({
   name: 'commerce.order.getOrder',
   summary: '依 id 或訂單編號取得訂單',
   input: getOrderInput,
-  output: orderDto,
+  output: orderOutputDto,
   permission: 'order:read',
 });
 
@@ -36,14 +36,21 @@ export const getOrderHandler = async (input: z.infer<typeof getOrderInput>, ctx:
   if (!row || (customerId !== null && row.customerId !== customerId)) {
     throw PlatformError.notFound('Order', input.id ?? input.number);
   }
-  return toOrderDto(row, await repository.linesFor(ctx.db, row.id), await repository.adjustmentsFor(ctx.db, row.id));
+  const order = toOrderDto(
+    row,
+    await repository.linesFor(ctx.db, row.id),
+    await repository.adjustmentsFor(ctx.db, row.id),
+    await repository.paymentsFor(ctx.db, row.id),
+    await repository.deliveryFor(ctx.db, row.id),
+  );
+  return ctx.actor.type === 'customer' ? toCustomerOrderDto(order) : order;
 };
 
 export const listOrdersQuery = defineQuery({
   name: 'commerce.order.listOrders',
   summary: '列出訂單',
   input: listOrdersInput,
-  output: listOrdersOutput,
+  output: listOrdersOutputForActor,
   permission: 'order:read',
 });
 
@@ -53,8 +60,17 @@ export const listOrdersHandler = async (input: z.infer<typeof listOrdersInput>, 
   const ids = rows.map((row) => row.id);
   const lines = await repository.linesForMany(ctx.db, ids);
   const adjustments = await repository.adjustmentsForMany(ctx.db, ids);
+  const payments = await repository.paymentsForMany(ctx.db, ids);
+  const deliveries = await repository.deliveriesForMany(ctx.db, ids);
+  const items = rows.map((row) => toOrderDto(
+      row,
+      lines.get(row.id) ?? [],
+      adjustments.get(row.id) ?? [],
+      payments.get(row.id) ?? [],
+      deliveries.get(row.id) ?? null,
+    ));
   return {
-    items: rows.map((row) => toOrderDto(row, lines.get(row.id) ?? [], adjustments.get(row.id) ?? [])),
+    items: ctx.actor.type === 'customer' ? items.map(toCustomerOrderDto) : items,
     total,
   };
 };
@@ -90,7 +106,7 @@ export const salesSummaryHandler = async (
   for (const row of totals.rows) {
     const count = Number(row.count);
     if (row.status === 'paid') { paid = count; gross = Number(row.revenue); currency = row.currency ?? currency; }
-    else if (row.status === 'pending' || row.status === 'payment_processing') pending += count;
+    else if (row.status === 'pending' || row.status === 'payment_processing' || row.status === 'awaiting_payment') pending += count;
     else if (row.status === 'cancelled') cancelled = count;
   }
 

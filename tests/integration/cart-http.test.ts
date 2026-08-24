@@ -3,7 +3,7 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { CART_COOKIE, CART_NOTICE_COOKIE, SESSION_COOKIE, createServer } from '@storeweave/api';
 import { csrfTokenFor } from '@storeweave/identity';
 import { defaultTheme } from '@storeweave/theme-default';
-import { ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, checkoutPayload, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
 
 /** 訪客識別：購物車 token 走 cookie（工單 25）。 */
 
@@ -221,9 +221,9 @@ describe('購物車結帳（工單 28）', () => {
     await inject({ method: 'POST', url: '/api/v1/cart/items', ...auth, payload: { productId: product.id, quantity: 2 } });
 
     const cartId = (await inject({ method: 'GET', url: '/api/v1/cart', cookies: { [SESSION_COOKIE]: session } })).json().data.id;
-    const first = await inject({ method: 'POST', url: '/api/v1/cart/checkout', ...auth, payload: { cartId } });
+    const first = await inject({ method: 'POST', url: '/api/v1/cart/checkout', ...auth, payload: checkoutPayload(h, cartId) });
     // 同一台車再送一次——瀏覽器重送表單就是這個樣子。
-    const second = await inject({ method: 'POST', url: '/api/v1/cart/checkout', ...auth, payload: { cartId } });
+    const second = await inject({ method: 'POST', url: '/api/v1/cart/checkout', ...auth, payload: checkoutPayload(h, cartId) });
 
     expect(first.statusCode).toBe(201);
     expect(second.json().data.id).toBe(first.json().data.id);
@@ -242,7 +242,7 @@ describe('購物車結帳（工單 28）', () => {
     })).json().data.id;
 
     const res = await inject({
-      method: 'POST', url: '/api/v1/cart/checkout', cookies: { [CART_COOKIE]: guest }, payload: { cartId },
+      method: 'POST', url: '/api/v1/cart/checkout', cookies: { [CART_COOKIE]: guest }, payload: checkoutPayload(h, cartId),
     });
 
     // requireByActor 的 403，而不是 resolveOwner 的 400。
@@ -265,7 +265,7 @@ describe('沒帶 cartId 的結帳（工單 52）', () => {
     const auth = await member(`cart-checkout-noid-${Date.now()}@example.com`);
     await inject({ method: 'POST', url: '/api/v1/cart/items', ...auth, payload: { productId: product.id, quantity: 1 } });
 
-    const res = await inject({ method: 'POST', url: '/api/v1/cart/checkout', ...auth, payload: {} });
+    const res = await inject({ method: 'POST', url: '/api/v1/cart/checkout', ...auth, payload: checkoutPayload(h) });
 
     expect(res.statusCode).toBe(201);
     expect(res.json().data.lines).toHaveLength(1);
@@ -274,7 +274,7 @@ describe('沒帶 cartId 的結帳（工單 52）', () => {
   it('沒有車的會員拿到的是「車是空的」，不是指著陌生 uuid 的 404', async () => {
     const auth = await member(`cart-checkout-nocart-${Date.now()}@example.com`);
 
-    const res = await inject({ method: 'POST', url: '/api/v1/cart/checkout', ...auth, payload: {} });
+    const res = await inject({ method: 'POST', url: '/api/v1/cart/checkout', ...auth, payload: checkoutPayload(h) });
 
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('VALIDATION_ERROR');
@@ -288,7 +288,7 @@ describe('沒帶 cartId 的結帳（工單 52）', () => {
     const guest = added.cookies.find((c) => c.name === CART_COOKIE)!.value;
 
     const res = await inject({
-      method: 'POST', url: '/api/v1/cart/checkout', cookies: { [CART_COOKIE]: guest }, payload: {},
+      method: 'POST', url: '/api/v1/cart/checkout', cookies: { [CART_COOKIE]: guest }, payload: checkoutPayload(h),
     });
 
     // requireByActor 的 403，而不是「找不到那台車」——光看狀態碼分不出這兩者。

@@ -54,8 +54,11 @@ export interface CommandContext {
   publish(event: { name: string; payload: unknown }): Promise<void>;
   /** 在同一個交易內寫入 audit log。 */
   audit(entry: AuditEntryInput): Promise<void>;
-  /** 在同一個交易內排入背景工作。 */
-  enqueue(job: { type: string; payload: unknown; dedupeKey?: string; runAt?: Date }): Promise<void>;
+  /**
+   * 在同一個交易內排入背景工作。`replaceExisting` 只適合「同一件尚未發生的
+   * 事」被重新排程的情境；它會以 dedupeKey 更新既有工作，而不是另外排一支。
+   */
+  enqueue(job: { type: string; payload: unknown; dedupeKey?: string; runAt?: Date; replaceExisting?: boolean }): Promise<void>;
 }
 
 export interface QueryContext {

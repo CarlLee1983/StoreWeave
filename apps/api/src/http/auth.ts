@@ -22,6 +22,14 @@ export const IS_ANONYMOUS = 'commerce:anonymous';
  */
 export const Anonymous = () => SetMetadata(IS_ANONYMOUS, true);
 
+export const IS_EXTERNAL_CALLBACK = 'commerce:external-callback';
+/**
+ * Provider-to-provider callbacks cannot meet browser same-origin or CSRF checks.
+ * This is deliberately narrower than `@Public()`: it grants no request actor;
+ * the callback controller elevates only after a provider has verified its payload.
+ */
+export const ExternalCallback = () => SetMetadata(IS_EXTERNAL_CALLBACK, true);
+
 export const STOREFRONT_ROLE = 'storefront';
 
 export const CSRF_HEADER = 'x-csrf-token';
@@ -61,7 +69,14 @@ export class ApiTokenGuard implements CanActivate {
     const targets = [context.getHandler(), context.getClass()];
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, targets);
     const isAnonymous = this.reflector.getAllAndOverride<boolean>(IS_ANONYMOUS, targets);
+    const isExternalCallback = this.reflector.getAllAndOverride<boolean>(IS_EXTERNAL_CALLBACK, targets);
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+
+    if (isExternalCallback) {
+      // Do not put SYSTEM_ACTOR on the request. If a future callback handler
+      // accidentally uses BusController, actorOf() must fail closed before provider verification.
+      return true;
+    }
 
     if (isAnonymous) {
       // 強制匿名的端點沒有 session 可以驗 CSRF，但登入本身仍是狀態變更：

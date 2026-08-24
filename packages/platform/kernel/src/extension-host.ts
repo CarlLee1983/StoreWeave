@@ -134,7 +134,13 @@ export class ExtensionHost {
       this.deps.mcpTools.register(tool, manifest.id);
     }
     for (const provider of registration.providers ?? []) {
-      this.deps.providers.register({ provider, owner: manifest.id });
+      // The manifest is the declaration checked before setup. Preserve its default
+      // designation when mounting so replacing a payment extension is configuration,
+      // not a change to order or storefront code.
+      const declared = manifest.registeredProviders.find(
+        (candidate) => candidate.kind === provider.kind && candidate.id === provider.id,
+      );
+      this.deps.providers.register({ provider, owner: manifest.id, isDefault: declared?.isDefault });
     }
     for (const job of registration.jobs ?? []) {
       this.deps.jobRegistry.register(job.type, async (payload, jobCtx) => {

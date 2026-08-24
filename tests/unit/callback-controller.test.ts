@@ -1,0 +1,237 @@
+import { describe, expect, it, vi } from 'vitest';
+import { SYSTEM_ACTOR } from '@storeweave/contracts';
+import { createTestExtensionContext, type PaymentProvider } from '@storeweave/extension-sdk';
+import { createCheckMacValue, createEcpayPaymentProvider, ecpayPaymentConfig } from '@storeweave/ext-ecpay';
+import type { Runtime } from '@storeweave/kernel';
+import { CallbackController } from '../../apps/api/src/controllers/callback.controller';
+
+type ReplyState = {
+  statusCode?: number;
+  body?: string;
+  headers: Record<string, string>;
+};
+
+function replyStub(): { reply: any; state: ReplyState } {
+  const state: ReplyState = { headers: {} };
+  const reply = {
+    status: vi.fn((statusCode: number) => {
+      state.statusCode = statusCode;
+      return reply;
+    }),
+    type: vi.fn(() => reply),
+    header: vi.fn((name: string, value: string) => {
+      state.headers[name] = value;
+      return reply;
+    }),
+    send: vi.fn((body: string) => {
+      state.body = body;
+      return reply;
+    }),
+  };
+  return { reply, state };
+}
+
+function paymentProvider(overrides: Partial<PaymentProvider> = {}): PaymentProvider {
+  return {
+    id: 'gateway-a',
+    kind: 'payment',
+    paymentMethods: () => [],
+    start: vi.fn(),
+    parseCallback: vi.fn(),
+    acknowledgeCallback: vi.fn(() => ({
+      statusCode: 202,
+      headers: { 'x-provider-ack': 'accepted' },
+      body: 'provider accepted',
+    })),
+    refund: vi.fn(),
+    ...overrides,
+  } as PaymentProvider;
+}
+
+function controllerFor(provider: PaymentProvider, options: { get?: () => PaymentProvider; execute?: ReturnType<typeof vi.fn> } = {}) {
+  const runtime = {
+    providers: { get: vi.fn(options.get ?? (() => provider)) },
+    commands: { execute: options.execute ?? vi.fn(async () => ({})) },
+    logger: { warn: vi.fn() },
+  };
+  return { controller: new CallbackController(runtime as unknown as Runtime), runtime };
+}
+
+const ecpaySecrets = {
+  ECPAY_MERCHANT_ID: 'test-merchant-id',
+  ECPAY_HASH_KEY: 'test-hash-key',
+  ECPAY_HASH_IV: 'test-hash-iv',
+};
+
+async function startedEcpayProvider() {
+  const context = createTestExtensionContext({
+    extensionId: 'ecpay',
+    config: ecpayPaymentConfig.parse({
+      returnUrl: 'https://store.example.test/callbacks/payment/ecpay',
+      paymentInfoUrl: 'https://store.example.test/callbacks/payment/ecpay',
+    }),
+    secrets: ecpaySecrets,
+    now: () => new Date('2026-08-24T12:34:56.000Z'),
+  });
+  const provider = createEcpayPaymentProvider(context);
+  const start = await provider.start({
+    orderId: '11111111-1111-4111-8111-111111111111',
+    orderNumber: 'SW-1000',
+    amountCents: 10_000,
+    currency: 'TWD',
+    method: 'card',
+    reference: 'attempt:11111111-1111-4111-8111-111111111111',
+  });
+  if (start.status !== 'redirect') throw new Error('expected ECPay redirect');
+  return { provider, merchantTradeNo: start.providerRef };
+}
+
+function signedEcpayCallback(fields: Record<string, string>): Uint8Array {
+  const signed = { ...fields };
+  signed.CheckMacValue = createCheckMacValue(signed, ecpaySecrets.ECPAY_HASH_KEY, ecpaySecrets.ECPAY_HASH_IV);
+  return new TextEncoder().encode(new URLSearchParams(signed).toString());
+}
+
+describe('CallbackController', () => {
+  it('accepts a signed ECPay callback through the real provider and gives a replay the same opaque idempotency key', async () => {
+    const { provider, merchantTradeNo } = await startedEcpayProvider();
+    const execute = vi.fn(async () => ({}));
+    const { controller, runtime } = controllerFor(provider, { execute });
+    const body = signedEcpayCallback({
+      MerchantID: ecpaySecrets.ECPAY_MERCHANT_ID,
+      MerchantTradeNo: merchantTradeNo!,
+      TradeNo: '2408241234567890',
+      TradeAmt: '100',
+      RtnCode: '1',
+      RtnMsg: '交易成功',
+    });
+
+    const first = replyStub();
+    await controller.handlePayment('payment', 'ecpay', {}, { rawBody: body, headers: {} }, first.reply);
+    const replay = replyStub();
+    await controller.handlePayment('payment', 'ecpay', {}, { rawBody: body, headers: {} }, replay.reply);
+
+    expect(first.state).toMatchObject({ statusCode: 200, body: '1|OK' });
+    expect(replay.state).toMatchObject({ statusCode: 200, body: '1|OK' });
+    expect(runtime.commands.execute).toHaveBeenCalledTimes(2);
+    const commandCalls = (runtime.commands.execute as ReturnType<typeof vi.fn>).mock.calls;
+    const firstOptions = commandCalls[0]![2] as { idempotencyKey: string };
+    const replayOptions = commandCalls[1]![2] as { idempotencyKey: string };
+    expect(firstOptions.idempotencyKey).toMatch(/^callback:[a-f0-9]{64}$/);
+    expect(replayOptions.idempotencyKey).toBe(firstOptions.idempotencyKey);
+    expect(firstOptions.idempotencyKey).not.toContain(merchantTradeNo!);
+  });
+
+  it('rejects a tampered ECPay callback without dispatching a payment command', async () => {
+    const { provider, merchantTradeNo } = await startedEcpayProvider();
+    const { controller, runtime } = controllerFor(provider);
+    const { reply, state } = replyStub();
+    const body = signedEcpayCallback({
+      MerchantID: ecpaySecrets.ECPAY_MERCHANT_ID,
+      MerchantTradeNo: merchantTradeNo!,
+      TradeNo: '2408241234567890',
+      TradeAmt: '100',
+      RtnCode: '1',
+    });
+    body[0] = body[0] === 77 ? 88 : 77;
+
+    await controller.handlePayment('payment', 'ecpay', {}, { rawBody: body, headers: {} }, reply);
+
+    expect(runtime.commands.execute).not.toHaveBeenCalled();
+    expect(state).toMatchObject({ statusCode: 500, body: '0|FAIL' });
+  });
+
+  it('passes untouched raw bytes to the provider, records a normalized result as SYSTEM, then sends the provider acknowledgement', async () => {
+    const rawBody = new Uint8Array([0, 255, 10, 13, 65]);
+    const provider = paymentProvider({
+      parseCallback: vi.fn(async () => ({
+        type: 'payment_confirmed' as const,
+        reference: 'attempt:private-reference',
+        providerRef: 'gateway-receipt-7',
+      })),
+    });
+    const { controller, runtime } = controllerFor(provider);
+    const { reply, state } = replyStub();
+
+    await controller.handlePayment(
+      'payment',
+      'gateway-a',
+      { echoed: 'yes' },
+      { rawBody, headers: { 'x-correlation-id': 'callback-correlation' } },
+      reply,
+    );
+
+    expect(provider.parseCallback).toHaveBeenCalledWith({
+      body: rawBody,
+      headers: { 'x-correlation-id': 'callback-correlation' },
+      query: { echoed: 'yes' },
+    });
+    expect(runtime.commands.execute).toHaveBeenCalledWith(
+      'commerce.order.recordPaymentResult',
+      {
+        attemptRef: 'attempt:private-reference',
+        provider: 'gateway-a',
+        status: 'confirmed',
+        providerRef: 'gateway-receipt-7',
+      },
+      expect.objectContaining({
+        actor: SYSTEM_ACTOR,
+        correlationId: 'callback-correlation',
+        channel: 'rest',
+        idempotencyKey: expect.stringMatching(/^callback:[a-f0-9]{64}$/),
+      }),
+    );
+    const commandOptions = (runtime.commands.execute as ReturnType<typeof vi.fn>).mock.calls[0]![2] as { idempotencyKey: string };
+    expect(commandOptions.idempotencyKey).not.toContain('private-reference');
+    expect(provider.acknowledgeCallback).toHaveBeenCalledExactlyOnceWith({ accepted: true });
+    expect(state).toEqual({
+      statusCode: 202,
+      headers: { 'x-provider-ack': 'accepted' },
+      body: 'provider accepted',
+    });
+  });
+
+  it('does not dispatch a command when provider verification fails and returns that provider’s failure acknowledgement', async () => {
+    const provider = paymentProvider({
+      parseCallback: vi.fn(async () => { throw new Error('invalid signature'); }),
+      acknowledgeCallback: vi.fn(({ accepted }) => accepted
+        ? { body: 'unexpected' }
+        : { statusCode: 400, headers: { 'x-provider-ack': 'rejected' }, body: 'bad signature' }),
+    });
+    const { controller, runtime } = controllerFor(provider);
+    const { reply, state } = replyStub();
+
+    await controller.handlePayment('payment', 'gateway-a', {}, { rawBody: new Uint8Array([1]), headers: {} }, reply);
+
+    expect(runtime.commands.execute).not.toHaveBeenCalled();
+    expect(provider.acknowledgeCallback).toHaveBeenCalledExactlyOnceWith({ accepted: false });
+    expect(state).toEqual({
+      statusCode: 400,
+      headers: { 'x-provider-ack': 'rejected' },
+      body: 'bad signature',
+    });
+  });
+
+  it('returns 404 without resolving a provider for unsupported callback kinds', async () => {
+    const provider = paymentProvider();
+    const { controller, runtime } = controllerFor(provider);
+    const { reply, state } = replyStub();
+
+    await controller.handlePayment('shipping', 'gateway-a', {}, { rawBody: new Uint8Array(), headers: {} }, reply);
+
+    expect(runtime.providers.get).not.toHaveBeenCalled();
+    expect(state).toEqual({ statusCode: 404, headers: {}, body: 'Not found' });
+  });
+
+  it('returns 404 when the payment provider is unknown', async () => {
+    const provider = paymentProvider();
+    const { controller, runtime } = controllerFor(provider, { get: () => { throw new Error('not found'); } });
+    const { reply, state } = replyStub();
+
+    await controller.handlePayment('payment', 'missing', {}, { rawBody: new Uint8Array(), headers: {} }, reply);
+
+    expect(runtime.commands.execute).not.toHaveBeenCalled();
+    expect(provider.acknowledgeCallback).not.toHaveBeenCalled();
+    expect(state).toEqual({ statusCode: 404, headers: {}, body: 'Not found' });
+  });
+});

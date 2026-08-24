@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { PlatformError } from '@storeweave/contracts';
 import {
-  ADMIN_ACTOR, STOREFRONT_ACTOR, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
+  ADMIN_ACTOR, STOREFRONT_ACTOR, checkoutInput, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
 } from './helpers';
 
 /** 結帳折抵購物金（工單 41）。 */
@@ -23,7 +23,7 @@ const setRedemption = (amountCents: number, actor: any) =>
 const getCart = (actor: any) => h.runtime.queries.execute<any>('commerce.cart.getCart', {}, { actor });
 
 const checkout = (actor: any, cartId: string) =>
-  h.runtime.commands.execute<any>('commerce.order.checkoutCart', { cartId }, { actor, idempotencyKey: randomUUID() });
+  h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cartId), { actor, idempotencyKey: randomUUID() });
 
 const grant = (customerId: string, amountCents: number) =>
   h.runtime.commands.execute('commerce.loyalty.adjustRewards',
@@ -109,7 +109,7 @@ describe('結帳時折抵', () => {
 
     const order = await checkout(customer, (await getCart(customer)).id);
 
-    expect(order.totalCents).toBe(15_000);
+    expect(order.totalCents).toBe(15_100);
     expect(order.adjustments.at(-1)).toMatchObject({ source: 'reward', amountCents: -5_000 });
 
     const { balance, entries } = await myRewards(customer);
@@ -142,7 +142,7 @@ describe('結帳時折抵', () => {
 
     const order = await checkout(customer, (await getCart(customer)).id);
 
-    expect(order.totalCents).toBe(20_000);
+    expect(order.totalCents).toBe(20_100);
     expect(order.adjustments).toEqual([]);
     expect((await myRewards(customer)).balance.availableCents).toBe(0);
   });
@@ -154,7 +154,7 @@ describe('結帳時折抵', () => {
 
     const order = await checkout(customer, cart.id);
 
-    expect(order.totalCents).toBe(cart.totalCents);
+    expect(order.totalCents).toBe(cart.totalCents + 100);
     expect(order.discountCents).toBe(cart.discountCents);
   });
 });

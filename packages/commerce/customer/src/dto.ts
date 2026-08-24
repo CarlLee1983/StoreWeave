@@ -1,10 +1,14 @@
 import { z } from 'zod';
 
 export const addressDto = z.object({
+  /** 首波配送範圍是台灣；輸出永遠明示國別，避免把舊資料誤當成可寄往任意地區。 */
+  countryCode: z.literal('TW').default('TW'),
   recipient: z.string().min(1).max(120),
   phone: z.string().min(1).max(40),
   postcode: z.string().min(1).max(20),
   city: z.string().min(1).max(80),
+  /** 舊的個人檔案沒有這個欄位；結帳的台灣宅配目的地會再要求它存在。 */
+  district: z.string().min(1).max(80).nullable().default(null),
   line1: z.string().min(1).max(200),
   line2: z.string().max(200).nullable().default(null),
 });

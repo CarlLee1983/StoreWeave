@@ -10,9 +10,13 @@
 | [0003](0003-cart.md) | 購物車 | 0001, 0002 | ready-for-agent |
 | [0004](0004-coupons-and-marketing-codes.md) | 優惠券與行銷碼 | 0001–0003 | ready-for-agent |
 | [0005](0005-points-tiers-and-analytics.md) | 購物金、會員等級與行銷分析 | 0001–0004 | ready-for-agent |
+| [0006](0006-commerce-operations-closure.md) | 購物營運閉環：付款、履約、售後與探索 | 0001–0005 | ready-for-agent |
 
 0001 與 0002 沒有相依，可並行；兩條線在 0003 會合。加價購接在 0004 之後，
 是定價引擎輸出「可加購清單」的延伸，不獨立成規格。
+
+0006 接在既有購物核心之後；其 Ticket 57–67 先補可上線的付款與物流閉環，再處理售後、
+電子發票與商品探索。它不重做已完成的 Cart、付款嘗試與 shipping domain model。
 
 ## 測試接縫
 
