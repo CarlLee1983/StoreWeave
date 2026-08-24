@@ -14,8 +14,12 @@ export const REQUIRED_DEFAULT_THEME_ASSETS = [
     sha256: 'b56adfc86643cdd2fb9dc54563f5d655837e7e12deaa47e8c2e2e94ef5fdc836',
   },
   {
-    relativePath: 'fonts/OFL.txt',
+    relativePath: 'fonts/NotoSansTC-OFL.txt',
     sha256: '1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9',
+  },
+  {
+    relativePath: 'fonts/NotoSerifTC-OFL.txt',
+    sha256: '5e0da210fb04058a8c0087985d2d456b931c2579811a49655721d3cf0c36b6d6',
   },
 ];
 
@@ -63,7 +67,11 @@ function runCli() {
     console.log(`verified Default Theme assets: ${resolve(assetsDir)}`);
     return;
   }
-  throw new Error('usage: theme-assets.mjs <copy|verify> ...');
+  if (command === 'list') {
+    for (const { relativePath } of REQUIRED_DEFAULT_THEME_ASSETS) console.log(relativePath);
+    return;
+  }
+  throw new Error('usage: theme-assets.mjs <copy|verify|list> ...');
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

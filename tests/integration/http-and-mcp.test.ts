@@ -1,9 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { join } from 'node:path';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
-import { createHarness, createProduct, stockUp, type TestHarness } from './helpers';
+import { createHarness, createProduct, defaultThemeRelease, stockUp, type TestHarness } from './helpers';
 
 const ADMIN_TOKEN = 'test-admin-token-abcdefghijklmnop';
 const MCP_TOKEN = 'test-mcp-token-abcdefghijklmnop';
@@ -26,11 +25,7 @@ beforeAll(async () => {
   app = await createServer({
     runtime: h.runtime,
     theme: defaultTheme,
-    release: {
-      version: 'test',
-      configPath: '<test>',
-      themeAssetsDir: join(process.cwd(), 'packages/themes/default/assets'),
-    },
+    release: defaultThemeRelease(),
   });
 }, 300_000);
 
@@ -46,6 +41,22 @@ function inject(options: Parameters<NestFastifyApplication['inject']>[0]) {
 const auth = (token = ADMIN_TOKEN) => ({ authorization: `Bearer ${token}` });
 
 describe('REST 介面', () => {
+  it('Theme 宣告靜態資產時，遺漏資產目錄會在 server 初始化時失敗', async () => {
+    const result = await createServer({
+      runtime: h.runtime,
+      theme: defaultTheme,
+      release: { version: 'test', configPath: '<test>' },
+    }).then(
+      (created) => ({ created }),
+      (error: unknown) => ({ error }),
+    );
+
+    if ('created' in result) await result.created.close();
+    expect(result).toHaveProperty('error');
+    expect('error' in result && result.error).toBeInstanceOf(Error);
+    expect('error' in result && (result.error as Error).message).toContain('declares static assets');
+  });
+
   it('沒有 token 會回 401，錯誤信封一致', async () => {
     const res = await inject({ method: 'GET', url: '/api/v1/products' });
     expect(res.statusCode).toBe(401);

@@ -1,5 +1,8 @@
 import type { ThemeContext } from '@storeweave/kernel';
 
+/** 此 Theme 自己擁有字型等同源靜態資產的瀏覽器 URL 邊界。 */
+export const DEFAULT_THEME_ASSET_PREFIX = '/theme/default/';
+
 export function escapeHtml(value: unknown): string {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -83,25 +86,30 @@ function styles(accent: string): string {
   font-style: normal;
   font-weight: 400 700;
   font-display: swap;
-  src: url("/theme/default/fonts/NotoSansTC-Variable.woff2") format("woff2");
+  src: url("${DEFAULT_THEME_ASSET_PREFIX}fonts/NotoSansTC-Variable.woff2") format("woff2");
 }
 @font-face {
   font-family: "Noto Serif TC";
   font-style: normal;
   font-weight: 400 600;
   font-display: swap;
-  src: url("/theme/default/fonts/NotoSerifTC-Variable.woff2") format("woff2");
+  src: url("${DEFAULT_THEME_ASSET_PREFIX}fonts/NotoSerifTC-Variable.woff2") format("woff2");
 }
 :root {
   --accent: ${accent};
   --surface-canvas: #f7f3ed;
-  --surface-raised: #fffdf9;
+  --surface-raised: #fffdfc;
+  --surface-muted: #eee7de;
   --ink-strong: #2b2520;
   --ink-muted: #675d55;
+  --ink-inverse: #fff;
   --line-subtle: #dcd1c5;
+  --state-focus: #17673c;
   --state-success: #36684a;
   --state-warning: #8a5a12;
   --state-danger: #a83232;
+  --state-danger-ink: #7f1d1d;
+  --state-danger-surface: #fff4f3;
   --font-sans: "Noto Sans TC", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", sans-serif;
   --font-serif: "Noto Serif TC", "Songti TC", "Times New Roman", serif;
 }
@@ -121,7 +129,7 @@ a:hover { text-decoration-thickness: 2px; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button[disabled] { cursor: not-allowed; opacity: .55; }
-:focus-visible { outline: 3px solid #17673c; outline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--state-focus); outline-offset: 3px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
@@ -134,12 +142,18 @@ button[disabled] { cursor: not-allowed; opacity: .55; }
   border-radius: .45rem;
   padding: .55rem .8rem;
   background: var(--ink-strong);
-  color: white;
+  color: var(--ink-inverse);
   font-weight: 700;
   text-decoration: none;
 }
 .skip-link:focus { transform: translateY(0); }
-.site-header { border-bottom: 1px solid var(--line-subtle); background: rgba(255, 253, 249, .92); }
+.site-header {
+  position: sticky;
+  z-index: 5;
+  top: 0;
+  border-bottom: 1px solid var(--line-subtle);
+  background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
+}
 .site-header__inner {
   display: grid;
   width: min(100% - 2rem, 74rem);
@@ -200,7 +214,7 @@ h2 { font-family: var(--font-serif); font-weight: 500; letter-spacing: -.035em; 
   background: var(--surface-raised);
 }
 .notice { border-color: color-mix(in srgb, var(--state-success) 40%, var(--line-subtle)); }
-.error { border-color: var(--state-danger); color: #7f1d1d; background: #fff4f3; }
+.error { border-color: var(--state-danger); color: var(--state-danger-ink); background: var(--state-danger-surface); }
 .notice p, .error p { margin: 0; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; }
 .card {
@@ -221,7 +235,7 @@ input, select {
   background: var(--surface-raised);
   color: var(--ink-strong);
 }
-input:disabled { cursor: not-allowed; background: #eee7de; color: var(--ink-muted); }
+input:disabled { cursor: not-allowed; background: var(--surface-muted); color: var(--ink-muted); }
 input[type=number] { font-variant-numeric: tabular-nums; }
 button, .cta {
   display: inline-flex;
@@ -232,7 +246,7 @@ button, .cta {
   border-radius: .55rem;
   padding: .65rem 1rem;
   background: var(--accent);
-  color: white;
+  color: var(--ink-inverse);
   font-weight: 700;
   text-decoration: none;
 }
@@ -277,7 +291,7 @@ th { color: var(--ink-muted); font-size: .75rem; font-weight: 700; letter-spacin
   font-weight: 700;
   text-decoration: none;
 }
-.secondary-action:hover { background: #eee7de; }
+.secondary-action:hover { background: var(--surface-muted); }
 
 /* 首頁型錄：只用真實 ThemeProductView 資料，不做假商品圖或分類。 */
 .catalog-page { display: grid; gap: clamp(2.5rem, 6vw, 5rem); }
@@ -302,7 +316,7 @@ th { color: var(--ink-muted); font-size: .75rem; font-weight: 700; letter-spacin
 .catalog-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr)); gap: 1px; border: 1px solid var(--line-subtle); background: var(--line-subtle); }
 .product-card { min-width: 0; background: var(--surface-raised); }
 .product-card__link { display: flex; min-height: 15.5rem; flex-direction: column; justify-content: space-between; padding: 1.35rem; text-decoration: none; }
-.product-card__link:hover { background: #fff8f0; }
+.product-card__link:hover { background: color-mix(in srgb, var(--surface-raised) 76%, var(--surface-canvas)); }
 .product-card__sku { margin: 0; color: var(--ink-muted); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
 .product-card h2 { margin: .7rem 0 0; font-size: clamp(1.35rem, 2vw, 1.7rem); line-height: 1.12; }
 .product-card__description { margin: .75rem 0 0; color: var(--ink-muted); font-size: .9rem; }
@@ -429,8 +443,8 @@ th { color: var(--ink-muted); font-size: .75rem; font-weight: 700; letter-spacin
   font-size: .82rem;
   text-decoration: none;
 }
-.account-tabs a:hover { background: #eee7de; color: var(--ink-strong); }
-.account-tabs a[aria-current="page"] { background: var(--ink-strong); color: white; font-weight: 700; }
+.account-tabs a:hover { background: var(--surface-muted); color: var(--ink-strong); }
+.account-tabs a[aria-current="page"] { background: var(--ink-strong); color: var(--ink-inverse); font-weight: 700; }
 .account-stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .account-stat, .account-panel {
   border: 1px solid var(--line-subtle);
@@ -444,14 +458,14 @@ th { color: var(--ink-muted); font-size: .75rem; font-weight: 700; letter-spacin
 .account-stat .muted { margin-top: .55rem; }
 .account-panel { min-width: 0; }
 .data-table { margin-top: 1rem; }
-.data-table code { border-radius: .3rem; padding: .12rem .35rem; background: #eee7de; color: var(--ink-strong); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; }
+.data-table code { border-radius: .3rem; padding: .12rem .35rem; background: var(--surface-muted); color: var(--ink-strong); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; }
 .order-status {
   display: inline-block;
   border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--line-subtle));
   border-radius: 999px;
   padding: .2rem .55rem;
   color: var(--ink-strong);
-  background: #fff8f0;
+  background: color-mix(in srgb, var(--surface-raised) 76%, var(--surface-canvas));
   font-size: .78rem;
   font-weight: 700;
 }

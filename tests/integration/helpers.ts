@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import { Client } from 'pg';
 import { commerceConfigSchema, type CommerceConfig, type SecretProvider } from '@storeweave/config';
 import { createRuntime, Worker, type Runtime } from '@storeweave/kernel';
@@ -42,6 +43,15 @@ export interface TestHarness {
   runtime: Runtime;
   worker: Worker;
   close(): Promise<void>;
+}
+
+/** API tests use the real Default Theme, so the source assets are part of their explicit release fixture. */
+export function defaultThemeRelease() {
+  return {
+    version: 'test',
+    configPath: '<test>',
+    themeAssetsDir: join(process.cwd(), 'packages/themes/default/assets'),
+  };
 }
 
 export function testSecretProvider(values: Record<string, string>): SecretProvider {

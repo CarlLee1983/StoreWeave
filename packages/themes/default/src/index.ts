@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type {
   StorefrontTheme, ThemeAccountCouponsView, ThemeAuthView, ThemeCartView, ThemeContext,
 } from '@storeweave/kernel';
-import { escapeHtml, formatMoney, layout } from './layout';
+import { DEFAULT_THEME_ASSET_PREFIX, escapeHtml, formatMoney, layout } from './layout';
 
 type AccountSection = 'orders' | 'coupons' | 'rewards' | 'profile';
 
@@ -47,7 +47,6 @@ function orderStatus(status: string): string {
     paid: '付款完成',
     expired: '已逾時',
     cancelled: '已取消',
-    refunded: '已退款',
   };
   const label = Object.hasOwn(labels, status) ? labels[status] : status;
   return `<span class="order-status" data-status="${escapeHtml(status)}">${escapeHtml(label)}</span>`;
@@ -110,8 +109,7 @@ function cartTable(ctx: ThemeContext, view: ThemeCartView, editable: boolean): s
           <form method="post" action="/cart/items/${escapeHtml(line.productId)}" class="inline cart-quantity-form">
             ${csrfField(ctx)}
             <label class="sr-only" for="${quantityId}">${escapeHtml(line.name)} 的數量</label>
-            <input id="${quantityId}" type="number" name="quantity" value="${line.quantity}" min="0"
-                   max="${Math.max(line.quantity, line.available ?? 999)}" required>
+            <input id="${quantityId}" type="number" name="quantity" value="${line.quantity}" min="0"${line.available === null ? '' : ` max="${line.available}"`} required>
             <button type="submit">更新</button>
           </form>` : line.quantity}</td>
         <td data-label="小計">${money(line.lineTotalCents)}</td>
@@ -270,6 +268,7 @@ export const defaultThemeOptions = z.object({
 export const defaultTheme: StorefrontTheme = {
   id: 'default',
   name: 'Default Storefront',
+  staticAssets: { prefix: DEFAULT_THEME_ASSET_PREFIX },
   optionsSchema: defaultThemeOptions,
 
   renderHome(ctx, { products }) {
@@ -336,15 +335,17 @@ export const defaultTheme: StorefrontTheme = {
             <p class="product-purchase__label">商品價格</p>
             <p class="price">${formatMoney(product.priceCents, product.currency, ctx.locale)}</p>
             ${availability ? `<p class="product-purchase__availability${soldOut ? ' product-purchase__availability--sold-out' : ''}">${availability}</p>` : ''}
-            <form class="product-form" method="post" action="/cart/items">
-              <input type="hidden" name="productId" value="${escapeHtml(product.id)}">
-              ${csrfField(ctx)}
-              <label>數量
-                <input type="number" name="quantity" value="1" min="1" max="${Math.max(1, product.available ?? 99)}" required>
-              </label>
-              ${product.available === null ? '<p class="product-form__hint">數量將由系統於加入購物車時確認。</p>' : ''}
-              <button type="submit" ${soldOut ? 'disabled' : ''}>加入購物車</button>
-            </form>
+            ${soldOut
+              ? '<p class="product-form__hint">目前已售完，暫時無法加入購物車。</p>'
+              : `<form class="product-form" method="post" action="/cart/items">
+                  <input type="hidden" name="productId" value="${escapeHtml(product.id)}">
+                  ${csrfField(ctx)}
+                  <label>數量
+                    <input type="number" name="quantity" value="1" min="1"${product.available === null ? '' : ` max="${product.available}"`} required>
+                  </label>
+                  ${product.available === null ? '<p class="product-form__hint">數量將由系統於加入購物車時確認。</p>' : ''}
+                  <button type="submit">加入購物車</button>
+                </form>`}
           </aside>
         </div>
       </article>`;

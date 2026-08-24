@@ -8,7 +8,7 @@ export interface ReleaseInfo {
   version: string;
   configPath: string;
   adminDir?: string;
-  /** Default Theme 的同源靜態資產；release 與本機開發都由啟動程式提供。 */
+  /** Theme 宣告公開路徑後，由 release 或明確的開發環境提供的資產目錄。 */
   themeAssetsDir?: string;
 }
 

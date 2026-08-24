@@ -1,0 +1,2 @@
+# Google Fonts 的 Noto Sans TC OFL 原文含有一個官方尾端空白；雜湊驗證要求逐位元組保存。
+packages/themes/default/assets/fonts/NotoSansTC-OFL.txt -whitespace

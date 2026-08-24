@@ -82,6 +82,7 @@ ERP 串接與後台，因此先加恆為零的欄位、再讓新舊事件並行�
 | [53](53-bus-timing.md) | Command / Query Bus 記下執行時間 | — |
 | [54](54-clawback-names-its-batch.md) | 取消訂單扣回購物金要指名批次 | 40, 42 |
 | [55](55-bus-timing-slow-msg.md) | Bus 計時的整合測試會被機器忙碌搞紅，也會被搞綠 | 53 |
+| [56](56-default-storefront-theme.md) | Default Theme 顧客前台與同源資產交付 | 14, 20, 29, 38, 49 |
 
 ## 已知、刻意沒做的
 

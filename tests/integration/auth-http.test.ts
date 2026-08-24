@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { SESSION_COOKIE, createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
-import { ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createHarness, createProduct, defaultThemeRelease, stockUp, type TestHarness } from './helpers';
 
 const ADMIN_TOKEN = 'test-admin-token-abcdefghijklmnop';
 
@@ -20,7 +20,7 @@ beforeAll(async () => {
   app = await createServer({
     runtime: h.runtime,
     theme: defaultTheme,
-    release: { version: 'test', configPath: '<test>' },
+    release: defaultThemeRelease(),
   });
 }, 300_000);
 

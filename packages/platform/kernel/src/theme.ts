@@ -182,10 +182,20 @@ export interface ThemeContext {
  * Storefront Theme 契約。
  * 品牌差異全部落在這裡 —— Core 不會為了某個客戶的外觀改一行程式碼。
  */
+/**
+ * Theme 宣告其同源靜態資產的公開 URL 邊界；檔案系統位置由 release 組裝層決定。
+ */
+export interface ThemeStaticAssets {
+  /** 必須以 `/` 開頭且以 `/` 結尾，讓 Theme 可安全組合資產 URL。 */
+  readonly prefix: string;
+}
+
 export interface StorefrontTheme {
   readonly id: string;
   readonly name: string;
   readonly optionsSchema: ZodTypeAny;
+  /** 沒有靜態資產的 Theme 不宣告此欄位，也不會掛載任何靜態路由。 */
+  readonly staticAssets?: ThemeStaticAssets;
   renderHome(ctx: ThemeContext, data: { products: ThemeProductView[] }): string;
   renderProduct(ctx: ThemeContext, data: { product: ThemeProductView }): string;
   renderOrder(ctx: ThemeContext, data: { order: ThemeOrderView }): string;

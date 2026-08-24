@@ -137,12 +137,20 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
     }
   }
 
-  // Default Theme 的字型與未來同源靜態資產。Theme HTML 只引用這個固定前綴，
-  // 因此登入／購物車頁不會向第三方字型 CDN 發出請求。
-  if (theme.id === 'default' && release.themeAssetsDir && existsSync(release.themeAssetsDir)) {
+  // Theme 宣告公開 URL，release 提供檔案目錄；API 不認得特定 Theme 的 id 或路由。
+  if (theme.staticAssets) {
+    if (!release.themeAssetsDir) {
+      throw new Error(`Theme "${theme.id}" declares static assets, but no assets directory was provided`);
+    }
+    if (!theme.staticAssets.prefix.startsWith('/') || !theme.staticAssets.prefix.endsWith('/')) {
+      throw new Error(`Theme "${theme.id}" static asset prefix must start and end with '/': ${theme.staticAssets.prefix}`);
+    }
+    if (!existsSync(release.themeAssetsDir)) {
+      throw new Error(`Theme "${theme.id}" static assets are missing at ${release.themeAssetsDir}`);
+    }
     app.useStaticAssets({
       root: release.themeAssetsDir,
-      prefix: '/theme/default/',
+      prefix: theme.staticAssets.prefix,
       decorateReply: false,
       wildcard: false,
     });

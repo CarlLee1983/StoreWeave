@@ -4,7 +4,7 @@ import { csrfTokenFor } from '@storeweave/identity';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { SESSION_COOKIE, createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
-import { ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createHarness, createProduct, defaultThemeRelease, stockUp, type TestHarness } from './helpers';
 
 /** 顧客註冊、登入與登出（工單 14）。 */
 
@@ -16,7 +16,7 @@ beforeAll(async () => {
   app = await createServer({
     runtime: h.runtime,
     theme: defaultTheme,
-    release: { version: 'test', configPath: '<test>' },
+    release: defaultThemeRelease(),
   });
 }, 300_000);
 
