@@ -22,9 +22,9 @@ Docker 與 Native 的行為因此完全一致。每個 migration 帶 `phase` 標
 **3. HTTP 狀態碼。** 真正建立資源的 `POST /api/v1/products` 與 `POST /api/v1/orders` 回 201，
 其餘 POST（付款、取消、庫存調整、Extension command、MCP）回 200。所有回應都用統一信封。
 
-**4. 預設 Theme 的 HTMX 是漸進增強。** `packages/themes/default` 產生的頁面在沒有 JavaScript 時
-仍可完整瀏覽與下單；HTMX 由 CDN 載入，載入失敗不影響功能。不希望依賴外部 CDN 的部署
-可以把 script 標籤拿掉，或改為自行 vendor。
+**4. 預設 Theme 完全不載入 JavaScript。** `packages/themes/default` 產生的頁面只有 SSR 表單，
+沒有任何 script 標籤——早期規劃中的 HTMX 漸進增強最後沒有實作，這裡曾經寫成已經存在。
+`packages/themes/default/test/default-theme.test.ts` 斷言輸出不含 `<script`。
 
 **5. 付款在 Command 交易內同步完成。** `commerce.order.payOrder` 會在交易內呼叫 payment provider。
 對 mock provider 是正確的；接真實金流時，建議改成「`requestPayment` 排入背景工作 →
@@ -40,4 +40,5 @@ Provider Contract 已經要求以 `reference` 冪等，因此重試不會重複�
 
 `scripts/build.mjs` 改用支援 `emitDecoratorMetadata` 的編譯器（例如 SWC），
 使得 `apps/api/src/http/auth.ts` 的明確 `@Inject` 不再必要；
-或 Release 開始隨附 `node_modules`，使得路徑別名可以在執行期解析。
+或 Release 開始隨附 `node_modules`，使得路徑別名可以在執行期解析，
+代表這份 artifact 邊界需要重新檢視。

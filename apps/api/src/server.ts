@@ -137,6 +137,7 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
     }
   }
 
+
   await app.init();
   return app;
 }

@@ -36,7 +36,7 @@ packages/platform/
 
 packages/commerce/      第一個產品（Commerce Core）：catalog / inventory / order
 packages/extensions/    mock-payment / demo-erp / mcp
-packages/themes/default 預設 Storefront Theme（SSR + 選用的 HTMX）
+packages/themes/default 預設 Storefront Theme（純 SSR 表單，不載入 JavaScript）
 tools/cli/              commerce CLI
 deployments/            example-store、example-store-two、systemd unit、設定 JSON Schema
 ```

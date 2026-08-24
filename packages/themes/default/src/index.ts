@@ -4,6 +4,54 @@ import type {
 } from '@storeweave/kernel';
 import { escapeHtml, formatMoney, layout } from './layout';
 
+type AccountSection = 'orders' | 'coupons' | 'rewards' | 'profile';
+
+function feedback(message: string | null | undefined, tone: 'notice' | 'error' = 'notice'): string {
+  if (!message) return '';
+  return `<div class="${tone}" role="${tone === 'error' ? 'alert' : 'status'}"><p>${escapeHtml(message)}</p></div>`;
+}
+
+function pageHeading(eyebrow: string, title: string, description?: string): string {
+  return `<header class="page-heading">
+    <p class="eyebrow">${escapeHtml(eyebrow)}</p>
+    <h1>${escapeHtml(title)}</h1>
+    ${description ? `<p class="page-heading__copy">${escapeHtml(description)}</p>` : ''}
+  </header>`;
+}
+
+function accountIntro(current: AccountSection, title: string, description: string): string {
+  const sections: { id: AccountSection; href: string; label: string }[] = [
+    { id: 'orders', href: '/account/orders', label: '我的訂單' },
+    { id: 'coupons', href: '/account/coupons', label: '我的券' },
+    { id: 'rewards', href: '/account/rewards', label: '購物金' },
+    { id: 'profile', href: '/account/profile', label: '個人資料' },
+  ];
+  const links = sections.map((section) =>
+    `<a href="${section.href}"${section.id === current ? ' aria-current="page"' : ''}>${section.label}</a>`,
+  ).join('');
+
+  return `<header class="account-intro">
+    <div>
+      <p class="eyebrow">會員中心</p>
+      <h1>${escapeHtml(title)}</h1>
+      <p class="page-heading__copy">${escapeHtml(description)}</p>
+    </div>
+    <nav class="account-tabs" aria-label="會員中心導覽">${links}</nav>
+  </header>`;
+}
+
+function orderStatus(status: string): string {
+  const labels: Record<string, string> = {
+    pending: '訂單已建立',
+    payment_processing: '付款處理中',
+    paid: '付款完成',
+    expired: '已逾時',
+    cancelled: '已取消',
+  };
+  const label = Object.hasOwn(labels, status) ? labels[status] : status;
+  return `<span class="order-status" data-status="${escapeHtml(status)}">${escapeHtml(label)}</span>`;
+}
+
 /** 忘記密碼與重設密碼：兩張表單長得夠像，共用一支。 */
 function renderPasswordForm(
   ctx: ThemeContext,
@@ -14,17 +62,27 @@ function renderPasswordForm(
   const notice = forgot ? view.notice : undefined;
   const token = forgot ? undefined : view.token;
   const body = `
-    <h1>${forgot ? '忘記密碼' : '設定新密碼'}</h1>
-    ${notice ? `<p class="muted">${escapeHtml(notice)}</p>` : ''}
-    ${error ? `<div class="error"><p>${escapeHtml(error)}</p></div>` : ''}
-    ${notice && forgot ? '' : `<form method="post" action="${forgot ? '/forgot-password' : '/reset-password'}">
-      ${forgot
-        ? `<label>電子郵件<input type="email" name="email" required placeholder="you@example.com"></label>`
-        : `<input type="hidden" name="token" value="${escapeHtml(token ?? '')}">
-           <label>新密碼<input type="password" name="password" required minlength="8"></label>`}
-      <button type="submit">${forgot ? '寄出重設連結' : '設定新密碼'}</button>
-    </form>`}
-    <p class="muted"><a href="/login">回登入</a></p>`;
+    <article class="auth-page">
+      <section class="auth-card" aria-labelledby="auth-title">
+        <div class="auth-card__header">
+          <p class="eyebrow">帳戶存取</p>
+          <h1 id="auth-title">${forgot ? '忘記密碼' : '設定新密碼'}</h1>
+          <p class="page-heading__copy">${forgot
+            ? '輸入帳戶電子郵件，我們會寄送設定新密碼的連結。'
+            : '請設定至少八個字元的新密碼。'}</p>
+        </div>
+        ${feedback(notice)}
+        ${feedback(error, 'error')}
+        ${notice && forgot ? '' : `<form class="auth-form" method="post" action="${forgot ? '/forgot-password' : '/reset-password'}">
+          ${forgot
+            ? `<label>電子郵件<input type="email" name="email" required placeholder="you@example.com" autocomplete="email"></label>`
+            : `<input type="hidden" name="token" value="${escapeHtml(token ?? '')}">
+               <label>新密碼<input type="password" name="password" required minlength="8" autocomplete="new-password"></label>`}
+          <button type="submit">${forgot ? '寄出重設連結' : '設定新密碼'}</button>
+        </form>`}
+        <p class="auth-card__footer"><a href="/login">回登入</a></p>
+      </section>
+    </article>`;
   return layout({ title: forgot ? '忘記密碼' : '設定新密碼', body, ctx });
 }
 
@@ -34,49 +92,67 @@ function renderPasswordForm(
  */
 function cartTable(ctx: ThemeContext, view: ThemeCartView, editable: boolean): string {
   const money = (cents: number) => formatMoney(cents, view.currency, ctx.locale);
-  const rows = view.lines.map((line) => `
-    <tr>
-      <td>
-        <a href="/p/${escapeHtml(line.productId)}">${escapeHtml(line.name)}</a>
-        ${ctx.options.showSku !== false ? `<span class="muted"> ${escapeHtml(line.sku)}</span>` : ''}
-      </td>
-      <td>${money(line.unitPriceCents)}</td>
-      <td>${editable ? `
-        <form method="post" action="/cart/items/${escapeHtml(line.productId)}" class="inline">
-          ${csrfField(ctx)}
-          <input type="number" name="quantity" value="${line.quantity}" min="0"
-                 max="${Math.max(line.quantity, line.available ?? 999)}" required>
-          <button type="submit">更新</button>
-        </form>` : line.quantity}</td>
-      <td>${money(line.lineTotalCents)}</td>
-      <td>${line.discountCents > 0 ? `−${money(line.discountCents)}` : ''}</td>
-      <td>${money(line.netCents)}</td>
-      ${editable ? `<td>
-        <form method="post" action="/cart/items/${escapeHtml(line.productId)}" class="inline">
-          ${csrfField(ctx)}
-          <input type="hidden" name="quantity" value="0">
-          <button type="submit" class="linklike">移除</button>
-        </form>
-      </td>` : ''}
-    </tr>`).join('');
-
-  const adjustments = view.adjustments.map((adjustment) => `
-    <tr><td colspan="${editable ? 6 : 5}">${escapeHtml(adjustment.name)}</td>
-        <td>${money(adjustment.amountCents)}</td></tr>`).join('');
+  const rows = view.lines.map((line, index) => {
+    const quantityId = `cart-quantity-${index}`;
+    const availability = line.available === null
+      ? ''
+      : line.available > 0 ? `目前可售 ${line.available} 件` : '目前已售完';
+    return `
+      <tr class="cart-table__line">
+        <td class="cart-table__product" data-label="商品">
+          <a class="cart-table__product-name" href="/p/${escapeHtml(line.productId)}">${escapeHtml(line.name)}</a>
+          ${ctx.options.showSku !== false ? `<p class="cart-table__sku">${escapeHtml(line.sku)}</p>` : ''}
+          ${availability ? `<p class="cart-table__availability${line.available !== null && line.available <= 0 ? ' cart-table__availability--unavailable' : ''}">${availability}</p>` : ''}
+        </td>
+        <td data-label="單價">${money(line.unitPriceCents)}</td>
+        <td class="cart-table__quantity" data-label="數量">${editable ? `
+          <form method="post" action="/cart/items/${escapeHtml(line.productId)}" class="inline cart-quantity-form">
+            ${csrfField(ctx)}
+            <label class="sr-only" for="${quantityId}">${escapeHtml(line.name)} 的數量</label>
+            <input id="${quantityId}" type="number" name="quantity" value="${line.quantity}" min="0"${line.available === null ? '' : ` max="${line.available}"`} required>
+            <button type="submit">更新</button>
+          </form>` : line.quantity}</td>
+        <td data-label="小計">${money(line.lineTotalCents)}</td>
+        <td data-label="折扣">${line.discountCents > 0 ? `−${money(line.discountCents)}` : '—'}</td>
+        <td class="cart-table__net" data-label="實付">${money(line.netCents)}</td>
+        ${editable ? `<td class="cart-table__remove" data-label="操作">
+          <form method="post" action="/cart/items/${escapeHtml(line.productId)}" class="inline">
+            ${csrfField(ctx)}
+            <input type="hidden" name="quantity" value="0">
+            <button type="submit" class="linklike" aria-label="移除 ${escapeHtml(line.name)}">移除</button>
+          </form>
+        </td>` : ''}
+      </tr>`;
+  }).join('');
 
   return `
-    <table>
+    <table class="cart-table">
+      <caption class="sr-only">${editable ? '購物車中的商品' : '即將建立的訂單商品'}</caption>
       <thead><tr>
-        <th>商品</th><th>單價</th><th>數量</th><th>小計</th><th>折扣</th><th>實付</th>${editable ? '<th></th>' : ''}
+        <th scope="col">商品</th><th scope="col">單價</th><th scope="col">數量</th><th scope="col">小計</th><th scope="col">折扣</th><th scope="col">實付</th>${editable ? '<th scope="col">操作</th>' : ''}
       </tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot>
-        <tr><td colspan="${editable ? 6 : 5}">商品小計</td><td>${money(view.subtotalCents)}</td></tr>
-        ${adjustments}
-        <tr><td colspan="${editable ? 6 : 5}"><strong>預估總額</strong></td>
-            <td><strong>${money(view.totalCents)}</strong></td></tr>
-      </tfoot>
     </table>`;
+}
+
+function cartSummary(
+  ctx: ThemeContext,
+  view: ThemeCartView,
+  id: string,
+  heading: string,
+  totalLabel: string,
+): string {
+  const money = (cents: number) => formatMoney(cents, view.currency, ctx.locale);
+  const adjustments = view.adjustments.map((adjustment) => `
+    <div class="order-summary__row"><dt>${escapeHtml(adjustment.name)}</dt><dd>${money(adjustment.amountCents)}</dd></div>`).join('');
+  return `<section class="order-summary" aria-labelledby="${id}">
+    <h2 id="${id}">${escapeHtml(heading)}</h2>
+    <dl>
+      <div class="order-summary__row"><dt>商品小計</dt><dd>${money(view.subtotalCents)}</dd></div>
+      ${adjustments}
+      <div class="order-summary__row order-summary__row--total"><dt>${escapeHtml(totalLabel)}</dt><dd>${money(view.totalCents)}</dd></div>
+    </dl>
+  </section>`;
 }
 
 /**
@@ -86,7 +162,8 @@ function cartTable(ctx: ThemeContext, view: ThemeCartView, editable: boolean): s
 function couponBox(ctx: ThemeContext, view: ThemeCartView): string {
   if (view.coupon) {
     return `
-      <div class="coupon">
+      <section class="cart-option" aria-labelledby="coupon-title">
+        <h2 id="coupon-title">優惠碼</h2>
         <p>已套用折扣碼 <strong>${escapeHtml(view.coupon.code)}</strong>
            ${view.coupon.discountCents > 0
              ? `（折 ${formatMoney(view.coupon.discountCents, view.currency, ctx.locale)}）`
@@ -96,24 +173,25 @@ function couponBox(ctx: ThemeContext, view: ThemeCartView): string {
           <input type="hidden" name="remove" value="1">
           <button type="submit" class="linklike">移除</button>
         </form>
-      </div>`;
+      </section>`;
   }
   return `
-    <div class="coupon">
-      ${view.couponError ? `<div class="error"><p>${escapeHtml(view.couponError)}</p></div>` : ''}
-      <form method="post" action="/cart/coupon" class="inline">
+    <section class="cart-option" aria-labelledby="coupon-title">
+      <h2 id="coupon-title">優惠碼</h2>
+      ${feedback(view.couponError, 'error')}
+      <form method="post" action="/cart/coupon" class="inline cart-option__form">
         ${csrfField(ctx)}
         <label>折扣碼<input name="code" maxlength="40" placeholder="輸入折扣碼"></label>
         <button type="submit">套用</button>
       </form>
-    </div>`;
+    </section>`;
 }
 
 /** 買不到的商品被拿掉時要講出來，而且要在結帳之前。 */
 function removedNotice(view: ThemeCartView): string {
   if (view.removedNames.length === 0) return '';
-  return `<p class="notice">這些商品已經買不到，已從購物車移除：${
-    view.removedNames.map((name) => escapeHtml(name)).join('、')}。</p>`;
+  return `<div class="notice" role="status"><p>這些商品已經買不到，已從購物車移除：${
+    view.removedNames.map((name) => escapeHtml(name)).join('、')}。</p></div>`;
 }
 
 /**
@@ -127,12 +205,13 @@ function rewardBox(ctx: ThemeContext, view: ThemeCartView): string {
   const shortfall = reward.requestedCents > reward.appliedCents;
 
   return `
-    <div class="coupon">
+    <section class="cart-option" aria-labelledby="reward-title">
+      <h2 id="reward-title">購物金折抵</h2>
       <p>可用購物金 <strong>${money(reward.availableCents)}</strong>，這次最多可折 ${money(reward.maxCents)}。</p>
       ${shortfall
         ? `<p class="muted">你要求折 ${money(reward.requestedCents)}，這次只折得了 ${money(reward.appliedCents)}。</p>`
         : ''}
-      <form method="post" action="/cart/rewards" class="inline">
+      <form method="post" action="/cart/rewards" class="inline cart-option__form">
         ${csrfField(ctx)}
         <label>折抵金額（元）
           <input type="number" name="amount" step="0.01" min="0" max="${(reward.maxCents / 100).toFixed(2)}"
@@ -140,14 +219,14 @@ function rewardBox(ctx: ThemeContext, view: ThemeCartView): string {
         </label>
         <button type="submit">套用</button>
       </form>
-    </div>`;
+    </section>`;
 }
 
 /** 門檻活動唯一的行銷價值就是這句話：還差多少。 */
 function thresholdHint(ctx: ThemeContext, view: ThemeCartView): string {
   if (!view.nextThreshold) return '';
   const amount = formatMoney(view.nextThreshold.remainingCents, view.currency, ctx.locale);
-  return `<p class="notice">再買 ${amount} 就達到「${escapeHtml(view.nextThreshold.name)}」。</p>`;
+  return `<div class="notice" role="status"><p>再買 ${amount} 就達到「${escapeHtml(view.nextThreshold.name)}」。</p></div>`;
 }
 
 /**
@@ -177,14 +256,14 @@ function csrfField(ctx: { csrfToken?: string | null }): string {
 }
 
 export const defaultThemeOptions = z.object({
-  accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#111827'),
+  accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#8C3E28'),
   tagline: z.string().max(120).default(''),
   showSku: z.boolean().default(true),
 });
 
 /**
  * 預設 Storefront Theme：NestJS SSR，輸出純 HTML。
- * 沒有 JavaScript 也能完成瀏覽與下單；HTMX 只用來做漸進增強。
+ * 沒有 JavaScript 也能完成瀏覽與下單——這個 Theme 根本不輸出任何 script。
  */
 export const defaultTheme: StorefrontTheme = {
   id: 'default',
@@ -192,77 +271,162 @@ export const defaultTheme: StorefrontTheme = {
   optionsSchema: defaultThemeOptions,
 
   renderHome(ctx, { products }) {
-    const cards = products.map((p) => `
-      <article class="card">
-        <a href="/p/${escapeHtml(p.id)}">
-          <h2>${escapeHtml(p.name)}</h2>
-          ${ctx.options.showSku !== false ? `<p class="muted">${escapeHtml(p.sku)}</p>` : ''}
-          <p class="price">${formatMoney(p.priceCents, p.currency, ctx.locale)}</p>
-          <p class="muted">${p.available === null ? '' : p.available > 0 ? `庫存 ${p.available}` : '已售完'}</p>
-        </a>
-      </article>`).join('');
-    const body = products.length
-      ? `<div class="grid">${cards}</div>`
-      : `<p class="muted">目前沒有上架的商品。</p>`;
+    const cards = products.map((product) => {
+      const soldOut = product.available !== null && product.available <= 0;
+      const availability = product.available === null
+        ? ''
+        : product.available > 0 ? `可售 ${product.available} 件` : '已售完';
+      return `
+        <article class="product-card">
+          <a class="product-card__link" href="/p/${escapeHtml(product.id)}" aria-label="${escapeHtml(product.name)} 的商品詳情">
+            <div>
+              ${ctx.options.showSku !== false ? `<p class="product-card__sku">${escapeHtml(product.sku)}</p>` : ''}
+              <h2>${escapeHtml(product.name)}</h2>
+              ${product.description ? `<p class="product-card__description">${escapeHtml(product.description)}</p>` : ''}
+            </div>
+            <div class="product-card__footer">
+              <p class="price">${formatMoney(product.priceCents, product.currency, ctx.locale)}</p>
+              ${availability ? `<p class="product-card__availability${soldOut ? ' product-card__availability--sold-out' : ''}">${availability}</p>` : ''}
+            </div>
+          </a>
+        </article>`;
+    }).join('');
+    const body = `
+      <div class="catalog-page">
+        <section class="catalog-hero" aria-labelledby="catalog-title">
+          <div>
+            <p class="eyebrow">商品選購</p>
+            <h1 id="catalog-title">把每一件商品，<br>好好看一遍。</h1>
+            <p class="catalog-hero__copy">目前上架商品的價格與可售狀態，均由商店系統即時提供。</p>
+          </div>
+        </section>
+        <section class="catalog-section" aria-labelledby="products-title">
+          <div class="catalog-section__header">
+            <h2 id="products-title">目前商品</h2>
+            <p class="catalog-section__count">${products.length} 件上架商品</p>
+          </div>
+          ${products.length
+            ? `<div class="catalog-grid">${cards}</div>`
+            : '<p class="empty-state">目前沒有上架的商品。</p>'}
+        </section>
+      </div>`;
     return layout({ title: '商品', body, ctx });
   },
 
   renderProduct(ctx, { product }) {
     const soldOut = product.available !== null && product.available <= 0;
+    const availability = product.available === null
+      ? ''
+      : product.available > 0 ? `可售 ${product.available} 件` : '已售完';
     const body = `
-      <a class="muted" href="/">← 回商品列表</a>
-      <h1>${escapeHtml(product.name)}</h1>
-      ${ctx.options.showSku !== false ? `<p class="muted">${escapeHtml(product.sku)}</p>` : ''}
-      <p class="price">${formatMoney(product.priceCents, product.currency, ctx.locale)}</p>
-      ${product.description ? `<p>${escapeHtml(product.description)}</p>` : ''}
-      <p class="muted">${product.available === null ? '' : soldOut ? '已售完' : `可售 ${product.available} 件`}</p>
-      <form method="post" action="/cart/items">
-        <input type="hidden" name="productId" value="${escapeHtml(product.id)}">
-        ${csrfField(ctx)}
-        <label>數量
-          <input type="number" name="quantity" value="1" min="1" max="${Math.max(1, product.available ?? 99)}" required>
-        </label>
-        <button type="submit" ${soldOut ? 'disabled' : ''}>加入購物車</button>
-      </form>`;
+      <article class="product-page">
+        <nav class="breadcrumb" aria-label="麵包屑">
+          <a href="/">商品選購</a><span aria-hidden="true"> / </span><span>${escapeHtml(product.name)}</span>
+        </nav>
+        <div class="product-detail">
+          <section class="product-detail__content">
+            <p class="eyebrow">商品詳情</p>
+            <h1>${escapeHtml(product.name)}</h1>
+            ${ctx.options.showSku !== false ? `<p class="product-detail__sku">${escapeHtml(product.sku)}</p>` : ''}
+            ${product.description ? `<p class="product-detail__description">${escapeHtml(product.description)}</p>` : ''}
+          </section>
+          <aside class="product-purchase" aria-label="${escapeHtml(product.name)} 的購買資訊">
+            <p class="product-purchase__label">商品價格</p>
+            <p class="price">${formatMoney(product.priceCents, product.currency, ctx.locale)}</p>
+            ${availability ? `<p class="product-purchase__availability${soldOut ? ' product-purchase__availability--sold-out' : ''}">${availability}</p>` : ''}
+            ${soldOut
+              ? '<p class="product-form__hint">目前已售完，暫時無法加入購物車。</p>'
+              : `<form class="product-form" method="post" action="/cart/items">
+                  <input type="hidden" name="productId" value="${escapeHtml(product.id)}">
+                  ${csrfField(ctx)}
+                  <label>數量
+                    <input type="number" name="quantity" value="1" min="1"${product.available === null ? '' : ` max="${product.available}"`} required>
+                  </label>
+                  ${product.available === null ? '<p class="product-form__hint">數量將由系統於加入購物車時確認。</p>' : ''}
+                  <button type="submit">加入購物車</button>
+                </form>`}
+          </aside>
+        </div>
+      </article>`;
     return layout({ title: product.name, body, ctx });
   },
 
   renderCart(ctx, view) {
     const body = `
-      <h1>購物車</h1>
-      ${view.error ? `<div class="error"><p>${escapeHtml(view.error)}</p></div>` : ''}
-      ${removedNotice(view)}
-      ${view.lines.length === 0
-        ? `<p class="muted">購物車是空的。<a href="/">去逛逛</a></p>`
-        : `${cartTable(ctx, view, true)}
-           ${thresholdHint(ctx, view)}
-           ${couponBox(ctx, view)}
-           ${rewardBox(ctx, view)}
-           <p><a class="cta" href="/checkout">${ctx.customerName ? '前往結帳' : '登入後結帳'}</a></p>
-           <div class="cart-actions">
-             <a href="/">繼續購物</a>
-             <form method="post" action="/cart/clear" class="inline">
-               ${csrfField(ctx)}
-               <button type="submit" class="linklike">清空購物車</button>
-             </form>
-           </div>`}`;
+      <article class="cart-page">
+        ${pageHeading('購物流程', '購物車', '價格與可售狀態會在建立訂單前再次確認。')}
+        ${feedback(view.error, 'error')}
+        ${removedNotice(view)}
+        ${view.lines.length === 0
+          ? `<section class="empty-state empty-state--cart" aria-labelledby="empty-cart-title">
+              <p class="eyebrow">尚未選購</p>
+              <h2 id="empty-cart-title">購物車是空的</h2>
+              <p>挑選商品後，它們會出現在這裡。</p>
+              <a class="cta" href="/">返回商品列表</a>
+            </section>`
+          : `<div class="cart-layout">
+              <section class="cart-content" aria-labelledby="cart-items-title">
+                <div class="section-heading">
+                  <h2 id="cart-items-title">已選商品</h2>
+                  <p>${view.lines.length} 項商品</p>
+                </div>
+                ${cartTable(ctx, view, true)}
+                ${thresholdHint(ctx, view)}
+                ${couponBox(ctx, view)}
+                ${rewardBox(ctx, view)}
+              </section>
+              <aside class="cart-sidebar" aria-label="購物車摘要">
+                ${cartSummary(ctx, view, 'cart-summary-title', '訂單摘要', '預估總額')}
+                <a class="cta cart-sidebar__cta" href="/checkout">${ctx.customerName ? '前往結帳' : '登入後結帳'}</a>
+                <p class="cart-sidebar__note">${ctx.customerName
+                  ? '建立訂單前，請再次確認品項與總額。'
+                  : '結帳前會先請你登入或註冊。'}</p>
+                <div class="cart-actions">
+                  <a href="/">繼續購物</a>
+                  <form method="post" action="/cart/clear" class="inline">
+                    ${csrfField(ctx)}
+                    <button type="submit" class="linklike">清空購物車</button>
+                  </form>
+                </div>
+              </aside>
+            </div>`}
+      </article>`;
     return layout({ title: '購物車', body, ctx });
   },
 
   renderCheckout(ctx, view) {
     const body = `
-      <h1>確認訂單</h1>
-      ${view.error ? `<div class="error"><p>${escapeHtml(view.error)}</p></div>` : ''}
-      ${removedNotice(view)}
-      <p class="muted">訂單通知會寄到 ${escapeHtml(view.customerEmail)}</p>
-      ${cartTable(ctx, view, false)}
-      <form method="post" action="/checkout">
-        ${csrfField(ctx)}
-        <input type="hidden" name="cartId" value="${escapeHtml(view.cartId)}">
-        <input type="hidden" name="confirm" value="1">
-        <button type="submit">送出訂單</button>
-      </form>
-      <p><a href="/cart">回購物車</a></p>`;
+      <article class="checkout-page">
+        ${pageHeading('建立訂單', '確認訂單', '請核對這次訂單的品項、金額與通知信箱。')}
+        ${feedback(view.error, 'error')}
+        ${removedNotice(view)}
+        <div class="checkout-layout">
+          <section class="checkout-content" aria-labelledby="checkout-items-title">
+            <div class="checkout-email">
+              <p class="checkout-email__label">訂單通知</p>
+              <p>${escapeHtml(view.customerEmail)}</p>
+            </div>
+            <div class="section-heading">
+              <h2 id="checkout-items-title">訂單品項</h2>
+              <p>此頁不能修改數量；如需調整請回購物車。</p>
+            </div>
+            ${cartTable(ctx, view, false)}
+          </section>
+          <aside class="checkout-sidebar" aria-label="建立訂單">
+            ${cartSummary(ctx, view, 'checkout-summary-title', '訂單摘要', '訂單總額')}
+            <section class="checkout-submit">
+              <p>建立後可在「我的訂單」查看目前狀態。</p>
+              <form method="post" action="/checkout">
+                ${csrfField(ctx)}
+                <input type="hidden" name="cartId" value="${escapeHtml(view.cartId)}">
+                <input type="hidden" name="confirm" value="1">
+                <button type="submit">建立訂單</button>
+              </form>
+              <a class="secondary-action" href="/cart">回購物車修改</a>
+            </section>
+          </aside>
+        </div>
+      </article>`;
     return layout({ title: '確認訂單', body, ctx });
   },
 
@@ -271,102 +435,132 @@ export const defaultTheme: StorefrontTheme = {
     const day = (at: Date) => escapeHtml(at.toLocaleDateString(ctx.locale));
 
     const rows = entries.map((entry) => `
-      <tr>
-        <td class="${entry.amountCents < 0 ? '' : 'price'}">${entry.amountCents < 0 ? '−' : '+'}${money(Math.abs(entry.amountCents))}</td>
-        <td>${escapeHtml(entry.description)}</td>
-        <td class="muted">${day(entry.createdAt)}</td>
-        <td class="muted">${entry.expiresAt ? day(entry.expiresAt) : '—'}</td>
+      <tr class="data-table__row">
+        <td data-label="金額" class="${entry.amountCents < 0 ? '' : 'price'}">${entry.amountCents < 0 ? '−' : '+'}${money(Math.abs(entry.amountCents))}</td>
+        <td data-label="說明">${escapeHtml(entry.description)}</td>
+        <td data-label="時間" class="muted">${day(entry.createdAt)}</td>
+        <td data-label="到期" class="muted">${entry.expiresAt ? day(entry.expiresAt) : '—'}</td>
       </tr>`).join('');
 
     const body = `
-      <h1>購物金與會員等級</h1>
-      <div class="grid">
-        <article class="card">
-          <h2>可用購物金</h2>
-          <p class="price">${money(balance.availableCents)}</p>
-          ${balance.pendingCents > 0
-            ? `<p class="muted">另有 ${money(balance.pendingCents)} 尚未生效</p>`
-            : ''}
-          ${balance.nextExpiry
-            ? `<p class="muted">${money(balance.nextExpiry.amountCents)} 將於 ${day(balance.nextExpiry.expiresAt)} 到期</p>`
-            : ''}
-        </article>
-        <article class="card">
-          <h2>${escapeHtml(tier.name)}</h2>
-          <p class="muted">等級積分 ${tier.points}</p>
-          ${tier.next
-            ? `<p class="muted">再累積 ${tier.next.remainingPoints} 點升到「${escapeHtml(tier.next.name)}」</p>`
-            : '<p class="muted">你已經是最高等級。</p>'}
-        </article>
-      </div>
-      <p class="notice">
-        會員等級看的是最近 ${tier.windowMonths} 個月（${day(tier.windowStartsAt)} 起）累積的等級積分，
-        每天重新計算一次，因此會升也會降。等級積分不能折抵金額。
-      </p>
-      ${entries.length === 0
-        ? '<p class="muted">還沒有任何購物金紀錄。</p>'
-        : `<table>
-             <thead><tr><th>金額</th><th>說明</th><th>時間</th><th>到期</th></tr></thead>
-             <tbody>${rows}</tbody>
-           </table>`}
-      <p><a href="/">繼續購物</a></p>`;
+      <article class="account-page">
+        ${accountIntro('rewards', '購物金與會員等級', '查看可折抵的購物金、等級與每一筆異動。')}
+        <div class="account-stat-grid">
+          <article class="account-stat">
+            <p class="account-stat__label">可用購物金</p>
+            <p class="account-stat__value">${money(balance.availableCents)}</p>
+            ${balance.pendingCents > 0
+              ? `<p class="muted">另有 ${money(balance.pendingCents)} 尚未生效</p>`
+              : ''}
+            ${balance.nextExpiry
+              ? `<p class="muted">${money(balance.nextExpiry.amountCents)} 將於 ${day(balance.nextExpiry.expiresAt)} 到期</p>`
+              : ''}
+            ${balance.expiredCents > 0
+              ? `<p class="muted">累計已有 ${money(balance.expiredCents)} 到期失效</p>`
+              : ''}
+          </article>
+          <article class="account-stat">
+            <p class="account-stat__label">目前等級</p>
+            <h2>${escapeHtml(tier.name)}</h2>
+            <p class="muted">等級積分 ${tier.points}</p>
+            ${tier.next
+              ? `<p class="muted">再累積 ${tier.next.remainingPoints} 點升到「${escapeHtml(tier.next.name)}」</p>`
+              : '<p class="muted">你已經是最高等級。</p>'}
+          </article>
+        </div>
+        <div class="notice" role="status"><p>
+          會員等級看的是最近 ${tier.windowMonths} 個月（${day(tier.windowStartsAt)} 起）累積的等級積分，
+          每天重新計算一次，因此會升也會降。等級積分不能折抵金額。
+        </p></div>
+        <section class="account-panel" aria-labelledby="reward-history-title">
+          <div class="section-heading">
+            <h2 id="reward-history-title">購物金紀錄</h2>
+            <p>共 ${entries.length} 筆</p>
+          </div>
+          ${entries.length === 0
+            ? '<div class="empty-state"><p>還沒有任何購物金紀錄。</p></div>'
+            : `<table class="data-table">
+                 <thead><tr><th scope="col">金額</th><th scope="col">說明</th><th scope="col">時間</th><th scope="col">到期</th></tr></thead>
+                 <tbody>${rows}</tbody>
+               </table>`}
+        </section>
+      </article>`;
     return layout({ title: '購物金與會員等級', body, ctx });
   },
 
   renderAccountCoupons(ctx, { coupons }) {
     const rows = coupons.map((coupon) => `
-      <tr class="${coupon.expiringSoon ? 'expiring' : ''}">
-        <td><code>${escapeHtml(coupon.code)}</code></td>
-        <td>${escapeHtml(coupon.promotionName)}<br><span class="muted">${escapeHtml(coupon.description)}</span></td>
-        <td>${coupon.endsAt ? escapeHtml(coupon.endsAt.toLocaleDateString(ctx.locale)) : '無期限'}</td>
-        <td>${couponStateText(coupon)}</td>
+      <tr class="data-table__row ${coupon.expiringSoon ? 'expiring' : ''}">
+        <td data-label="折扣碼"><code>${escapeHtml(coupon.code)}</code></td>
+        <td data-label="優惠">${escapeHtml(coupon.promotionName)}<br><span class="muted">${escapeHtml(coupon.description)}</span></td>
+        <td data-label="使用期限">${coupon.endsAt ? escapeHtml(coupon.endsAt.toLocaleDateString(ctx.locale)) : '無期限'}</td>
+        <td data-label="狀態">${couponStateText(coupon)}</td>
       </tr>`).join('');
 
-    const body = coupons.length === 0
-      ? `<h1>我的券</h1><p class="muted">你目前沒有任何券。<a href="/">去逛逛</a></p>`
-      : `
-      <h1>我的券</h1>
-      <table>
-        <thead><tr><th>折扣碼</th><th>優惠</th><th>使用期限</th><th>狀態</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <p class="muted">結帳前在購物車輸入折扣碼即可使用。</p>`;
+    const body = `
+      <article class="account-page">
+        ${accountIntro('coupons', '我的券', '可使用的券會在購物車輸入折扣碼後套用。')}
+        <section class="account-panel" aria-labelledby="coupon-list-title">
+          <div class="section-heading">
+            <h2 id="coupon-list-title">已持有的券</h2>
+            <p>${coupons.length} 張</p>
+          </div>
+          ${coupons.length === 0
+            ? '<div class="empty-state"><p>你目前沒有任何券。<a href="/">去逛逛</a></p></div>'
+            : `<table class="data-table">
+                 <thead><tr><th scope="col">折扣碼</th><th scope="col">優惠</th><th scope="col">使用期限</th><th scope="col">狀態</th></tr></thead>
+                 <tbody>${rows}</tbody>
+               </table>`}
+        </section>
+      </article>`;
     return layout({ title: '我的券', body, ctx });
   },
 
   renderOrder(ctx, { order }) {
     const rows = order.lines.map((l) => `
-      <tr>
-        <td>${escapeHtml(l.name)}</td>
-        <td>${escapeHtml(l.sku)}</td>
-        <td>${l.quantity}</td>
-        <td>${formatMoney(l.lineTotalCents, order.currency, ctx.locale)}</td>
+      <tr class="data-table__row">
+        <td data-label="商品">${escapeHtml(l.name)}</td>
+        <td data-label="SKU">${escapeHtml(l.sku)}</td>
+        <td data-label="數量">${l.quantity}</td>
+        <td data-label="小計">${formatMoney(l.lineTotalCents, order.currency, ctx.locale)}</td>
       </tr>`).join('');
     const paymentNotice = order.status === 'payment_processing'
-      ? '<p class="muted">付款處理中；此頁會在重新整理後顯示最新結果。</p>'
-      : order.status === 'expired' ? '<p class="muted">付款逾時，已釋放保留庫存。</p>' : '';
+      ? feedback('付款處理中；此頁會在重新整理後顯示最新結果。')
+      : order.status === 'expired' ? feedback('付款逾時，已釋放保留庫存。') : '';
     const body = `
-      <h1>訂單 ${escapeHtml(order.number)}</h1>
-      <p><span class="badge">${escapeHtml(order.status)}</span></p>
-      ${paymentNotice}
-      <p class="muted">${escapeHtml(order.customerEmail)}</p>
-      <table>
-        <thead><tr><th>商品</th><th>SKU</th><th>數量</th><th>小計</th></tr></thead>
-        <tbody>${rows}</tbody>
-        <tfoot><tr><td colspan="3"><strong>總計</strong></td><td><strong>${formatMoney(order.totalCents, order.currency, ctx.locale)}</strong></td></tr></tfoot>
-      </table>
-      <p><a href="/">繼續購物</a></p>`;
+      <article class="order-page">
+        ${pageHeading('訂單紀錄', `訂單 ${order.number}`, '訂單建立後的狀態以此頁資訊為準。')}
+        <div class="order-meta">
+          <div><p class="order-meta__label">訂單狀態</p>${orderStatus(order.status)}</div>
+          <div><p class="order-meta__label">通知信箱</p><p>${escapeHtml(order.customerEmail)}</p></div>
+        </div>
+        ${paymentNotice}
+        <div class="order-layout">
+          <section class="account-panel" aria-labelledby="order-lines-title">
+            <div class="section-heading"><h2 id="order-lines-title">訂單品項</h2><p>${order.lines.length} 項商品</p></div>
+            <table class="data-table">
+              <thead><tr><th scope="col">商品</th><th scope="col">SKU</th><th scope="col">數量</th><th scope="col">小計</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </section>
+          <aside class="order-total-card" aria-label="訂單總計">
+            <p>訂單總計</p>
+            <strong>${formatMoney(order.totalCents, order.currency, ctx.locale)}</strong>
+          </aside>
+        </div>
+        <p class="page-return"><a href="/">繼續購物</a></p>
+      </article>`;
     return layout({ title: `訂單 ${order.number}`, body, ctx });
   },
 
   renderAccountOrders(ctx, { orders, limit, offset, total }) {
     const rows = orders.map((o) => `
-      <tr>
-        <td><a href="/orders/${escapeHtml(o.number)}">${escapeHtml(o.number)}</a></td>
-        <td><span class="badge">${escapeHtml(o.status)}</span></td>
-        <td>${o.lineCount}</td>
-        <td>${formatMoney(o.totalCents, o.currency, ctx.locale)}</td>
-        <td class="muted">${escapeHtml(o.placedAt.toLocaleDateString(ctx.locale))}</td>
+      <tr class="data-table__row">
+        <td data-label="訂單編號"><a href="/orders/${escapeHtml(o.number)}">${escapeHtml(o.number)}</a></td>
+        <td data-label="狀態">${orderStatus(o.status)}</td>
+        <td data-label="件數">${o.lineCount}</td>
+        <td data-label="總計">${formatMoney(o.totalCents, o.currency, ctx.locale)}</td>
+        <td data-label="下單時間" class="muted">${escapeHtml(o.placedAt.toLocaleDateString(ctx.locale))}</td>
       </tr>`).join('');
 
     const previous = offset > 0
@@ -376,16 +570,23 @@ export const defaultTheme: StorefrontTheme = {
       ? `<a href="/account/orders?limit=${limit}&offset=${offset + limit}">下一頁 →</a>`
       : '';
 
-    const body = orders.length === 0
-      ? `<h1>我的訂單</h1><p class="muted">你還沒有任何訂單。<a href="/">去逛逛</a></p>`
-      : `
-      <h1>我的訂單</h1>
-      <table>
-        <thead><tr><th>訂單編號</th><th>狀態</th><th>件數</th><th>總計</th><th>下單時間</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <p class="muted">共 ${total} 張</p>
-      <p>${previous} ${next}</p>`;
+    const body = `
+      <article class="account-page">
+        ${accountIntro('orders', '我的訂單', '查看已建立訂單與目前狀態。')}
+        <section class="account-panel" aria-labelledby="order-list-title">
+          <div class="section-heading">
+            <h2 id="order-list-title">訂單紀錄</h2>
+            <p>共 ${total} 張</p>
+          </div>
+          ${orders.length === 0
+            ? '<div class="empty-state"><p>你還沒有任何訂單。<a href="/">去逛逛</a></p></div>'
+            : `<table class="data-table">
+                 <thead><tr><th scope="col">訂單編號</th><th scope="col">狀態</th><th scope="col">件數</th><th scope="col">總計</th><th scope="col">下單時間</th></tr></thead>
+                 <tbody>${rows}</tbody>
+               </table>
+               <nav class="pagination" aria-label="訂單分頁">${previous || '<span></span>'}${next || '<span></span>'}</nav>`}
+        </section>
+      </article>`;
     return layout({ title: '我的訂單', body, ctx });
   },
 
@@ -393,30 +594,39 @@ export const defaultTheme: StorefrontTheme = {
     const field = (label: string, name: string, value: string | null, extra = '') =>
       `<label>${label}<input name="${name}" value="${escapeHtml(value ?? '')}" ${extra}></label>`;
     const body = `
-      <h1>個人資料</h1>
-      ${saved ? '<p class="muted">已儲存。</p>' : ''}
-      ${error ? `<div class="error"><p>${escapeHtml(error)}</p></div>` : ''}
-      <form method="post" action="/account/profile">
-        ${csrfField(ctx)}
-        ${field('顯示名稱', 'displayName', displayName, 'required maxlength="120"')}
-        ${field('聯絡電話', 'phone', phone, 'maxlength="40"')}
-        ${birthday
-          ? `<label>生日<input value="${escapeHtml(birthday)}" disabled></label>
-             <p class="muted">生日設定後不能自行修改，需要更正請聯絡客服。</p>`
-          : `<label>生日<input type="date" name="birthday"></label>
-             <p class="muted">生日只能設定一次，之後要更正需要聯絡客服。</p>`}
-        <fieldset>
-          <legend>收件地址</legend>
-          ${field('收件人', 'recipient', address?.recipient ?? null, 'maxlength="120"')}
-          ${field('收件電話', 'addressPhone', address?.phone ?? null, 'maxlength="40"')}
-          ${field('郵遞區號', 'postcode', address?.postcode ?? null, 'maxlength="20"')}
-          ${field('縣市', 'city', address?.city ?? null, 'maxlength="80"')}
-          ${field('地址', 'line1', address?.line1 ?? null, 'maxlength="200"')}
-          ${field('地址第二行', 'line2', address?.line2 ?? null, 'maxlength="200"')}
-        </fieldset>
-        <button type="submit">儲存</button>
-      </form>
-      <p><a href="/account/orders">我的訂單</a></p>`;
+      <article class="account-page">
+        ${accountIntro('profile', '個人資料', '管理聯絡方式與可供未來訂單使用的收件地址。')}
+        ${saved ? feedback('已儲存。') : ''}
+        ${feedback(error, 'error')}
+        <form class="profile-form" method="post" action="/account/profile">
+          ${csrfField(ctx)}
+          <section class="profile-form__section" aria-labelledby="profile-contact-title">
+            <h2 id="profile-contact-title">聯絡資料</h2>
+            <div class="form-grid">
+              ${field('顯示名稱', 'displayName', displayName, 'required maxlength="120" autocomplete="name"')}
+              ${field('聯絡電話', 'phone', phone, 'type="tel" maxlength="40" autocomplete="tel"')}
+              ${birthday
+                ? `<div class="profile-birthday"><label>生日<input value="${escapeHtml(birthday)}" disabled></label>
+                   <p class="muted">生日設定後不能自行修改，需要更正請聯絡客服。</p></div>`
+                : `<div class="profile-birthday"><label>生日<input type="date" name="birthday" autocomplete="bday"></label>
+                   <p class="muted">生日只能設定一次，之後要更正需要聯絡客服。</p></div>`}
+            </div>
+          </section>
+          <fieldset class="profile-form__section">
+            <legend>收件地址</legend>
+            <p class="muted">目前儲存的地址供未來支援配送的訂單使用。</p>
+            <div class="form-grid">
+              ${field('收件人', 'recipient', address?.recipient ?? null, 'maxlength="120" autocomplete="shipping name"')}
+              ${field('收件電話', 'addressPhone', address?.phone ?? null, 'type="tel" maxlength="40" autocomplete="shipping tel"')}
+              ${field('郵遞區號', 'postcode', address?.postcode ?? null, 'maxlength="20" autocomplete="shipping postal-code"')}
+              ${field('縣市', 'city', address?.city ?? null, 'maxlength="80" autocomplete="shipping address-level1"')}
+              ${field('地址', 'line1', address?.line1 ?? null, 'maxlength="200" autocomplete="shipping address-line1"')}
+              ${field('地址第二行', 'line2', address?.line2 ?? null, 'maxlength="200" autocomplete="shipping address-line2"')}
+            </div>
+          </fieldset>
+          <button type="submit">儲存個人資料</button>
+        </form>
+      </article>`;
     return layout({ title: '個人資料', body, ctx });
   },
 
@@ -427,31 +637,41 @@ export const defaultTheme: StorefrontTheme = {
     const { next, error } = view;
     const login = view.mode === 'login';
     const body = `
-      <h1>${login ? '登入' : '註冊'}</h1>
-      ${error ? `<div class="error"><p>${escapeHtml(error)}</p></div>` : ''}
-      <form method="post" action="${login ? '/login' : '/register'}">
-        <input type="hidden" name="next" value="${escapeHtml(next)}">
-        <label>電子郵件
-          <input type="email" name="email" required placeholder="you@example.com">
-        </label>
-        ${login ? '' : `<label>顯示名稱
-          <input type="text" name="displayName" maxlength="120" placeholder="怎麼稱呼你">
-        </label>`}
-        <label>密碼
-          <input type="password" name="password" required minlength="${login ? 1 : 8}">
-        </label>
-        <button type="submit">${login ? '登入' : '註冊'}</button>
-      </form>
-      <p class="muted">${login
-        ? `還沒有帳號？<a href="/register?next=${encodeURIComponent(next)}">註冊一個</a> · <a href="/forgot-password">忘記密碼</a>`
-        : `已經有帳號了？<a href="/login?next=${encodeURIComponent(next)}">登入</a>`}</p>`;
+      <article class="auth-page">
+        <section class="auth-card" aria-labelledby="auth-title">
+          <div class="auth-card__header">
+            <p class="eyebrow">帳戶存取</p>
+            <h1 id="auth-title">${login ? '登入' : '註冊'}</h1>
+            <p class="page-heading__copy">${login
+              ? '登入後可以查看訂單、使用購物金並建立訂單。'
+              : '建立帳戶後即可保存購物金、優惠券與訂單紀錄。'}</p>
+          </div>
+          ${feedback(error, 'error')}
+          <form class="auth-form" method="post" action="${login ? '/login' : '/register'}">
+            <input type="hidden" name="next" value="${escapeHtml(next)}">
+            <label>電子郵件
+              <input type="email" name="email" required placeholder="you@example.com" autocomplete="email">
+            </label>
+            ${login ? '' : `<label>顯示名稱
+              <input type="text" name="displayName" maxlength="120" placeholder="怎麼稱呼你" autocomplete="name">
+            </label>`}
+            <label>密碼
+              <input type="password" name="password" required minlength="${login ? 1 : 8}" autocomplete="${login ? 'current-password' : 'new-password'}">
+            </label>
+            <button type="submit">${login ? '登入' : '註冊'}</button>
+          </form>
+          <p class="auth-card__footer">${login
+            ? `還沒有帳號？<a href="/register?next=${encodeURIComponent(next)}">註冊一個</a> · <a href="/forgot-password">忘記密碼</a>`
+            : `已經有帳號了？<a href="/login?next=${encodeURIComponent(next)}">登入</a>`}</p>
+        </section>
+      </article>`;
     return layout({ title: login ? '登入' : '註冊', body, ctx });
   },
 
   renderError(ctx, { status, message }) {
     return layout({
       title: `錯誤 ${status}`,
-      body: `<div class="error"><h1>${status}</h1><p>${escapeHtml(message)}</p><p><a href="/">回首頁</a></p></div>`,
+      body: `<article class="error-page"><div class="error" role="alert"><p class="eyebrow">找不到頁面或無法完成操作</p><h1>${status}</h1><p>${escapeHtml(message)}</p><a class="secondary-action" href="/">回商品列表</a></div></article>`,
       ctx,
     });
   },
