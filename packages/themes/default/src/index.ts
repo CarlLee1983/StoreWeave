@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type {
   StorefrontTheme, ThemeAccountCouponsView, ThemeAuthView, ThemeCartView, ThemeContext,
 } from '@storeweave/kernel';
-import { DEFAULT_THEME_ASSET_PREFIX, escapeHtml, formatMoney, layout } from './layout';
+import { escapeHtml, formatMoney, layout } from './layout';
 
 type AccountSection = 'orders' | 'coupons' | 'rewards' | 'profile';
 
@@ -263,12 +263,11 @@ export const defaultThemeOptions = z.object({
 
 /**
  * 預設 Storefront Theme：NestJS SSR，輸出純 HTML。
- * 沒有 JavaScript 也能完成瀏覽與下單；HTMX 只用來做漸進增強。
+ * 沒有 JavaScript 也能完成瀏覽與下單——這個 Theme 根本不輸出任何 script。
  */
 export const defaultTheme: StorefrontTheme = {
   id: 'default',
   name: 'Default Storefront',
-  staticAssets: { prefix: DEFAULT_THEME_ASSET_PREFIX },
   optionsSchema: defaultThemeOptions,
 
   renderHome(ctx, { products }) {

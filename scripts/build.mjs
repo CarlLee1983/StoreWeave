@@ -6,7 +6,6 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { copyDefaultThemeAssets } from './theme-assets.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const outDir = join(root, 'dist');
@@ -71,10 +70,6 @@ const adminDist = join(root, 'apps/admin/dist');
 if (existsSync(adminDist)) {
   cpSync(adminDist, join(outDir, 'admin'), { recursive: true });
 }
-
-// Default Theme 的字型是同源靜態資產，不交給 Admin 的 Vite bundle，也不在執行期取 CDN。
-// 複製後立刻驗證，避免看似成功的 release 少掉字型或授權檔。
-copyDefaultThemeAssets(root, outDir);
 
 writeFileSync(join(outDir, 'VERSION'), `${version}\n`, 'utf8');
 writeFileSync(

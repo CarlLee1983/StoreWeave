@@ -5,7 +5,7 @@ import { sql } from 'drizzle-orm';
 import { CART_COOKIE, SESSION_COOKIE, createServer } from '@storeweave/api';
 import { csrfTokenFor } from '@storeweave/identity';
 import { defaultTheme } from '@storeweave/theme-default';
-import { ADMIN_ACTOR, createHarness, createProduct, defaultThemeRelease, stockUp, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
 
 /** 前台券的使用與我的券（工單 38）。 */
 
@@ -14,7 +14,7 @@ let app: NestFastifyApplication;
 
 beforeAll(async () => {
   h = await createHarness();
-  app = await createServer({ runtime: h.runtime, theme: defaultTheme, release: defaultThemeRelease() });
+  app = await createServer({ runtime: h.runtime, theme: defaultTheme, release: { version: 'test', configPath: '<test>' } });
 }, 300_000);
 
 afterAll(async () => {

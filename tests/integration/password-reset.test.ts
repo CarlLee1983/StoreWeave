@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { SESSION_COOKIE, createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
-import { createHarness, defaultThemeRelease, type TestHarness } from './helpers';
+import { createHarness, type TestHarness } from './helpers';
 
 /** 密碼重設與改密碼撤銷 session（工單 18）。 */
 
@@ -12,7 +12,7 @@ let app: NestFastifyApplication;
 
 beforeAll(async () => {
   h = await createHarness();
-  app = await createServer({ runtime: h.runtime, theme: defaultTheme, release: defaultThemeRelease() });
+  app = await createServer({ runtime: h.runtime, theme: defaultTheme, release: { version: 'test', configPath: '<test>' } });
 }, 300_000);
 
 afterAll(async () => {

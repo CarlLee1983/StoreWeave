@@ -1,7 +1,11 @@
 import type { ThemeContext } from '@storeweave/kernel';
 
-/** 此 Theme 自己擁有字型等同源靜態資產的瀏覽器 URL 邊界。 */
-export const DEFAULT_THEME_ASSET_PREFIX = '/theme/default/';
+/**
+ * Google Fonts 的樣式表位址。字重範圍要與 `--font-sans` 的用法一致：
+ * 400 內文、500/600 強調、700 標題。
+ */
+export const GOOGLE_FONTS_HREF =
+  'https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400..700&display=swap';
 
 export function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -47,10 +51,14 @@ export function layout({ title, body, ctx }: LayoutOptions): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)} · ${escapeHtml(ctx.storeName)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="${escapeHtml(GOOGLE_FONTS_HREF)}">
 <style>${styles(accent)}</style>
 <!--
-  Storefront 的字型由同源 /theme/default/ 靜態資產提供；不載入第三方 script 或字型 CDN。
-  所有購買操作仍是標準 POST 表單，因此沒有 JavaScript 也能完成下單。
+  字型由 Google Fonts 提供：它按 unicode-range 切成上百個分片，一般繁中頁面只取回幾十 KB，
+  自託管整包 Noto Sans TC 則是 5.42 MB。代價是顧客的 IP 會送到 Google，見 ADR 0026。
+  仍然不載入任何第三方 script；所有購買操作是標準 POST 表單，沒有 JavaScript 也能下單。
 -->
 </head>
 <body>
@@ -81,20 +89,6 @@ export function layout({ title, body, ctx }: LayoutOptions): string {
 
 function styles(accent: string): string {
   return `
-@font-face {
-  font-family: "Noto Sans TC";
-  font-style: normal;
-  font-weight: 400 700;
-  font-display: swap;
-  src: url("${DEFAULT_THEME_ASSET_PREFIX}fonts/NotoSansTC-Variable.woff2") format("woff2");
-}
-@font-face {
-  font-family: "Noto Serif TC";
-  font-style: normal;
-  font-weight: 400 600;
-  font-display: swap;
-  src: url("${DEFAULT_THEME_ASSET_PREFIX}fonts/NotoSerifTC-Variable.woff2") format("woff2");
-}
 :root {
   --accent: ${accent};
   --surface-canvas: #f7f3ed;
@@ -111,7 +105,9 @@ function styles(accent: string): string {
   --state-danger-ink: #7f1d1d;
   --state-danger-surface: #fff4f3;
   --font-sans: "Noto Sans TC", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", sans-serif;
-  --font-serif: "Noto Serif TC", "Songti TC", "Times New Roman", serif;
+  /* 標題的 serif 走系統字型：自託管一份 7.66 MB 的 Noto Serif TC，
+     只為了標題而讓每位新訪客多付這個流量，不划算。 */
+  --font-serif: "Songti TC", "Noto Serif CJK TC", "Source Han Serif TC", "Times New Roman", serif;
 }
 * { box-sizing: border-box; }
 html { background: var(--surface-canvas); }

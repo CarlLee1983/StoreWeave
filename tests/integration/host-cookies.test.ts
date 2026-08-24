@@ -4,7 +4,7 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createServer } from '@storeweave/api';
 import { csrfTokenFor } from '@storeweave/identity';
 import { defaultTheme } from '@storeweave/theme-default';
-import { ADMIN_ACTOR, createHarness, createProduct, defaultThemeRelease, stockUp, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
 
 /**
  * https 部署上，所有 cookie 都必須帶 `__Host-` 前綴——子網域因此蓋不掉它們。
@@ -18,7 +18,7 @@ beforeAll(async () => {
   h = await createHarness();
   // 名字是每次請求現算的，因此改設定就足以模擬 https 部署，不必真的架 TLS。
   h.runtime.config.http.publicUrl = 'https://shop.example.test';
-  app = await createServer({ runtime: h.runtime, theme: defaultTheme, release: defaultThemeRelease() });
+  app = await createServer({ runtime: h.runtime, theme: defaultTheme, release: { version: 'test', configPath: '<test>' } });
 }, 300_000);
 
 afterAll(async () => {

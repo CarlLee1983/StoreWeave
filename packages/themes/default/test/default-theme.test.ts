@@ -61,7 +61,7 @@ const order: ThemeOrderView = {
 };
 
 describe('Default Theme 的商品瀏覽切片', () => {
-  it('以 ThemeProductView 的資料建立可連到商品頁的型錄，且使用同源字型資產', () => {
+  it('以 ThemeProductView 的資料建立可連到商品頁的型錄', () => {
     const html = defaultTheme.renderHome(context(), { products: [product] });
 
     expect(html).toContain('class="catalog-page"');
@@ -69,11 +69,13 @@ describe('Default Theme 的商品瀏覽切片', () => {
     expect(html).toContain('href="/p/product-1"');
     expect(html).toContain('真實商品資料提供的描述。');
     expect(html).toContain('可售 3 件');
-    expect(html).toContain('@font-face');
-    expect(defaultTheme.staticAssets).toEqual({ prefix: '/theme/default/' });
-    expect(html).toContain('/theme/default/fonts/NotoSansTC-Variable.woff2');
-    expect(html).toContain('/theme/default/fonts/NotoSerifTC-Variable.woff2');
-    expect(html).not.toContain('fonts.googleapis.com');
+    // 字型走 Google Fonts 的 unicode-range 分片；Theme 不再自帶靜態資產。
+    expect(html).toContain('href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400..700&amp;display=swap"');
+    expect(html).toContain('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>');
+    expect(html).not.toContain('@font-face');
+    expect(html).not.toContain('/theme/default/');
+    // 第三方 script 的立場沒有變：字型是樣式表，頁面仍然不載入任何外部 JavaScript。
+    expect(html).not.toContain('<script');
   });
 
   it('保留商品詳情的真實加車表單、session CSRF 與庫存上限', () => {

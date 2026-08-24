@@ -2,7 +2,6 @@ import 'reflect-metadata';
 import { join } from 'node:path';
 import { bootstrap } from '@storeweave/bundle';
 import { createServer } from './server';
-import { resolveThemeAssetsDir } from './theme-assets';
 
 const RELEASE_VERSION = process.env.COMMERCE_RELEASE_VERSION ?? '0.1.0';
 
@@ -18,11 +17,10 @@ async function main(): Promise<void> {
   await runtime.extensions.persistRegistry();
 
   const adminDir = process.env.COMMERCE_ADMIN_DIR ?? join(__dirname, '..', 'admin');
-  const themeAssetsDir = resolveThemeAssetsDir(theme, join(__dirname, '..'));
   const app = await createServer({
     runtime,
     theme,
-    release: { version: RELEASE_VERSION, configPath: loaded.sourcePath, adminDir, themeAssetsDir },
+    release: { version: RELEASE_VERSION, configPath: loaded.sourcePath, adminDir },
   });
 
   const { host, port } = runtime.config.http;

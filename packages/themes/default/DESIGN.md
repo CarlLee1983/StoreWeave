@@ -10,7 +10,7 @@ Default Theme 要讓顧客能在不依賴 JavaScript 的情況下，辨識可購
 
 - 每個商品畫面只呈現目前 Theme 資料介面可支持的事實。
 - 商品詳情的加入購物車、購物車調整與結帳，保留既有 SSR 表單、依 session 狀態輸出的 CSRF 欄位與伺服器端驗證。
-- Noto Sans TC 與 Noto Serif TC 是確定的 Google Fonts 字體來源；正式頁面不在顧客 session 中向第三方字型 CDN 發出請求。
+- Noto Sans TC 由 Google Fonts CDN 提供（unicode-range 分片，一般頁面數十 KB）；標題的 serif 走系統字型堆疊。隱私取捨與被排除的替代方案見 `docs/adr/0026-storefront-fonts-from-google-cdn.md`。
 - 在 360px 寬度與桌面寬度都能完成瀏覽、加車與結帳；焦點、錯誤與不可購買狀態可感知。
 
 不在本次範圍的是：重做 apps/admin、增加商品圖片或分類 API、改變付款提供者、加入 JavaScript 購物車，或以原型假資料取代 Commerce Core 的交易結果。
@@ -67,16 +67,16 @@ HTML、標準表單、可存取的狀態提示
 | 角色 | 字體 | 字重 | 用途 |
 | --- | --- | --- | --- |
 | 介面與正文 | Noto Sans TC | 400、500、600、700 | 導覽、表單、金額、說明、狀態 |
-| 品牌與長標題 | Noto Serif TC | 400、500、600 | 頁面標題、商品名稱、編輯式引言 |
+| 品牌與長標題 | 系統 serif（`Songti TC` 等） | 由系統字型提供 | 頁面標題、商品名稱、編輯式引言 |
 
-原型可透過 Google Fonts CSS API 載入上述字型，並帶 display=swap，以快速確認中文字形與層級。正式 Theme 則必須將經確認的 WOFF2 字型檔隨應用程式靜態資產發布，使用相同 family 名稱與 generic fallback。這是本規格新增的資產邊界：現有 layout 已禁止第三方可執行 script；本規格進一步要求帶有登入或購物車 session 的頁面，也不新增 fonts.googleapis.com 或 fonts.gstatic.com 的執行期依賴。
+字型透過 Google Fonts CSS API 載入，帶 `display=swap` 與兩個 `preconnect`。自託管整包 Noto Sans TC 是 5.42 MB，分片後的 CDN 交付約數十 KB，差距兩個數量級，因此接受把顧客 IP 交給 Google 的取捨（ADR 0026）。第三方**可執行 script** 仍然完全禁止：這個 Theme 不輸出任何 `<script>`。
 
 正式樣式的字型 stack 與數字規則：
 
 ~~~css
 --font-sans: "Noto Sans TC", ui-sans-serif, -apple-system, BlinkMacSystemFont,
   "Segoe UI", "PingFang TC", sans-serif;
---font-serif: "Noto Serif TC", "Songti TC", "Times New Roman", serif;
+--font-serif: "Songti TC", "Noto Serif CJK TC", "Source Han Serif TC", "Times New Roman", serif;
 
 .price,
 .order-total,

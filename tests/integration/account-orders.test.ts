@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { SESSION_COOKIE, createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
-import { createHarness, createProduct, defaultThemeRelease, stockUp, type TestHarness } from './helpers';
+import { createHarness, createProduct, stockUp, type TestHarness } from './helpers';
 
 /** 會員中心：我的訂單（工單 20）。 */
 
@@ -11,7 +11,7 @@ let app: NestFastifyApplication;
 
 beforeAll(async () => {
   h = await createHarness();
-  app = await createServer({ runtime: h.runtime, theme: defaultTheme, release: defaultThemeRelease() });
+  app = await createServer({ runtime: h.runtime, theme: defaultTheme, release: { version: 'test', configPath: '<test>' } });
 }, 300_000);
 
 afterAll(async () => {

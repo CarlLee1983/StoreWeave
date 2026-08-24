@@ -137,24 +137,6 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
     }
   }
 
-  // Theme 宣告公開 URL，release 提供檔案目錄；API 不認得特定 Theme 的 id 或路由。
-  if (theme.staticAssets) {
-    if (!release.themeAssetsDir) {
-      throw new Error(`Theme "${theme.id}" declares static assets, but no assets directory was provided`);
-    }
-    if (!theme.staticAssets.prefix.startsWith('/') || !theme.staticAssets.prefix.endsWith('/')) {
-      throw new Error(`Theme "${theme.id}" static asset prefix must start and end with '/': ${theme.staticAssets.prefix}`);
-    }
-    if (!existsSync(release.themeAssetsDir)) {
-      throw new Error(`Theme "${theme.id}" static assets are missing at ${release.themeAssetsDir}`);
-    }
-    app.useStaticAssets({
-      root: release.themeAssetsDir,
-      prefix: theme.staticAssets.prefix,
-      decorateReply: false,
-      wildcard: false,
-    });
-  }
 
   await app.init();
   return app;

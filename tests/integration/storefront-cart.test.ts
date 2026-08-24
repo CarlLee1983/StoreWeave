@@ -3,7 +3,7 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { CART_COOKIE, SESSION_COOKIE, createServer } from '@storeweave/api';
 import { csrfTokenFor } from '@storeweave/identity';
 import { defaultTheme } from '@storeweave/theme-default';
-import { ADMIN_ACTOR, createHarness, createProduct, defaultThemeRelease, stockUp, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
 
 /** 前台購物車與結帳頁（工單 29）。 */
 
@@ -12,7 +12,7 @@ let app: NestFastifyApplication;
 
 beforeAll(async () => {
   h = await createHarness();
-  app = await createServer({ runtime: h.runtime, theme: defaultTheme, release: defaultThemeRelease() });
+  app = await createServer({ runtime: h.runtime, theme: defaultTheme, release: { version: 'test', configPath: '<test>' } });
 }, 300_000);
 
 afterAll(async () => {
