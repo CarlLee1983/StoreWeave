@@ -1,0 +1,13 @@
+import { z } from 'zod';
+export const refundStatus = z.enum(['requested', 'succeeded', 'failed']);
+const base = z.object({ id: z.string().uuid(), orderId: z.string().uuid(), amountCents: z.number().int().positive(), currency: z.string().length(3), status: refundStatus, requestedAt: z.coerce.date(), completedAt: z.coerce.date().nullable() });
+export const refundDto = base.extend({ source: z.enum(['direct', 'rma']), sourceRef: z.string().uuid().nullable(), originalPaymentAttemptRef: z.string(), paymentProvider: z.string(), reason: z.string(), requestedByActorId: z.string(), attemptNo: z.number().int().positive(), providerRequestRef: z.string(), providerRefundRef: z.string().nullable(), failureMessage: z.string().nullable(), updatedAt: z.coerce.date() });
+export type RefundDto = z.infer<typeof refundDto>;
+export const customerRefundDto = base;
+export const refundOutputDto = z.union([refundDto, customerRefundDto]);
+export const requestFullRefundInput = z.object({ orderId: z.string().uuid(), reason: z.string().trim().min(1).max(1000) }).strict();
+export const retryRefundInput = z.object({ id: z.string().uuid() }).strict();
+export const recordRefundResultInput = z.object({ id: z.string().uuid(), paymentProvider: z.string().min(1).max(100), providerRequestRef: z.string().min(1).max(200), status: z.enum(['succeeded', 'failed']), providerRefundRef: z.string().min(1).max(200).optional(), failureMessage: z.string().trim().min(1).max(1000).optional() }).strict().superRefine((v, c) => { if (v.status === 'succeeded' && !v.providerRefundRef) c.addIssue({ code: z.ZodIssueCode.custom, path: ['providerRefundRef'], message: 'required for succeeded' }); if (v.status === 'failed' && !v.failureMessage) c.addIssue({ code: z.ZodIssueCode.custom, path: ['failureMessage'], message: 'required for failed' }); });
+export const getRefundInput = z.object({ id: z.string().uuid() }).strict();
+export const listRefundsInput = z.object({ orderId: z.string().uuid().optional(), status: refundStatus.optional(), limit: z.coerce.number().int().min(1).max(100).default(50), offset: z.coerce.number().int().min(0).default(0) }).strict();
+export const listRefundsOutput = z.object({ items: z.array(refundOutputDto), total: z.number().int().nonnegative() });
