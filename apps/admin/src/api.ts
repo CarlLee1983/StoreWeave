@@ -77,10 +77,115 @@ export type Order = {
   totalCents: number;
   lines: OrderLine[];
   adjustments: OrderAdjustment[];
+  /** 結帳時凍結的配送選項；後台只能讀取，不能改寫歷史目的地。 */
+  delivery?: {
+    shippingMethodId: string;
+    shippingMethodCode: string;
+    shippingMethodName: string;
+    provider: string;
+    type: string;
+    destinationKind: 'taiwan_home' | 'pickup_store';
+    destination: Record<string, unknown>;
+    createdAt: string;
+  } | null;
   placedAt: string;
   paidAt: string | null;
   cancelledAt: string | null;
   expiresAt: string | null;
+};
+
+export type ShippingMethod = {
+  id: string;
+  code: string;
+  name: string;
+  provider: string;
+  type: string;
+  destinationKind: 'taiwan_home' | 'pickup_store';
+  feeCents: number;
+  freeShippingThresholdCents: number | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Shipment = {
+  id: string;
+  orderId: string;
+  shippingMethodId: string;
+  provider: string;
+  type: string;
+  providerRef: string | null;
+  trackingNumber: string | null;
+  status: 'created' | 'shipped' | 'arrived' | 'completed';
+  createdAt: string;
+  shippedAt: string | null;
+  arrivedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+};
+
+/** Safe operational projection from the ECPay Logistics extension. */
+export type EcpayLogisticsShipmentOperation = {
+  shipmentId: string;
+  orderId: string;
+  status: 'pending' | 'created' | 'failed';
+  attempts: number;
+  manualRetries: number;
+  lastError: string | null;
+  providerRef: string | null;
+  trackingNumber: string | null;
+  labelAvailable: boolean;
+  lastKnownStage: Shipment['status'];
+  lastStatusQueriedAt: string | null;
+  lastStatusQueryError: string | null;
+  jobId: string | null;
+  firstSeenAt: string;
+  updatedAt: string;
+};
+
+/** Private, opaque carrier label handle. Never interpret it as a URL. */
+export type ShipmentLabelInfo = { shipmentId: string; provider: string; providerRef: string; labelReference: string };
+
+export type Refund = {
+  id: string;
+  orderId: string;
+  amountCents: number;
+  currency: string;
+  status: 'requested' | 'succeeded' | 'failed';
+  reason: string;
+  failureMessage: string | null;
+  requestedAt: string;
+  completedAt: string | null;
+};
+
+export type RmaLine = {
+  id: string;
+  orderLineId: string;
+  productId: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  unitPriceCents: number;
+  lineTotalCents: number;
+  discountCents: number;
+  disposition: 'restock' | 'discard' | null;
+  discardReason: string | null;
+};
+
+export type Rma = {
+  id: string;
+  orderId: string;
+  customerId: string;
+  status: 'requested' | 'needs_information' | 'approved' | 'rejected' | 'received' | 'refund_pending' | 'refund_failed' | 'completed';
+  resolution: 'refund_and_reorder';
+  reason: string;
+  staffNote: string | null;
+  refundId: string | null;
+  receivedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lines: RmaLine[];
 };
 
 export type PromotionRule =
@@ -359,7 +464,7 @@ async function request<T>(
   return json.data as T;
 }
 
-function toQuery(params: Record<string, string | number | undefined>): string {
+function toQuery(params: Record<string, string | number | boolean | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== '') {
@@ -371,6 +476,49 @@ function toQuery(params: Record<string, string | number | undefined>): string {
 }
 
 export const api = {
+  listShippingMethods(params: { enabled?: boolean; limit?: number; offset?: number } = {}) {
+    return request<Paged<ShippingMethod>>(`/api/v1/shipping/methods${toQuery(params)}`);
+  },
+  createShippingMethod(body: {
+    code: string; name: string; provider: string; type: string; destinationKind: ShippingMethod['destinationKind'];
+    feeCents: number; freeShippingThresholdCents?: number; enabled: boolean;
+  }) {
+    return request<ShippingMethod>('/api/v1/shipping/methods', { method: 'POST', body, idempotent: true });
+  },
+  updateShippingMethod(id: string, body: {
+    name?: string; provider?: string; type?: string; destinationKind?: ShippingMethod['destinationKind'];
+    feeCents?: number; freeShippingThresholdCents?: number | null; enabled?: boolean;
+  }) {
+    return request<ShippingMethod>(`/api/v1/shipping/methods/${id}`, { method: 'PATCH', body, idempotent: true });
+  },
+  getShipment(id: string) {
+    return request<Shipment>(`/api/v1/shipping/shipments/${id}`);
+  },
+  createShipment(body: { orderId: string; providerRef?: string; trackingNumber?: string }) {
+    return request<Shipment>('/api/v1/shipping/shipments', { method: 'POST', body, idempotent: true });
+  },
+  advanceShipmentStage(id: string, status: Exclude<Shipment['status'], 'created'>) {
+    return request<Shipment>(`/api/v1/shipping/shipments/${id}/stage`, { method: 'POST', body: { status }, idempotent: true });
+  },
+  getShipmentLabelInfo(id: string) {
+    return request<ShipmentLabelInfo>(`/api/v1/shipping/shipments/${id}/label`);
+  },
+  getEcpayLogisticsShipmentOperation(shipmentId: string) {
+    return request<EcpayLogisticsShipmentOperation | null>(
+      `/api/v1/extensions/ecpay-logistics/queries/ext.ecpay-logistics.getShipmentOperation${toQuery({ shipmentId })}`,
+    );
+  },
+  listEcpayLogisticsShipmentOperations(params: { status?: EcpayLogisticsShipmentOperation['status']; limit?: number } = {}) {
+    return request<{ items: EcpayLogisticsShipmentOperation[] }>(
+      `/api/v1/extensions/ecpay-logistics/queries/ext.ecpay-logistics.listShipmentOperations${toQuery(params)}`,
+    );
+  },
+  retryEcpayLogisticsShipment(shipmentId: string) {
+    return request<EcpayLogisticsShipmentOperation>(
+      '/api/v1/extensions/ecpay-logistics/commands/ext.ecpay-logistics.retryShipment',
+      { method: 'POST', body: { shipmentId }, idempotent: true },
+    );
+  },
   listProducts(params: { q?: string; status?: string; limit?: number; offset?: number }) {
     return request<Paged<Product>>(`/api/v1/products${toQuery(params)}`);
   },
@@ -417,6 +565,33 @@ export const api = {
       body: { reason },
       idempotent: true,
     });
+  },
+  listRefunds(params: { orderId?: string; status?: Refund['status']; limit?: number; offset?: number }) {
+    return request<Paged<Refund>>(`/api/v1/refunds${toQuery(params)}`);
+  },
+  requestRefund(orderId: string, reason: string) {
+    return request<Refund>(`/api/v1/refunds/orders/${orderId}`, { method: 'POST', body: { reason }, idempotent: true });
+  },
+  retryRefund(id: string) {
+    return request<Refund>(`/api/v1/refunds/${id}/retry`, { method: 'POST', body: {}, idempotent: true });
+  },
+  listRmas(params: { orderId?: string; status?: Rma['status']; limit?: number; offset?: number }) {
+    return request<Paged<Rma>>(`/api/v1/rmas${toQuery(params)}`);
+  },
+  approveRma(id: string) {
+    return request<Rma>(`/api/v1/rmas/${id}/approve`, { method: 'POST', body: {}, idempotent: true });
+  },
+  requestRmaInformation(id: string, note: string) {
+    return request<Rma>(`/api/v1/rmas/${id}/request-information`, { method: 'POST', body: { note }, idempotent: true });
+  },
+  rejectRma(id: string, note: string) {
+    return request<Rma>(`/api/v1/rmas/${id}/reject`, { method: 'POST', body: { note }, idempotent: true });
+  },
+  receiveRma(id: string, lines: { rmaLineId: string; disposition: 'restock' | 'discard'; discardReason?: string }[]) {
+    return request<Rma>(`/api/v1/rmas/${id}/receive`, { method: 'POST', body: { lines }, idempotent: true });
+  },
+  requestRmaRefund(id: string, reason?: string) {
+    return request<Rma>(`/api/v1/rmas/${id}/request-refund`, { method: 'POST', body: reason ? { reason } : {}, idempotent: true });
   },
   listPromotions(params: { status?: string; activeAt?: string; limit?: number; offset?: number }) {
     return request<Paged<Promotion>>(`/api/v1/promotions${toQuery(params)}`);

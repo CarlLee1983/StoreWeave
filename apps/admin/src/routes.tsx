@@ -12,6 +12,7 @@ import { CustomersPage } from './pages/CustomersPage';
 import { ErpPage } from './pages/ErpPage';
 import { SystemPage } from './pages/SystemPage';
 import { DlqPage } from './pages/DlqPage';
+import { ShippingPage } from './pages/ShippingPage';
 
 /** 側欄的分組，順序即呈現順序。 */
 export const NAV_SECTIONS = ['commerce', 'integrations'] as const;
@@ -60,6 +61,16 @@ const ENTRIES = [
     subtitle: 'productsSubtitle',
     action: { label: 'createProduct', targetId: 'create-product' },
     render: () => <ProductsPage />,
+  },
+  {
+    path: 'shipping',
+    navLabel: 'shipping',
+    icon: 'box',
+    section: 'commerce',
+    title: 'shippingTitle',
+    subtitle: 'shippingSubtitle',
+    action: { label: 'createShippingMethod', targetId: 'create-shipping-method' },
+    render: () => <ShippingPage />,
   },
   {
     path: 'promotions',

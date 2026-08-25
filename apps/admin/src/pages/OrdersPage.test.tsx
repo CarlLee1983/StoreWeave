@@ -8,7 +8,7 @@ import { api, type Order } from '../api';
 
 vi.mock('../api', async () => {
   const actual = await vi.importActual<typeof import('../api')>('../api');
-  return { ...actual, api: { listOrders: vi.fn(), payOrder: vi.fn(), cancelOrder: vi.fn() } };
+  return { ...actual, api: { listOrders: vi.fn(), payOrder: vi.fn(), cancelOrder: vi.fn(), listRefunds: vi.fn(), requestRefund: vi.fn(), retryRefund: vi.fn(), listRmas: vi.fn(), approveRma: vi.fn(), requestRmaInformation: vi.fn(), rejectRma: vi.fn(), receiveRma: vi.fn(), requestRmaRefund: vi.fn() } };
 });
 
 const order: Order = {
@@ -43,9 +43,31 @@ const order: Order = {
 
 beforeEach(() => {
   vi.mocked(api.listOrders).mockReset().mockResolvedValue({ items: [order], total: 1 });
+  vi.mocked(api.listRefunds).mockReset().mockResolvedValue({ items: [], total: 0 });
+  vi.mocked(api.listRmas).mockReset().mockResolvedValue({ items: [], total: 0 });
 });
 
 describe('OrdersPage', () => {
+  it('顯示全域退款隊列與安全重試入口', async () => {
+    vi.mocked(api.listRefunds).mockResolvedValue({
+      items: [{ id: 'refund-1', orderId: order.id, amountCents: 140_000, currency: 'TWD', status: 'failed', reason: 'internal', failureMessage: 'provider declined', requestedAt: order.placedAt, completedAt: order.placedAt }], total: 1,
+    });
+    render(<I18nProvider><OrdersPage /></I18nProvider>);
+    expect(await screen.findByText('退款作業隊列')).toBeInTheDocument();
+    expect(screen.getByText('provider declined')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重試退款' })).toBeInTheDocument();
+  });
+
+  it('顯示退貨案件隊列與核准入口', async () => {
+    vi.mocked(api.listRmas).mockResolvedValue({
+      items: [{ id: 'rma-1', orderId: order.id, customerId: 'customer-1', status: 'requested', resolution: 'refund_and_reorder', reason: '瑕疵', staffNote: null, refundId: null, receivedAt: null, completedAt: null, createdAt: order.placedAt, updatedAt: order.placedAt, lines: [{ id: 'rma-line-1', orderLineId: order.lines[0].id, productId: order.lines[0].productId, sku: 'TEA-001', name: '高山烏龍', quantity: 1, unitPriceCents: 50_000, lineTotalCents: 50_000, discountCents: 0, disposition: null, discardReason: null }] }], total: 1,
+    });
+    render(<I18nProvider><OrdersPage /></I18nProvider>);
+    expect(await screen.findByText('退貨作業隊列')).toBeInTheDocument();
+    expect(screen.getByText('瑕疵')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '核准' })).toBeInTheDocument();
+  });
+
   it('展開後顯示折扣明細與分攤後的行金額', async () => {
     const user = userEvent.setup();
     render(<I18nProvider><OrdersPage /></I18nProvider>);
