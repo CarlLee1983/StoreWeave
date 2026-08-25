@@ -609,8 +609,15 @@ export const api = {
   getInventory(productId: string) {
     return request<Stock>(`/api/v1/inventory/${productId}`);
   },
-  adjustInventory(body: { productId: string; delta: number; reason: string; reference?: string }) {
-    return request<Stock>('/api/v1/inventory/adjust', { method: 'POST', body, idempotent: true });
+  adjustInventory(body: { productId: string; delta: number; reason?: string; reference?: string }) {
+    const validReasons = ['restock', 'correction', 'damage', 'return', 'manual'];
+    const reasonEnum = body.reason && validReasons.includes(body.reason) ? body.reason : 'manual';
+    const ref = body.reference || (body.reason && !validReasons.includes(body.reason) ? body.reason : undefined);
+    return request<Stock>('/api/v1/inventory/adjust', {
+      method: 'POST',
+      body: { productId: body.productId, delta: body.delta, reason: reasonEnum, reference: ref },
+      idempotent: true,
+    });
   },
   listOrders(params: { status?: string; limit?: number; offset?: number }) {
     return request<Paged<Order>>(`/api/v1/orders${toQuery(params)}`);

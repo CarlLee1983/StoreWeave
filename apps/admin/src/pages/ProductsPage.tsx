@@ -56,9 +56,14 @@ export function ProductsPage() {
         setProducts(result.items);
         setTotal(result.total);
 
-        // 批次取得當前分頁商品的庫存狀態
+        // 批次取得當前分頁商品的庫存狀態，若尚未建立庫存記錄則預設為 0
         const stockEntries = await Promise.all(
-          result.items.map((p) => api.getInventory(p.id).then((s) => [p.id, s] as const).catch(() => null)),
+          result.items.map((p) =>
+            api
+              .getInventory(p.id)
+              .then((s) => [p.id, s] as const)
+              .catch(() => [p.id, { productId: p.id, onHand: 0, reserved: 0, available: 0, updatedAt: new Date().toISOString() }] as const),
+          ),
         );
         if (cancelled) return;
         const next: Record<string, Stock> = {};
@@ -398,7 +403,7 @@ function AdjustStockModal({
   const { t } = useI18n();
   const [mode, setMode] = useState<'add' | 'deduct' | 'set'>('add');
   const [qtyInput, setQtyInput] = useState('');
-  const [reason, setReason] = useState('廠商進貨入庫');
+  const [selectedReason, setSelectedReason] = useState('廠商進貨入庫');
   const [customReason, setCustomReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -407,13 +412,13 @@ function AdjustStockModal({
   const currentReserved = stock?.reserved ?? 0;
   const currentAvailable = stock?.available ?? 0;
 
-  // 預設常用原因清單
+  // 預設常用原因清單與後端 Enum 對應
   const PRESET_REASONS = [
-    { label: '📦 廠商進貨入庫', value: '廠商進貨入庫' },
-    { label: '📋 定期盤點更正', value: '定期盤點更正' },
-    { label: '💔 運送破損報廢', value: '運送破損報廢' },
-    { label: '🎁 樣品展示領用', value: '樣品展示領用' },
-    { label: '🔄 客服退貨入庫', value: '客服退貨入庫' },
+    { label: '📦 廠商進貨入庫', reasonCode: 'restock', text: '廠商進貨入庫' },
+    { label: '📋 定期盤點更正', reasonCode: 'correction', text: '定期盤點更正' },
+    { label: '💔 運送破損報廢', reasonCode: 'damage', text: '運送破損報廢' },
+    { label: '🎁 樣品展示領用', reasonCode: 'manual', text: '樣品展示領用' },
+    { label: '🔄 客服退貨入庫', reasonCode: 'return', text: '客服退貨入庫' },
   ];
 
   // 計算實際 delta
@@ -431,8 +436,8 @@ function AdjustStockModal({
   const predictedAvailable = calculatedDelta !== null ? predictedOnHand - currentReserved : currentAvailable;
   const isNegativeStock = predictedOnHand < 0;
 
-  const handleApplyPreset = (val: string) => {
-    setReason(val);
+  const handleApplyPreset = (text: string) => {
+    setSelectedReason(text);
   };
 
   const submit = async () => {
@@ -445,11 +450,18 @@ function AdjustStockModal({
       return;
     }
 
-    const finalReason = customReason.trim() ? `${reason} - ${customReason.trim()}` : reason;
-    if (!finalReason.trim()) {
-      setError(new Error(t('invalidInventory')));
-      return;
-    }
+    const matchedPreset = PRESET_REASONS.find((p) => p.text === selectedReason);
+    const reasonCode = matchedPreset
+      ? matchedPreset.reasonCode
+      : mode === 'add'
+        ? 'restock'
+        : mode === 'deduct'
+          ? 'damage'
+          : 'correction';
+
+    const finalReference = customReason.trim()
+      ? `${selectedReason} - ${customReason.trim()}`
+      : selectedReason;
 
     setSubmitting(true);
     setError(null);
@@ -457,7 +469,8 @@ function AdjustStockModal({
       await api.adjustInventory({
         productId: product.id,
         delta: calculatedDelta,
-        reason: finalReason.trim(),
+        reason: reasonCode,
+        reference: finalReference,
       });
       onSaved();
       onClose();
@@ -515,7 +528,7 @@ function AdjustStockModal({
               className={`stock-mode-tab ${mode === 'add' ? 'stock-mode-tab--active stock-mode-tab--add' : ''}`}
               onClick={() => {
                 setMode('add');
-                if (reason === '運送破損報廢') setReason('廠商進貨入庫');
+                if (selectedReason === '運送破損報廢') setSelectedReason('廠商進貨入庫');
               }}
             >
               🟢 入庫 / 進貨 (+N)
@@ -525,7 +538,7 @@ function AdjustStockModal({
               className={`stock-mode-tab ${mode === 'deduct' ? 'stock-mode-tab--active stock-mode-tab--deduct' : ''}`}
               onClick={() => {
                 setMode('deduct');
-                if (reason === '廠商進貨入庫') setReason('運送破損報廢');
+                if (selectedReason === '廠商進貨入庫') setSelectedReason('運送破損報廢');
               }}
             >
               🔴 出庫 / 報損 (-N)
@@ -535,7 +548,7 @@ function AdjustStockModal({
               className={`stock-mode-tab ${mode === 'set' ? 'stock-mode-tab--active stock-mode-tab--set' : ''}`}
               onClick={() => {
                 setMode('set');
-                setReason('定期盤點更正');
+                setSelectedReason('定期盤點更正');
               }}
             >
               🎯 盤點直接設總數 (=N)
@@ -594,10 +607,10 @@ function AdjustStockModal({
             <div className="preset-reasons-grid">
               {PRESET_REASONS.map((p) => (
                 <button
-                  key={p.value}
+                  key={p.reasonCode}
                   type="button"
-                  className={`preset-reason-pill ${reason === p.value ? 'preset-reason-pill--active' : ''}`}
-                  onClick={() => handleApplyPreset(p.value)}
+                  className={`preset-reason-pill ${selectedReason === p.text ? 'preset-reason-pill--active' : ''}`}
+                  onClick={() => handleApplyPreset(p.text)}
                 >
                   {p.label}
                 </button>
