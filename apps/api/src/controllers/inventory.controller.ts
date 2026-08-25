@@ -14,7 +14,11 @@ export class InventoryController extends BusController {
   @Get()
   async list(@Req() req: AuthenticatedRequest, @Query() query: Record<string, string>) {
     return ok(await this.query(req, 'commerce.inventory.listStock', {
-      belowQuantity: query.belowQuantity, limit: query.limit, offset: query.offset,
+      belowQuantity: query.belowQuantity,
+      // productIds 以逗號分隔傳入，空字串視為未指定。
+      productIds: query.productIds ? query.productIds.split(',').filter(Boolean) : undefined,
+      limit: query.limit,
+      offset: query.offset,
     }));
   }
 

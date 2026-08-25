@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { asc, sql } from 'drizzle-orm';
+import { and, asc, inArray, sql } from 'drizzle-orm';
 import type { DrizzleDb, Tx } from '@storeweave/contracts';
 import { stock } from './schema';
 import type { StockDto } from './dto';
@@ -70,10 +70,12 @@ export class StockRepository {
     return row ? { productId: row.productId, onHand: row.onHand, reserved: row.reserved, updatedAt: row.updatedAt } : null;
   }
 
-  async list(db: DrizzleDb, filter: { belowQuantity?: number; limit: number; offset: number }) {
-    const where = filter.belowQuantity !== undefined
-      ? sql`on_hand - reserved < ${filter.belowQuantity}`
-      : sql`true`;
+  async list(db: DrizzleDb, filter: { belowQuantity?: number; productIds?: string[]; limit: number; offset: number }) {
+    const conditions = [
+      filter.belowQuantity !== undefined ? sql`on_hand - reserved < ${filter.belowQuantity}` : undefined,
+      filter.productIds?.length ? inArray(stock.productId, filter.productIds) : undefined,
+    ].filter((c) => c !== undefined);
+    const where = conditions.length > 0 ? and(...conditions) : sql`true`;
     const rows = await db.select().from(stock).where(where).orderBy(asc(stock.productId)).limit(filter.limit).offset(filter.offset);
     const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(stock).where(where);
     return {

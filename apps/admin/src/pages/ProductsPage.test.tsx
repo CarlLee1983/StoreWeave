@@ -8,7 +8,7 @@ import { api, type Product, type Stock } from '../api';
 
 vi.mock('../api', async () => {
   const actual = await vi.importActual<typeof import('../api')>('../api');
-  return { ...actual, api: { listProducts: vi.fn(), getInventory: vi.fn(), createProduct: vi.fn(), patchProduct: vi.fn(), adjustInventory: vi.fn() } };
+  return { ...actual, api: { listProducts: vi.fn(), listInventory: vi.fn(), createProduct: vi.fn(), patchProduct: vi.fn(), adjustInventory: vi.fn() } };
 });
 
 const draft: Product = {
@@ -19,7 +19,7 @@ const stock: Stock = { productId: draft.id, onHand: 10, reserved: 2, available: 
 
 beforeEach(() => {
   vi.mocked(api.listProducts).mockReset().mockResolvedValue({ items: [draft], total: 1 });
-  vi.mocked(api.getInventory).mockReset().mockResolvedValue(stock);
+  vi.mocked(api.listInventory).mockReset().mockResolvedValue({ items: [stock], total: 1 });
   vi.mocked(api.createProduct).mockReset().mockResolvedValue(draft);
   vi.mocked(api.patchProduct).mockReset().mockImplementation(async (_id, body) => ({ ...draft, ...body }));
   vi.mocked(api.adjustInventory).mockReset().mockResolvedValue(stock);

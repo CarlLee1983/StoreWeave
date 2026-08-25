@@ -21,6 +21,8 @@ export const getStockInput = z.object({ productId: z.string().uuid() }).strict()
 
 export const listStockInput = z.object({
   belowQuantity: z.coerce.number().int().nonnegative().optional(),
+  /** 只查這些商品的庫存；後台列表用一次查詢取代逐列 N+1。 */
+  productIds: z.array(z.string().uuid()).min(1).max(200).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 }).strict();

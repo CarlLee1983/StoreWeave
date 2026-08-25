@@ -603,8 +603,11 @@ export const api = {
   ) {
     return request<Product>(`/api/v1/products/${id}`, { method: 'PATCH', body, idempotent: true });
   },
-  listInventory(params: { belowQuantity?: number; limit?: number; offset?: number }) {
-    return request<Paged<Stock>>(`/api/v1/inventory${toQuery(params)}`);
+  listInventory(params: { belowQuantity?: number; productIds?: string[]; limit?: number; offset?: number }) {
+    const { productIds, ...rest } = params;
+    return request<Paged<Stock>>(
+      `/api/v1/inventory${toQuery({ ...rest, productIds: productIds?.length ? productIds.join(',') : undefined })}`,
+    );
   },
   getInventory(productId: string) {
     return request<Stock>(`/api/v1/inventory/${productId}`);

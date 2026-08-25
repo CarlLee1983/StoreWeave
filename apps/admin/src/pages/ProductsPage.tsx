@@ -56,19 +56,17 @@ export function ProductsPage() {
         setProducts(result.items);
         setTotal(result.total);
 
-        // 批次取得當前分頁商品的庫存狀態，若尚未建立庫存記錄則預設為 0
-        const stockEntries = await Promise.all(
-          result.items.map((p) =>
-            api
-              .getInventory(p.id)
-              .then((s) => [p.id, s] as const)
-              .catch(() => [p.id, { productId: p.id, onHand: 0, reserved: 0, available: 0, updatedAt: new Date().toISOString() }] as const),
-          ),
-        );
+        // 一次查回本頁商品的庫存；沒有庫存記錄的商品視為 0，不逐列打 API。
+        const productIds = result.items.map((p) => p.id);
+        const stockPage = productIds.length > 0
+          ? await api.listInventory({ productIds, limit: productIds.length }).catch(() => ({ items: [] as Stock[], total: 0 }))
+          : { items: [] as Stock[], total: 0 };
         if (cancelled) return;
+        const byProductId = new Map(stockPage.items.map((s) => [s.productId, s]));
         const next: Record<string, Stock> = {};
-        for (const entry of stockEntries) {
-          if (entry) next[entry[0]] = entry[1];
+        for (const p of result.items) {
+          next[p.id] = byProductId.get(p.id)
+            ?? { productId: p.id, onHand: 0, reserved: 0, available: 0, updatedAt: new Date().toISOString() };
         }
         setStocks(next);
       })
