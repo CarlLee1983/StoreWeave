@@ -29,6 +29,7 @@ export function ProductsPage() {
   const [error, setError] = useState<unknown>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [adjustingStockTarget, setAdjustingStockTarget] = useState<{ product: Product; stock?: Stock } | null>(null);
 
   // 當關鍵字或狀態篩選改變時，重設至第一頁
   const handleQueryChange = (val: string) => {
@@ -162,12 +163,12 @@ export function ProductsPage() {
           <table className="data-table products-table">
             <thead>
               <tr>
-                <th style={{ width: '15%' }}>SKU</th>
-                <th style={{ width: '25%' }}>{t('name')}</th>
+                <th style={{ width: '16%' }}>SKU</th>
+                <th style={{ width: '24%' }}>{t('name')}</th>
                 <th style={{ width: '12%' }}>{t('price')}</th>
                 <th style={{ width: '10%' }}>{t('status')}</th>
-                <th style={{ width: '15%' }}>{t('inventory')}</th>
-                <th style={{ width: '23%' }}>{t('adjustInventory')}</th>
+                <th style={{ width: '18%' }}>{t('inventory')}</th>
+                <th style={{ width: '20%' }}>操作與管理</th>
               </tr>
             </thead>
             <tbody>
@@ -184,6 +185,7 @@ export function ProductsPage() {
                     product={product}
                     stock={stocks[product.id]}
                     onEdit={() => setEditingProduct(product)}
+                    onAdjustStock={() => setAdjustingStockTarget({ product, stock: stocks[product.id] })}
                     onChanged={reload}
                   />
                 ))
@@ -234,6 +236,19 @@ export function ProductsPage() {
           }}
         />
       ) : null}
+
+      {/* 具象化庫存調整對話框 */}
+      {adjustingStockTarget ? (
+        <AdjustStockModal
+          product={adjustingStockTarget.product}
+          stock={adjustingStockTarget.stock}
+          onClose={() => setAdjustingStockTarget(null)}
+          onSaved={() => {
+            reload();
+            setAdjustingStockTarget(null);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
@@ -247,7 +262,6 @@ const NEXT_STATUS: Record<
   { to: Product['status']; label: 'publish' | 'unpublish' | 'archive' | 'republish' }[]
 > = {
   draft: [{ to: 'active', label: 'publish' }],
-  // 下架回草稿與封存是兩件事：前者是「先收回去改」，後者是「這個商品退役了」。
   active: [
     { to: 'draft', label: 'unpublish' },
     { to: 'archived', label: 'archive' },
@@ -259,18 +273,17 @@ function ProductRow({
   product,
   stock,
   onEdit,
+  onAdjustStock,
   onChanged,
 }: {
   product: Product;
   stock: Stock | undefined;
   onEdit: () => void;
+  onAdjustStock: () => void;
   onChanged: () => void;
 }) {
   const { t, formatMoney } = useI18n();
-  const [delta, setDelta] = useState('');
-  const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<unknown>(null);
   const [statusError, setStatusError] = useState<unknown>(null);
 
   const changeStatus = async (to: Product['status']) => {
@@ -281,26 +294,6 @@ function ProductRow({
       onChanged();
     } catch (err) {
       setStatusError(err);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleAdjust = async () => {
-    const deltaNum = Number(delta);
-    if (!Number.isInteger(deltaNum) || deltaNum === 0 || !reason.trim()) {
-      setError(new Error(t('invalidInventory')));
-      return;
-    }
-    setSubmitting(true);
-    setError(null);
-    try {
-      await api.adjustInventory({ productId: product.id, delta: deltaNum, reason: reason.trim() });
-      setDelta('');
-      setReason('');
-      onChanged();
-    } catch (err) {
-      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -332,39 +325,28 @@ function ProductRow({
       </td>
       <td>
         {stock ? (
-          <div className="stock-breakdown">
-            <span className={`stock-avail ${stock.available > 0 ? 'stock-avail--ok' : 'stock-avail--out'}`}>
-              可售 {stock.available}
-            </span>
-            <span className="stock-meta">
-              (保留 {stock.reserved} / 現貨 {stock.onHand})
-            </span>
-          </div>
+          <button
+            type="button"
+            className="stock-breakdown-btn"
+            onClick={onAdjustStock}
+            title="點擊進行庫存調整"
+          >
+            <div className="stock-breakdown">
+              <span className={`stock-avail ${stock.available > 0 ? 'stock-avail--ok' : 'stock-avail--out'}`}>
+                可售 {stock.available} 件
+              </span>
+              <span className="stock-meta">
+                現貨 {stock.onHand} · 保留 {stock.reserved}
+              </span>
+            </div>
+            <span className="stock-btn-hint">調整 ✎</span>
+          </button>
         ) : (
           <span className="text-muted">—</span>
         )}
       </td>
       <td>
         <div className="product-actions-cell">
-          <div className="inline-form inventory-inline-form">
-            <input
-              className="inventory-delta-input"
-              placeholder={t('adjustment')}
-              value={delta}
-              onChange={(e) => setDelta(e.target.value)}
-            />
-            <input
-              className="inventory-reason-input"
-              placeholder={t('reason')}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-            <button className="button" type="button" disabled={submitting} onClick={handleAdjust}>
-              {t('adjust')}
-            </button>
-          </div>
-          {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-
           <div className="inline-form product-lifecycle-form">
             <button
               className="button button--primary edit-btn"
@@ -373,6 +355,14 @@ function ProductRow({
               onClick={onEdit}
             >
               <Icon name="receipt" /> {t('edit')}
+            </button>
+            <button
+              className="button stock-adjust-btn"
+              type="button"
+              disabled={submitting}
+              onClick={onAdjustStock}
+            >
+              <Icon name="box" /> 調整庫存
             </button>
             {NEXT_STATUS[product.status].map((transition) => (
               <button
@@ -390,6 +380,253 @@ function ProductRow({
         </div>
       </td>
     </tr>
+  );
+}
+
+/** 具象化庫存調整對話框 */
+function AdjustStockModal({
+  product,
+  stock,
+  onClose,
+  onSaved,
+}: {
+  product: Product;
+  stock?: Stock;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t } = useI18n();
+  const [mode, setMode] = useState<'add' | 'deduct' | 'set'>('add');
+  const [qtyInput, setQtyInput] = useState('');
+  const [reason, setReason] = useState('廠商進貨入庫');
+  const [customReason, setCustomReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const currentOnHand = stock?.onHand ?? 0;
+  const currentReserved = stock?.reserved ?? 0;
+  const currentAvailable = stock?.available ?? 0;
+
+  // 預設常用原因清單
+  const PRESET_REASONS = [
+    { label: '📦 廠商進貨入庫', value: '廠商進貨入庫' },
+    { label: '📋 定期盤點更正', value: '定期盤點更正' },
+    { label: '💔 運送破損報廢', value: '運送破損報廢' },
+    { label: '🎁 樣品展示領用', value: '樣品展示領用' },
+    { label: '🔄 客服退貨入庫', value: '客服退貨入庫' },
+  ];
+
+  // 計算實際 delta
+  let calculatedDelta: number | null = null;
+  const parsed = Number(qtyInput.trim());
+
+  if (qtyInput.trim() !== '' && Number.isInteger(parsed) && parsed >= 0) {
+    if (mode === 'add') calculatedDelta = parsed;
+    else if (mode === 'deduct') calculatedDelta = -parsed;
+    else if (mode === 'set') calculatedDelta = parsed - currentOnHand;
+  }
+
+  // 預測調整後的現有庫存與可售庫存
+  const predictedOnHand = calculatedDelta !== null ? currentOnHand + calculatedDelta : currentOnHand;
+  const predictedAvailable = calculatedDelta !== null ? predictedOnHand - currentReserved : currentAvailable;
+  const isNegativeStock = predictedOnHand < 0;
+
+  const handleApplyPreset = (val: string) => {
+    setReason(val);
+  };
+
+  const submit = async () => {
+    if (calculatedDelta === null || calculatedDelta === 0) {
+      setError(new Error('請輸入大於 0 的數量，且變更量不能為 0'));
+      return;
+    }
+    if (isNegativeStock) {
+      setError(new Error(`庫存扣除後將小於 0（目前現貨 ${currentOnHand} 件），無法出庫！`));
+      return;
+    }
+
+    const finalReason = customReason.trim() ? `${reason} - ${customReason.trim()}` : reason;
+    if (!finalReason.trim()) {
+      setError(new Error(t('invalidInventory')));
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.adjustInventory({
+        productId: product.id,
+        delta: calculatedDelta,
+        reason: finalReason.trim(),
+      });
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="payload-overlay stock-modal-overlay" role="presentation" onMouseDown={onClose}>
+      <div
+        className="stock-modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`調整庫存 - ${product.name}`}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <header className="stock-modal-header">
+          <div>
+            <h3>📦 庫存調整與盤點</h3>
+            <p className="stock-modal-subtitle">
+              {product.name} <span className="mono">({product.sku})</span>
+            </p>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('close')}>
+            ✕
+          </button>
+        </header>
+
+        <div className="stock-modal-body">
+          {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+
+          {/* 當前庫存水位 */}
+          <div className="stock-status-bar">
+            <div className="stock-stat-box">
+              <span className="stock-stat-label">現有庫存 (On Hand)</span>
+              <span className="stock-stat-val mono">{currentOnHand}</span>
+            </div>
+            <div className="stock-stat-box">
+              <span className="stock-stat-label">訂單保留 (Reserved)</span>
+              <span className="stock-stat-val mono text-muted">{currentReserved}</span>
+            </div>
+            <div className="stock-stat-box stock-stat-box--avail">
+              <span className="stock-stat-label">可銷售 (Available)</span>
+              <span className="stock-stat-val mono">{currentAvailable}</span>
+            </div>
+          </div>
+
+          {/* 調整模式切換 Tab */}
+          <div className="stock-mode-tabs">
+            <button
+              type="button"
+              className={`stock-mode-tab ${mode === 'add' ? 'stock-mode-tab--active stock-mode-tab--add' : ''}`}
+              onClick={() => {
+                setMode('add');
+                if (reason === '運送破損報廢') setReason('廠商進貨入庫');
+              }}
+            >
+              🟢 入庫 / 進貨 (+N)
+            </button>
+            <button
+              type="button"
+              className={`stock-mode-tab ${mode === 'deduct' ? 'stock-mode-tab--active stock-mode-tab--deduct' : ''}`}
+              onClick={() => {
+                setMode('deduct');
+                if (reason === '廠商進貨入庫') setReason('運送破損報廢');
+              }}
+            >
+              🔴 出庫 / 報損 (-N)
+            </button>
+            <button
+              type="button"
+              className={`stock-mode-tab ${mode === 'set' ? 'stock-mode-tab--active stock-mode-tab--set' : ''}`}
+              onClick={() => {
+                setMode('set');
+                setReason('定期盤點更正');
+              }}
+            >
+              🎯 盤點直接設總數 (=N)
+            </button>
+          </div>
+
+          {/* 數量輸入 */}
+          <div className="form-field stock-input-field">
+            <label htmlFor="stock-qty-input">
+              <span className="field-label-text">
+                {mode === 'add' && '➕ 請輸入進貨 / 增加件數：'}
+                {mode === 'deduct' && '➖ 請輸入扣除 / 報廢件數：'}
+                {mode === 'set' && '🎯 請輸入倉庫現場盤點實點總數：'}
+              </span>
+            </label>
+            <input
+              id="stock-qty-input"
+              type="number"
+              min="0"
+              step="1"
+              autoFocus
+              className="stock-number-input mono"
+              placeholder={mode === 'set' ? `例如：${currentOnHand}` : '例如：10'}
+              value={qtyInput}
+              onChange={(e) => setQtyInput(e.target.value)}
+            />
+          </div>
+
+          {/* 實時試算預覽 */}
+          {calculatedDelta !== null && calculatedDelta !== 0 ? (
+            <div className={`stock-forecast-box ${isNegativeStock ? 'stock-forecast-box--danger' : ''}`}>
+              <div className="forecast-delta-line">
+                <span>變動幅度：</span>
+                <strong className={`delta-tag ${calculatedDelta > 0 ? 'delta-tag--pos' : 'delta-tag--neg'}`}>
+                  {calculatedDelta > 0 ? `+${calculatedDelta}` : calculatedDelta} 件
+                </strong>
+              </div>
+              <div className="forecast-result-line">
+                <span>預估調整後現貨：</span>
+                <strong>
+                  {currentOnHand} 件 → <span className="mono">{predictedOnHand} 件</span>
+                </strong>
+                <span className="forecast-avail-sub">（可售變為 {predictedAvailable} 件）</span>
+              </div>
+              {isNegativeStock ? (
+                <p className="danger-text">⚠️ 警告：現貨庫存不能為負數，請檢查出庫數量！</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* 常用原因選擇 */}
+          <div className="form-field">
+            <label>
+              <span className="field-label-text">📋 調整原因：</span>
+            </label>
+            <div className="preset-reasons-grid">
+              {PRESET_REASONS.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  className={`preset-reason-pill ${reason === p.value ? 'preset-reason-pill--active' : ''}`}
+                  onClick={() => handleApplyPreset(p.value)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <input
+              className="custom-reason-input"
+              placeholder="補充說明或採購單號 (選填)"
+              value={customReason}
+              onChange={(e) => setCustomReason(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <footer className="stock-modal-footer">
+          <button className="button" type="button" onClick={onClose}>
+            {t('cancel')}
+          </button>
+          <button
+            className="button button--primary stock-confirm-btn"
+            type="button"
+            disabled={submitting || calculatedDelta === null || calculatedDelta === 0 || isNegativeStock}
+            onClick={submit}
+          >
+            {submitting ? '調整中…' : '確認調整庫存'}
+          </button>
+        </footer>
+      </div>
+    </div>
   );
 }
 
