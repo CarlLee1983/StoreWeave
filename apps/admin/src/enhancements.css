@@ -1077,3 +1077,84 @@
 .products-table td {
   height: 48px;
 }
+
+/* ── 理由對話框 ─────────────────────────────────────────
+   取代 window.prompt：帶得了上下文，送出失敗也能留在原地。 */
+.reason-dialog-card {
+  width: min(480px, calc(100vw - 32px));
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.reason-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-surface-raised);
+}
+
+.reason-dialog-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.reason-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+.reason-dialog-desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.reason-dialog-body textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.reason-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.button--danger {
+  background: var(--status-error-bg);
+  border-color: var(--status-error-border);
+  color: var(--status-error-text);
+}
+
+.button--danger:hover {
+  border-color: var(--status-error-text);
+}
+
+/* 退貨案件的動作區：備註只跟核准有關，破壞性動作收在 ⋯ 選單裡。 */
+.rma-card-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rma-note-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 240px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}

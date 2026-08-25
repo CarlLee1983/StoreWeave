@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {} from '@testing-library/jest-dom/vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RmaPage } from './RmaPage';
 import { I18nProvider } from '../i18n';
@@ -72,21 +72,37 @@ describe('RmaPage', () => {
     renderPage();
     expect(await screen.findByText('藍色帆布鞋')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '核准' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '拒絕' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /更多操作/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '請求退款' })).not.toBeInTheDocument();
   });
 
-  it('拒絕與補件都要求備註，沒填就不送出', async () => {
+  it('拒絕與補件都要求理由，沒填就不送出', async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('藍色帆布鞋');
-    await user.click(screen.getByRole('button', { name: '拒絕' }));
-    expect(await screen.findByText(/請填寫備註/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /更多操作/ }));
+    await user.click(await screen.findByRole('menuitem', { name: '拒絕' }));
+    const dialog = await screen.findByRole('dialog', { name: /拒絕/ });
+    await user.click(within(dialog).getByRole('button', { name: '拒絕' }));
+    expect(await screen.findByText(/請填寫原因/)).toBeInTheDocument();
     expect(api.rejectRma).not.toHaveBeenCalled();
 
-    await user.type(screen.getByLabelText('店員備註'), '不符退貨條件');
-    await user.click(screen.getByRole('button', { name: '拒絕' }));
+    await user.type(within(dialog).getByRole('textbox'), '不符退貨條件');
+    await user.click(within(dialog).getByRole('button', { name: '拒絕' }));
     await waitFor(() => expect(api.rejectRma).toHaveBeenCalledWith(rma.id, '不符退貨條件'));
+  });
+
+  it('破壞性的拒絕不與核准並排，收在 ⋯ 選單裡', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('藍色帆布鞋');
+    expect(screen.getByRole('button', { name: '核准' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '拒絕' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /更多操作/ }));
+    expect(await screen.findByRole('menuitem', { name: '要求補件' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: '拒絕' })).toBeInTheDocument();
   });
 
   it('收件時每一行都要選處置，選擇報廢就必須寫原因', async () => {
