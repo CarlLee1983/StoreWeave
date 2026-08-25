@@ -101,7 +101,7 @@ describe('付款後入帳', () => {
     const customer = await buyer('once');
     const order = await buyAndPay(customer, 100_000);
 
-    // markPaid 是 system 專用的命令，重放它由冪等與訂單狀態一起擋下。
+    // 重放付款結果由冪等與訂單狀態一起擋下（recordPaymentResult）。
     await h.worker.drain();
 
     const rows = await h.runtime.database.db.execute<{ count: string }>(sql`

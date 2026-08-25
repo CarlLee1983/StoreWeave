@@ -8,10 +8,16 @@
 
 **Blocked by:** —
 
-- [ ] 再次確認沒有呼叫端：repo 內、CLI、extension 與任何既有部署的設定
-- [ ] 移除 command、handler、input schema 與 module 註冊；`legacy:` attempt 那段一併刪
-- [ ] 確認 `recordPaymentResult` 覆蓋了 markPaid 曾經負責的每一條轉換，測試補上缺的那些
-- [ ] 若最後決定保留，改成在原地寫明它服務哪一個外部呼叫端，並補一支測試守住
+**Status:** completed
+
+- [x] 再次確認沒有呼叫端：repo 內、CLI、extension 與任何既有部署的設定
+- [x] 移除 command、handler、input schema 與 module 註冊；`legacy:` attempt 那段一併刪
+- [x] 更新 ADR 0009、0030 的狀態註記與 0029、0030 的 `Falsified if`，以及 CONTEXT.md 的詞彙——
+      `Falsified if` 指名一個不存在的符號，等於那條邊界靜默消失
+- [x] 確認 `recordPaymentResult` 覆蓋了 markPaid 曾經負責的每一條轉換——既有的付款流程測試
+      本來就全部走 `recordPaymentResult`，刪除後 1134 測全綠，沒有需要補的缺口；被刪掉的
+      `legacy:` attempt 補建路徑沒有任何測試依賴它，那正是它是死碼的證據
+- [x] ~~若最後決定保留，改成在原地寫明它服務哪一個外部呼叫端，並補一支測試守住~~ —— 決定是移除
 
 ## 為什麼是一張工單而不是順手刪
 

@@ -10,7 +10,7 @@ A temporary claim on sellable stock made for every Order line. It increases `res
 
 ## Payment request
 
-一次對金流商的收款嘗試。它有自己的交易號、狀態與期限，**一張 Order 可以有多次**——付款失敗後重試必須換一個新的交易號，因為金流商那一側的號碼不可重複，失敗單也佔號。Payment request 不是成功的付款；唯一的成功轉換是金流商確認之後的 `markPaid`。Order 的付款狀態是這些嘗試的推導值。
+一次對金流商的收款嘗試。它有自己的交易號、狀態與期限，**一張 Order 可以有多次**——付款失敗後重試必須換一個新的交易號，因為金流商那一側的號碼不可重複，失敗單也佔號。Payment request 不是成功的付款；唯一的成功轉換是金流商確認之後、經 `recordPaymentResult` 進來的那一次。Order 的付款狀態是這些嘗試的推導值。
 
 ## Customer
 

@@ -47,7 +47,7 @@
 
 ## Falsified if
 
-`packages/commerce/order/src/commands.ts` 的 `markPaid` 不再直接負責庫存 commit
+`packages/commerce/order/src/commands.ts` 的 `markOrderPaid` 不再直接負責庫存 commit
 與購物金／等級積分累積（改為由訂閱事件的模組各自處理），
 或 `packages/commerce/shipping/` 開始擁有付款相關的表。
 

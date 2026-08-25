@@ -156,13 +156,6 @@ export const payOrderInput = z.object({
   method: z.string().min(1).max(64).optional(),
 }).strict();
 
-export const markPaidInput = z.object({
-  orderId: z.string().uuid(),
-  provider: z.string(),
-  providerRef: z.string(),
-  attemptRef: z.string().optional(),
-}).strict();
-
 /**
  * Provider 的結果只描述付款嘗試，不直接改寫 Order。Order module 在同一個
  * transaction 裡驗證該 attempt 後才推導訂單狀態，讓 worker 與外部回呼走同一路徑。

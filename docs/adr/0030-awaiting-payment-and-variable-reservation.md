@@ -1,6 +1,9 @@
 # 0030. `awaiting_payment` 與依付款方式而異的預留期限
 
 - 狀態：accepted
+- 更新（2026-08-25，工單 75）：文中的 `markPaid` 指的是那支同名 command。它已經移除——
+  含測試在內沒有任何呼叫端，付款結果一律走 `recordPaymentResult`。這篇描述的前置狀態放寬
+  現在由 module 內部的 `markOrderPaid` 承擔，決定本身不變，`Falsified if` 已改指新的符號。
 - 日期：2026-08-24
 - 修訂：ADR 0009（狀態機與 15 分鐘預留的部分）
 
@@ -67,7 +70,7 @@ provider、成功後 `markPaid`——整段以秒計，所以「訂單保留 15 
 ## Falsified if
 
 `packages/commerce/order/src/dto.ts` 的 `orderStatus` 拿掉 `awaiting_payment`，
-或 `packages/commerce/order/src/commands.ts` 的 `markPaid` 回到只接受單一前置狀態，
+或 `packages/commerce/order/src/commands.ts` 的 `markOrderPaid` 回到只接受單一前置狀態，
 或到期工作改由週期性掃描取代一單一支。
 
 前兩者代表非即時付款與代收貨款已經不在支援範圍，第三者代表 ADR 0009 的互斥保證

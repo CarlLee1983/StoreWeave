@@ -13,7 +13,7 @@ import { CartRepository, isPurchasable } from '@storeweave/cart';
 import { CouponRepository, couponError, couponService, reverseCouponForOrder, type CouponRow } from '@storeweave/coupon';
 import { maxRedeemableCents, rewardService, tierService } from '@storeweave/loyalty';
 import {
-  cancelOrderInput, checkoutCartInput, markPaidInput, orderOutputDto, payOrderInput, placeOrderInput,
+  cancelOrderInput, checkoutCartInput, orderOutputDto, payOrderInput, placeOrderInput,
   recordPaymentResultInput, type OrderDto, type OrderOutputDto,
 } from './dto';
 import { OrderRepository, toCustomerOrderDto, toOrderDto } from './repository';
@@ -492,11 +492,6 @@ function resolvePaymentMethod(provider: PaymentProvider, requested: string | und
   return method;
 }
 
-export const markPaidCommand = defineCommand({
-  name: 'commerce.order.markPaid', summary: '確認背景付款成功並扣除已預留庫存', input: markPaidInput, output: orderOutputDto,
-  permission: 'order:write', idempotency: 'required', audit: { action: 'order.paid', resourceType: 'order', resourceId: (i) => i.orderId },
-});
-
 /** Worker 與 callback controller 都透過這支 command 保存 provider 的標準化結果。 */
 export const recordPaymentResultCommand = defineCommand({
   name: 'commerce.order.recordPaymentResult',
@@ -552,29 +547,6 @@ export function createExpireOrderHandler() {
       ));
     const [updated] = await ctx.tx.update(orders).set({ status: 'expired', updatedAt: ctx.now }).where(eq(orders.id, order.id)).returning();
     return toOrderDto(updated, lines, adjustments, await repository.paymentsFor(ctx.tx, order.id), delivery);
-  };
-}
-
-export function createMarkPaidHandler() {
-  return async (input: z.infer<typeof markPaidInput>, ctx: CommandContext): Promise<OrderDto> => {
-    if (ctx.actor.type !== 'system') throw PlatformError.forbidden('Only a payment worker may confirm payment');
-    const order = await repository.lockById(ctx.tx, input.orderId);
-    if (!order) throw PlatformError.notFound('Order', input.orderId);
-    // Legacy callers without an attemptRef still get the normal idempotent
-    // terminal response; never manufacture a second legacy attempt after paid.
-    if (order.status === 'paid') return orderDtoWithDetails(ctx, order);
-    let attempt = input.attemptRef ? await repository.lockPaymentByAttemptRef(ctx.tx, input.attemptRef) : null;
-    if (input.attemptRef && !attempt) throw PlatformError.notFound('Payment attempt', input.attemptRef);
-    if (attempt && attempt.orderId !== order.id) throw PlatformError.validation('Payment attempt does not belong to this order');
-    if (!attempt) {
-      const [created] = await ctx.tx.insert(orderPayments).values({
-        id: randomUUID(), orderId: order.id, attemptRef: `legacy:${input.provider}:${input.providerRef}`,
-        provider: input.provider, method: 'legacy', providerRef: input.providerRef,
-        amountCents: order.totalCents, status: 'created', createdAt: ctx.now, updatedAt: ctx.now,
-      }).returning();
-      attempt = created;
-    }
-    return markOrderPaid(ctx, order, attempt, input);
   };
 }
 
@@ -650,7 +622,7 @@ export function createRecordPaymentResultHandler() {
     if (ctx.actor.type !== 'system') throw PlatformError.forbidden('Only a payment worker or callback may record payment results');
     const found = await repository.findPaymentByAttemptRef(ctx.tx, input.attemptRef);
     if (!found) throw PlatformError.notFound('Payment attempt', input.attemptRef);
-    // Lock aggregate before attempt, matching pay / expire / markPaid lock order.
+    // Lock aggregate before attempt, matching pay / expire lock order.
     const order = await repository.lockById(ctx.tx, found.orderId);
     if (!order) throw PlatformError.notFound('Order', found.orderId);
     const attempt = await repository.lockPaymentByAttemptRef(ctx.tx, input.attemptRef);
