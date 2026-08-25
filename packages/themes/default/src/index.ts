@@ -368,6 +368,7 @@ export const defaultTheme: StorefrontTheme = {
         <article class="product-card">
           <a class="product-card__link" href="/p/${escapeHtml(product.id)}" aria-label="${escapeHtml(product.name)} 的商品詳情">
             <div>
+              <span class="product-card__tag">選物精選</span>
               ${ctx.options.showSku !== false ? `<p class="product-card__sku">${escapeHtml(product.sku)}</p>` : ''}
               <h2>${escapeHtml(product.name)}</h2>
               ${product.description ? `<p class="product-card__description">${escapeHtml(product.description)}</p>` : ''}
@@ -391,15 +392,141 @@ export const defaultTheme: StorefrontTheme = {
       <span>第 ${page}／${pageCount} 頁</span>
       ${page < pageCount ? `<a href="${escapeHtml(catalogUrl(q, minPrice, maxPrice, page + 1))}" rel="next">下一頁</a>` : '<span aria-hidden="true">下一頁</span>'}
     </nav>` : '';
+
+    const heroSection = `
+      <section class="catalog-hero" aria-labelledby="catalog-title">
+        <div>
+          <p class="eyebrow">生活風格提案 · ${escapeHtml(ctx.storeName)}</p>
+          <h1 id="catalog-title">日日相伴的器物與織物，<br>讓生活回歸本質。</h1>
+          <p class="catalog-hero__copy">從手作陶皿到天然亞麻，我們用心採集每件溫潤質樸的日常器物。尊重材質本身的紋理，陪伴日常三餐與四季流轉。</p>
+          <div class="catalog-hero__actions">
+            <a class="cta" href="#products-title">探索本季選品</a>
+            <a class="secondary-action" href="#philosophy">了解品牌工藝</a>
+          </div>
+        </div>
+      </section>`;
+
+    const brandPillars = `
+      <section class="brand-pillars" id="pillars" aria-label="品牌承諾與服務">
+        <article class="pillar-card">
+          <span class="pillar-icon" aria-hidden="true">🌿</span>
+          <h3>天然與手作質地</h3>
+          <p>嚴選天然陶土、原木與天然亞麻，保留自然質樸紋理與手作溫度。</p>
+        </article>
+        <article class="pillar-card">
+          <span class="pillar-icon" aria-hidden="true">📦</span>
+          <h3>全站滿額免運</h3>
+          <p>單筆消費滿額即享宅配或超商免費配送，安心包裝快速送達。</p>
+        </article>
+        <article class="pillar-card">
+          <span class="pillar-icon" aria-hidden="true">🕊️</span>
+          <h3>7 日安心鑑賞</h3>
+          <p>提供完整售後服務與透明退換保障，讓每次選物都安心無憂。</p>
+        </article>
+        <article class="pillar-card">
+          <span class="pillar-icon" aria-hidden="true">🏷️</span>
+          <h3>會員購物金回饋</h3>
+          <p>每筆消費均享點數累積與等級加成，生日再享專屬折扣禮遇。</p>
+        </article>
+      </section>`;
+
+    const curatedBento = `
+      <section class="curated-section" id="curated" aria-labelledby="curated-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">精選系列</p>
+            <h2 id="curated-title">生活場景策展</h2>
+          </div>
+          <p>為不同時段與空間準備的選物提案</p>
+        </div>
+        <div class="curated-grid">
+          <a class="curated-card" href="#products-title">
+            <div>
+              <p class="curated-card__tag">Dining & Kitchen</p>
+              <h3>日常器皿</h3>
+              <p>溫潤觸感的陶作器皿與碗盤，承載三餐日常的煙火氣息與料理溫度。</p>
+            </div>
+            <span class="curated-card__cta">探索器皿 →</span>
+          </a>
+          <a class="curated-card" href="#products-title">
+            <div>
+              <p class="curated-card__tag">Textile & Living</p>
+              <h3>手織布品</h3>
+              <p>具備呼吸感的純麻與棉織布品，越洗越柔軟的親膚觸感與自然垂墜。</p>
+            </div>
+            <span class="curated-card__cta">探索織品 →</span>
+          </a>
+          <a class="curated-card" href="#products-title">
+            <div>
+              <p class="curated-card__tag">Wooden Utensils</p>
+              <h3>木作與生活道具</h3>
+              <p>保留天然木紋的質樸托盤與收納道具，為桌面帶來沉靜秩序感。</p>
+            </div>
+            <span class="curated-card__cta">探索木作 →</span>
+          </a>
+        </div>
+      </section>`;
+
+    const philosophySection = `
+      <section class="philosophy-section" id="philosophy" aria-labelledby="philosophy-title">
+        <div class="philosophy-header">
+          <p class="eyebrow">品牌工藝精神</p>
+          <h2 id="philosophy-title">把時間花在<br>看不見的細節上</h2>
+        </div>
+        <div class="philosophy-content">
+          <p>我們相信一件好的器物，不僅在於造型的美感，更在於被雙手捧起時的重量、盛裝熱湯時的溫潤，以及隨時光流逝所留下的使用痕跡。</p>
+          <p>織日選物走訪各地的獨立工作坊與職人，堅持選用對環境友善的天然素材。每一件物品都經過真實生活場景的驗證，只為成為你日常中最長久、最安心的陪伴。</p>
+        </div>
+      </section>`;
+
+    const journalSection = `
+      <section class="journal-section" id="journal" aria-labelledby="journal-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Woven Journal</p>
+            <h2 id="journal-title">品牌誌 · 日常選物筆記</h2>
+          </div>
+          <p>器物保養指南與空間搭配靈感</p>
+        </div>
+        <div class="journal-grid">
+          <article class="journal-card">
+            <div class="journal-card__meta">
+              <span>器物保養</span> · <span>5 分鐘閱讀</span>
+            </div>
+            <h3>如何養出一只溫潤質樸的陶杯？</h3>
+            <p>陶器是有毛細孔的器物。從初次使用前的「開陶」淘米水浸泡，到日常使用後的徹底風乾，了解善待陶皿的溫柔心法。</p>
+            <span class="journal-card__read">閱讀專題 →</span>
+          </article>
+          <article class="journal-card">
+            <div class="journal-card__meta">
+              <span>居家風格</span> · <span>4 分鐘閱讀</span>
+            </div>
+            <h3>晨光與亞麻：讓空間自然呼吸的織物佈置學</h3>
+            <p>亞麻不只適合盛夏。探索如何利用不同織度與垂墜感的亞麻餐墊、抱枕套與布巾，為室內光線注入柔和濾鏡。</p>
+            <span class="journal-card__read">閱讀專題 →</span>
+          </article>
+        </div>
+      </section>`;
+
+    const memberBanner = `
+      <section class="member-banner" aria-labelledby="member-banner-title">
+        <div class="member-banner__content">
+          <p class="eyebrow">會員專屬禮遇</p>
+          <h2 id="member-banner-title">加入織日選物，開啟溫潤生活日常</h2>
+          <p>新會員註冊即領 $100 專屬購物金。每次消費皆可累積等級積分與回饋購物金，享有會員日專屬折扣。</p>
+        </div>
+        <div class="member-banner__actions">
+          ${ctx.customerName ? '<a class="cta" href="/account/orders">前往會員中心</a>' : `<a class="cta" href="/register">免費註冊領取</a><a class="secondary-action" href="/login">會員登入</a>`}
+        </div>
+      </section>`;
+
+    const isFilteredOrPaged = hasFilters || page > 1;
+
     const body = `
       <div class="catalog-page">
-        <section class="catalog-hero" aria-labelledby="catalog-title">
-          <div>
-            <p class="eyebrow">商品選購</p>
-            <h1 id="catalog-title">把每一件商品，<br>好好看一遍。</h1>
-            <p class="catalog-hero__copy">目前上架商品的價格與可售狀態，均由商店系統即時提供。</p>
-          </div>
-        </section>
+        ${isFilteredOrPaged ? '' : heroSection}
+        ${isFilteredOrPaged ? '' : brandPillars}
+        ${isFilteredOrPaged ? '' : curatedBento}
         <section class="catalog-section" aria-labelledby="products-title">
           <div class="catalog-section__header">
             <h2 id="products-title">${heading}</h2>
@@ -419,6 +546,9 @@ export const defaultTheme: StorefrontTheme = {
             : empty}
           ${pagination}
         </section>
+        ${isFilteredOrPaged ? '' : philosophySection}
+        ${isFilteredOrPaged ? '' : journalSection}
+        ${isFilteredOrPaged ? '' : memberBanner}
       </div>`;
     return layout({ title: '商品', body, ctx });
   },
@@ -435,10 +565,33 @@ export const defaultTheme: StorefrontTheme = {
         </nav>
         <div class="product-detail">
           <section class="product-detail__content">
-            <p class="eyebrow">商品詳情</p>
-            <h1>${escapeHtml(product.name)}</h1>
-            ${ctx.options.showSku !== false ? `<p class="product-detail__sku">${escapeHtml(product.sku)}</p>` : ''}
+            <div>
+              <p class="eyebrow">商品詳情</p>
+              <h1>${escapeHtml(product.name)}</h1>
+              ${ctx.options.showSku !== false ? `<p class="product-detail__sku">${escapeHtml(product.sku)}</p>` : ''}
+            </div>
             ${product.description ? `<p class="product-detail__description">${escapeHtml(product.description)}</p>` : ''}
+            <section class="product-specs" aria-label="規格與工藝說明">
+              <h3>工藝與使用指南</h3>
+              <dl class="product-specs-list">
+                <div class="spec-item">
+                  <dt>材質與工藝</dt>
+                  <dd>天然原料製作 / 質樸手作質地</dd>
+                </div>
+                <div class="spec-item">
+                  <dt>日常清潔</dt>
+                  <dd>以溫水與中性洗劑沖洗，置於通風處陰乾</dd>
+                </div>
+                <div class="spec-item">
+                  <dt>配送方式</dt>
+                  <dd>支援黑貓宅配到府 / 超商取貨</dd>
+                </div>
+                <div class="spec-item">
+                  <dt>售後保障</dt>
+                  <dd>全站享 7 日安心鑑賞期與品質承諾</dd>
+                </div>
+              </dl>
+            </section>
           </section>
           <aside class="product-purchase" aria-label="${escapeHtml(product.name)} 的購買資訊">
             <p class="product-purchase__label">商品價格</p>
@@ -455,6 +608,11 @@ export const defaultTheme: StorefrontTheme = {
                   ${product.available === null ? '<p class="product-form__hint">數量將由系統於加入購物車時確認。</p>' : ''}
                   <button type="submit">加入購物車</button>
                 </form>`}
+            <div class="product-guarantees">
+              <div><span>✓</span> 全站消費滿額享免運服務</div>
+              <div><span>✓</span> 登入會員本單享購物金回饋</div>
+              <div><span>✓</span> 嚴選天然材質與安心包裝</div>
+            </div>
           </aside>
         </div>
       </article>`;
