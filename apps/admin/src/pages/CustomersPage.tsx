@@ -4,6 +4,7 @@ import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
+import { Icon } from '../components/Icon';
 
 export function CustomersPage() {
   const { t } = useI18n();
@@ -56,11 +57,15 @@ export function CustomersPage() {
       ) : customers.length === 0 ? (
         <p>{t('noCustomers')}</p>
       ) : (
-        <div className="table-wrap"><table className="data-table">
+        <div className="table-wrap"><table className="data-table data-table--fixed">
           <thead>
             <tr>
-              <th>{t('email')}</th><th>{t('name')}</th><th>{t('phone')}</th>
-              <th>{t('joinedAt')}</th><th>{t('status')}</th><th />
+              <th style={{ width: '26%' }}>{t('email')}</th>
+              <th style={{ width: '16%' }}>{t('name')}</th>
+              <th style={{ width: '12%' }}>{t('phone')}</th>
+              <th style={{ width: '16%' }}>{t('joinedAt')}</th>
+              <th style={{ width: '12%' }}>{t('status')}</th>
+              <th style={{ width: '18%' }} className="col-actions">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -119,12 +124,12 @@ function CustomerRow({ customer, onChanged }: { customer: AdminCustomer; onChang
   return (
     <>
       <tr className="clickable" onClick={() => setExpanded((v) => !v)}>
-        <td>{customer.email}</td>
+        <td><span className="cell-truncate" title={customer.email}>{customer.email}</span></td>
         <td>{customer.displayName}</td>
         <td className="mono">{customer.phone ?? '—'}</td>
         <td className="mono">{formatDateTime(customer.createdAt)}</td>
         <td><StatusBadge value={customer.status === 'active' ? 'active' : 'disabled'} /></td>
-        <td>
+        <td className="col-actions">
           <button
             type="button"
             disabled={submitting}
@@ -133,7 +138,7 @@ function CustomerRow({ customer, onChanged }: { customer: AdminCustomer; onChang
               void toggleStatus();
             }}
           >
-            {customer.status === 'active' ? t('disable') : t('enable')}
+            <Icon name={customer.status === 'active' ? 'pause' : 'play'} /> {customer.status === 'active' ? t('disable') : t('enable')}
           </button>
         </td>
       </tr>
@@ -148,7 +153,16 @@ function CustomerRow({ customer, onChanged }: { customer: AdminCustomer; onChang
                     <dt>{t('birthday')}</dt><dd>{detail.birthday ?? '—'}</dd>
                     <dt>{t('phone')}</dt><dd className="mono">{detail.phone ?? '—'}</dd>
                     <dt>{t('address')}</dt>
-                    <dd>{detail.address ? `${detail.address.postcode} ${detail.address.city} ${detail.address.line1} ${detail.address.line2 ?? ''}` : '—'}</dd>
+                    <dd>
+                      {detail.address ? (
+                        <span
+                          className="cell-truncate"
+                          title={`${detail.address.postcode} ${detail.address.city} ${detail.address.line1} ${detail.address.line2 ?? ''}`}
+                        >
+                          {`${detail.address.postcode} ${detail.address.city} ${detail.address.line1} ${detail.address.line2 ?? ''}`}
+                        </span>
+                      ) : '—'}
+                    </dd>
                   </dl>
                   <BirthdayCorrection customerId={customer.id} onCorrected={() => setDetail(null)} />
                   <LoyaltyPanel
@@ -158,9 +172,14 @@ function CustomerRow({ customer, onChanged }: { customer: AdminCustomer; onChang
                   />
                   <h4>{t('orderHistory')}</h4>
                   {detail.orders.length === 0 ? <p className="muted">{t('noOrders')}</p> : (
-                    <table className="data-table data-table--nested">
+                    <table className="data-table data-table--nested data-table--fixed">
                       <thead>
-                        <tr><th>{t('orderNumber')}</th><th>{t('status')}</th><th>{t('total')}</th><th>{t('orderedAt')}</th></tr>
+                        <tr>
+                          <th style={{ width: '28%' }}>{t('orderNumber')}</th>
+                          <th style={{ width: '20%' }}>{t('status')}</th>
+                          <th style={{ width: '24%' }} className="col-numeric">{t('total')}</th>
+                          <th style={{ width: '28%' }}>{t('orderedAt')}</th>
+                        </tr>
                       </thead>
                       <tbody>
                         {detail.orders.map((order) => (
@@ -292,7 +311,7 @@ function OrderRow({ order }: { order: AdminCustomerDetail['orders'][number] }) {
     <tr>
       <td>{order.number}</td>
       <td><StatusBadge value={order.status} /></td>
-      <td className="mono">{formatMoney(order.totalCents, order.currency)}</td>
+      <td className="col-numeric">{formatMoney(order.totalCents, order.currency)}</td>
       <td className="mono">{formatDateTime(order.placedAt)}</td>
     </tr>
   );

@@ -100,13 +100,24 @@ describe('CouponsPage', () => {
     expect(usage.textContent).toBe('3');
   });
 
+  it('建立表單改由抽屜開啟：頁首動作事件會開抽屜而不是捲動頁面', async () => {
+    renderPage();
+    await screen.findByText('SUMMER20');
+
+    expect(screen.queryByLabelText('折扣碼')).not.toBeInTheDocument();
+    window.dispatchEvent(new CustomEvent('admin:action:create-coupon', { cancelable: true }));
+
+    expect(await screen.findByLabelText('折扣碼')).toBeInTheDocument();
+  });
+
   it('可以自訂字樣建立公開碼，碼一律轉大寫送出', async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('SUMMER20');
 
-    await user.type(screen.getByLabelText('折扣碼'), 'autumn10');
-    await user.selectOptions(screen.getAllByLabelText('活動名稱')[0], promotion.id);
+    window.dispatchEvent(new CustomEvent('admin:action:create-coupon', { cancelable: true }));
+    await user.type(await screen.findByLabelText('折扣碼'), 'autumn10');
+    await user.selectOptions(screen.getByLabelText('活動名稱'), promotion.id);
     await user.type(screen.getByLabelText('總使用次數上限（留空為不限）'), '50');
     await user.click(screen.getByRole('button', { name: '建立' }));
 
@@ -121,8 +132,9 @@ describe('CouponsPage', () => {
   it('只有「需要券」的活動能被選', async () => {
     renderPage();
     await screen.findByText('SUMMER20');
+    window.dispatchEvent(new CustomEvent('admin:action:create-coupon', { cancelable: true }));
 
-    const options = screen.getAllByLabelText('活動名稱')[0].querySelectorAll('option');
+    const options = (await screen.findByLabelText('活動名稱')).querySelectorAll('option');
     const labels = [...options].map((o) => o.textContent);
     expect(labels).toContain('夏季八折');
     expect(labels).not.toContain('全站滿千折百');
@@ -132,19 +144,23 @@ describe('CouponsPage', () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('SUMMER20');
+    window.dispatchEvent(new CustomEvent('admin:action:create-coupon', { cancelable: true }));
 
-    await user.click(screen.getByRole('button', { name: '建立' }));
+    await user.click(await screen.findByRole('button', { name: '建立' }));
 
     expect(await screen.findByText(/請填寫折扣碼/)).toBeInTheDocument();
     expect(api.createCoupon).not.toHaveBeenCalled();
   });
 
-  it('批次發券之後看得到發了幾張、略過幾張', async () => {
+  it('批次發券由工具列按鈕開啟抽屜，發放之後看得到發了幾張、略過幾張', async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('SUMMER20');
 
-    await user.selectOptions(screen.getByLabelText('發券活動'), promotion.id);
+    expect(screen.queryByLabelText('發券活動')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /批次發券/ }));
+
+    await user.selectOptions(await screen.findByLabelText('發券活動'), promotion.id);
     await user.click(screen.getByRole('button', { name: '發放' }));
 
     await waitFor(() => expect(api.issueCoupons).toHaveBeenCalledWith(expect.objectContaining({ promotionId: promotion.id })));

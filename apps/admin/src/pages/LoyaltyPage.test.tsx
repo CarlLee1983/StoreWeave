@@ -139,6 +139,21 @@ describe('LoyaltyPage（工單 72）', () => {
     await screen.findByText('gold');
     const gold = screen.getAllByRole('row').find((row) => row.textContent?.includes('gold'))!;
     await user.click(within(gold).getByRole('button', { name: '移除' }));
+    await user.click(within(gold).getByRole('button', { name: '確認移除？' }));
     expect(await screen.findByText(/still used by 2 promotion/)).toBeInTheDocument();
+  });
+
+  it('移除等級要點兩次：第一次只是進入確認狀態，不會送出', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('gold');
+    const gold = screen.getAllByRole('row').find((row) => row.textContent?.includes('gold'))!;
+
+    await user.click(within(gold).getByRole('button', { name: '移除' }));
+    expect(api.removeTier).not.toHaveBeenCalled();
+    expect(within(gold).getByRole('button', { name: '確認移除？' })).toBeInTheDocument();
+
+    await user.click(within(gold).getByRole('button', { name: '確認移除？' }));
+    await waitFor(() => expect(api.removeTier).toHaveBeenCalledWith('gold'));
   });
 });

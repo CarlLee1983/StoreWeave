@@ -36,10 +36,12 @@ function HealthSection() {
         <Loading />
       ) : (
         report && (
-          <table className="data-table">
+          <table className="data-table data-table--fixed">
             <thead>
               <tr>
-                <th>{t('name')}</th><th>{t('status')}</th><th>{t('detail')}</th>
+                <th style={{ width: '22%' }}>{t('name')}</th>
+                <th style={{ width: '18%' }}>{t('status')}</th>
+                <th style={{ width: '60%' }}>{t('detail')}</th>
               </tr>
             </thead>
             <tbody>
@@ -49,7 +51,7 @@ function HealthSection() {
                   <td>
                     <StatusBadge value={check.status} />
                   </td>
-                  <td>{check.detail ?? '—'}</td>
+                  <td>{check.detail ? <span className="cell-truncate" title={check.detail}>{check.detail}</span> : '—'}</td>
                 </tr>
               ))}
             </tbody>

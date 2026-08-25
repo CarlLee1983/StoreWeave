@@ -4,6 +4,7 @@ import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
+import { Icon } from '../components/Icon';
 
 const STATUSES: Invoice['status'][] = ['pending', 'issued', 'issue_failed', 'void_pending', 'voided', 'void_failed'];
 
@@ -50,20 +51,30 @@ export function InvoicesPage() {
         {STATUSES.map((value) => <option key={value} value={value}>{statusLabel(value)}</option>)}
       </select></label>
     </div>
-    {loading ? <Loading /> : items.length === 0 ? <p className="muted">這個狀態下目前沒有發票紀錄。</p> : <div className="table-wrap"><table className="data-table">
-      <thead><tr><th>訂單</th><th>狀態</th><th>發票號碼</th><th>開立日期</th><th>載具</th><th>金額 / 稅額</th><th>嘗試次數</th><th>最後錯誤</th><th /></tr></thead>
+    {loading ? <Loading /> : items.length === 0 ? <p className="muted">這個狀態下目前沒有發票紀錄。</p> : <div className="table-wrap"><table className="data-table data-table--fixed">
+      <thead><tr>
+        <th style={{ width: '8%' }}>訂單</th>
+        <th style={{ width: '8%' }}>狀態</th>
+        <th style={{ width: '11%' }}>發票號碼</th>
+        <th style={{ width: '12%' }}>開立日期</th>
+        <th style={{ width: '13%' }}>載具</th>
+        <th style={{ width: '13%' }} className="col-numeric">金額 / 稅額</th>
+        <th style={{ width: '8%' }} className="col-numeric">嘗試次數</th>
+        <th style={{ width: '17%' }}>最後錯誤</th>
+        <th style={{ width: '10%' }} className="col-actions">操作</th>
+      </tr></thead>
       <tbody>{items.map((invoice) => <tr key={invoice.id}>
         <td className="mono">{invoice.orderNumber}</td>
         <td><StatusBadge value={invoice.status} /></td>
         <td className="mono">{invoice.invoiceNumber ?? '—'}</td>
         <td>{invoice.invoiceDate ?? '—'}</td>
-        <td>{carrierLabel(invoice.carrier)}</td>
-        <td className="mono">{formatMoney(invoice.amountCents, invoice.currency)} / {formatMoney(invoice.taxCents, invoice.currency)}</td>
-        <td className="mono">{invoice.issueAttempts} / {invoice.voidAttempts}</td>
-        <td>{invoice.lastError ?? '—'}</td>
-        <td>
-          {invoice.status === 'issue_failed' || invoice.status === 'pending' ? <button className="button button--primary" type="button" disabled={submitting} onClick={() => void retry(() => api.retryInvoiceIssue(invoice.id))}>重送開立</button> : null}
-          {invoice.status === 'void_failed' || invoice.status === 'void_pending' ? <button className="button button--primary" type="button" disabled={submitting} onClick={() => void retry(() => api.retryInvoiceVoid(invoice.id))}>重送作廢</button> : null}
+        <td><span className="cell-truncate" title={carrierLabel(invoice.carrier)}>{carrierLabel(invoice.carrier)}</span></td>
+        <td className="col-numeric">{formatMoney(invoice.amountCents, invoice.currency)} / {formatMoney(invoice.taxCents, invoice.currency)}</td>
+        <td className="col-numeric">{invoice.issueAttempts} / {invoice.voidAttempts}</td>
+        <td>{invoice.lastError ? <span className="cell-truncate" title={invoice.lastError}>{invoice.lastError}</span> : '—'}</td>
+        <td className="col-actions">
+          {invoice.status === 'issue_failed' || invoice.status === 'pending' ? <button className="button button--primary" type="button" disabled={submitting} onClick={() => void retry(() => api.retryInvoiceIssue(invoice.id))}><Icon name="send" /> 重送開立</button> : null}
+          {invoice.status === 'void_failed' || invoice.status === 'void_pending' ? <button className="button button--primary" type="button" disabled={submitting} onClick={() => void retry(() => api.retryInvoiceVoid(invoice.id))}><Icon name="send" /> 重送作廢</button> : null}
         </td>
       </tr>)}</tbody>
     </table></div>}

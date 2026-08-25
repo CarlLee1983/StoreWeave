@@ -89,11 +89,13 @@ function SalesSummarySection({ from, to }: { from: string; to: string }) {
             <div className="summary-cards">
               <SummaryCard label={t('paidOrders')} value={String(summary.paidOrderCount)} /><SummaryCard label={t('pendingOrders')} value={String(summary.pendingOrderCount)} /><SummaryCard label={t('cancelledOrders')} value={String(summary.cancelledOrderCount)} /><SummaryCard label={t('grossRevenue')} value={formatMoney(summary.grossRevenueCents, summary.currency)} /><SummaryCard label={t('averageOrderValue')} value={formatMoney(summary.averageOrderValueCents, summary.currency)} />
             </div>
-            <table className="data-table">
+            <table className="data-table data-table--fixed">
               <thead>
                 <tr>
-                  <th>SKU</th>
-                  <th>{t('productName')}</th><th>{t('salesQuantity')}</th><th>{t('revenue')}</th>
+                  <th style={{ width: '16%' }}>SKU</th>
+                  <th style={{ width: '40%' }}>{t('productName')}</th>
+                  <th style={{ width: '20%' }} className="col-numeric">{t('salesQuantity')}</th>
+                  <th style={{ width: '24%' }} className="col-numeric">{t('revenue')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -101,8 +103,8 @@ function SalesSummarySection({ from, to }: { from: string; to: string }) {
                   <tr key={product.productId}>
                     <td>{product.sku}</td>
                     <td>{product.name}</td>
-                    <td>{product.quantity}</td>
-                    <td>{formatMoney(product.revenueCents, summary.currency)}</td>
+                    <td className="col-numeric">{product.quantity}</td>
+                    <td className="col-numeric">{formatMoney(product.revenueCents, summary.currency)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -139,21 +141,24 @@ function PromotionPerformanceSection({ from, to }: { from: string; to: string })
       <div className="panel__header"><h3>{t('promotionPerformance')}</h3></div><div className="panel__body">
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
       {!items ? <Loading /> : items.length === 0 ? <p className="muted">{t('noRedemptions')}</p> : (
-        <table className="data-table">
+        <table className="data-table data-table--fixed">
           <thead>
             <tr>
-              <th>{t('promotionName')}</th><th>{t('redemptionCount')}</th>
-              <th>{t('orderCount')}</th><th>{t('discountTotal')}</th><th>{t('revenue')}</th>
+              <th style={{ width: '28%' }}>{t('promotionName')}</th>
+              <th style={{ width: '16%' }} className="col-numeric">{t('redemptionCount')}</th>
+              <th style={{ width: '16%' }} className="col-numeric">{t('orderCount')}</th>
+              <th style={{ width: '20%' }} className="col-numeric">{t('discountTotal')}</th>
+              <th style={{ width: '20%' }} className="col-numeric">{t('revenue')}</th>
             </tr>
           </thead>
           <tbody>
             {items.map((item) => (
               <tr key={item.promotionId}>
-                <td>{item.name}</td>
-                <td className="mono">{item.redemptionCount}</td>
-                <td className="mono">{item.orderCount}</td>
-                <td className="mono">{formatMoney(item.discountCents, currency)}</td>
-                <td className="mono">{formatMoney(item.revenueCents, currency)}</td>
+                <td><span className="cell-truncate" title={item.name}>{item.name}</span></td>
+                <td className="col-numeric">{item.redemptionCount}</td>
+                <td className="col-numeric">{item.orderCount}</td>
+                <td className="col-numeric">{formatMoney(item.discountCents, currency)}</td>
+                <td className="col-numeric">{formatMoney(item.revenueCents, currency)}</td>
               </tr>
             ))}
           </tbody>
@@ -189,17 +194,22 @@ function PartnerSection({ from, to }: { from: string; to: string }) {
       <p className="muted">{t('partnerPerformanceHint')}</p>
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
       {!items ? <Loading /> : items.length === 0 ? <p className="muted">{t('noPartners')}</p> : (
-        <table className="data-table">
+        <table className="data-table data-table--fixed">
           <thead>
-            <tr><th>{t('partnerCode')}</th><th>{t('orderCount')}</th><th>{t('revenue')}</th><th>{t('discountTotal')}</th></tr>
+            <tr>
+              <th style={{ width: '28%' }}>{t('partnerCode')}</th>
+              <th style={{ width: '20%' }} className="col-numeric">{t('orderCount')}</th>
+              <th style={{ width: '26%' }} className="col-numeric">{t('revenue')}</th>
+              <th style={{ width: '26%' }} className="col-numeric">{t('discountTotal')}</th>
+            </tr>
           </thead>
           <tbody>
             {items.map((item) => (
               <tr key={item.partnerCode}>
                 <td>{item.partnerCode}</td>
-                <td className="mono">{item.orderCount}</td>
-                <td className="mono">{formatMoney(item.revenueCents, currency)}</td>
-                <td className="mono">{formatMoney(item.discountCents, currency)}</td>
+                <td className="col-numeric">{item.orderCount}</td>
+                <td className="col-numeric">{formatMoney(item.revenueCents, currency)}</td>
+                <td className="col-numeric">{formatMoney(item.discountCents, currency)}</td>
               </tr>
             ))}
           </tbody>

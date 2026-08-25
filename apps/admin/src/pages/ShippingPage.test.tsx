@@ -37,11 +37,22 @@ beforeEach(() => {
 const renderPage = () => render(<I18nProvider><ShippingPage /></I18nProvider>);
 
 describe('ShippingPage', () => {
+  it('建立表單改由抽屜開啟：頁首動作事件會開抽屜而不是捲動頁面', async () => {
+    renderPage();
+    expect(await screen.findByText('7-ELEVEN 取貨')).toBeInTheDocument();
+
+    expect(screen.queryByLabelText('配送代碼')).not.toBeInTheDocument();
+    window.dispatchEvent(new CustomEvent('admin:action:create-shipping-method', { cancelable: true }));
+
+    expect(await screen.findByLabelText('配送代碼')).toBeInTheDocument();
+  });
+
   it('顯示配送方式並阻擋不合法的建立資料', async () => {
     const user = userEvent.setup();
     renderPage();
     expect(await screen.findByText('7-ELEVEN 取貨')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '建立配送方式' }));
+    window.dispatchEvent(new CustomEvent('admin:action:create-shipping-method', { cancelable: true }));
+    await user.click(await screen.findByRole('button', { name: '建立配送方式' }));
     expect(await screen.findByText(/費率與免運門檻須為非負整數/)).toBeInTheDocument();
     expect(api.createShippingMethod).not.toHaveBeenCalled();
   });
@@ -50,7 +61,8 @@ describe('ShippingPage', () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('7-ELEVEN 取貨');
-    await user.type(screen.getByLabelText('配送代碼'), 'home');
+    window.dispatchEvent(new CustomEvent('admin:action:create-shipping-method', { cancelable: true }));
+    await user.type(await screen.findByLabelText('配送代碼'), 'home');
     await user.type(screen.getByLabelText('配送名稱'), '宅配');
     await user.type(screen.getByLabelText('Provider'), 'manual');
     await user.type(screen.getByLabelText('Type'), 'home');

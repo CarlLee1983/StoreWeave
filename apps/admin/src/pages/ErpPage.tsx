@@ -4,6 +4,8 @@ import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
+import { Icon } from '../components/Icon';
+import { RowMenu, type RowMenuItem } from '../components/RowMenu';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 
 export function ErpPage() {
@@ -39,11 +41,17 @@ export function ErpPage() {
       {loading ? (
         <Loading />
       ) : (
-        <div className="table-wrap"><table className="data-table">
+        <div className="table-wrap"><table className="data-table data-table--fixed">
           <thead>
             <tr>
-              <th>{t('orderNumber')}</th><th>{t('reference')}</th><th>{t('status')}</th><th>{t('attempts')}</th><th>{t('manualResends')}</th><th>{t('lastError')}</th><th>{t('remoteId')}</th>
-              <th />
+              <th style={{ width: '10%' }}>{t('orderNumber')}</th>
+              <th style={{ width: '12%' }}>{t('reference')}</th>
+              <th style={{ width: '9%' }}>{t('status')}</th>
+              <th style={{ width: '8%' }} className="col-numeric">{t('attempts')}</th>
+              <th style={{ width: '10%' }} className="col-numeric">{t('manualResends')}</th>
+              <th style={{ width: '25%' }}>{t('lastError')}</th>
+              <th style={{ width: '14%' }}>{t('remoteId')}</th>
+              <th style={{ width: '12%' }} className="col-actions">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -82,22 +90,30 @@ function DeliveryRow({ delivery, onInspect, onResent }: { delivery: Delivery; on
     }
   };
 
+  const menuItems: RowMenuItem[] = [
+    { key: 'resend', label: t('resend'), icon: 'send', onSelect: () => void handleResend() },
+  ];
+
   return (
     <tr>
-      <td>{delivery.orderNumber}</td>
-      <td>{delivery.reference}</td>
+      <td className="mono">{delivery.orderNumber}</td>
+      <td><span className="cell-truncate" title={delivery.reference}>{delivery.reference}</span></td>
       <td><StatusBadge value={delivery.status} /></td>
-      <td className="mono">{delivery.attempts}</td>
-      <td className="mono">{delivery.manualResends}</td>
-      <td>{delivery.lastError ?? '—'}</td>
-      <td>{delivery.remoteId ?? '—'}</td>
+      <td className="col-numeric">{delivery.attempts}</td>
+      <td className="col-numeric">{delivery.manualResends}</td>
       <td>
-        <button className="button button--quiet" type="button" onClick={() => onInspect(delivery)}>
-          {t('payload')}
-        </button>
-        <button className="button" type="button" disabled={submitting} onClick={handleResend}>
-          {t('resend')}
-        </button>
+        {delivery.lastError ? <span className="cell-truncate" title={delivery.lastError}>{delivery.lastError}</span> : '—'}
+      </td>
+      <td>
+        {delivery.remoteId ? <span className="cell-truncate mono" title={delivery.remoteId}>{delivery.remoteId}</span> : '—'}
+      </td>
+      <td className="col-actions">
+        <div className="product-actions-row">
+          <button className="button button--quiet" type="button" onClick={() => onInspect(delivery)}>
+            <Icon name="file-text" /> {t('payload')}
+          </button>
+          <RowMenu disabled={submitting} items={menuItems} />
+        </div>
         {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
       </td>
     </tr>
@@ -151,7 +167,7 @@ function PayloadDrawer({ delivery, onClose, onResent }: { delivery: Delivery; on
   return (
     <div className="payload-overlay" role="presentation" onMouseDown={onClose}>
       <aside className="payload-drawer" role="dialog" aria-modal="true" aria-label={`${t('payloadDialog')}: ${delivery.orderNumber}`} onMouseDown={(event) => event.stopPropagation()}>
-        <header><div><h2>{t('payloadDialog')}</h2><p>{delivery.orderNumber} · {delivery.reference}</p></div><button className="icon-button" type="button" onClick={onClose} aria-label={t('closePayload')}>×</button></header>
+        <header><div><h2>{t('payloadDialog')}</h2><p>{delivery.orderNumber} · {delivery.reference}</p></div><button className="icon-button" type="button" onClick={onClose} aria-label={t('closePayload')}><Icon name="close" /></button></header>
         <p className="payload-drawer__notice">{t('payloadNotice')}</p>
         {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
         {loading ? <Loading /> : <pre>{result ? JSON.stringify(result.payload, null, 2) : ''}</pre>}

@@ -4,6 +4,9 @@ import { useI18n, type MessageKey } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
+import { Icon } from '../components/Icon';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { RowMenu, type RowMenuItem } from '../components/RowMenu';
 
 /** 規則型別在編譯期已知，每一種有自己的表單欄位——折扣設定需要客製 UI，不做 schema 驅動的動態表單。 */
 const RULE_TYPES = ['threshold_fixed_amount', 'threshold_percentage', 'order_percentage'] as const;
@@ -128,6 +131,8 @@ export function PromotionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [creating, setCreating] = useState(false);
+  const [editingPromotion, setEditingPromotion] = useState<Promotion | null>(null);
   const limit = 100;
 
   useEffect(() => {
@@ -152,6 +157,17 @@ export function PromotionsPage() {
 
   const reload = () => setReloadKey((k) => k + 1);
 
+  // 頁首那顆「+ 建立活動」由 routes 宣告，預設只捲到 targetId；
+  // 這裡攔下同名事件改開抽屜，preventDefault 等於告訴 App「這頁自己處理了」。
+  useEffect(() => {
+    const openCreate = (event: Event) => {
+      event.preventDefault();
+      setCreating(true);
+    };
+    window.addEventListener('admin:action:create-promotion', openCreate);
+    return () => window.removeEventListener('admin:action:create-promotion', openCreate);
+  }, []);
+
   return (
     <section>
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
@@ -166,34 +182,68 @@ export function PromotionsPage() {
         {total > promotions.length ? <span>{`${promotions.length} / ${total}`}</span> : null}
       </div>
 
-      <CreatePromotionForm onCreated={reload} />
-
       {loading ? (
         <Loading />
       ) : promotions.length === 0 ? (
         <p>{t('noPromotions')}</p>
       ) : (
-        <div className="table-wrap"><table className="data-table">
-          <thead>
-            <tr>
-              <th>{t('promotionName')}</th><th>{t('ruleType')}</th><th>{t('period')}</th>
-              <th>{t('priority')}</th><th>{t('stackable')}</th><th>{t('status')}</th><th />
-            </tr>
-          </thead>
-          <tbody>
-            {promotions.map((promotion) => (
-              <PromotionRow key={promotion.id} promotion={promotion} onChanged={reload} />
-            ))}
-          </tbody>
-        </table></div>
+        <div className="table-wrap">
+          <table className="data-table data-table--fixed">
+            <thead>
+              <tr>
+                <th style={{ width: '20%' }}>{t('promotionName')}</th>
+                <th style={{ width: '15%' }}>{t('ruleType')}</th>
+                <th style={{ width: '21%' }}>{t('period')}</th>
+                <th style={{ width: '8%' }} className="col-numeric">{t('priority')}</th>
+                <th style={{ width: '10%' }}>{t('stackable')}</th>
+                <th style={{ width: '12%' }}>{t('status')}</th>
+                <th style={{ width: '14%' }} className="col-actions">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {promotions.map((promotion) => (
+                <PromotionRow
+                  key={promotion.id}
+                  promotion={promotion}
+                  onEdit={() => setEditingPromotion(promotion)}
+                  onChanged={reload}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
+
+      {/* 建立活動抽屜 */}
+      {creating ? (
+        <CreatePromotionDrawer onClose={() => setCreating(false)} onCreated={reload} />
+      ) : null}
+
+      {/* 側邊抽屜式活動編輯器 */}
+      {editingPromotion ? (
+        <EditPromotionDrawer
+          promotion={editingPromotion}
+          onClose={() => setEditingPromotion(null)}
+          onSaved={() => {
+            reload();
+            setEditingPromotion(null);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
 
-function PromotionRow({ promotion, onChanged }: { promotion: Promotion; onChanged: () => void }) {
+function PromotionRow({
+  promotion,
+  onEdit,
+  onChanged,
+}: {
+  promotion: Promotion;
+  onEdit: () => void;
+  onChanged: () => void;
+}) {
   const { t, formatDateTime } = useI18n();
-  const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const nextStatus = promotion.status === 'active' ? 'disabled' : 'active';
@@ -211,44 +261,39 @@ function PromotionRow({ promotion, onChanged }: { promotion: Promotion; onChange
     }
   };
 
+  const menuItems: RowMenuItem[] =
+    promotion.status === 'active'
+      ? [{ key: 'disable', label: t('disable'), icon: 'pause', onSelect: () => void toggle() }]
+      : [{ key: 'enable', label: t('enable'), icon: 'play', onSelect: () => void toggle() }];
+
   return (
-    <>
-      <tr>
-        <td>{promotion.name}</td>
-        <td>{t(promotion.rule.type as MessageKey)}</td>
-        <td className="mono">
-          {promotion.startsAt ? formatDateTime(promotion.startsAt) : '—'} → {promotion.endsAt ? formatDateTime(promotion.endsAt) : '—'}
-        </td>
-        <td className="mono">{promotion.priority}</td>
-        <td>{promotion.stackable ? '✓' : '—'}</td>
-        {/* 活動說「上架中」會跟商品混淆，這裡用進行中 */}
-        <td><StatusBadge value={promotion.status === 'active' ? 'running' : 'disabled'} /></td>
-        <td>
-          <div className="inline-form">
-            <button type="button" onClick={() => setEditing((v) => !v)}>
-              {editing ? t('cancel') : t('edit')}
+    <tr>
+      <td>{promotion.name}</td>
+      <td>{t(promotion.rule.type as MessageKey)}</td>
+      <td className="mono">
+        {promotion.startsAt ? formatDateTime(promotion.startsAt) : '—'} → {promotion.endsAt ? formatDateTime(promotion.endsAt) : '—'}
+      </td>
+      <td className="mono col-numeric">{promotion.priority}</td>
+      <td>{promotion.stackable ? <Icon name="check" /> : '—'}</td>
+      {/* 活動說「上架中」會跟商品混淆，這裡用進行中 */}
+      <td><StatusBadge value={promotion.status === 'active' ? 'running' : 'disabled'} /></td>
+      <td>
+        <div className="product-actions-cell">
+          <div className="product-actions-row">
+            <button
+              className="button button--quiet edit-btn"
+              type="button"
+              disabled={submitting}
+              onClick={onEdit}
+            >
+              <Icon name="pencil" /> {t('edit')}
             </button>
-            <button type="button" onClick={toggle} disabled={submitting}>
-              {promotion.status === 'active' ? t('disable') : t('enable')}
-            </button>
+            <RowMenu disabled={submitting} items={menuItems} />
           </div>
           {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-        </td>
-      </tr>
-      {editing && (
-        <tr>
-          <td colSpan={7}>
-            <EditPromotionForm
-              promotion={promotion}
-              onSaved={() => {
-                setEditing(false);
-                onChanged();
-              }}
-            />
-          </td>
-        </tr>
-      )}
-    </>
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -320,11 +365,14 @@ function PromotionFields({
   );
 }
 
-function CreatePromotionForm({ onCreated }: { onCreated: () => void }) {
+/** 建立活動抽屜：常駐展開的表單會佔掉清單上方一整塊，改由頁首的「+ 建立活動」開啟，版型比照商品的建立抽屜。 */
+function CreatePromotionDrawer({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const { t } = useI18n();
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
+
+  useEscapeKey(onClose);
 
   const submit = async () => {
     const payload = toPayload(form, t);
@@ -336,8 +384,8 @@ function CreatePromotionForm({ onCreated }: { onCreated: () => void }) {
     setError(null);
     try {
       await api.createPromotion(payload);
-      setForm(EMPTY_FORM);
       onCreated();
+      onClose();
     } catch (err) {
       setError(err);
     } finally {
@@ -346,28 +394,67 @@ function CreatePromotionForm({ onCreated }: { onCreated: () => void }) {
   };
 
   return (
-    <form
-      id="create-promotion"
-      className="panel"
-      aria-label={t('createPromotion')}
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-    >
-      <h3>{t('createPromotion')}</h3>
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-      <PromotionFields form={form} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} />
-      <button type="submit" disabled={submitting}>{t('createPromotion')}</button>
-    </form>
+    <div className="payload-overlay" role="presentation" onMouseDown={onClose}>
+      <div
+        className="payload-drawer product-edit-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('createPromotion')}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <header className="product-drawer-header">
+          <div>
+            <h2>{t('createPromotion')}</h2>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('close')} title={t('close')}>
+            <Icon name="chevron" />
+          </button>
+        </header>
+
+        <form
+          className="form-panel product-drawer-form"
+          aria-label={t('createPromotion')}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+
+          <div className="drawer-form-body">
+            <PromotionFields form={form} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} />
+          </div>
+
+          <footer className="product-drawer-footer">
+            <button className="button" type="button" onClick={onClose}>
+              {t('cancel')}
+            </button>
+            <button className="button button--primary" disabled={submitting}>
+              {t('createPromotion')}
+            </button>
+          </footer>
+        </form>
+      </div>
+    </div>
   );
 }
 
-function EditPromotionForm({ promotion, onSaved }: { promotion: Promotion; onSaved: () => void }) {
+/** 側邊抽屜式活動編輯器，版型比照商品編輯抽屜。 */
+function EditPromotionDrawer({
+  promotion,
+  onClose,
+  onSaved,
+}: {
+  promotion: Promotion;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const { t } = useI18n();
   const [form, setForm] = useState<FormState>(() => formStateOf(promotion));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
+
+  useEscapeKey(onClose);
 
   const submit = async () => {
     const payload = toPayload(form, t);
@@ -388,17 +475,48 @@ function EditPromotionForm({ promotion, onSaved }: { promotion: Promotion; onSav
   };
 
   return (
-    <form
-      className="panel"
-      aria-label={`${t('edit')} ${promotion.name}`}
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-    >
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-      <PromotionFields form={form} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} />
-      <button type="submit" disabled={submitting}>{t('saveChanges')}</button>
-    </form>
+    <div className="payload-overlay" role="presentation" onMouseDown={onClose}>
+      <div
+        className="payload-drawer product-edit-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${t('edit')} ${promotion.name}`}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <header className="product-drawer-header">
+          <div>
+            <h2>{t('edit')}</h2>
+            <p className="product-drawer-sku">{promotion.name}</p>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('close')} title={t('close')}>
+            <Icon name="chevron" />
+          </button>
+        </header>
+
+        <form
+          className="form-panel product-drawer-form"
+          aria-label={`${t('edit')} ${promotion.name}`}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+
+          <div className="drawer-form-body">
+            <PromotionFields form={form} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} />
+          </div>
+
+          <footer className="product-drawer-footer">
+            <button className="button" type="button" onClick={onClose}>
+              {t('cancel')}
+            </button>
+            <button className="button button--primary" disabled={submitting}>
+              {t('saveChanges')}
+            </button>
+          </footer>
+        </form>
+      </div>
+    </div>
   );
 }

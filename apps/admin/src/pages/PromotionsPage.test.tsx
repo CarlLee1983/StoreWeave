@@ -57,6 +57,9 @@ describe('PromotionsPage', () => {
     renderPage();
     await screen.findByText('滿千折百');
 
+    window.dispatchEvent(new CustomEvent('admin:action:create-promotion', { cancelable: true }));
+    await screen.findByRole('dialog', { name: '建立活動' });
+
     expect(screen.getByLabelText('門檻（cents）')).toBeInTheDocument();
     expect(screen.getByLabelText('折抵金額（cents）')).toBeInTheDocument();
 
@@ -75,6 +78,9 @@ describe('PromotionsPage', () => {
     renderPage();
     await screen.findByText('滿千折百');
 
+    window.dispatchEvent(new CustomEvent('admin:action:create-promotion', { cancelable: true }));
+    await screen.findByRole('dialog', { name: '建立活動' });
+
     await user.type(screen.getByLabelText('活動名稱'), '折零元');
     await user.clear(screen.getByLabelText('折抵金額（cents）'));
     await user.type(screen.getByLabelText('折抵金額（cents）'), '0');
@@ -88,6 +94,9 @@ describe('PromotionsPage', () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('滿千折百');
+
+    window.dispatchEvent(new CustomEvent('admin:action:create-promotion', { cancelable: true }));
+    await screen.findByRole('dialog', { name: '建立活動' });
 
     await user.type(screen.getByLabelText('活動名稱'), '全站九折');
     await user.selectOptions(screen.getByLabelText('規則型別'), 'order_percentage');
@@ -107,7 +116,8 @@ describe('PromotionsPage', () => {
     renderPage();
     await screen.findByText('滿千折百');
 
-    await user.click(screen.getByRole('button', { name: '停用' }));
+    await user.click(screen.getByRole('button', { name: /更多操作/ }));
+    await user.click(await screen.findByRole('menuitem', { name: '停用' }));
 
     await waitFor(() => expect(api.setPromotionStatus).toHaveBeenCalledWith(promotion.id, 'disabled'));
     expect(api.listPromotions).toHaveBeenCalledTimes(2);
@@ -119,7 +129,8 @@ describe('PromotionsPage', () => {
     renderPage();
     await screen.findByText('滿千折百');
 
-    await user.click(screen.getByRole('button', { name: '啟用' }));
+    await user.click(screen.getByRole('button', { name: /更多操作/ }));
+    await user.click(await screen.findByRole('menuitem', { name: '啟用' }));
 
     await waitFor(() => expect(api.setPromotionStatus).toHaveBeenCalledWith(promotion.id, 'active'));
   });
@@ -130,10 +141,24 @@ describe('PromotionsPage', () => {
     renderPage();
     await screen.findByText('滿千折百');
 
-    await user.type(screen.getByLabelText('活動名稱'), '倒著設的期間');
-    await user.click(screen.getByRole('button', { name: '建立活動' }));
+    window.dispatchEvent(new CustomEvent('admin:action:create-promotion', { cancelable: true }));
+    const dialog = await screen.findByRole('dialog', { name: '建立活動' });
+
+    await user.type(within(dialog).getByLabelText('活動名稱'), '倒著設的期間');
+    await user.click(within(dialog).getByRole('button', { name: '建立活動' }));
 
     expect(await screen.findByText(/endsAt must be later than startsAt/)).toBeInTheDocument();
+  });
+});
+
+describe('PromotionsPage 建立活動抽屜', () => {
+  it('建立表單不再常駐佔版面，由頁首的建立活動開啟', async () => {
+    renderPage();
+    await screen.findByText('滿千折百');
+    expect(screen.queryByLabelText('活動名稱')).not.toBeInTheDocument();
+
+    window.dispatchEvent(new CustomEvent('admin:action:create-promotion', { cancelable: true }));
+    expect(await screen.findByRole('dialog', { name: '建立活動' })).toBeInTheDocument();
   });
 });
 

@@ -3,6 +3,7 @@ import { api, type DeadJob } from '../api';
 import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
+import { Icon } from '../components/Icon';
 
 export function DlqPage({ onChanged }: { onChanged: () => void }) {
   const { t } = useI18n();
@@ -41,11 +42,14 @@ export function DlqPage({ onChanged }: { onChanged: () => void }) {
       ) : jobs.length === 0 ? (
         <p className="loading">{t('noDeadJobs')}</p>
       ) : (
-        <div className="table-wrap"><table className="data-table">
+        <div className="table-wrap"><table className="data-table data-table--fixed">
           <thead>
             <tr>
-              <th>{t('jobType')}</th><th>{t('attempts')} / {t('maxAttempts')}</th><th>{t('failedAt')}</th><th>{t('lastError')}</th>
-              <th />
+              <th style={{ width: '24%' }}>{t('jobType')}</th>
+              <th style={{ width: '14%' }} className="col-numeric">{t('attempts')} / {t('maxAttempts')}</th>
+              <th style={{ width: '18%' }}>{t('failedAt')}</th>
+              <th style={{ width: '32%' }}>{t('lastError')}</th>
+              <th style={{ width: '12%' }} className="col-actions">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -80,12 +84,14 @@ function DeadJobRow({ job, onResent }: { job: DeadJob; onResent: () => void }) {
   return (
     <tr>
       <td>{job.type}</td>
-      <td className="mono">{job.attempts} / {job.maxAttempts}</td>
+      <td className="col-numeric">{job.attempts} / {job.maxAttempts}</td>
       <td>{formatDateTime(job.failedAt)}</td>
-      <td>{job.lastError ?? '—'}</td>
       <td>
-        <button className="button" type="button" disabled={submitting} onClick={handleRetry}>
-          {submitting ? t('resending') : t('resend')}
+        {job.lastError ? <span className="cell-truncate" title={job.lastError}>{job.lastError}</span> : '—'}
+      </td>
+      <td className="col-actions">
+        <button className="button button--quiet" type="button" disabled={submitting} onClick={handleRetry}>
+          <Icon name="refresh" /> {submitting ? t('resending') : t('resend')}
         </button>
         {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
       </td>

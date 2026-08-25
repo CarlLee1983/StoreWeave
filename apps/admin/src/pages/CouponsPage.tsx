@@ -4,6 +4,8 @@ import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
+import { Icon } from '../components/Icon';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 /**
  * 券的清單與管理。
@@ -30,6 +32,8 @@ export function CouponsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [creating, setCreating] = useState(false);
+  const [issuing, setIssuing] = useState(false);
   const limit = 100;
 
   useEffect(() => {
@@ -58,6 +62,17 @@ export function CouponsPage() {
   const reload = () => setReloadKey((k) => k + 1);
   const promotionName = (id: string) => promotions.find((p) => p.id === id)?.name ?? id;
 
+  // 頁首那顆「建立券」由 routes 宣告，預設只捲到 targetId；
+  // 這裡攔下同名事件改開抽屜，preventDefault 等於告訴 App「這頁自己處理了」。
+  useEffect(() => {
+    const openCreate = (event: Event) => {
+      event.preventDefault();
+      setCreating(true);
+    };
+    window.addEventListener('admin:action:create-coupon', openCreate);
+    return () => window.removeEventListener('admin:action:create-coupon', openCreate);
+  }, []);
+
   return (
     <section>
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
@@ -71,30 +86,53 @@ export function CouponsPage() {
         </select>
         {/* 超出一頁時要說出來，不然第 101 張券在後台就是憑空消失 */}
         {total > coupons.length ? <span>{`${coupons.length} / ${total}`}</span> : null}
+        <button type="button" className="button button--primary" onClick={() => setIssuing(true)}>
+          <Icon name="send" /> {t('issueCoupons')}
+        </button>
       </div>
-
-      <CreateCouponForm promotions={couponPromotions(promotions)} onCreated={reload} />
-      <IssueCouponsForm promotions={couponPromotions(promotions)} onIssued={reload} />
 
       {loading ? (
         <Loading />
       ) : coupons.length === 0 ? (
         <p>{t('noCoupons')}</p>
       ) : (
-        <div className="table-wrap"><table className="data-table">
-          <thead>
-            <tr>
-              <th>{t('couponCode')}</th><th>{t('couponKind')}</th><th>{t('promotionName')}</th>
-              <th>{t('period')}</th><th>{t('couponUsage')}</th><th>{t('status')}</th><th />
-            </tr>
-          </thead>
-          <tbody>
-            {coupons.map((coupon) => (
-              <CouponRow key={coupon.id} coupon={coupon} promotionName={promotionName(coupon.promotionId)} onChanged={reload} />
-            ))}
-          </tbody>
-        </table></div>
+        <div className="table-wrap">
+          <table className="data-table data-table--fixed">
+            <thead>
+              <tr>
+                <th style={{ width: '10%' }}>{t('couponCode')}</th>
+                <th style={{ width: '13%' }}>{t('couponKind')}</th>
+                <th style={{ width: '22%' }}>{t('promotionName')}</th>
+                <th style={{ width: '17%' }}>{t('period')}</th>
+                <th style={{ width: '10%' }} className="col-numeric">{t('couponUsage')}</th>
+                <th style={{ width: '10%' }}>{t('status')}</th>
+                <th style={{ width: '18%' }} className="col-actions">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {coupons.map((coupon) => (
+                <CouponRow key={coupon.id} coupon={coupon} promotionName={promotionName(coupon.promotionId)} onChanged={reload} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
+
+      {creating ? (
+        <CreateCouponDrawer
+          promotions={couponPromotions(promotions)}
+          onClose={() => setCreating(false)}
+          onCreated={reload}
+        />
+      ) : null}
+
+      {issuing ? (
+        <IssueCouponsDrawer
+          promotions={couponPromotions(promotions)}
+          onClose={() => setIssuing(false)}
+          onIssued={reload}
+        />
+      ) : null}
     </section>
   );
 }
@@ -130,28 +168,35 @@ function CouponRow({
     <tr>
       <td className="mono">{coupon.code}</td>
       <td>{t(couponKind(coupon))}{coupon.partnerCode ? ` · ${coupon.partnerCode}` : ''}</td>
-      <td>{promotionName}</td>
+      <td><span className="cell-truncate" title={promotionName}>{promotionName}</span></td>
       <td className="mono">
         {coupon.startsAt ? formatDateTime(coupon.startsAt) : '—'} → {coupon.endsAt ? formatDateTime(coupon.endsAt) : '—'}
       </td>
       {/* 已用 / 上限。不限量時只說用了幾次——「3 / ∞」讀起來像是壞掉的畫面 */}
-      <td className="mono">
+      <td className="col-numeric">
         {coupon.maxRedemptions === null ? coupon.redeemedCount : `${coupon.redeemedCount} / ${coupon.maxRedemptions}`}
       </td>
       <td><StatusBadge value={coupon.status === 'void' ? 'disabled' : coupon.status === 'used' ? 'paid' : 'running'} /></td>
-      <td>
-        <div className="inline-form">
-          <button type="button" onClick={toggle} disabled={submitting}>
-            {coupon.status === 'void' ? t('enable') : t('disable')}
-          </button>
-        </div>
+      <td className="col-actions">
+        <button type="button" className="button button--quiet" onClick={toggle} disabled={submitting}>
+          <Icon name={coupon.status === 'void' ? 'play' : 'pause'} /> {coupon.status === 'void' ? t('enable') : t('disable')}
+        </button>
         {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
       </td>
     </tr>
   );
 }
 
-function CreateCouponForm({ promotions, onCreated }: { promotions: Promotion[]; onCreated: () => void }) {
+/** 建立券抽屜：版型比照 ProductsPage 的 CreateProductDrawer，常駐表單會把清單擠到摺線以下。 */
+function CreateCouponDrawer({
+  promotions,
+  onClose,
+  onCreated,
+}: {
+  promotions: Promotion[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const { t } = useI18n();
   const [code, setCode] = useState('');
   const [promotionId, setPromotionId] = useState('');
@@ -162,8 +207,9 @@ function CreateCouponForm({ promotions, onCreated }: { promotions: Promotion[]; 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
-  const submit = async (event: { preventDefault: () => void }) => {
-    event.preventDefault();
+  useEscapeKey(onClose);
+
+  const submit = async () => {
     const trimmed = code.trim();
     const max = maxRedemptions.trim() === '' ? undefined : Number(maxRedemptions);
     if (!trimmed || !promotionId || (max !== undefined && (!Number.isInteger(max) || max <= 0))) {
@@ -181,10 +227,8 @@ function CreateCouponForm({ promotions, onCreated }: { promotions: Promotion[]; 
         perCustomerLimit: perCustomerOnce ? 1 : null,
         endsAt: endsAt ? new Date(endsAt).toISOString() : undefined,
       });
-      setCode('');
-      setPartnerCode('');
-      setMaxRedemptions('');
       onCreated();
+      onClose();
     } catch (err) {
       setError(err);
     } finally {
@@ -193,41 +237,136 @@ function CreateCouponForm({ promotions, onCreated }: { promotions: Promotion[]; 
   };
 
   return (
-    <form className="panel" id="create-coupon" onSubmit={submit}>
-      <h3>{t('createCoupon')}</h3>
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-      <div className="form-grid">
-        <label>{t('couponCode')}
-          <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="SUMMER20" />
-        </label>
-        <label>{t('promotionName')}
-          <select value={promotionId} onChange={(e) => setPromotionId(e.target.value)}>
-            <option value="">{t('selectPromotion')}</option>
-            {promotions.map((promotion) => (
-              <option key={promotion.id} value={promotion.id}>{promotion.name}</option>
-            ))}
-          </select>
-        </label>
-        <label>{t('partnerCode')}
-          <input value={partnerCode} onChange={(e) => setPartnerCode(e.target.value)} placeholder={t('partnerCodeHint')} />
-        </label>
-        <label>{t('maxRedemptions')}
-          <input value={maxRedemptions} onChange={(e) => setMaxRedemptions(e.target.value)} inputMode="numeric" />
-        </label>
-        <label>{t('endsAt')}
-          <input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
-        </label>
-        <label className="checkbox">
-          <input type="checkbox" checked={perCustomerOnce} onChange={(e) => setPerCustomerOnce(e.target.checked)} />
-          {t('perCustomerOnce')}
-        </label>
+    <div className="payload-overlay" role="presentation" onMouseDown={onClose}>
+      <div
+        className="payload-drawer product-edit-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('createCoupon')}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <header className="product-drawer-header">
+          <div>
+            <h2>{t('createCoupon')}</h2>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('close')} title={t('close')}>
+            <Icon name="chevron" />
+          </button>
+        </header>
+
+        <form
+          className="form-panel product-drawer-form"
+          aria-label={t('createCoupon')}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+
+          <div className="drawer-form-body">
+            <div className="form-field">
+              <label htmlFor="create-coupon-code">
+                <span className="field-label-text">{t('couponCode')}</span>
+              </label>
+              <input
+                id="create-coupon-code"
+                aria-label={t('couponCode')}
+                className="mono"
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                placeholder="SUMMER20"
+              />
+            </div>
+
+            <div className="form-field">
+              <label htmlFor="create-coupon-promotion">
+                <span className="field-label-text">{t('promotionName')}</span>
+              </label>
+              <select
+                id="create-coupon-promotion"
+                aria-label={t('promotionName')}
+                value={promotionId}
+                onChange={(e) => setPromotionId(e.target.value)}
+              >
+                <option value="">{t('selectPromotion')}</option>
+                {promotions.map((promotion) => (
+                  <option key={promotion.id} value={promotion.id}>{promotion.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-field">
+              <label htmlFor="create-coupon-partner">
+                <span className="field-label-text">{t('partnerCode')}</span>
+              </label>
+              <input
+                id="create-coupon-partner"
+                aria-label={t('partnerCode')}
+                value={partnerCode}
+                onChange={(e) => setPartnerCode(e.target.value)}
+                placeholder={t('partnerCodeHint')}
+              />
+            </div>
+
+            <div className="form-grid-2">
+              <div className="form-field">
+                <label htmlFor="create-coupon-max-redemptions">
+                  <span className="field-label-text">{t('maxRedemptions')}</span>
+                </label>
+                <input
+                  id="create-coupon-max-redemptions"
+                  aria-label={t('maxRedemptions')}
+                  value={maxRedemptions}
+                  onChange={(e) => setMaxRedemptions(e.target.value)}
+                  inputMode="numeric"
+                />
+              </div>
+
+              <div className="form-field">
+                <label htmlFor="create-coupon-ends-at">
+                  <span className="field-label-text">{t('endsAt')}</span>
+                </label>
+                <input
+                  id="create-coupon-ends-at"
+                  aria-label={t('endsAt')}
+                  type="datetime-local"
+                  value={endsAt}
+                  onChange={(e) => setEndsAt(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <label className="checkbox">
+              <input type="checkbox" checked={perCustomerOnce} onChange={(e) => setPerCustomerOnce(e.target.checked)} />
+              {t('perCustomerOnce')}
+            </label>
+          </div>
+
+          <footer className="product-drawer-footer">
+            <button className="button" type="button" onClick={onClose}>
+              {t('cancel')}
+            </button>
+            <button className="button button--primary" disabled={submitting}>
+              {submitting ? '建立中…' : t('create')}
+            </button>
+          </footer>
+        </form>
       </div>
-      <button type="submit" disabled={submitting}>{t('create')}</button>
-    </form>
+    </div>
   );
 }
 
-function IssueCouponsForm({ promotions, onIssued }: { promotions: Promotion[]; onIssued: () => void }) {
+/** 批次發券抽屜：由工具列自己的按鈕開啟，與建立券互不影響。 */
+function IssueCouponsDrawer({
+  promotions,
+  onClose,
+  onIssued,
+}: {
+  promotions: Promotion[];
+  onClose: () => void;
+  onIssued: () => void;
+}) {
   const { t } = useI18n();
   const [promotionId, setPromotionId] = useState('');
   const [codePrefix, setCodePrefix] = useState('');
@@ -236,8 +375,9 @@ function IssueCouponsForm({ promotions, onIssued }: { promotions: Promotion[]; o
   const [error, setError] = useState<unknown>(null);
   const [result, setResult] = useState<IssueResult | null>(null);
 
-  const submit = async (event: { preventDefault: () => void }) => {
-    event.preventDefault();
+  useEscapeKey(onClose);
+
+  const submit = async () => {
     const days = expiresInDays.trim() === '' ? undefined : Number(expiresInDays);
     if (!promotionId || (days !== undefined && (!Number.isInteger(days) || days <= 0))) {
       setError(new Error(t('invalidIssue')));
@@ -261,28 +401,92 @@ function IssueCouponsForm({ promotions, onIssued }: { promotions: Promotion[]; o
   };
 
   return (
-    <form className="panel" id="issue-coupons" onSubmit={submit}>
-      <h3>{t('issueCoupons')}</h3>
-      <p className="muted">{t('issueCouponsHint')}</p>
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-      {result ? <p role="status">{t('issueResult')}: {result.issued}（{t('skipped')}: {result.skipped}）</p> : null}
-      <div className="form-grid">
-        <label>{t('promotionName')}
-          <select value={promotionId} onChange={(e) => setPromotionId(e.target.value)} aria-label={t('issuePromotion')}>
-            <option value="">{t('selectPromotion')}</option>
-            {promotions.map((promotion) => (
-              <option key={promotion.id} value={promotion.id}>{promotion.name}</option>
-            ))}
-          </select>
-        </label>
-        <label>{t('codePrefix')}
-          <input value={codePrefix} onChange={(e) => setCodePrefix(e.target.value.toUpperCase())} placeholder="VIP" />
-        </label>
-        <label>{t('expiresInDays')}
-          <input value={expiresInDays} onChange={(e) => setExpiresInDays(e.target.value)} inputMode="numeric" />
-        </label>
+    <div className="payload-overlay" role="presentation" onMouseDown={onClose}>
+      <div
+        className="payload-drawer product-edit-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('issueCoupons')}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <header className="product-drawer-header">
+          <div>
+            <h2>{t('issueCoupons')}</h2>
+            <p className="product-drawer-sku">{t('issueCouponsHint')}</p>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('close')} title={t('close')}>
+            <Icon name="chevron" />
+          </button>
+        </header>
+
+        <form
+          className="form-panel product-drawer-form"
+          aria-label={t('issueCoupons')}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+          {result ? <p role="status">{t('issueResult')}: {result.issued}（{t('skipped')}: {result.skipped}）</p> : null}
+
+          <div className="drawer-form-body">
+            <div className="form-field">
+              <label htmlFor="issue-coupon-promotion">
+                <span className="field-label-text">{t('promotionName')}</span>
+              </label>
+              <select
+                id="issue-coupon-promotion"
+                aria-label={t('issuePromotion')}
+                value={promotionId}
+                onChange={(e) => setPromotionId(e.target.value)}
+              >
+                <option value="">{t('selectPromotion')}</option>
+                {promotions.map((promotion) => (
+                  <option key={promotion.id} value={promotion.id}>{promotion.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-grid-2">
+              <div className="form-field">
+                <label htmlFor="issue-coupon-prefix">
+                  <span className="field-label-text">{t('codePrefix')}</span>
+                </label>
+                <input
+                  id="issue-coupon-prefix"
+                  aria-label={t('codePrefix')}
+                  value={codePrefix}
+                  onChange={(e) => setCodePrefix(e.target.value.toUpperCase())}
+                  placeholder="VIP"
+                />
+              </div>
+
+              <div className="form-field">
+                <label htmlFor="issue-coupon-expires">
+                  <span className="field-label-text">{t('expiresInDays')}</span>
+                </label>
+                <input
+                  id="issue-coupon-expires"
+                  aria-label={t('expiresInDays')}
+                  value={expiresInDays}
+                  onChange={(e) => setExpiresInDays(e.target.value)}
+                  inputMode="numeric"
+                />
+              </div>
+            </div>
+          </div>
+
+          <footer className="product-drawer-footer">
+            <button className="button" type="button" onClick={onClose}>
+              {t('cancel')}
+            </button>
+            <button className="button button--primary" disabled={submitting}>
+              {submitting ? '發放中…' : t('issue')}
+            </button>
+          </footer>
+        </form>
       </div>
-      <button type="submit" disabled={submitting}>{t('issue')}</button>
-    </form>
+    </div>
   );
 }

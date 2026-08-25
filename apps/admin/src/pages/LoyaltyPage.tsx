@@ -3,6 +3,7 @@ import { api, type RewardSettings, type Tier } from '../api';
 import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
+import { Icon } from '../components/Icon';
 
 /**
  * 基點只活在契約裡。店員看到的是「回饋 1%」與「1.5 倍」——
@@ -139,16 +140,23 @@ function TierSection({ tiers, onChanged }: { tiers: Tier[]; onChanged: () => voi
   return <section className="account-panel" aria-label={t('tiers')}>
     <div className="section-heading"><h2>{t('tiers')}</h2><p>{t('tierRemovalHint')}</p></div>
     {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-    <div className="table-wrap"><table className="data-table">
-      <thead><tr><th>{t('tierName')}</th><th>{t('thresholdPoints')}</th><th>{t('tierMultiplier')}</th><th /></tr></thead>
-      <tbody>{tiers.map((tier) => <tr key={tier.name}>
-        <td>{tier.name}</td>
-        <td className="mono">{tier.thresholdPoints}</td>
-        <td className="mono">{toMultiplier(tier.multiplierBasisPoints)}</td>
-        <td>{tier.thresholdPoints === 0
-          ? <span className="muted">{t('baseTier')}</span>
-          : <button className="button" type="button" disabled={submitting} onClick={() => void run(() => api.removeTier(tier.name))}>{t('remove')}</button>}</td>
-      </tr>)}</tbody>
+    <div className="table-wrap"><table className="data-table data-table--fixed">
+      <thead>
+        <tr>
+          <th style={{ width: '34%' }}>{t('tierName')}</th>
+          <th style={{ width: '22%' }} className="col-numeric">{t('thresholdPoints')}</th>
+          <th style={{ width: '22%' }} className="col-numeric">{t('tierMultiplier')}</th>
+          <th style={{ width: '22%' }} className="col-actions">操作</th>
+        </tr>
+      </thead>
+      <tbody>{tiers.map((tier) => (
+        <TierRow
+          key={tier.name}
+          tier={tier}
+          submitting={submitting}
+          onRemove={() => void run(() => api.removeTier(tier.name))}
+        />
+      ))}</tbody>
     </table></div>
     <div className="inline-form">
       <label>{t('tierName')}<input aria-label={t('tierName')} value={name} onChange={(event) => setName(event.target.value)} /></label>
@@ -157,4 +165,52 @@ function TierSection({ tiers, onChanged }: { tiers: Tier[]; onChanged: () => voi
       <button className="button button--primary" type="button" disabled={submitting} onClick={save}>{t('saveTier')}</button>
     </div>
   </section>;
+}
+
+/**
+ * 移除等級是破壞性動作：一旦刪掉，該門檻內的會員隔天重算就會被判到別的等級。
+ * 點一次只進入「確認移除？」狀態，真的送出要再點一次；不用 window.confirm，
+ * 這樣才能在測試裡斷言「點一次不會送出」。
+ */
+function TierRow({
+  tier,
+  submitting,
+  onRemove,
+}: {
+  tier: Tier;
+  submitting: boolean;
+  onRemove: () => void;
+}) {
+  const { t } = useI18n();
+  const [confirming, setConfirming] = useState(false);
+
+  return (
+    <tr>
+      <td>{tier.name}</td>
+      <td className="col-numeric">{tier.thresholdPoints}</td>
+      <td className="col-numeric">{toMultiplier(tier.multiplierBasisPoints)}</td>
+      <td className="col-actions">
+        {tier.thresholdPoints === 0 ? (
+          <span className="muted">{t('baseTier')}</span>
+        ) : (
+          <button
+            className="button"
+            type="button"
+            disabled={submitting}
+            style={confirming ? { color: 'var(--status-error-text)' } : undefined}
+            onClick={() => {
+              if (confirming) {
+                setConfirming(false);
+                onRemove();
+              } else {
+                setConfirming(true);
+              }
+            }}
+          >
+            <Icon name="trash" /> {confirming ? '確認移除？' : t('remove')}
+          </button>
+        )}
+      </td>
+    </tr>
+  );
 }
