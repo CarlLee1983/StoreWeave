@@ -1,0 +1,15 @@
+import { z } from 'zod';
+export const rmaStatus=z.enum(['requested','needs_information','approved','rejected','received','refund_pending','refund_failed','completed']);
+export const rmaLineDto=z.object({id:z.string().uuid(),orderLineId:z.string().uuid(),productId:z.string().uuid(),sku:z.string(),name:z.string(),quantity:z.number().int().positive(),unitPriceCents:z.number().int().nonnegative(),lineTotalCents:z.number().int().nonnegative(),discountCents:z.number().int().nonnegative(),disposition:z.enum(['restock','discard']).nullable(),discardReason:z.string().nullable()});
+export const rmaDto=z.object({id:z.string().uuid(),orderId:z.string().uuid(),customerId:z.string().uuid(),status:rmaStatus,resolution:z.literal('refund_and_reorder'),reason:z.string(),requestedByActorId:z.string(),staffNote:z.string().nullable(),refundId:z.string().uuid().nullable(),receivedAt:z.coerce.date().nullable(),completedAt:z.coerce.date().nullable(),createdAt:z.coerce.date(),updatedAt:z.coerce.date(),lines:z.array(rmaLineDto)});
+export type RmaDto=z.infer<typeof rmaDto>;
+const requestedLine=z.object({orderLineId:z.string().uuid(),quantity:z.number().int().positive()}).strict();
+export const createRmaInput=z.object({orderId:z.string().uuid(),reason:z.string().trim().min(1).max(1000),lines:z.array(requestedLine).min(1).max(100)}).strict();
+export const staffRmaInput=z.object({id:z.string().uuid(),note:z.string().trim().min(1).max(1000).optional()}).strict();
+export const receiveRmaInput=z.object({id:z.string().uuid(),lines:z.array(z.object({rmaLineId:z.string().uuid(),disposition:z.enum(['restock','discard']),discardReason:z.string().trim().min(1).max(1000).optional()}).strict()).min(1).max(100)}).strict().superRefine((value,ctx)=>{for(const [index,line] of value.lines.entries())if(line.disposition==='discard'&&!line.discardReason)ctx.addIssue({code:z.ZodIssueCode.custom,path:['lines',index,'discardReason'],message:'required when disposition is discard'});});
+export const requestRmaRefundInput=z.object({id:z.string().uuid(),reason:z.string().trim().min(1).max(1000).optional()}).strict();
+export const recordRmaRefundResultInput=z.object({rmaId:z.string().uuid(),refundId:z.string().uuid(),status:z.enum(['succeeded','failed'])}).strict();
+export const recordRmaRefundRequestedInput=z.object({rmaId:z.string().uuid(),refundId:z.string().uuid(),attemptNo:z.number().int().positive()}).strict();
+export const getRmaInput=z.object({id:z.string().uuid()}).strict();
+export const listRmasInput=z.object({orderId:z.string().uuid().optional(),status:rmaStatus.optional(),limit:z.coerce.number().int().min(1).max(100).default(50),offset:z.coerce.number().int().min(0).default(0)}).strict();
+export const listRmasOutput=z.object({items:z.array(rmaDto),total:z.number().int().nonnegative()});

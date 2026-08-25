@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { SESSION_COOKIE, createServer } from '@storeweave/api';
+import { csrfTokenFor } from '@storeweave/identity';
 import { defaultTheme } from '@storeweave/theme-default';
-import { createHarness, createProduct, stockUp, storefrontCheckoutForm, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createHarness, createProduct, stockUp, storefrontCheckoutForm, type TestHarness } from './helpers';
 
 /** 會員中心：我的訂單（工單 20）。 */
 
@@ -94,6 +95,44 @@ describe('我的訂單', () => {
 
     expect(page.statusCode).toBe(404);
     expect(page.body).not.toContain('alice-scope@example.com');
+  });
+
+  it('only lets the order owner submit and view an RMA through the storefront', async () => {
+    const alice = await signUp('rma-owner@example.com');
+    const bob = await signUp('rma-other@example.com');
+    const number = await buy(alice, 'ACCOUNT-RMA');
+    let order: any;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await h.worker.runJobs();
+      order = await h.runtime.queries.execute<any>('commerce.order.getOrder', { number }, { actor: ADMIN_ACTOR });
+      if (order.status === 'paid') break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(order.status).toBe('paid');
+    const shipment = await h.runtime.commands.execute<any>('commerce.shipping.createShipment', { orderId: order.id }, { actor: ADMIN_ACTOR, idempotencyKey: `shipment-${order.id}` });
+    await h.runtime.commands.execute('commerce.shipping.advanceShipmentStage', { shipmentId: shipment.id, status: 'shipped' }, { actor: ADMIN_ACTOR, idempotencyKey: `shipped-${shipment.id}` });
+
+    const page = await inject({ method: 'GET', url: `/orders/${number}`, cookies: { [SESSION_COOKIE]: alice } });
+    const csrf = /name="_csrf" value="([^"]+)"/.exec(page.body)![1];
+    expect(page.body).toContain(`action="/orders/${number}/rmas"`);
+
+    const created = await inject({
+      method: 'POST', url: `/orders/${number}/rmas`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      cookies: { [SESSION_COOKIE]: alice },
+      payload: new URLSearchParams({ _csrf: csrf, orderLineId: order.lines[0].id, [`quantity_${order.lines[0].id}`]: '1', reason: '尺寸不合' }).toString(),
+    });
+    expect(created.statusCode).toBe(303);
+    expect(created.headers.location).toBe(`/orders/${number}`);
+    expect((await inject({ method: 'GET', url: `/orders/${number}`, cookies: { [SESSION_COOKIE]: alice } })).body).toContain('已提出申請');
+
+    const denied = await inject({
+      method: 'POST', url: `/orders/${number}/rmas`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-csrf-token': csrfTokenFor(bob) },
+      cookies: { [SESSION_COOKIE]: bob },
+      payload: new URLSearchParams({ orderLineId: order.lines[0].id, [`quantity_${order.lines[0].id}`]: '1', reason: 'not mine' }).toString(),
+    });
+    expect(denied.statusCode).toBe(404);
   });
 
   it('訂單很多時分頁，且看得到下一頁的入口', async () => {
