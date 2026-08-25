@@ -1,4 +1,4 @@
-import { and, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gte, ilike, lte, or, sql, type SQL } from 'drizzle-orm';
 import type { DrizzleDb, Tx } from '@storeweave/contracts';
 import { products, type ProductRow } from './schema';
 import type { ProductDto } from './dto';
@@ -40,16 +40,19 @@ export class ProductRepository {
 
   async search(
     db: DrizzleDb,
-    filter: { q?: string; status?: string; limit: number; offset: number },
+    filter: { q?: string; status?: string; minPriceCents?: number; maxPriceCents?: number; limit: number; offset: number },
   ): Promise<{ items: ProductRow[]; total: number }> {
     const conditions: SQL[] = [];
     if (filter.status) conditions.push(eq(products.status, filter.status));
+    if (filter.minPriceCents !== undefined) conditions.push(gte(products.priceCents, filter.minPriceCents));
+    if (filter.maxPriceCents !== undefined) conditions.push(lte(products.priceCents, filter.maxPriceCents));
     if (filter.q) {
       const like = `%${filter.q}%`;
       conditions.push(or(ilike(products.name, like), ilike(products.sku, like))!);
     }
     const where = conditions.length ? and(...conditions)! : sql`true`;
-    const items = await db.select().from(products).where(where).orderBy(products.createdAt).limit(filter.limit).offset(filter.offset);
+    // A secondary key keeps offset pages stable when a batch shares the same timestamp.
+    const items = await db.select().from(products).where(where).orderBy(asc(products.createdAt), asc(products.id)).limit(filter.limit).offset(filter.offset);
     const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(products).where(where);
     return { items, total: Number(count) };
   }

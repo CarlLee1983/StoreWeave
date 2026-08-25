@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Body, Controller, Get, Inject, Param, Post, Query, Req, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
-import { PlatformError, type Actor } from '@storeweave/contracts';
+import { PlatformError, SYSTEM_ACTOR, type Actor } from '@storeweave/contracts';
 import { csrfTokenFor } from '@storeweave/identity';
 import type { StorefrontTheme, ThemeContext } from '@storeweave/kernel';
-import type { NotificationProvider, PaymentProvider } from '@storeweave/extension-sdk';
-import { Anonymous, Public, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
+import type { NotificationProvider, PaymentProvider, ShippingProvider } from '@storeweave/extension-sdk';
+import { customerService } from '@storeweave/customer';
+import { Anonymous, ExternalCallback, Public, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
 import { clearSessionCookies, sessionTokenOf } from '../http/session-cookies';
 import { cartNoticeOf, clearCartNoticeCookie, existingGuestToken, guestTokenFor } from '../http/cart-cookie';
 import { startSession } from '../http/session-start';
@@ -13,6 +14,37 @@ import { RUNTIME, THEME, type Runtime } from '../tokens';
 
 /** 重設連結的時效。夠久到收得到信，短到外洩的信件不會長期有效。 */
 const RESET_TTL_MS = 60 * 60 * 1000;
+const CATALOG_PAGE_SIZE = 24;
+
+function catalogQuery(value: unknown): string {
+  if (value === undefined) return '';
+  if (typeof value !== 'string') throw PlatformError.validation('Search query must be a single string');
+  return value.trim();
+}
+
+function catalogPage(value: unknown): number {
+  if (value === undefined || value === '') return 1;
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) {
+    throw PlatformError.validation('Page must be a positive integer');
+  }
+  const page = Number(value);
+  if (!Number.isSafeInteger(page) || (page - 1) * CATALOG_PAGE_SIZE > Number.MAX_SAFE_INTEGER) {
+    throw PlatformError.validation('Page is too large');
+  }
+  return page;
+}
+
+function catalogPrice(value: unknown, label: string): number | null {
+  if (value === undefined || value === '') return null;
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+    throw PlatformError.validation(`${label} must be a nonnegative whole amount`);
+  }
+  const price = Number(value);
+  if (!Number.isSafeInteger(price) || price > Math.floor(Number.MAX_SAFE_INTEGER / 100)) {
+    throw PlatformError.validation(`${label} is too large`);
+  }
+  return price;
+}
 
 /**
  * 只接受站內路徑，避免變成開放轉址。
@@ -43,6 +75,18 @@ function rewardDescription(entry: { source: string; reason: string | null }): st
     case 'reversal': return '訂單取消回沖';
     default: return '調整';
   }
+}
+
+function formValues(value: unknown): string[] {
+  return (Array.isArray(value) ? value : [value]).filter((item): item is string => typeof item === 'string');
+}
+
+/** Only converts form shape; the RMA command rechecks order ownership and every quantity under lock. */
+function rmaLinesFromForm(body: Record<string, unknown>) {
+  return formValues(body.orderLineId).map((orderLineId) => ({
+    orderLineId,
+    quantity: typeof body[`quantity_${orderLineId}`] === 'string' ? Number(body[`quantity_${orderLineId}`]) : Number.NaN,
+  }));
 }
 
 interface ProductDtoShape {
@@ -98,15 +142,40 @@ export class StorefrontController {
   }
 
   @Get()
-  async home(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+  async home(
+    @Req() req: AuthenticatedRequest,
+    @Query('q') rawQuery: unknown,
+    @Query('minPrice') rawMinPrice: unknown,
+    @Query('maxPrice') rawMaxPrice: unknown,
+    @Query('page') rawPage: unknown,
+    @Res() reply: FastifyReply,
+  ) {
     const actor = actorOf(req);
-    const result = await this.runtime.queries.execute<{ items: ProductDtoShape[] }>(
-      'commerce.catalog.searchProducts',
-      { status: 'active', limit: 48, offset: 0 },
-      { actor, channel: 'rest' },
-    );
-    const products = await Promise.all(result.items.map((p) => this.withStock(actor, p)));
-    this.html(reply, 200, this.theme.renderHome(this.themeContext(req, reply), { products }));
+    try {
+      const q = catalogQuery(rawQuery);
+      const minPrice = catalogPrice(rawMinPrice, 'Minimum price');
+      const maxPrice = catalogPrice(rawMaxPrice, 'Maximum price');
+      if (minPrice !== null && maxPrice !== null && minPrice > maxPrice) {
+        throw PlatformError.validation('Maximum price must be greater than or equal to minimum price');
+      }
+      const page = catalogPage(rawPage);
+      const result = await this.runtime.queries.execute<{ items: ProductDtoShape[]; total: number }>(
+        'commerce.catalog.searchProducts',
+        {
+          ...(q ? { q } : {}),
+          ...(minPrice !== null ? { minPriceCents: minPrice * 100 } : {}),
+          ...(maxPrice !== null ? { maxPriceCents: maxPrice * 100 } : {}),
+          status: 'active', limit: CATALOG_PAGE_SIZE, offset: (page - 1) * CATALOG_PAGE_SIZE,
+        },
+        { actor, channel: 'rest' },
+      );
+      const products = await Promise.all(result.items.map((p) => this.withStock(actor, p)));
+      this.html(reply, 200, this.theme.renderHome(this.themeContext(req, reply), {
+        products, q, minPrice, maxPrice, page, pageSize: CATALOG_PAGE_SIZE, total: result.total,
+      }));
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
   }
 
   @Get('p/:id')
@@ -116,6 +185,7 @@ export class StorefrontController {
       const product = await this.runtime.queries.execute<ProductDtoShape>(
         'commerce.catalog.getProduct', { id }, { actor, channel: 'rest' },
       );
+      if (product.status !== 'active') throw PlatformError.notFound('Product', id);
       this.html(reply, 200, this.theme.renderProduct(this.themeContext(req, reply), { product: await this.withStock(actor, product) }));
     } catch (err) {
       this.renderError(reply, err, req);
@@ -233,7 +303,20 @@ export class StorefrontController {
       const order = await this.runtime.queries.execute<any>(
         'commerce.order.getOrder', { number }, { actor, channel: 'rest' },
       );
-      const latestAttempt = order.paymentAttempts.at(-1) ?? null;
+      const [refunds, rmas, latestAttempt, shipment, invoice] = await Promise.all([
+        this.runtime.queries.execute<{ items: any[] }>('commerce.refund.listRefunds', { orderId: order.id, limit: 20, offset: 0 }, { actor, channel: 'rest' }),
+        this.runtime.queries.execute<{ items: any[] }>('commerce.rma.listRmas', { orderId: order.id, limit: 100, offset: 0 }, { actor, channel: 'rest' }),
+        Promise.resolve(order.paymentAttempts.at(-1) ?? null),
+        // `getOrder` above has already returned only this customer's order. The
+        // shipment query runs as system because customer RBAC deliberately does
+        // not grant an unscoped shipment-read capability.
+        this.runtime.queries.execute<any>('commerce.shipping.getShipmentForOrder', { orderId: order.id }, { actor: SYSTEM_ACTOR, channel: 'rest' })
+          .catch((error: unknown) => error instanceof PlatformError && error.code === 'NOT_FOUND' ? null : Promise.reject(error)),
+        // getOrder above has already enforced ownership. Expose only the
+        // customer-safe status and number from the protected invoice record.
+        this.runtime.queries.execute<{ items: any[] }>('commerce.invoice.list', { orderId: order.id, limit: 1, offset: 0 }, { actor: SYSTEM_ACTOR, channel: 'rest' })
+          .then((result) => result.items[0] ?? null),
+      ]);
       const canContinuePayment = (order.status === 'payment_processing' && latestAttempt?.status === 'submitted')
         || (order.status === 'awaiting_payment' && latestAttempt?.status === 'awaiting_payment');
       const canShowInstructions = order.status === 'awaiting_payment' && latestAttempt?.status === 'awaiting_payment';
@@ -248,7 +331,7 @@ export class StorefrontController {
           totalCents: order.totalCents,
           customerEmail: order.customerEmail,
           lines: order.lines.map((line: any) => ({
-            sku: line.sku, name: line.name, quantity: line.quantity, lineTotalCents: line.lineTotalCents,
+            id: line.id, sku: line.sku, name: line.name, quantity: line.quantity, lineTotalCents: line.lineTotalCents,
           })),
           payment: latestAttempt ? {
             status: latestAttempt.status,
@@ -267,6 +350,7 @@ export class StorefrontController {
               timing: method.timing,
             })),
           } : null,
+          invoice: invoice ? { status: invoice.status, invoiceNumber: invoice.invoiceNumber } : null,
           // The command also checks for a shipment under the Order lock. The
           // page can only use the status projection and never bypasses it.
           canCancel: order.status === 'pending',
@@ -274,8 +358,50 @@ export class StorefrontController {
             shippingMethodName: order.delivery.shippingMethodName,
             destination: order.delivery.destination,
           } : null,
+          shipment: shipment ? {
+            status: shipment.status,
+            trackingNumber: shipment.trackingNumber,
+            trackingUrl: shipment.trackingUrl,
+          } : null,
+          refunds: refunds.items.map((refund) => ({
+            amountCents: refund.amountCents, status: refund.status, requestedAt: refund.requestedAt, completedAt: refund.completedAt,
+          })),
+          canRequestRma: order.status === 'paid' && Boolean(shipment && shipment.status !== 'created'),
+          rmas: rmas.items.map((rma) => ({
+            status: rma.status, reason: rma.reason, staffNote: rma.staffNote, createdAt: rma.createdAt,
+            lines: rma.lines.map((line: any) => ({ name: line.name, quantity: line.quantity })),
+          })),
         },
       }));
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
+  }
+
+  @Post('orders/:number/rmas')
+  async createRma(
+    @Req() req: AuthenticatedRequest,
+    @Param('number') number: string,
+    @Body() body: Record<string, unknown>,
+    @Res() reply: FastifyReply,
+  ) {
+    const actor = actorOf(req);
+    if (actor.type !== 'customer') {
+      void reply.status(303).header('location', `/login?next=${encodeURIComponent(`/orders/${number}`)}`).send();
+      return;
+    }
+    try {
+      // Resolve through the customer-scoped query before command dispatch so a
+      // guessed order number is indistinguishable from a missing one.
+      const order = await this.runtime.queries.execute<{ id: string; number: string }>(
+        'commerce.order.getOrder', { number }, { actor, channel: 'rest' },
+      );
+      await this.runtime.commands.execute('commerce.rma.createRma', {
+        orderId: order.id,
+        reason: typeof body.reason === 'string' ? body.reason : '',
+        lines: rmaLinesFromForm(body),
+      }, { actor, idempotencyKey: `storefront-rma:${order.id}:${randomUUID()}`, correlationId: randomUUID(), channel: 'rest' });
+      void reply.status(303).header('location', `/orders/${order.number}`).send();
     } catch (err) {
       this.renderError(reply, err, req);
     }
@@ -498,6 +624,7 @@ export class StorefrontController {
   @Get('checkout')
   async checkoutPage(
     @Query('shippingMethodId') requestedShippingMethodId: string | undefined,
+    @Query('pickupSelectionToken') pickupSelectionToken: string | undefined,
     @Req() req: AuthenticatedRequest,
     @Res() reply: FastifyReply,
   ) {
@@ -518,18 +645,16 @@ export class StorefrontController {
         void reply.status(303).header('location', '/cart').send();
         return;
       }
-      // This form captures a Taiwan home address. Pickup-store selection is a separate UX
-      // surface because its provider search cannot be represented by free-form text fields.
       const shippingMethods = methods.items
-        .filter((method) => method.destinationKind === 'taiwan_home')
         .map((method) => ({
           id: method.id,
           name: method.name,
+          destinationKind: method.destinationKind,
           feeCents: method.feeCents,
           freeShippingThresholdCents: method.freeShippingThresholdCents,
         }));
       if (shippingMethods.length === 0) {
-        throw PlatformError.validation('No Taiwan home delivery method is currently available');
+        throw PlatformError.validation('No shipping method is currently available');
       }
       const selectedShippingMethodId = requestedShippingMethodId || shippingMethods[0]!.id;
       if (!shippingMethods.some((method) => method.id === selectedShippingMethodId)) {
@@ -542,7 +667,7 @@ export class StorefrontController {
         {
           shippingMethodId: selectedShippingMethodId,
           subtotalCents: view.subtotalCents,
-          destinationKind: 'taiwan_home',
+          destinationKind: shippingMethods.find((method) => method.id === selectedShippingMethodId)!.destinationKind,
         },
         { actor, channel: 'rest' },
       );
@@ -551,6 +676,13 @@ export class StorefrontController {
       if (paymentMethods.length === 0) {
         throw PlatformError.validation(`Payment provider ${provider.id} has no enabled payment methods`);
       }
+      const buyer = await customerService.requireByActor(this.runtime.database.db, actor);
+      const selection = pickupSelectionToken
+        ? await this.runtime.queries.execute<any>('commerce.shipping.getPickupSelectionView', {
+          token: pickupSelectionToken, cartId: view.cartId, customerId: buyer.customerId, shippingMethodId: selectedShippingMethodId,
+        }, { actor, channel: 'rest' })
+        : null;
+      if (selection && !selection.store) throw PlatformError.validation('Please choose a convenience store before checkout');
       this.html(reply, 200, this.theme.renderCheckout(this.themeContext(req, reply), {
         ...view,
         customerEmail: await this.emailOf(actor),
@@ -569,13 +701,72 @@ export class StorefrontController {
           line1: profile.address.line1,
           line2: profile.address.line2,
         } : null,
+        pickupSelection: selection?.store ? { token: selection.token, storeName: selection.store.storeName, storeAddress: selection.store.storeAddress } : null,
         payment: {
           provider: provider.id,
           methods: paymentMethods.map((method) => ({ code: method.code, label: method.label, timing: method.timing })),
         },
+        invoice: this.runtime.providers.has('invoice') ? { enabled: true } : undefined,
       }));
     } catch (err) {
       this.renderError(reply, err, req);
+    }
+  }
+
+  @Post('checkout/pickup/start')
+  async startPickupSelection(@Req() req: AuthenticatedRequest, @Body() body: Record<string, string>, @Res() reply: FastifyReply) {
+    const actor = actorOf(req);
+    if (actor.type !== 'customer') {
+      void reply.status(303).header('location', `/login?next=${encodeURIComponent('/checkout')}`).send();
+      return;
+    }
+    try {
+      const selection = await this.runtime.commands.execute<{ token: string }>('commerce.shipping.beginPickupSelection', {
+        cartId: body.cartId, shippingMethodId: body.shippingMethodId,
+      }, { actor, correlationId: randomUUID(), channel: 'rest' });
+      void reply.status(303).header('location', `/checkout/pickup/select?token=${encodeURIComponent(selection.token)}`).send();
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
+  }
+
+  @Get('checkout/pickup/select')
+  async pickupStorePicker(@Query('token') token: string, @Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    const actor = actorOf(req);
+    if (actor.type !== 'customer') {
+      void reply.status(303).header('location', `/login?next=${encodeURIComponent('/checkout')}`).send();
+      return;
+    }
+    try {
+      const view = await this.cartView(req, reply);
+      const buyer = await customerService.requireByActor(this.runtime.database.db, actor);
+      // The view establishes the token binding before calling a provider. A token
+      // cannot turn into an oracle for another cart's method or carrier stores.
+      const selection = await this.runtime.queries.execute<any>('commerce.shipping.getPickupSelectionView', {
+        token, cartId: view.cartId, customerId: buyer.customerId, shippingMethodId: undefined,
+      }, { actor, channel: 'rest' });
+      const provider = this.runtime.providers.get<ShippingProvider>('shipping', selection.provider);
+      if (!provider.pickupStores) throw PlatformError.validation('This shipping provider does not have a store picker');
+      this.html(reply, 200, this.theme.renderPickupStorePicker(this.themeContext(req, reply), {
+        token, shippingMethodId: selection.shippingMethodId, expiresAt: selection.expiresAt,
+        stores: [...await provider.pickupStores({ serviceType: selection.type })],
+      }));
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
+  }
+
+  /** The picker may return without a session cookie; the opaque capability is the sole authority. */
+  @ExternalCallback()
+  @Post('checkout/pickup/callback')
+  async completePickupSelection(@Body() body: Record<string, string>, @Res() reply: FastifyReply) {
+    try {
+      await this.runtime.commands.execute('commerce.shipping.completePickupSelection', {
+        token: body.token, providerStoreId: body.providerStoreId,
+      }, { actor: this.runtime.actorForRole('storefront'), idempotencyKey: `pickup-callback:${createHash('sha256').update(`${body.token}:${body.providerStoreId}`).digest('base64url')}`, correlationId: randomUUID(), channel: 'rest' });
+      void reply.status(303).header('location', `/checkout?pickupSelectionToken=${encodeURIComponent(body.token)}`).send();
+    } catch (err) {
+      this.renderError(reply, err);
     }
   }
 
@@ -607,17 +798,14 @@ export class StorefrontController {
         {
           cartId,
           shippingMethodId: body.shippingMethodId,
-          destination: {
-            kind: 'taiwan_home',
-            countryCode: 'TW',
-            recipient: body.recipient?.trim() ?? '',
-            phone: body.phone?.trim() ?? '',
-            postcode: body.postcode?.trim() ?? '',
-            city: body.city?.trim() ?? '',
-            district: body.district?.trim() ?? '',
-            line1: body.line1?.trim() ?? '',
-            line2: body.line2?.trim() || null,
-          },
+          ...(body.pickupSelectionToken ? {
+            pickupSelectionToken: body.pickupSelectionToken, pickupRecipient: body.pickupRecipient?.trim() ?? '', pickupPhone: body.pickupPhone?.trim() ?? '',
+          } : { destination: {
+            kind: 'taiwan_home', countryCode: 'TW', recipient: body.recipient?.trim() ?? '', phone: body.phone?.trim() ?? '',
+            postcode: body.postcode?.trim() ?? '', city: body.city?.trim() ?? '', district: body.district?.trim() ?? '',
+            line1: body.line1?.trim() ?? '', line2: body.line2?.trim() || null,
+          } }),
+          invoicePreference: invoicePreferenceFromForm(body),
         },
         // 鍵綁上身分：冪等鍵是猜得到的（購物車識別碼），而它決定了誰讀得到那份回應。
         { actor, idempotencyKey: `cart:${actor.id}:${cartId}`, correlationId, channel: 'rest' },
@@ -849,5 +1037,14 @@ export class StorefrontController {
     const message = err instanceof PlatformError && status < 500 ? err.message : '發生未預期的錯誤';
     if (status >= 500) this.runtime.logger.error({ error: (err as Error).message }, 'storefront error');
     this.html(reply, status, this.theme.renderError(this.themeContext(req, reply), { status, message }));
+  }
+}
+
+function invoicePreferenceFromForm(body: Record<string, string>) {
+  switch (body.invoicePreference) {
+    case 'mobile': return { kind: 'mobile' as const, number: body.invoiceCarrierNumber?.trim() ?? '' };
+    case 'natural_person': return { kind: 'natural_person' as const, number: body.invoiceCarrierNumber?.trim() ?? '' };
+    case 'donation': return { kind: 'donation' as const, loveCode: body.invoiceLoveCode?.trim() ?? '' };
+    default: return { kind: 'ecpay' as const };
   }
 }

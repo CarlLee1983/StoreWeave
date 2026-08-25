@@ -102,7 +102,7 @@ const order: ThemeOrderView = {
   currency: 'TWD',
   totalCents: 118_000,
   customerEmail: PROBE,
-  lines: [{ sku: PROBE, name: PROBE, quantity: 1, lineTotalCents: 118_000 }],
+  lines: [{ id: 'line-1', sku: PROBE, name: PROBE, quantity: 1, lineTotalCents: 118_000 }],
   payment: {
     status: 'submitted', method: PROBE, action: { type: 'form_post', url: 'https://payment.example.test/pay', fields: { MerchantTradeNo: PROBE } },
     instructions: [{ label: PROBE, value: PROBE }], expiresAt: DATE,
@@ -110,6 +110,10 @@ const order: ThemeOrderView = {
   paymentRetry: { provider: PROBE, methods: [{ code: PROBE, label: PROBE, timing: 'immediate' }] },
   canCancel: true,
   delivery: { shippingMethodName: PROBE, destination: { kind: 'taiwan_home', recipient: PROBE, phone: PROBE, postcode: PROBE, city: PROBE, district: PROBE, line1: PROBE, line2: PROBE } },
+  shipment: { status: 'shipped', trackingNumber: PROBE, trackingUrl: 'https://carrier.example.test/track' },
+  refunds: [],
+  canRequestRma: false,
+  rmas: [],
 };
 
 const rewards: ThemeAccountRewardsView = {
@@ -153,7 +157,7 @@ const profile: ThemeAccountProfileView = {
 };
 
 const surfaces: [name: string, render: () => string][] = [
-  ['renderHome', () => defaultTheme.renderHome(context(), { products: [product] })],
+  ['renderHome', () => defaultTheme.renderHome(context(), { products: [product], q: PROBE, minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 })],
   ['renderProduct', () => defaultTheme.renderProduct(context(), { product })],
   ['renderCart', () => defaultTheme.renderCart(context(), cart)],
   ['renderCheckout', () => defaultTheme.renderCheckout(context(), checkout)],
@@ -194,7 +198,7 @@ describe('Default Theme 把資料當文字輸出', () => {
   it('未登入的訪客頁面同樣不被 notice 與店名注入', () => {
     const html = defaultTheme.renderHome(
       context({ customerName: null, csrfToken: null }),
-      { products: [product] },
+      { products: [product], q: PROBE, minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 },
     );
 
     expectNoMarkupInjection(html);

@@ -13,7 +13,12 @@ export class CatalogController extends BusController {
   @Get()
   async search(@Req() req: AuthenticatedRequest, @Query() query: Record<string, string>) {
     return ok(await this.query(req, 'commerce.catalog.searchProducts', {
-      q: query.q, status: query.status, limit: query.limit, offset: query.offset,
+      q: query.q,
+      status: query.status,
+      minPriceCents: query.minPriceCents,
+      maxPriceCents: query.maxPriceCents,
+      limit: query.limit,
+      offset: query.offset,
     }));
   }
 

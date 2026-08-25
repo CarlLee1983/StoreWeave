@@ -57,16 +57,20 @@ const order: ThemeOrderView = {
   currency: 'TWD',
   totalCents: 118_000,
   customerEmail: 'buyer@example.test',
-  lines: [{ sku: 'WD-001', name: '日常托盤', quantity: 1, lineTotalCents: 118_000 }],
+  lines: [{ id: 'line-1', sku: 'WD-001', name: '日常托盤', quantity: 1, lineTotalCents: 118_000 }],
   payment: null,
   paymentRetry: null,
   canCancel: false,
   delivery: null,
+  shipment: null,
+  refunds: [],
+  canRequestRma: false,
+  rmas: [],
 };
 
 describe('Default Theme 的商品瀏覽切片', () => {
   it('以 ThemeProductView 的資料建立可連到商品頁的型錄', () => {
-    const html = defaultTheme.renderHome(context(), { products: [product] });
+    const html = defaultTheme.renderHome(context(), { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
 
     expect(html).toContain('class="catalog-page"');
     expect(html).toContain('class="product-card"');
@@ -234,6 +238,45 @@ describe('Default Theme 的商品瀏覽切片', () => {
     expect(html).not.toContain('onload=');
   });
 
+  it('只顯示顧客可理解的配送進度、追蹤號碼與安全的 provider 追蹤頁', () => {
+    const html = defaultTheme.renderOrder(context(), { order: {
+      ...order,
+      shipment: { status: 'arrived', trackingNumber: 'TW-TRACK-1', trackingUrl: 'https://carrier.example.test/track/TW-TRACK-1' },
+    } });
+
+    expect(html).toContain('配送進度');
+    expect(html).toContain('已到店／送達');
+    expect(html).not.toContain('<p>arrived</p>');
+    expect(html).toContain('TW-TRACK-1');
+    expect(html).toContain('href="https://carrier.example.test/track/TW-TRACK-1"');
+    expect(html).toContain('rel="noopener noreferrer"');
+  });
+
+  it.each([
+    ['created', '物流單已建立'],
+    ['shipped', '已出貨'],
+    ['arrived', '已到店／送達'],
+    ['completed', '配送完成'],
+  ] as const)('maps shipment stage %s to customer copy', (status, label) => {
+    const html = defaultTheme.renderOrder(context(), { order: { ...order, shipment: { status, trackingNumber: null, trackingUrl: null } } });
+    expect(html).toContain(label);
+    expect(html).not.toContain(`<p>${status}</p>`);
+  });
+
+  it('renders a customer RMA request form and customer-safe progress', () => {
+    const html = defaultTheme.renderOrder(context({ csrfToken: 'csrf-token' }), { order: {
+      ...order,
+      canRequestRma: true,
+      rmas: [{ status: 'needs_information', reason: '商品尺寸不合', staffNote: '請補充包裝照片', createdAt: new Date(), lines: [{ name: '日常托盤', quantity: 1 }] }],
+    } });
+    expect(html).toContain('action="/orders/ORD-1/rmas"');
+    expect(html).toContain('name="orderLineId" value="line-1"');
+    expect(html).toContain('name="quantity_line-1"');
+    expect(html).toContain('name="reason"');
+    expect(html).toContain('待補充資料');
+    expect(html).toContain('請補充包裝照片');
+  });
+
   it('失敗付款只顯示安全說明，並提供新的付款嘗試與未付款取消入口', () => {
     const html = defaultTheme.renderOrder(context({ csrfToken: 'csrf-token' }), { order: {
       ...order,
@@ -257,12 +300,42 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('使用指定的表面色與可預期的置頂頁首層級', () => {
-    const html = defaultTheme.renderHome(context(), { products: [product] });
+    const html = defaultTheme.renderHome(context(), { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
 
     expect(html).toContain('--surface-raised: #fffdfc;');
     expect(html).toContain('position: sticky;');
     expect(html).toContain('z-index: 5;');
     expect(html).toContain('top: 0;');
     expect(html).toContain('color: var(--state-danger-ink); background: var(--state-danger-surface);');
+  });
+
+  it('保留搜尋字串並以安全連結輸出分頁與空頁提示', () => {
+    const html = defaultTheme.renderHome(context(), {
+      products: [], q: '托盤 & <script>', minPrice: 300, maxPrice: 900, page: 4, pageSize: 12, total: 25,
+    });
+
+    expect(html).toContain('role="search"');
+    expect(html).toContain('name="q"');
+    expect(html).toContain('name="minPrice" value="300"');
+    expect(html).toContain('name="maxPrice" value="900"');
+    expect(html).toContain('value="托盤 &amp; &lt;script&gt;"');
+    expect(html).toContain('第 4 頁沒有商品');
+    expect(html).toContain('href="/?q=%E6%89%98%E7%9B%A4+%26+%3Cscript%3E&amp;minPrice=300&amp;maxPrice=900"');
+    expect(html).not.toContain('<script>');
+
+    const priceOnlyEmpty = defaultTheme.renderHome(context(), {
+      products: [], q: '', minPrice: 300, maxPrice: null, page: 1, pageSize: 24, total: 0,
+    });
+    expect(priceOnlyEmpty).toContain('找不到符合目前篩選條件的商品。');
+    expect(priceOnlyEmpty).not.toContain('目前沒有上架的商品。');
+  });
+});
+
+describe('Default Theme 的退款狀態', () => {
+  it('只呈現顧客安全的退款進度與金額', () => {
+    const html = defaultTheme.renderOrder(context(), { order: { ...order, refunds: [{ amountCents: 118_000, status: 'succeeded', requestedAt: new Date(), completedAt: new Date() }] } });
+    expect(html).toContain('退款進度');
+    expect(html).toContain('succeeded');
+    expect(html).toContain('$1,180.00');
   });
 });

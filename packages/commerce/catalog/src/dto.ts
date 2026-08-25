@@ -38,9 +38,15 @@ export const updateProductInput = z.object({
 export const searchProductsInput = z.object({
   q: z.string().max(200).optional(),
   status: productStatus.optional(),
+  minPriceCents: z.coerce.number().int().nonnegative().optional(),
+  maxPriceCents: z.coerce.number().int().nonnegative().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).default(0),
-}).strict();
+}).strict().superRefine((input, context) => {
+  if (input.minPriceCents !== undefined && input.maxPriceCents !== undefined && input.minPriceCents > input.maxPriceCents) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['maxPriceCents'], message: 'must be greater than or equal to minPriceCents' });
+  }
+});
 
 export const searchProductsOutput = z.object({
   items: z.array(productDto),

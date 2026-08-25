@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type {
-  StorefrontTheme, ThemeAccountCouponsView, ThemeAuthView, ThemeCartView, ThemeContext, ThemeOrderView,
+  StorefrontTheme, ThemeAccountCouponsView, ThemeAuthView, ThemeCartView, ThemeCatalogView, ThemeContext, ThemeOrderView,
 } from '@storeweave/kernel';
 import { escapeHtml, formatMoney, layout } from './layout';
 
@@ -53,6 +53,31 @@ function orderStatus(status: string): string {
   return `<span class="order-status" data-status="${escapeHtml(status)}">${escapeHtml(label)}</span>`;
 }
 
+/** Shipment's domain stage is stable, but the customer copy must not be an internal enum. */
+function shipmentStatus(status: NonNullable<ThemeOrderView['shipment']>['status']): string {
+  const labels: Record<NonNullable<ThemeOrderView['shipment']>['status'], string> = {
+    created: '物流單已建立',
+    shipped: '已出貨',
+    arrived: '已到店／送達',
+    completed: '配送完成',
+  };
+  return labels[status];
+}
+
+function rmaStatus(status: ThemeOrderView['rmas'][number]['status']): string {
+  const labels: Record<ThemeOrderView['rmas'][number]['status'], string> = {
+    requested: '已提出申請',
+    needs_information: '待補充資料',
+    approved: '已核准，等待收件',
+    rejected: '未核准',
+    received: '已收件，等待退款處理',
+    refund_pending: '退款處理中',
+    refund_failed: '退款處理失敗，客服將協助處理',
+    completed: '案件已完成',
+  };
+  return labels[status];
+}
+
 /** Payment providers may return a hosted page, but never get to choose an executable URL scheme. */
 function safeExternalUrl(value: string): string | null {
   try {
@@ -61,6 +86,16 @@ function safeExternalUrl(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+function catalogUrl(q: string, minPrice: number | null, maxPrice: number | null, page: number): string {
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (minPrice !== null) params.set('minPrice', String(minPrice));
+  if (maxPrice !== null) params.set('maxPrice', String(maxPrice));
+  if (page > 1) params.set('page', String(page));
+  const query = params.toString();
+  return query ? `/?${query}` : '/';
 }
 
 function paymentContinuation(payment: NonNullable<ThemeOrderView['payment']>): string {
@@ -323,7 +358,7 @@ export const defaultTheme: StorefrontTheme = {
   name: 'Default Storefront',
   optionsSchema: defaultThemeOptions,
 
-  renderHome(ctx, { products }) {
+  renderHome(ctx, { products, q, minPrice, maxPrice, page, pageSize, total }: ThemeCatalogView) {
     const cards = products.map((product) => {
       const soldOut = product.available !== null && product.available <= 0;
       const availability = product.available === null
@@ -344,6 +379,18 @@ export const defaultTheme: StorefrontTheme = {
           </a>
         </article>`;
     }).join('');
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    const outOfRange = total > 0 && page > pageCount;
+    const hasFilters = Boolean(q) || minPrice !== null || maxPrice !== null;
+    const heading = q ? `搜尋「${escapeHtml(q)}」` : '目前商品';
+    const empty = outOfRange
+      ? `<p class="empty-state">第 ${page} 頁沒有商品。<a href="${escapeHtml(catalogUrl(q, minPrice, maxPrice, 1))}">回到第一頁</a></p>`
+      : hasFilters ? '<p class="empty-state">找不到符合目前篩選條件的商品。</p>' : '<p class="empty-state">目前沒有上架的商品。</p>';
+    const pagination = pageCount > 1 ? `<nav class="catalog-pagination" aria-label="商品分頁">
+      ${page > 1 ? `<a href="${escapeHtml(catalogUrl(q, minPrice, maxPrice, page - 1))}" rel="prev">上一頁</a>` : '<span aria-hidden="true">上一頁</span>'}
+      <span>第 ${page}／${pageCount} 頁</span>
+      ${page < pageCount ? `<a href="${escapeHtml(catalogUrl(q, minPrice, maxPrice, page + 1))}" rel="next">下一頁</a>` : '<span aria-hidden="true">下一頁</span>'}
+    </nav>` : '';
     const body = `
       <div class="catalog-page">
         <section class="catalog-hero" aria-labelledby="catalog-title">
@@ -355,12 +402,22 @@ export const defaultTheme: StorefrontTheme = {
         </section>
         <section class="catalog-section" aria-labelledby="products-title">
           <div class="catalog-section__header">
-            <h2 id="products-title">目前商品</h2>
-            <p class="catalog-section__count">${products.length} 件上架商品</p>
+            <h2 id="products-title">${heading}</h2>
+            <p class="catalog-section__count">共 ${total} 件上架商品</p>
           </div>
+          <form class="catalog-search" method="get" action="/" role="search">
+            <label for="catalog-query">商品名稱或 SKU</label>
+            <input id="catalog-query" type="search" name="q" value="${escapeHtml(q)}" maxlength="200" autocomplete="off">
+            <label for="catalog-min-price">最低價格（元）</label>
+            <input id="catalog-min-price" type="number" name="minPrice" value="${minPrice ?? ''}" min="0" step="1" inputmode="numeric">
+            <label for="catalog-max-price">最高價格（元）</label>
+            <input id="catalog-max-price" type="number" name="maxPrice" value="${maxPrice ?? ''}" min="0" step="1" inputmode="numeric">
+            <button type="submit">搜尋</button>
+          </form>
           ${products.length
             ? `<div class="catalog-grid">${cards}</div>`
-            : '<p class="empty-state">目前沒有上架的商品。</p>'}
+            : empty}
+          ${pagination}
         </section>
       </div>`;
     return layout({ title: '商品', body, ctx });
@@ -458,7 +515,8 @@ export const defaultTheme: StorefrontTheme = {
         ? 0
         : method.feeCents;
       const shippingText = shippingCents === 0 && method.feeCents > 0 ? '免運' : `運費 ${money(shippingCents)}`;
-      return `<option value="${escapeHtml(method.id)}"${method.id === view.selectedShippingMethodId ? ' selected' : ''}>${escapeHtml(method.name)}（${shippingText}${freeAt}）</option>`;
+      const label = method.destinationKind === 'pickup_store' ? `${method.name}（超商取貨，${shippingText}${freeAt}）` : `${method.name}（${shippingText}${freeAt}）`;
+      return `<option value="${escapeHtml(method.id)}"${method.id === view.selectedShippingMethodId ? ' selected' : ''}>${escapeHtml(label)}</option>`;
     }).join('');
     const paymentOptions = view.payment.methods.map((method) =>
       `<option value="${escapeHtml(method.code)}">${escapeHtml(method.label)}（${method.timing === 'deferred' ? '取得繳費資訊後付款' : '立即付款'}）</option>`,
@@ -466,6 +524,8 @@ export const defaultTheme: StorefrontTheme = {
     const field = (label: string, name: string, value: string | null | undefined, extra = '') =>
       `<label>${label}<input name="${name}" value="${escapeHtml(value ?? '')}" ${extra}></label>`;
     const canCheckout = view.shippingMethods.length > 0 && view.payment.methods.length > 0;
+    const selectedMethod = view.shippingMethods.find((method) => method.id === view.selectedShippingMethodId);
+    const needsPickupSelection = selectedMethod?.destinationKind === 'pickup_store' && !view.pickupSelection;
     const body = `
       <article class="checkout-page">
         ${pageHeading('建立訂單', '確認訂單', '請核對這次訂單的品項、金額與通知信箱。')}
@@ -503,7 +563,7 @@ export const defaultTheme: StorefrontTheme = {
                 <input type="hidden" name="confirm" value="1">
                 <input type="hidden" name="paymentProvider" value="${escapeHtml(view.payment.provider)}">
                 <input type="hidden" name="shippingMethodId" value="${escapeHtml(view.selectedShippingMethodId)}">
-                <fieldset class="profile-form__section">
+                ${view.pickupSelection ? `<fieldset class="profile-form__section"><legend>已選門市</legend><p><strong>${escapeHtml(view.pickupSelection.storeName)}</strong><br>${escapeHtml(view.pickupSelection.storeAddress)}</p><input type="hidden" name="pickupSelectionToken" value="${escapeHtml(view.pickupSelection.token)}"><div class="form-grid">${field('取貨人', 'pickupRecipient', address?.recipient, 'required maxlength="120" autocomplete="shipping name"')}${field('取貨電話', 'pickupPhone', address?.phone, 'required type="tel" maxlength="40" autocomplete="shipping tel"')}</div></fieldset>` : needsPickupSelection ? '' : `<fieldset class="profile-form__section">
                   <legend>配送方式與收件地址</legend>
                   <div class="form-grid">
                     ${field('收件人', 'recipient', address?.recipient, 'required maxlength="120" autocomplete="shipping name"')}
@@ -514,7 +574,7 @@ export const defaultTheme: StorefrontTheme = {
                     ${field('地址', 'line1', address?.line1, 'required maxlength="200" autocomplete="shipping address-line1"')}
                     ${field('地址第二行', 'line2', address?.line2, 'maxlength="200" autocomplete="shipping address-line2"')}
                   </div>
-                </fieldset>
+                </fieldset>`}
                 <fieldset class="profile-form__section">
                   <legend>付款方式</legend>
                   <label>付款方式
@@ -523,14 +583,37 @@ export const defaultTheme: StorefrontTheme = {
                     </select>
                   </label>
                 </fieldset>
-                <button type="submit" ${canCheckout ? '' : 'disabled'}>建立訂單並前往付款</button>
+                ${view.invoice?.enabled ? `<fieldset class="profile-form__section">
+                  <legend>電子發票</legend>
+                  <label>載具／捐贈選項
+                    <select name="invoicePreference">
+                      <option value="ecpay">綠界電子發票載具（以通知信箱歸戶）</option>
+                      <option value="mobile">手機條碼載具</option>
+                      <option value="natural_person">自然人憑證</option>
+                      <option value="donation">捐贈發票</option>
+                    </select>
+                  </label>
+                  <div class="form-grid">
+                    ${field('手機條碼或自然人憑證號碼', 'invoiceCarrierNumber', null, 'maxlength="16"')}
+                    ${field('愛心碼', 'invoiceLoveCode', null, 'inputmode="numeric" maxlength="7"')}
+                  </div>
+                  <p>選手機條碼或自然人憑證時填前一欄；選捐贈時填愛心碼。愛心碼會由綠界驗證。</p>
+                </fieldset>` : ''}
+                <button type="submit" ${canCheckout && !needsPickupSelection ? '' : 'disabled'}>建立訂單並前往付款</button>
               </form>
+              ${needsPickupSelection ? `<form method="post" action="/checkout/pickup/start">${csrfField(ctx)}<input type="hidden" name="cartId" value="${escapeHtml(view.cartId)}"><input type="hidden" name="shippingMethodId" value="${escapeHtml(view.selectedShippingMethodId)}"><button type="submit">選擇超商門市</button></form>` : ''}
               <a class="secondary-action" href="/cart">回購物車修改</a>
             </section>
           </aside>
         </div>
       </article>`;
     return layout({ title: '確認訂單', body, ctx });
+  },
+
+  renderPickupStorePicker(ctx, view) {
+    const choices = view.stores.map((store) => `<label class="card"><input type="radio" name="providerStoreId" value="${escapeHtml(store.providerStoreId)}" required> <strong>${escapeHtml(store.storeName)}</strong><br><span class="muted">${escapeHtml(store.storeAddress)}</span></label>`).join('');
+    const body = `<article><header class="page-heading"><p class="eyebrow">超商取貨</p><h1>選擇取貨門市</h1><p class="page-heading__copy">選定後會回到結帳頁；連結短暫有效。</p></header><form method="post" action="/checkout/pickup/callback"><input type="hidden" name="token" value="${escapeHtml(view.token)}">${choices || feedback('目前沒有可用門市。', 'error')}<button type="submit" ${view.stores.length ? '' : 'disabled'}>確認門市</button></form></article>`;
+    return layout({ title: '選擇取貨門市', body, ctx });
   },
 
   renderAccountRewards(ctx, { currency, balance, entries, tier }) {
@@ -659,6 +742,12 @@ export const defaultTheme: StorefrontTheme = {
           </form>
         </section>`
       : '';
+    const invoice = order.invoice
+      ? `<section class="account-panel" aria-labelledby="invoice-title">
+          <div class="section-heading"><h2 id="invoice-title">電子發票</h2><p>${escapeHtml(order.invoice.status)}</p></div>
+          <p>${order.invoice.invoiceNumber ? `發票號碼：${escapeHtml(order.invoice.invoiceNumber)}` : '發票正在處理，請稍後重新整理。'}</p>
+        </section>`
+      : '';
     const cancellation = order.canCancel
       ? `<section class="account-panel" aria-labelledby="cancel-order-title">
           <div class="section-heading"><h2 id="cancel-order-title">取消訂單</h2><p>尚未付款且未進入出貨流程</p></div>
@@ -679,6 +768,40 @@ export const defaultTheme: StorefrontTheme = {
                <p>${escapeHtml(order.delivery.destination.storeName)}：${escapeHtml(order.delivery.destination.storeAddress)}</p>`}
         </section>`
       : '';
+    const shipment = order.shipment
+      ? `<section class="account-panel" aria-labelledby="tracking-title">
+          <div class="section-heading"><h2 id="tracking-title">配送進度</h2><p>${shipmentStatus(order.shipment.status)}</p></div>
+          ${order.shipment.trackingNumber ? `<p>追蹤號碼：${escapeHtml(order.shipment.trackingNumber)}</p>` : '<p>物流單已建立，等待配送進度更新。</p>'}
+          ${order.shipment.trackingUrl ? `<p><a href="${escapeHtml(order.shipment.trackingUrl)}" rel="noopener noreferrer" target="_blank">查看物流追蹤</a></p>` : ''}
+        </section>`
+      : '';
+    const refunds = order.refunds.length > 0
+      ? `<section class="account-panel" aria-labelledby="refund-title">
+          <div class="section-heading"><h2 id="refund-title">退款進度</h2><p>退款會依金流作業時間完成</p></div>
+          <table class="data-table"><thead><tr><th scope="col">狀態</th><th scope="col">金額</th></tr></thead><tbody>
+          ${order.refunds.map((refund) => `<tr><td data-label="狀態">${escapeHtml(refund.status)}</td><td data-label="金額">${formatMoney(refund.amountCents, order.currency, ctx.locale)}</td></tr>`).join('')}
+          </tbody></table>
+        </section>`
+      : '';
+    const rmaProgress = order.rmas.length > 0
+      ? `<section class="account-panel" aria-labelledby="rma-progress-title">
+          <div class="section-heading"><h2 id="rma-progress-title">退貨／換貨案件進度</h2><p>換貨採退款後重新下單處理</p></div>
+          <ul>${order.rmas.map((rma) => `<li><strong>${rmaStatus(rma.status)}</strong>：${escapeHtml(rma.reason)}（${rma.lines.map((line) => `${escapeHtml(line.name)} × ${line.quantity}`).join('、')}）${rma.staffNote ? `<p>${escapeHtml(rma.staffNote)}</p>` : ''}</li>`).join('')}</ul>
+        </section>`
+      : '';
+    const rmaRequest = order.canRequestRma
+      ? `<section class="account-panel" aria-labelledby="rma-request-title">
+          <div class="section-heading"><h2 id="rma-request-title">申請退貨／換貨</h2><p>選擇欲退回的品項與數量；是否符合資格仍由系統與客服確認。</p></div>
+          <form method="post" action="/orders/${escapeHtml(order.number)}/rmas">
+            ${csrfField(ctx)}
+            <table class="data-table"><thead><tr><th scope="col">申請</th><th scope="col">商品</th><th scope="col">數量</th></tr></thead><tbody>
+              ${order.lines.map((line) => `<tr><td><input type="checkbox" name="orderLineId" value="${escapeHtml(line.id)}" aria-label="申請退回 ${escapeHtml(line.name)}"></td><td>${escapeHtml(line.name)}</td><td><input type="number" name="quantity_${escapeHtml(line.id)}" min="1" max="${line.quantity}" value="${line.quantity}" aria-label="${escapeHtml(line.name)} 退貨數量"></td></tr>`).join('')}
+            </tbody></table>
+            <label>申請原因<textarea name="reason" required maxlength="1000"></textarea></label>
+            <button type="submit">提出退貨／換貨申請</button>
+          </form>
+        </section>`
+      : '';
     const body = `
       <article class="order-page">
         ${pageHeading('訂單紀錄', `訂單 ${order.number}`, '訂單建立後的狀態以此頁資訊為準。')}
@@ -689,6 +812,7 @@ export const defaultTheme: StorefrontTheme = {
         ${paymentNotice}
         ${payment}
         ${paymentRetry}
+        ${invoice}
         ${cancellation}
         <div class="order-layout">
           <section class="account-panel" aria-labelledby="order-lines-title">
@@ -704,6 +828,10 @@ export const defaultTheme: StorefrontTheme = {
           </aside>
         </div>
         ${delivery}
+        ${shipment}
+        ${refunds}
+        ${rmaProgress}
+        ${rmaRequest}
         <p class="page-return"><a href="/">繼續購物</a></p>
       </article>`;
     return layout({ title: `訂單 ${order.number}`, body, ctx });
