@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import fastifyCookie from '@fastify/cookie';
@@ -132,21 +132,34 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
   });
 
   if (runtime.config.admin.enabled && release.adminDir && existsSync(release.adminDir)) {
+    const adminDir = resolve(release.adminDir);
     const prefix = runtime.config.admin.basePath.endsWith('/')
       ? runtime.config.admin.basePath
       : `${runtime.config.admin.basePath}/`;
-    app.useStaticAssets({ root: release.adminDir, prefix, decorateReply: false, wildcard: false });
+    // serve:false 只借用 reply.sendFile：靜態檔在請求當下解析，
+    // 不在啟動時把目錄快照成路由表（否則重新 build 後的 hash 檔名會全數 404）。
+    app.useStaticAssets({ root: adminDir, prefix, serve: false, decorateReply: true });
 
-    // Admin 是編譯後的 SPA：深層路徑（例如 /admin/orders）直接回 index.html。
-    // 直接註冊在 Fastify 上，不動 Nest 的路由表與 notFound handler。
-    const indexPath = join(release.adminDir, 'index.html');
+    const indexPath = join(adminDir, 'index.html');
     if (existsSync(indexPath)) {
-      const indexHtml = readFileSync(indexPath, 'utf8');
       const sendIndex = (_request: unknown, reply: FastifyReply) =>
-        reply.status(200).header('content-type', 'text/html; charset=utf-8').send(indexHtml);
+        reply
+          .status(200)
+          .header('content-type', 'text/html; charset=utf-8')
+          .header('cache-control', 'no-cache')
+          .send(readFileSync(indexPath, 'utf8'));
       const fastify = adapter.getInstance();
       fastify.get(runtime.config.admin.basePath, sendIndex);
-      fastify.get(`${prefix}*`, sendIndex);
+      // Admin 是編譯後的 SPA：有實體檔案就送檔，其餘深層路徑（例如 /admin/orders）回 index.html。
+      fastify.get(`${prefix}*`, (request, reply) => {
+        const relative = (request.params as Record<string, string>)['*'] ?? '';
+        const resolved = resolve(adminDir, relative);
+        const withinAdminDir = resolved === adminDir || resolved.startsWith(adminDir + sep);
+        if (relative && withinAdminDir && statSync(resolved, { throwIfNoEntry: false })?.isFile()) {
+          return (reply as FastifyReply & { sendFile(path: string): FastifyReply }).sendFile(relative);
+        }
+        return sendIndex(request, reply);
+      });
     }
   }
 
