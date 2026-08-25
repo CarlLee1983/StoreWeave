@@ -175,7 +175,7 @@ export function ProductsPage() {
         <Loading />
       ) : (
         <div className="table-wrap" aria-busy={loading}>
-          <table className="data-table products-table">
+          <table className="data-table data-table--fixed products-table">
             <thead>
               <tr>
                 <th style={{ width: '13%' }}>SKU</th>

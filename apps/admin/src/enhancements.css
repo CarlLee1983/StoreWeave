@@ -1047,19 +1047,31 @@
   color: var(--accent-brand);
 }
 
-/* 欄寬由 th 的百分比決定：auto layout 會讓長描述把名稱欄撐到表格橫向捲動，
-   把庫存與操作推出視窗外。 */
-.products-table {
+/* ── 資料表通用版型 ─────────────────────────────────────────
+   欄寬由 th 的百分比決定：auto layout 會讓長描述、錯誤訊息或 payload
+   把某一欄撐開，整張表橫向捲動，右側的操作欄直接掉出視窗。 */
+.data-table--fixed {
   table-layout: fixed;
 }
 
-/* 商品表格的欄位對齊：金額靠右讀得比較快，操作欄跟著右緣收齊。 */
-.products-table .col-numeric {
+/* 金額與數量靠右讀得比較快，操作欄跟著右緣收齊。 */
+.data-table .col-numeric {
+  text-align: right;
+  font-family: 'JetBrains Mono', 'Geist Mono', monospace;
+  font-feature-settings: 'tnum' 1;
+}
+
+.data-table .col-actions {
   text-align: right;
 }
 
-.products-table .col-actions {
-  text-align: right;
+/* 長文字（錯誤訊息、payload、ID）單行截斷，完整內容留在 title。 */
+.cell-truncate {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .products-table td {

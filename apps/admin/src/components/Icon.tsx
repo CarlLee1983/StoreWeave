@@ -31,7 +31,18 @@ export type IconName =
   | 'more'
   | 'archive'
   | 'eye-off'
-  | 'upload';
+  | 'upload'
+  | 'trash'
+  | 'send'
+  | 'ban'
+  | 'play'
+  | 'pause'
+  | 'file-text'
+  | 'link'
+  | 'plus'
+  | 'ticket'
+  | 'truck'
+  | 'refresh';
 
 export function Icon({ name }: { name: IconName }): ReactNode {
   const paths: Record<IconName, ReactNode> = {
@@ -185,6 +196,59 @@ export function Icon({ name }: { name: IconName }): ReactNode {
         <path d="M10.7 5.1A9.8 9.8 0 0 1 12 5c5 0 9 4.5 9 7a12 12 0 0 1-2.2 3.1M6.6 6.6A12.6 12.6 0 0 0 3 12c0 2.5 4 7 9 7a9.7 9.7 0 0 0 4.4-1" />
         <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
         <path d="m3 3 18 18" />
+      </>
+    ),
+    trash: (
+      <>
+        <path d="M4 7h16M10 11v6M14 11v6" />
+        <path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />
+        <path d="M9 7V4h6v3" />
+      </>
+    ),
+    send: (
+      <>
+        <path d="M21 3 3 10.5l7 3 3 7L21 3Z" />
+        <path d="m10 13.5 3.5-3.5" />
+      </>
+    ),
+    ban: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="m5.6 5.6 12.8 12.8" />
+      </>
+    ),
+    play: <path d="M7 4.5v15l12-7.5-12-7.5Z" />,
+    pause: <path d="M9 5v14M15 5v14" />,
+    'file-text': (
+      <>
+        <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z" />
+        <path d="M14 2v5h5M9 13h6M9 17h4" />
+      </>
+    ),
+    link: (
+      <>
+        <path d="M10 13a5 5 0 0 0 7.1 0l2.4-2.4a5 5 0 0 0-7.1-7.1L11 4.9" />
+        <path d="M14 11a5 5 0 0 0-7.1 0l-2.4 2.4a5 5 0 0 0 7.1 7.1l1.4-1.4" />
+      </>
+    ),
+    plus: <path d="M12 5v14M5 12h14" />,
+    ticket: (
+      <>
+        <path d="M3 9V7a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v2a3 3 0 0 0 0 6v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-2a3 3 0 0 0 0-6Z" />
+        <path d="M13 6v3M13 15v3" />
+      </>
+    ),
+    truck: (
+      <>
+        <path d="M3 6h11v9H3zM14 9h4l3 3v3h-7z" />
+        <circle cx="7" cy="18" r="1.6" />
+        <circle cx="17" cy="18" r="1.6" />
+      </>
+    ),
+    refresh: (
+      <>
+        <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+        <path d="M21 3v6h-6" />
       </>
     ),
     upload: (
