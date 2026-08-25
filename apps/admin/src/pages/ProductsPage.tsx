@@ -7,6 +7,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { CopyButton } from '../components/CopyButton';
 import { Icon, type IconName } from '../components/Icon';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { RowMenu, type RowMenuItem } from '../components/RowMenu';
 
 /**
  * 售價只接受十進位的非負整數字串。驗 `Number()` 的結果會放行 ''、'   '、
@@ -31,6 +32,7 @@ export function ProductsPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [adjustingStockTarget, setAdjustingStockTarget] = useState<{ product: Product; stock?: Stock } | null>(null);
+  const [creating, setCreating] = useState(false);
 
   // 當關鍵字或狀態篩選改變時，重設至第一頁
   const handleQueryChange = (val: string) => {
@@ -80,6 +82,17 @@ export function ProductsPage() {
   }, [q, status, page, pageSize, reloadKey]);
 
   const reload = () => setReloadKey((k) => k + 1);
+
+  // 頁首那顆「+ 建立商品」由 routes 宣告，預設只捲到 targetId；
+  // 這裡攔下同名事件改開抽屜，preventDefault 等於告訴 App「這頁自己處理了」。
+  useEffect(() => {
+    const openCreate = (event: Event) => {
+      event.preventDefault();
+      setCreating(true);
+    };
+    window.addEventListener('admin:action:create-product', openCreate);
+    return () => window.removeEventListener('admin:action:create-product', openCreate);
+  }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -157,8 +170,6 @@ export function ProductsPage() {
         </div>
       </div>
 
-      <CreateProductForm onCreated={reload} />
-
       {/* 商品表格 */}
       {loading && products.length === 0 ? (
         <Loading />
@@ -167,12 +178,12 @@ export function ProductsPage() {
           <table className="data-table products-table">
             <thead>
               <tr>
-                <th style={{ width: '16%' }}>SKU</th>
-                <th style={{ width: '24%' }}>{t('name')}</th>
-                <th style={{ width: '12%' }}>{t('price')}</th>
-                <th style={{ width: '10%' }}>{t('status')}</th>
-                <th style={{ width: '18%' }}>{t('inventory')}</th>
-                <th style={{ width: '20%' }}>操作與管理</th>
+                <th style={{ width: '13%' }}>SKU</th>
+                <th style={{ width: '31%' }}>{t('name')}</th>
+                <th style={{ width: '11%' }} className="col-numeric">{t('price')}</th>
+                <th style={{ width: '9%' }}>{t('status')}</th>
+                <th style={{ width: '21%' }}>{t('inventory')}</th>
+                <th style={{ width: '14%' }} className="col-actions">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -229,6 +240,14 @@ export function ProductsPage() {
         </div>
       )}
 
+      {/* 建立商品抽屜 */}
+      {creating ? (
+        <CreateProductDrawer
+          onClose={() => setCreating(false)}
+          onCreated={reload}
+        />
+      ) : null}
+
       {/* 側邊抽屜式商品編輯器 */}
       {editingProduct ? (
         <EditProductDrawer
@@ -263,14 +282,14 @@ export function ProductsPage() {
  */
 const NEXT_STATUS: Record<
   Product['status'],
-  { to: Product['status']; label: 'publish' | 'unpublish' | 'archive' | 'republish' }[]
+  { to: Product['status']; label: 'publish' | 'unpublish' | 'archive' | 'republish'; icon: IconName; danger?: boolean }[]
 > = {
-  draft: [{ to: 'active', label: 'publish' }],
+  draft: [{ to: 'active', label: 'publish', icon: 'upload' }],
   active: [
-    { to: 'draft', label: 'unpublish' },
-    { to: 'archived', label: 'archive' },
+    { to: 'draft', label: 'unpublish', icon: 'eye-off' },
+    { to: 'archived', label: 'archive', icon: 'archive', danger: true },
   ],
-  archived: [{ to: 'active', label: 'republish' }],
+  archived: [{ to: 'active', label: 'republish', icon: 'upload' }],
 };
 
 function ProductRow({
@@ -303,8 +322,19 @@ function ProductRow({
     }
   };
 
+  const menuItems: RowMenuItem[] = [
+    { key: 'adjust-stock', label: '調整庫存', icon: 'box', onSelect: onAdjustStock },
+    ...NEXT_STATUS[product.status].map((transition) => ({
+      key: transition.to,
+      label: t(transition.label),
+      icon: transition.icon,
+      danger: transition.danger,
+      onSelect: () => void changeStatus(transition.to),
+    })),
+  ];
+
   return (
-    <tr>
+    <tr className="product-row">
       <td>
         <div className="product-sku-cell">
           <span className="mono">{product.sku}</span>
@@ -321,7 +351,7 @@ function ProductRow({
           ) : null}
         </div>
       </td>
-      <td className="mono product-price-cell">
+      <td className="mono product-price-cell col-numeric">
         {formatMoney(product.priceCents, product.currency)}
       </td>
       <td>
@@ -337,13 +367,14 @@ function ProductRow({
           >
             <div className="stock-breakdown">
               <span className={`stock-avail ${stock.available > 0 ? 'stock-avail--ok' : 'stock-avail--out'}`}>
-                可售 {stock.available} 件
+                可售 {stock.available}
               </span>
+              {/* 保留為 0 時不佔位：一整欄的「保留 0」只是噪音。 */}
               <span className="stock-meta">
-                現貨 {stock.onHand} · 保留 {stock.reserved}
+                現貨 {stock.onHand}{stock.reserved > 0 ? ` · 保留 ${stock.reserved}` : ''}
               </span>
             </div>
-            <span className="stock-btn-hint">調整 <Icon name="pencil" /></span>
+            <span className="stock-btn-hint" aria-hidden="true"><Icon name="pencil" /></span>
           </button>
         ) : (
           <span className="text-muted">—</span>
@@ -351,34 +382,16 @@ function ProductRow({
       </td>
       <td>
         <div className="product-actions-cell">
-          <div className="inline-form product-lifecycle-form">
+          <div className="product-actions-row">
             <button
-              className="button button--primary edit-btn"
+              className="button button--quiet edit-btn"
               type="button"
               disabled={submitting}
               onClick={onEdit}
             >
-              <Icon name="receipt" /> {t('edit')}
+              <Icon name="pencil" /> {t('edit')}
             </button>
-            <button
-              className="button stock-adjust-btn"
-              type="button"
-              disabled={submitting}
-              onClick={onAdjustStock}
-            >
-              <Icon name="box" /> 調整庫存
-            </button>
-            {NEXT_STATUS[product.status].map((transition) => (
-              <button
-                key={transition.to}
-                className="button status-transition-btn"
-                type="button"
-                disabled={submitting}
-                onClick={() => void changeStatus(transition.to)}
-              >
-                {t(transition.label)}
-              </button>
-            ))}
+            <RowMenu disabled={submitting} items={menuItems} />
           </div>
           {statusError ? <ErrorBanner error={statusError} onDismiss={() => setStatusError(null)} /> : null}
         </div>
@@ -789,8 +802,9 @@ function EditProductDrawer({
   );
 }
 
-function CreateProductForm({ onCreated }: { onCreated: () => void }) {
-  const { t } = useI18n();
+/** 建立商品抽屜：與編輯共用同一套版型，避免建立表單常駐佔掉清單上方一整塊。 */
+function CreateProductDrawer({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const { t, formatMoney } = useI18n();
   const [sku, setSku] = useState('');
   const [name, setName] = useState('');
   const [priceCents, setPriceCents] = useState('');
@@ -799,7 +813,15 @@ function CreateProductForm({ onCreated }: { onCreated: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
-  const handleSubmit = async () => {
+  useEscapeKey(onClose);
+
+  const parsedPrice = parsePriceCents(priceCents);
+  // 還沒輸入就先喊「無效金額」只是嚇人，留白到真的打錯為止。
+  const pricePreview = priceCents.trim() === ''
+    ? null
+    : parsedPrice !== null ? formatMoney(parsedPrice, currency) : '無效金額';
+
+  const submit = async () => {
     const price = parsePriceCents(priceCents);
     if (!sku.trim() || !name.trim() || price === null) {
       setError(new Error(t('invalidProduct')));
@@ -809,10 +831,8 @@ function CreateProductForm({ onCreated }: { onCreated: () => void }) {
     setError(null);
     try {
       await api.createProduct({ sku: sku.trim(), name: name.trim(), priceCents: price, currency, status });
-      setSku('');
-      setName('');
-      setPriceCents('');
       onCreated();
+      onClose();
     } catch (err) {
       setError(err);
     } finally {
@@ -821,23 +841,120 @@ function CreateProductForm({ onCreated }: { onCreated: () => void }) {
   };
 
   return (
-    <fieldset id="create-product" className="form-panel create-product-panel">
-      <legend>+ {t('createProduct')}</legend>
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-      <div className="inline-form create-product-inputs">
-        <input placeholder="SKU (例如: WD-NEW-01)" value={sku} onChange={(e) => setSku(e.target.value)} />
-        <input placeholder={t('name')} value={name} onChange={(e) => setName(e.target.value)} />
-        <input placeholder={t('priceCents')} value={priceCents} onChange={(e) => setPriceCents(e.target.value)} />
-        <input placeholder={t('currency')} value={currency} onChange={(e) => setCurrency(e.target.value)} style={{ width: '80px' }} />
-        <select value={status} onChange={(e) => setStatus(e.target.value as Product['status'])}>
-          <option value="draft">{t('draft')}</option>
-          <option value="active">{t('active')}</option>
-          <option value="archived">{t('archived')}</option>
-        </select>
-        <button className="button button--primary" type="button" disabled={submitting} onClick={handleSubmit}>
-          {t('create')}
-        </button>
+    <div className="payload-overlay" role="presentation" onMouseDown={onClose}>
+      <div
+        className="payload-drawer product-edit-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('createProduct')}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <header className="product-drawer-header">
+          <div>
+            <h2>{t('createProduct')}</h2>
+            <p className="product-drawer-sku">建立後仍可編輯名稱、售價與描述，SKU 則不可更改。</p>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('close')} title={t('close')}>
+            <Icon name="chevron" />
+          </button>
+        </header>
+
+        <form
+          className="form-panel product-drawer-form"
+          aria-label={t('createProduct')}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+
+          <div className="drawer-form-body">
+            <div className="form-field">
+              <label htmlFor="create-product-sku">
+                <span className="field-label-text">SKU <b className="required-star">*</b></span>
+              </label>
+              <input
+                id="create-product-sku"
+                aria-label="SKU"
+                className="mono"
+                autoFocus
+                value={sku}
+                onChange={(e) => setSku(e.target.value)}
+                placeholder="例如：WD-NEW-01"
+              />
+              <p className="field-hint">出貨、對帳與 ERP 都以 SKU 為準，建立後不可更改。</p>
+            </div>
+
+            <div className="form-field">
+              <label htmlFor="create-product-name">
+                <span className="field-label-text">{t('name')} <b className="required-star">*</b></span>
+              </label>
+              <input
+                id="create-product-name"
+                aria-label={t('name')}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="輸入商品名稱"
+              />
+            </div>
+
+            <div className="form-field">
+              <label htmlFor="create-product-price">
+                <span className="field-label-text">{t('priceCents')} <b className="required-star">*</b></span>
+                {pricePreview ? <span className="price-preview-badge">預覽：{pricePreview}</span> : null}
+              </label>
+              <input
+                id="create-product-price"
+                aria-label={t('priceCents')}
+                value={priceCents}
+                onChange={(e) => setPriceCents(e.target.value)}
+                placeholder="例如：128000"
+              />
+            </div>
+
+            <div className="form-grid-2">
+              <div className="form-field">
+                <label htmlFor="create-product-currency">
+                  <span className="field-label-text">{t('currency')}</span>
+                </label>
+                <input
+                  id="create-product-currency"
+                  aria-label={t('currency')}
+                  className="mono"
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value)}
+                />
+              </div>
+
+              <div className="form-field">
+                <label htmlFor="create-product-status">
+                  <span className="field-label-text">{t('status')}</span>
+                </label>
+                <select
+                  id="create-product-status"
+                  aria-label={t('status')}
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as Product['status'])}
+                >
+                  <option value="draft">{t('draft')}</option>
+                  <option value="active">{t('active')}</option>
+                  <option value="archived">{t('archived')}</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <footer className="product-drawer-footer">
+            <button className="button" type="button" onClick={onClose}>
+              {t('cancel')}
+            </button>
+            <button className="button button--primary" disabled={submitting}>
+              {submitting ? '建立中…' : t('create')}
+            </button>
+          </footer>
+        </form>
       </div>
-    </fieldset>
+    </div>
   );
 }

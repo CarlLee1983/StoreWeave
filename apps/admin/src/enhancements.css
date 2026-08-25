@@ -400,32 +400,30 @@
   color: var(--text-muted);
 }
 
-.create-product-panel {
-  margin-bottom: 8px;
-}
-
-.create-product-inputs {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) auto;
-  gap: 8px;
-}
-
 .product-sku-cell {
   display: flex;
   align-items: center;
+  gap: 2px;
+  white-space: nowrap;
 }
 
 .product-name-cell {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+  min-width: 0;
+}
+
+.product-name-cell strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .product-desc-snippet {
   margin: 0;
   color: var(--text-muted);
-  font-size: 11.5px;
-  max-width: 280px;
+  font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -467,6 +465,75 @@
   gap: 6px;
 }
 
+/* 主要動作留在列上，其餘進 ⋯ 選單：四顆按鈕平鋪會把列高撐成三倍。 */
+.product-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.row-menu {
+  position: relative;
+}
+
+.row-menu__trigger {
+  padding: 4px 6px;
+}
+
+.row-menu__popup {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 168px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-surface-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.row-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.row-menu__item:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.row-menu__item .icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+}
+
+.row-menu__item--danger {
+  color: var(--status-error-text);
+}
+
+.row-menu__item--danger:hover {
+  background: var(--status-error-bg);
+  color: var(--status-error-text);
+}
+
+.row-menu__item--danger .icon {
+  color: var(--status-error-text);
+}
+
 .inventory-inline-form {
   display: grid;
   grid-template-columns: 70px 1fr auto;
@@ -482,19 +549,41 @@
   width: 100%;
 }
 
-.product-lifecycle-form {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
 .edit-btn {
   font-size: 12px;
+  padding: 4px 10px;
 }
 
-.status-transition-btn {
-  font-size: 11.5px;
+/* 庫存格本身就是調整入口，維持單一列高。 */
+.products-table .stock-breakdown-btn {
+  width: 100%;
+  padding: 3px 8px;
+}
+
+/* 庫存收成一行：可售是主要數字，現貨／保留退成同一行的註腳，
+   兩行版本會把整列撐高到近兩倍。 */
+.products-table .stock-breakdown {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.products-table .stock-avail {
+  white-space: nowrap;
+}
+
+.products-table .stock-meta {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
 /* Pagination Bar */
@@ -956,4 +1045,23 @@
 
 .stock-mode-tab--set.stock-mode-tab--active .icon {
   color: var(--accent-brand);
+}
+
+/* 欄寬由 th 的百分比決定：auto layout 會讓長描述把名稱欄撐到表格橫向捲動，
+   把庫存與操作推出視窗外。 */
+.products-table {
+  table-layout: fixed;
+}
+
+/* 商品表格的欄位對齊：金額靠右讀得比較快，操作欄跟著右緣收齊。 */
+.products-table .col-numeric {
+  text-align: right;
+}
+
+.products-table .col-actions {
+  text-align: right;
+}
+
+.products-table td {
+  height: 48px;
 }

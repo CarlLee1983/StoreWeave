@@ -48,6 +48,13 @@ export function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  // 頁首動作先廣播給當前頁面：頁面接手（preventDefault）就由它自己開抽屜，
+  // 沒人接才退回原本的「捲到頁內表單」。
+  const runPageAction = (targetId: string) => {
+    const handled = !window.dispatchEvent(new CustomEvent(`admin:action:${targetId}`, { cancelable: true }));
+    if (!handled) document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   const go = (nextRoute: Route) => { navigate(nextRoute); setCommandOpen(false); };
   const handleLoggedIn = (user: CurrentUser) => { setCurrentUser(user); setAuthStatus('authed'); setTokenVersion((value) => value + 1); };
   const handleLogout = () => { api.logout().catch(() => {}).finally(() => { setCurrentUser(null); setAuthStatus('anon'); }); };
@@ -198,7 +205,7 @@ export function App() {
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => document.getElementById(currentPage.action!.targetId)?.scrollIntoView({ behavior: 'smooth' })}
+                onClick={() => runPageAction(currentPage.action!.targetId)}
               >
                 + {t(currentPage.action.label)}
               </button>

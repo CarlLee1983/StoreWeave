@@ -27,7 +27,11 @@ export type IconName =
   | 'gift'
   | 'rotate'
   | 'arrow-left'
-  | 'arrow-right';
+  | 'arrow-right'
+  | 'more'
+  | 'archive'
+  | 'eye-off'
+  | 'upload';
 
 export function Icon({ name }: { name: IconName }): ReactNode {
   const paths: Record<IconName, ReactNode> = {
@@ -160,6 +164,33 @@ export function Icon({ name }: { name: IconName }): ReactNode {
       <>
         <path d="M19 12H5" />
         <path d="m12 19-7-7 7-7" />
+      </>
+    ),
+    more: (
+      <>
+        <circle cx="5" cy="12" r="1" />
+        <circle cx="12" cy="12" r="1" />
+        <circle cx="19" cy="12" r="1" />
+      </>
+    ),
+    archive: (
+      <>
+        <rect x="3" y="4" width="18" height="4" rx="1" />
+        <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+        <path d="M10 12h4" />
+      </>
+    ),
+    'eye-off': (
+      <>
+        <path d="M10.7 5.1A9.8 9.8 0 0 1 12 5c5 0 9 4.5 9 7a12 12 0 0 1-2.2 3.1M6.6 6.6A12.6 12.6 0 0 0 3 12c0 2.5 4 7 9 7a9.7 9.7 0 0 0 4.4-1" />
+        <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+        <path d="m3 3 18 18" />
+      </>
+    ),
+    upload: (
+      <>
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <path d="m7 9 5-5 5 5M12 4v12" />
       </>
     ),
     'arrow-right': (
