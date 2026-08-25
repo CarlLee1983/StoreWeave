@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { sql } from 'drizzle-orm';
 import { bootstrap } from '@storeweave/bundle';
 import { accountService } from '@storeweave/identity';
 import type { Actor, Runtime } from '@storeweave/kernel';
@@ -296,17 +297,16 @@ async function seed(runtime: Runtime) {
       accrualBasisPoints: 500, // 5% 回饋
       effectiveAfterDays: 0,
       expiresAfterDays: 365,
-      neverExpires: false,
       expiryNoticeDays: 30,
     },
     { actor: SEED_ACTOR, idempotencyKey: 'seed-loyalty-settings' },
   );
 
   const tiers = [
-    { name: '織日會員', thresholdPoints: 0, multiplier: 1.0 },
-    { name: '銀卡會員', thresholdPoints: 3_000, multiplier: 1.2 },
-    { name: '金卡會員', thresholdPoints: 8_000, multiplier: 1.5 },
-    { name: '黑卡 VIP', thresholdPoints: 20_000, multiplier: 2.0 },
+    { name: '一般會員', thresholdPoints: 0, multiplierBasisPoints: 10_000 },
+    { name: '銀卡', thresholdPoints: 3_000, multiplierBasisPoints: 12_000 },
+    { name: '金卡', thresholdPoints: 10_000, multiplierBasisPoints: 15_000 },
+    { name: '黑卡 VIP', thresholdPoints: 20_000, multiplierBasisPoints: 20_000 },
   ];
 
   for (const tier of tiers) {
@@ -315,7 +315,7 @@ async function seed(runtime: Runtime) {
       tier,
       { actor: SEED_ACTOR, idempotencyKey: `seed-tier-${tier.name}` },
     );
-    console.log(`  ✓ 會員等級: ${tier.name} (門檻 ${tier.thresholdPoints} 點 / ${tier.multiplier}x)`);
+    console.log(`  ✓ 會員等級: ${tier.name} (門檻 ${tier.thresholdPoints} 點 / ${(tier.multiplierBasisPoints / 10_000).toFixed(1)}x)`);
   }
 
   // 4. 促銷活動 (Promotions)
@@ -464,6 +464,7 @@ async function seed(runtime: Runtime) {
   // 6. 商品與庫存 (Products & Stock)
   console.log(`✓ 注入 ${PRODUCTS.length} 件精選商品與庫存...`);
   for (const item of PRODUCTS) {
+    let productId: string | undefined;
     try {
       const product = await runtime.commands.execute<{ id: string }>(
         'commerce.catalog.createProduct',
@@ -477,24 +478,29 @@ async function seed(runtime: Runtime) {
         },
         { actor: SEED_ACTOR, idempotencyKey: `seed-product-${item.sku}` },
       );
+      productId = product.id;
+    } catch {
+      const rows = await runtime.db.execute<{ id: string }>(
+        sql`SELECT id FROM catalog_products WHERE sku = ${item.sku}`,
+      );
+      productId = rows.rows[0]?.id;
+    }
 
-      if (item.stock > 0) {
+    if (productId && item.stock > 0) {
+      try {
         await runtime.commands.execute(
           'commerce.inventory.adjustStock',
           {
-            productId: product.id,
+            productId,
             delta: item.stock,
-            reason: '初始首發進貨',
+            reason: 'restock',
+            reference: '初始首發進貨',
           },
-          { actor: SEED_ACTOR, idempotencyKey: `seed-stock-${item.sku}` },
+          { actor: SEED_ACTOR, idempotencyKey: `seed-stock-${item.sku}-${item.stock}` },
         );
-      }
-      console.log(`  ✓ [${item.sku}] ${item.name} ($${(item.priceCents / 100).toLocaleString()} · 庫存 ${item.stock})`);
-    } catch (err: any) {
-      if (!err.message?.includes('already exists')) {
-        console.warn(`  ⚠️ 商品 ${item.sku} 建立提示:`, err.message);
-      }
+      } catch {}
     }
+    console.log(`  ✓ [${item.sku}] ${item.name} ($${(item.priceCents / 100).toLocaleString()} · 庫存 ${item.stock})`);
   }
 
   // 7. 示範帳號 (Demo Accounts)
@@ -514,6 +520,7 @@ async function seed(runtime: Runtime) {
   } catch {}
 
   // 金卡 VIP 顧客
+  let vipCustomerId: string | undefined;
   try {
     const vip = await runtime.commands.execute<{ customer: { id: string } }>(
       'commerce.customer.registerCustomer',
@@ -524,29 +531,40 @@ async function seed(runtime: Runtime) {
       },
       { actor: SEED_ACTOR, idempotencyKey: 'seed-customer-vip' },
     );
-
-    // 賦予初始購物金 $650 與 8,500 點等級積分
-    await runtime.commands.execute(
-      'commerce.loyalty.adjustReward',
-      {
-        customerId: vip.customer.id,
-        amountCents: 65_000,
-        reason: 'VIP 會員年度回饋禮遇',
-      },
-      { actor: SEED_ACTOR, idempotencyKey: 'seed-vip-rewards' },
+    vipCustomerId = vip.customer.id;
+  } catch {
+    const rows = await runtime.db.execute<{ id: string }>(
+      sql`SELECT c.id FROM customer_profiles c JOIN platform_users u ON c.account_id = u.id WHERE u.email = 'gold_vip@woven-day.test'`,
     );
+    vipCustomerId = rows.rows[0]?.id;
+  }
 
-    await runtime.commands.execute(
-      'commerce.loyalty.adjustTierPoints',
-      {
-        customerId: vip.customer.id,
-        points: 8_500,
-        reason: '過往年度累積消費積分',
-      },
-      { actor: SEED_ACTOR, idempotencyKey: 'seed-vip-points' },
-    );
+  if (vipCustomerId) {
+    try {
+      await runtime.commands.execute(
+        'commerce.loyalty.adjustReward',
+        {
+          customerId: vipCustomerId,
+          amountCents: 65_000,
+          reason: 'VIP 會員年度回饋禮遇',
+        },
+        { actor: SEED_ACTOR, idempotencyKey: 'seed-vip-rewards-v1' },
+      );
+    } catch {}
+
+    try {
+      await runtime.commands.execute(
+        'commerce.loyalty.adjustTierPoints',
+        {
+          customerId: vipCustomerId,
+          points: 8_500,
+          reason: '過往年度累積消費積分',
+        },
+        { actor: SEED_ACTOR, idempotencyKey: 'seed-vip-points-v1' },
+      );
+    } catch {}
     console.log('  ✓ 金卡 VIP 會員: gold_vip@woven-day.test (密碼: CustomerPassword123! · 購物金 $650 · 積分 8,500)');
-  } catch {}
+  }
 
   // 一般示範顧客
   try {

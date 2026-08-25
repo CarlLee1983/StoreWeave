@@ -4,11 +4,11 @@ version: 1
 
 store:
   id: example-store
-  name: 範例商店
+  name: 織日選物 · Woven Day
   currency: TWD
   locale: zh-TW
   timezone: Asia/Taipei
-  supportEmail: support@example.com
+  supportEmail: service@wovenday.tw
 
 http:
   host: 0.0.0.0
@@ -33,8 +33,8 @@ worker:
 theme:
   id: default
   options:
-    accentColor: "#0f766e"
-    tagline: 台灣在地選物
+    accentColor: "#8C3E28"
+    tagline: 日日相伴的器物與手織生活工藝
     showSku: true
 
 admin:

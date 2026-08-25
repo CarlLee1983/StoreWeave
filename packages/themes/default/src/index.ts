@@ -3,6 +3,7 @@ import type {
   StorefrontTheme, ThemeAccountCouponsView, ThemeAuthView, ThemeCartView, ThemeCatalogView, ThemeContext, ThemeOrderView,
 } from '@storeweave/kernel';
 import { escapeHtml, formatMoney, layout } from './layout';
+import { getCategoryBadge, getProductCategory, renderProductArtwork } from './artwork';
 
 type AccountSection = 'orders' | 'coupons' | 'rewards' | 'profile';
 
@@ -364,10 +365,17 @@ export const defaultTheme: StorefrontTheme = {
       const availability = product.available === null
         ? ''
         : product.available > 0 ? `可售 ${product.available} 件` : '已售完';
+      const category = getProductCategory(product.sku, product.name);
+      const badge = getCategoryBadge(category);
+      const artwork = renderProductArtwork(product.sku, product.name);
       return `
-        <article class="product-card">
+        <article class="product-card" data-category="${category}">
+          <div class="product-card__visual">
+            ${artwork}
+            <span class="product-card__category-badge">${badge.label}</span>
+          </div>
           <a class="product-card__link" href="/p/${escapeHtml(product.id)}" aria-label="${escapeHtml(product.name)} 的商品詳情">
-            <div>
+            <div class="product-card__content">
               <span class="product-card__tag">選物精選</span>
               ${ctx.options.showSku !== false ? `<p class="product-card__sku">${escapeHtml(product.sku)}</p>` : ''}
               <h2>${escapeHtml(product.name)}</h2>
@@ -440,7 +448,7 @@ export const defaultTheme: StorefrontTheme = {
           <p>為不同時段與空間準備的選物提案</p>
         </div>
         <div class="curated-grid">
-          <a class="curated-card" href="#products-title">
+          <a class="curated-card" href="/?q=器皿#products-title">
             <div>
               <p class="curated-card__tag">Dining & Kitchen</p>
               <h3>日常器皿</h3>
@@ -448,7 +456,7 @@ export const defaultTheme: StorefrontTheme = {
             </div>
             <span class="curated-card__cta">探索器皿 →</span>
           </a>
-          <a class="curated-card" href="#products-title">
+          <a class="curated-card" href="/?q=布#products-title">
             <div>
               <p class="curated-card__tag">Textile & Living</p>
               <h3>手織布品</h3>
@@ -456,7 +464,7 @@ export const defaultTheme: StorefrontTheme = {
             </div>
             <span class="curated-card__cta">探索織品 →</span>
           </a>
-          <a class="curated-card" href="#products-title">
+          <a class="curated-card" href="/?q=木#products-title">
             <div>
               <p class="curated-card__tag">Wooden Utensils</p>
               <h3>木作與生活道具</h3>
@@ -466,6 +474,15 @@ export const defaultTheme: StorefrontTheme = {
           </a>
         </div>
       </section>`;
+
+    const categoryTabs = `
+      <nav class="catalog-category-tabs" aria-label="商品分類快速瀏覽">
+        <a href="/#products-title" class="category-tab${!q && minPrice === null && maxPrice === null ? ' category-tab--active' : ''}">全部選品 (${total})</a>
+        <a href="/?q=器皿#products-title" class="category-tab${q === '器皿' ? ' category-tab--active' : ''}">日常器皿</a>
+        <a href="/?q=布#products-title" class="category-tab${q === '布' || q === '麻' ? ' category-tab--active' : ''}">手織布品</a>
+        <a href="/?q=木#products-title" class="category-tab${q === '木' ? ' category-tab--active' : ''}">木作道具</a>
+        <a href="/?q=香氛#products-title" class="category-tab${q === '香氛' || q === '蠟燭' ? ' category-tab--active' : ''}">居家香氛</a>
+      </nav>`;
 
     const philosophySection = `
       <section class="philosophy-section" id="philosophy" aria-labelledby="philosophy-title">
@@ -527,12 +544,13 @@ export const defaultTheme: StorefrontTheme = {
         ${isFilteredOrPaged ? '' : heroSection}
         ${isFilteredOrPaged ? '' : brandPillars}
         ${isFilteredOrPaged ? '' : curatedBento}
-        <section class="catalog-section" aria-labelledby="products-title">
+        <section class="catalog-section" id="products-title" aria-labelledby="products-heading">
           <div class="catalog-section__header">
-            <h2 id="products-title">${heading}</h2>
+            <h2 id="products-heading">${heading}</h2>
             <p class="catalog-section__count">共 ${total} 件上架商品</p>
           </div>
-          <form class="catalog-search" method="get" action="/" role="search">
+          ${categoryTabs}
+          <form class="catalog-search" method="get" action="/#products-title" role="search">
             <label for="catalog-query">商品名稱或 SKU</label>
             <input id="catalog-query" type="search" name="q" value="${escapeHtml(q)}" maxlength="200" autocomplete="off">
             <label for="catalog-min-price">最低價格（元）</label>
@@ -558,15 +576,26 @@ export const defaultTheme: StorefrontTheme = {
     const availability = product.available === null
       ? ''
       : product.available > 0 ? `可售 ${product.available} 件` : '已售完';
+    const category = getProductCategory(product.sku, product.name);
+    const badge = getCategoryBadge(category);
+    const heroArtwork = renderProductArtwork(product.sku, product.name, 'hero');
+
     const body = `
       <article class="product-page">
         <nav class="breadcrumb" aria-label="麵包屑">
-          <a href="/">商品選購</a><span aria-hidden="true"> / </span><span>${escapeHtml(product.name)}</span>
+          <a href="/">商品選購</a><span aria-hidden="true"> / </span><span>${badge.label}</span><span aria-hidden="true"> / </span><span>${escapeHtml(product.name)}</span>
         </nav>
         <div class="product-detail">
           <section class="product-detail__content">
+            <div class="product-hero-visual">
+              ${heroArtwork}
+              <div class="product-hero-visual__badge">
+                <span>${badge.en}</span>
+                <strong>${badge.label}</strong>
+              </div>
+            </div>
             <div>
-              <p class="eyebrow">商品詳情</p>
+              <p class="eyebrow">${badge.en} · ${escapeHtml(ctx.storeName)}</p>
               <h1>${escapeHtml(product.name)}</h1>
               ${ctx.options.showSku !== false ? `<p class="product-detail__sku">${escapeHtml(product.sku)}</p>` : ''}
             </div>
