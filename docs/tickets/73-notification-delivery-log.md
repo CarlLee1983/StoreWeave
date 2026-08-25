@@ -7,10 +7,12 @@
 
 **Blocked by:** —
 
-- [ ] `/api/v1/notification-deliveries` 提供列表查詢，可依訂單與狀態篩選
-- [ ] 後台頁顯示事件、通道、收件對象的遮蔽值、狀態、嘗試次數與失敗原因
-- [ ] 收件人資訊要遮蔽：查得到「送給誰」不等於把 email 與手機完整攤在營運頁上
-- [ ] 補 HTTP 與 jsdom 測試，涵蓋篩選與無權限 token 的 403
+**Status:** completed
+
+- [x] `/api/v1/notification-deliveries` 提供列表查詢，可依訂單與狀態篩選
+- [x] 後台頁顯示事件、通道、收件對象的遮蔽值、狀態、嘗試次數與失敗原因
+- [x] 收件人資訊要遮蔽：查得到「送給誰」不等於把 email 與手機完整攤在營運頁上
+- [x] 補 HTTP 與 jsdom 測試，涵蓋篩選與無權限 token 的 403
 
 ## 不做的事
 

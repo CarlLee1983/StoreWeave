@@ -57,7 +57,14 @@ describe('訂單生命週期通知', () => {
       expect(row.reference).toContain(row.eventId);
       expect(row.attempts).toBe(1);
     }
-    expect(rows.find((row) => row.template === 'customer.shipment-shipped')?.variables).toMatchObject({ shipmentId: shipment.id });
+    // 營運清單刻意不帶 variables（工單 73）：那份 payload 有顧客姓名與訂單細節。
+    // 要驗投遞內容就讀 system-only 的單筆查詢——admin 的 `*` 也拿不到，那是刻意的。
+    const shipped = rows.find((row) => row.template === 'customer.shipment-shipped')!;
+    const full = await h.runtime.queries.execute<{ variables: Record<string, unknown> }>(
+      'commerce.notification.getLifecycleDelivery', { id: shipped.id },
+      { actor: { id: 'system', type: 'system', displayName: 'system', permissions: ['*'] } },
+    );
+    expect(full.variables).toMatchObject({ shipmentId: shipment.id });
   });
 
   it('重複 worker drain 不重送同一 event/template', async () => {

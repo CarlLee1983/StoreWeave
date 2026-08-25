@@ -28,4 +28,13 @@ export const listLifecycleDeliveriesInput = z.object({
   orderId: z.string().uuid().optional(), status: z.enum(['pending', 'sent', 'failed']).optional(),
   limit: z.number().int().min(1).max(100).default(50), offset: z.number().int().min(0).default(0),
 }).strict();
-export const listLifecycleDeliveriesOutput = z.object({ items: z.array(lifecycleDeliveryDto), total: z.number().int().nonnegative() });
+/**
+ * 營運頁看得到的形狀：收件人只給遮蔽值，`variables` 整個不給。
+ * 那份 payload 帶顧客姓名與訂單細節，而營運要回答的問題只是「送了沒、為什麼失敗」。
+ */
+export const lifecycleDeliverySummaryDto = lifecycleDeliveryDto
+  .omit({ recipientEmail: true, variables: true })
+  .extend({ recipientMasked: z.string() });
+export type LifecycleDeliverySummaryDto = z.infer<typeof lifecycleDeliverySummaryDto>;
+
+export const listLifecycleDeliveriesOutput = z.object({ items: z.array(lifecycleDeliverySummaryDto), total: z.number().int().nonnegative() });
