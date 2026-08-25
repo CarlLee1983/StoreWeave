@@ -53,6 +53,7 @@ ctx.commands.execute(name, input, { idempotencyKey })   // 只能用 manifest �
 ctx.queries.execute(name, input)
 ctx.jobs.enqueue({ type, payload, dedupeKey, runAt, maxAttempts })  // type 必須是 ext.<id>.*
 ctx.jobs.requeue(jobId)       // 人工重送
+ctx.jobs.retryDead(jobId)     // 僅重送死信；有外部副作用時優先使用
 ctx.store                     // 以 extension id 隔離的 get/set/delete/list/mutate
 ctx.getProvider('erp')        // 只拿得到宣告過的 provider kind
 ctx.secret('DEMO_ERP_API_KEY')// 只讀得到 requiredSecrets 列出的名稱

@@ -49,6 +49,36 @@ ECPay 可達，並受到來源 IP rate limit 保護。
 [ECPay Checkout 上線 Runbook](runbooks/ecpay-release.md)。目前 checkout adapter **沒有**實作退款或
 已確認的主動查詢 API，請勿在營運流程假設這些能力。
 
+## 綠界物流 adapter（UAT gate）
+
+`ecpay-logistics` 是獨立於付款的 shipping extension；它訂閱本地 shipment 建立事件，將建單放進可重試的背景工作，並只透過 provider contract 回寫 provider reference、追蹤號和不含 URL／憑證的標籤列印參照。它不會讓 Order 或 Shipping module 依賴綠界 HTTP 格式。
+
+```yaml
+extensions:
+  - id: ecpay-logistics
+    enabled: true
+    config:
+      environment: stage
+      mode: external_gate # 預設；明確阻擋真實物流呼叫
+      homeDeliveryServiceTypes: [home_delivery]
+      statusQueryIntervalMinutes: 30
+      statusQueryBatchSize: 100
+```
+
+Secret provider 必須提供獨立的物流 secret 名稱，不能放在 YAML：
+
+```text
+ECPAY_LOGISTICS_MERCHANT_ID=...
+ECPAY_LOGISTICS_HASH_KEY=...
+ECPAY_LOGISTICS_HASH_IV=...
+```
+
+`mode: fake` 僅供 repository test 使用，會建立 deterministic fake 託運單、模擬「遠端已成功但回應 timeout」的重試調和，並支援可設定的主動查詢階段；production 設定會拒絕 fake mode。`external_gate` 的 health check 會回不健康，且不進行網路呼叫——目前 adapter 沒有猜測任何未經 UAT 證實的建立／列印／查詢 endpoint 或欄位。
+
+主動查詢每 `statusQueryIntervalMinutes` 分鐘掃描一次已建單、尚未完成的 shipment，依固定 key cursor 公平地分批排入可重試 job。查詢 job 只讀取 provider reference、平台 reference 與追蹤號，絕不讀取收件地址；carrier raw status 僅保存在 Shipping 的私有 operational evidence，audit 只保留 provider 與已映射的領域階段。延遲或亂序的查詢回覆不會讓 shipment 降階或進入死信。這條輪詢路徑不需要 callback，適合開發與 callback 不可達的環境；真實 ECPay 查詢仍待商家確認契約後解除 transport gate。
+
+在實作真實 transport 前，商家必須確認所選綠界物流契約與啟用的宅配子服務、stage／production 帳號與對應金鑰、必要的帳戶餘額與測試標籤核准，以及瀏覽器列印流程是否可受控地轉成可下載檔案。若另外啟用 provider callback，才需確認可達的 HTTPS callback。標籤 API 目前只回授權後台可讀、`Cache-Control: no-store` 的 opaque reference；它不是可直接下載的綠界 URL。完整來源與未決項目見 [Ticket 59 官方研究](research/59-ecpay-logistics-official-api-research.md)。
+
 ## 設定台灣宅配方式
 
 先用具有 `shipping:write` 的 API token 建立商家配送方式；費率與免運門檻由此設定，而不是向物流商即時詢價：

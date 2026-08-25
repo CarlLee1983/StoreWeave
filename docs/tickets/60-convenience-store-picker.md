@@ -5,13 +5,13 @@ adapter 提供門市資料或選店頁。跨站回填必須使用單次、短效
 
 **Blocked by:** 59
 
-**Status:** ready-for-agent
+**Status:** implementation complete — live ECPay selection remains UAT-gated by 58.
 
-- [ ] checkout 只在相容的 shipping method 顯示超商取貨；宅配與門市欄位不能混填
-- [ ] 門市選店／回填驗證 token、Cart 所有權、時效、店號、provider/type 相容性與一次性使用
-- [ ] 回填後顯示門市名稱、地址與取貨人資訊，建立訂單時凍結 destination snapshot
-- [ ] session cookie 缺席的跨站 POST 仍可安全完成回填；不得以任意 Cart id 取代權杖
-- [ ] 補 token 重放、過期、跨顧客、錯誤店號與正常流程的 HTTP/integration 測試
+- [x] checkout 只在相容的 shipping method 顯示超商取貨；宅配與門市欄位不能混填
+- [x] 門市選店／回填驗證 token、Cart 所有權、時效、店號、provider/type 相容性與一次性使用
+- [x] 回填後顯示門市名稱、地址與取貨人資訊，建立訂單時凍結 destination snapshot
+- [x] session cookie 缺席的跨站 POST 仍可安全完成回填；不得以任意 Cart id 取代權杖
+- [x] 補 token 重放、過期、跨顧客、錯誤店號與正常流程的 HTTP/integration 測試
 
 ## 不做的事
 

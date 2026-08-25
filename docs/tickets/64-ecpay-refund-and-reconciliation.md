@@ -5,7 +5,11 @@
 
 **Blocked by:** 58, 63
 
-**Status:** ready-for-agent
+**Status:** blocked — waiting for the merchant's enabled refund/query product, its contract, and UAT evidence from 58.
+
+The provider-neutral refund worker seam is in place for the mock provider: it uses a platform refund-attempt reference for replay safety, keeps transport uncertainty in `requested`, and only records a provider-confirmed success. The ECPay provider explicitly returns `unsupported` and performs no network I/O until the merchant capability below is confirmed.
+
+Before unblocking, record the ECPay product/endpoint, required request identifiers and signature, partial-refund and replay semantics, success/rejection/timeout responses, and the query/reconciliation contract. The UAT callback limitation alone is acceptable for development; the missing merchant refund capability is not.
 
 - [ ] 在 ECPay provider 實作已確認的退款操作、簽章、冪等與結果解析；UAT 覆蓋成功、拒絕、timeout 與重送
 - [ ] provider 成功才把退款標為 succeeded；失敗保留證據與可重試狀態

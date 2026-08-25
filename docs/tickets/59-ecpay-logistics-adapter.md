@@ -6,14 +6,15 @@
 
 **Blocked by:** 58
 
-**Status:** ready-for-agent
+**Status:** implementation complete — live UAT 建單 remains UAT-gated by 58.
 
-- [ ] 將綠界物流設定與機密放在 extension config／secret provider，提供 contract test 與 health check
-- [ ] 建單以 shipment 與 provider idempotency key 為邊界；重試不產生第二張託運單
-- [ ] 將 provider reference、tracking number、標籤安全地保存到 shipment；標籤僅授權後台下載
-- [ ] 外部呼叫採 job／outbox 或等價可重試路徑，不包在長資料庫 transaction
-- [ ] provider 失敗有可見、可重試的營運狀態；不把 Order 改回未付款
-- [ ] 以 fake provider 覆蓋成功、timeout、重試與重放；以 UAT 證明一筆真實建單
+- [x] 將綠界物流設定與機密放在 extension config／secret provider，提供 contract test 與 health check
+- [x] 建單以 shipment 與 provider idempotency key 為邊界；重試不產生第二張託運單
+- [x] 將 provider reference、tracking number、標籤安全地保存到 shipment；標籤僅授權後台下載
+- [x] 外部呼叫採 job／outbox 或等價可重試路徑，不包在長資料庫 transaction
+- [x] provider 失敗有可見、可重試的營運狀態；不把 Order 改回未付款
+- [x] 以 fake provider 覆蓋成功、timeout、重試與重放
+- [ ] 以 UAT 證明一筆真實建單（等工單 58 的正式環境開通）
 
 ## 不做的事
 
