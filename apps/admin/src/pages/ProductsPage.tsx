@@ -5,7 +5,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
 import { CopyButton } from '../components/CopyButton';
-import { Icon } from '../components/Icon';
+import { Icon, type IconName } from '../components/Icon';
 
 /**
  * 售價只接受十進位的非負整數字串。驗 `Number()` 的結果會放行 ''、'   '、
@@ -210,7 +210,7 @@ export function ProductsPage() {
                 disabled={page <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
               >
-                ← 上一頁
+                <Icon name="arrow-left" /> 上一頁
               </button>
               <span className="pagination-page-badge">
                 第 {page} / {totalPages} 頁
@@ -221,7 +221,7 @@ export function ProductsPage() {
                 disabled={page >= totalPages}
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               >
-                下一頁 →
+                下一頁 <Icon name="arrow-right" />
               </button>
             </div>
           </div>
@@ -342,7 +342,7 @@ function ProductRow({
                 現貨 {stock.onHand} · 保留 {stock.reserved}
               </span>
             </div>
-            <span className="stock-btn-hint">調整 ✎</span>
+            <span className="stock-btn-hint">調整 <Icon name="pencil" /></span>
           </button>
         ) : (
           <span className="text-muted">—</span>
@@ -411,12 +411,12 @@ function AdjustStockModal({
   const currentAvailable = stock?.available ?? 0;
 
   // 預設常用原因清單與後端 Enum 對應
-  const PRESET_REASONS = [
-    { label: '📦 廠商進貨入庫', reasonCode: 'restock', text: '廠商進貨入庫' },
-    { label: '📋 定期盤點更正', reasonCode: 'correction', text: '定期盤點更正' },
-    { label: '💔 運送破損報廢', reasonCode: 'damage', text: '運送破損報廢' },
-    { label: '🎁 樣品展示領用', reasonCode: 'manual', text: '樣品展示領用' },
-    { label: '🔄 客服退貨入庫', reasonCode: 'return', text: '客服退貨入庫' },
+  const PRESET_REASONS: { icon: IconName; reasonCode: string; text: string }[] = [
+    { icon: 'box', reasonCode: 'restock', text: '廠商進貨入庫' },
+    { icon: 'clipboard', reasonCode: 'correction', text: '定期盤點更正' },
+    { icon: 'alert', reasonCode: 'damage', text: '運送破損報廢' },
+    { icon: 'gift', reasonCode: 'manual', text: '樣品展示領用' },
+    { icon: 'rotate', reasonCode: 'return', text: '客服退貨入庫' },
   ];
 
   // 計算實際 delta
@@ -490,13 +490,13 @@ function AdjustStockModal({
       >
         <header className="stock-modal-header">
           <div>
-            <h3>📦 庫存調整與盤點</h3>
+            <h3><Icon name="box" /> 庫存調整與盤點</h3>
             <p className="stock-modal-subtitle">
               {product.name} <span className="mono">({product.sku})</span>
             </p>
           </div>
           <button type="button" className="icon-button" onClick={onClose} aria-label={t('close')}>
-            ✕
+            <Icon name="close" />
           </button>
         </header>
 
@@ -529,7 +529,7 @@ function AdjustStockModal({
                 if (selectedReason === '運送破損報廢') setSelectedReason('廠商進貨入庫');
               }}
             >
-              🟢 入庫 / 進貨 (+N)
+              <Icon name="plus-circle" /> 入庫 / 進貨 (+N)
             </button>
             <button
               type="button"
@@ -539,7 +539,7 @@ function AdjustStockModal({
                 if (selectedReason === '廠商進貨入庫') setSelectedReason('運送破損報廢');
               }}
             >
-              🔴 出庫 / 報損 (-N)
+              <Icon name="minus-circle" /> 出庫 / 報損 (-N)
             </button>
             <button
               type="button"
@@ -549,7 +549,7 @@ function AdjustStockModal({
                 setSelectedReason('定期盤點更正');
               }}
             >
-              🎯 盤點直接設總數 (=N)
+              <Icon name="target" /> 盤點直接設總數 (=N)
             </button>
           </div>
 
@@ -557,9 +557,9 @@ function AdjustStockModal({
           <div className="form-field stock-input-field">
             <label htmlFor="stock-qty-input">
               <span className="field-label-text">
-                {mode === 'add' && '➕ 請輸入進貨 / 增加件數：'}
-                {mode === 'deduct' && '➖ 請輸入扣除 / 報廢件數：'}
-                {mode === 'set' && '🎯 請輸入倉庫現場盤點實點總數：'}
+                {mode === 'add' && <><Icon name="plus-circle" /> 請輸入進貨 / 增加件數：</>}
+                {mode === 'deduct' && <><Icon name="minus-circle" /> 請輸入扣除 / 報廢件數：</>}
+                {mode === 'set' && <><Icon name="target" /> 請輸入倉庫現場盤點實點總數：</>}
               </span>
             </label>
             <input
@@ -592,7 +592,7 @@ function AdjustStockModal({
                 <span className="forecast-avail-sub">（可售變為 {predictedAvailable} 件）</span>
               </div>
               {isNegativeStock ? (
-                <p className="danger-text">⚠️ 警告：現貨庫存不能為負數，請檢查出庫數量！</p>
+                <p className="danger-text"><Icon name="alert" /> 警告：現貨庫存不能為負數，請檢查出庫數量！</p>
               ) : null}
             </div>
           ) : null}
@@ -600,7 +600,7 @@ function AdjustStockModal({
           {/* 常用原因選擇 */}
           <div className="form-field">
             <label>
-              <span className="field-label-text">📋 調整原因：</span>
+              <span className="field-label-text"><Icon name="clipboard" /> 調整原因：</span>
             </label>
             <div className="preset-reasons-grid">
               {PRESET_REASONS.map((p) => (
@@ -610,7 +610,7 @@ function AdjustStockModal({
                   className={`preset-reason-pill ${selectedReason === p.text ? 'preset-reason-pill--active' : ''}`}
                   onClick={() => handleApplyPreset(p.text)}
                 >
-                  {p.label}
+                  <Icon name={p.icon} /> {p.text}
                 </button>
               ))}
             </div>

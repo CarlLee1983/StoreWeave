@@ -17,7 +17,17 @@ export type IconName =
   | 'copy'
   | 'check'
   | 'sparkles'
-  | 'external';
+  | 'external'
+  | 'pencil'
+  | 'close'
+  | 'plus-circle'
+  | 'minus-circle'
+  | 'target'
+  | 'clipboard'
+  | 'gift'
+  | 'rotate'
+  | 'arrow-left'
+  | 'arrow-right';
 
 export function Icon({ name }: { name: IconName }): ReactNode {
   const paths: Record<IconName, ReactNode> = {
@@ -96,6 +106,66 @@ export function Icon({ name }: { name: IconName }): ReactNode {
         <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
         <polyline points="15 3 21 3 21 9" />
         <line x1="10" y1="14" x2="21" y2="3" />
+      </>
+    ),
+    pencil: (
+      <>
+        <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+        <path d="m15 5 4 4" />
+      </>
+    ),
+    close: <path d="M18 6 6 18M6 6l12 12" />,
+    'plus-circle': (
+      <>
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 8v8M8 12h8" />
+      </>
+    ),
+    'minus-circle': (
+      <>
+        <circle cx="12" cy="12" r="10" />
+        <path d="M8 12h8" />
+      </>
+    ),
+    target: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="5" />
+        <circle cx="12" cy="12" r="1" />
+      </>
+    ),
+    clipboard: (
+      <>
+        <rect x="8" y="2" width="8" height="4" rx="1" />
+        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+        <path d="M9 13h6M9 17h4" />
+      </>
+    ),
+    gift: (
+      <>
+        <rect x="3" y="8" width="18" height="4" rx="1" />
+        <path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8M12 8v13" />
+        <path d="M12 8H7.5a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8ZM12 8h4.5a2.5 2.5 0 0 0 0-5C13 3 12 8 12 8Z" />
+      </>
+    ),
+    rotate: (
+      <>
+        <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+        <path d="M21 3v5h-5" />
+        <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+        <path d="M3 21v-5h5" />
+      </>
+    ),
+    'arrow-left': (
+      <>
+        <path d="M19 12H5" />
+        <path d="m12 19-7-7 7-7" />
+      </>
+    ),
+    'arrow-right': (
+      <>
+        <path d="M5 12h14" />
+        <path d="m12 5 7 7-7 7" />
       </>
     ),
   };
