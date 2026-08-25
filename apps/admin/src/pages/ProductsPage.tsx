@@ -4,6 +4,8 @@ import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
+import { CopyButton } from '../components/CopyButton';
+import { Icon } from '../components/Icon';
 
 /**
  * 售價只接受十進位的非負整數字串。驗 `Number()` 的結果會放行 ''、'   '、
@@ -15,25 +17,45 @@ export function parsePriceCents(raw: string): number | null {
 }
 
 export function ProductsPage() {
-  const { t } = useI18n();
+  const { t, formatMoney } = useI18n();
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
   const [products, setProducts] = useState<Product[]>([]);
   const [stocks, setStocks] = useState<Record<string, Stock>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+  // 當關鍵字或狀態篩選改變時，重設至第一頁
+  const handleQueryChange = (val: string) => {
+    setQ(val);
+    setPage(1);
+  };
+
+  const handleStatusChange = (val: string) => {
+    setStatus(val);
+    setPage(1);
+  };
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
 
+    const offset = (page - 1) * pageSize;
+
     api
-      .listProducts({ q, status: status || undefined, limit: 50 })
+      .listProducts({ q: q.trim() || undefined, status: status || undefined, limit: pageSize, offset })
       .then(async (result) => {
         if (cancelled) return;
         setProducts(result.items);
+        setTotal(result.total);
+
+        // 批次取得當前分頁商品的庫存狀態
         const stockEntries = await Promise.all(
           result.items.map((p) => api.getInventory(p.id).then((s) => [p.id, s] as const).catch(() => null)),
         );
@@ -50,40 +72,168 @@ export function ProductsPage() {
     return () => {
       cancelled = true;
     };
-  }, [q, status, reloadKey]);
+  }, [q, status, page, pageSize, reloadKey]);
 
   const reload = () => setReloadKey((k) => k + 1);
 
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // 計算統計摘要
+  const activeCount = products.filter((p) => p.status === 'active').length;
+  const draftCount = products.filter((p) => p.status === 'draft').length;
+  const archivedCount = products.filter((p) => p.status === 'archived').length;
+
   return (
-    <section>
+    <section className="products-view">
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
 
-      <div className="toolbar">
-        <input placeholder={t('searchProducts')} value={q} onChange={(e) => setQ(e.target.value)} />
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">{t('allStatuses')}</option><option value="draft">{t('draft')}</option><option value="active">{t('active')}</option><option value="archived">{t('archived')}</option>
+      {/* 頂部商品狀態總覽卡片 */}
+      <div className="summary-cards summary-cards--products">
+        <div className="summary-card">
+          <span className="summary-card__label">總商品數</span>
+          <span className="summary-card__value">{total}</span>
+        </div>
+        <div className="summary-card">
+          <span className="summary-card__label">上架中 (Active)</span>
+          <span className="summary-card__value" style={{ color: 'var(--status-success-text)' }}>
+            {activeCount}
+          </span>
+        </div>
+        <div className="summary-card">
+          <span className="summary-card__label">草稿 (Draft)</span>
+          <span className="summary-card__value" style={{ color: 'var(--status-warning-text)' }}>
+            {draftCount}
+          </span>
+        </div>
+        <div className="summary-card">
+          <span className="summary-card__label">已封存 (Archived)</span>
+          <span className="summary-card__value" style={{ color: 'var(--text-muted)' }}>
+            {archivedCount}
+          </span>
+        </div>
+      </div>
+
+      {/* 工具列：搜尋、狀態過濾、每頁筆數 */}
+      <div className="toolbar products-toolbar">
+        <div className="toolbar__search-group">
+          <Icon name="search" />
+          <input
+            className="products-search-input"
+            placeholder={t('searchProducts')}
+            value={q}
+            onChange={(e) => handleQueryChange(e.target.value)}
+          />
+        </div>
+        <select
+          className="products-status-filter"
+          value={status}
+          onChange={(e) => handleStatusChange(e.target.value)}
+        >
+          <option value="">{t('allStatuses')}</option>
+          <option value="draft">{t('draft')}</option>
+          <option value="active">{t('active')}</option>
+          <option value="archived">{t('archived')}</option>
         </select>
+        <div className="toolbar__page-size">
+          <label>
+            <span>每頁顯示</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(1);
+              }}
+            >
+              <option value="10">10 筆</option>
+              <option value="20">20 筆</option>
+              <option value="50">50 筆</option>
+            </select>
+          </label>
+        </div>
       </div>
 
       <CreateProductForm onCreated={reload} />
 
+      {/* 商品表格 */}
       {loading && products.length === 0 ? (
         <Loading />
       ) : (
-        <div className="table-wrap" aria-busy={loading}><table className="data-table">
-          <thead>
-            <tr>
-              <th>SKU</th>
-              <th>{t('name')}</th><th>{t('price')}</th><th>{t('status')}</th><th>{t('inventory')}</th><th>{t('adjustInventory')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {products.map((product) => (
-              <ProductRow key={product.id} product={product} stock={stocks[product.id]} onChanged={reload} />
-            ))}
-          </tbody>
-        </table></div>
+        <div className="table-wrap" aria-busy={loading}>
+          <table className="data-table products-table">
+            <thead>
+              <tr>
+                <th style={{ width: '15%' }}>SKU</th>
+                <th style={{ width: '25%' }}>{t('name')}</th>
+                <th style={{ width: '12%' }}>{t('price')}</th>
+                <th style={{ width: '10%' }}>{t('status')}</th>
+                <th style={{ width: '15%' }}>{t('inventory')}</th>
+                <th style={{ width: '23%' }}>{t('adjustInventory')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
+                    沒有找到符合條件的商品。
+                  </td>
+                </tr>
+              ) : (
+                products.map((product) => (
+                  <ProductRow
+                    key={product.id}
+                    product={product}
+                    stock={stocks[product.id]}
+                    onEdit={() => setEditingProduct(product)}
+                    onChanged={reload}
+                  />
+                ))
+              )}
+            </tbody>
+          </table>
+
+          {/* 分頁控制列 */}
+          <div className="pagination-bar">
+            <div className="pagination-bar__info">
+              <span>
+                顯示第 {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, total)} 筆，共 {total} 件商品
+              </span>
+            </div>
+            <div className="pagination-bar__controls">
+              <button
+                type="button"
+                className="button button--quiet pagination-btn"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                ← 上一頁
+              </button>
+              <span className="pagination-page-badge">
+                第 {page} / {totalPages} 頁
+              </span>
+              <button
+                type="button"
+                className="button button--quiet pagination-btn"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                下一頁 →
+              </button>
+            </div>
+          </div>
+        </div>
       )}
+
+      {/* 側邊抽屜式商品編輯器 */}
+      {editingProduct ? (
+        <EditProductDrawer
+          product={editingProduct}
+          onClose={() => setEditingProduct(null)}
+          onSaved={() => {
+            reload();
+            setEditingProduct(null);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
@@ -92,26 +242,33 @@ export function ProductsPage() {
  * 上下架寫成具名的轉換而不是一個自由下拉：command 那一側沒有狀態機，
  * 任何轉換都收，所以「哪些走得通」這件事只存在於這裡。
  */
-const NEXT_STATUS: Record<Product['status'], { to: Product['status']; label: 'publish' | 'unpublish' | 'archive' | 'republish' }[]> = {
+const NEXT_STATUS: Record<
+  Product['status'],
+  { to: Product['status']; label: 'publish' | 'unpublish' | 'archive' | 'republish' }[]
+> = {
   draft: [{ to: 'active', label: 'publish' }],
   // 下架回草稿與封存是兩件事：前者是「先收回去改」，後者是「這個商品退役了」。
-  active: [{ to: 'draft', label: 'unpublish' }, { to: 'archived', label: 'archive' }],
+  active: [
+    { to: 'draft', label: 'unpublish' },
+    { to: 'archived', label: 'archive' },
+  ],
   archived: [{ to: 'active', label: 'republish' }],
 };
 
 function ProductRow({
   product,
   stock,
+  onEdit,
   onChanged,
 }: {
   product: Product;
   stock: Stock | undefined;
+  onEdit: () => void;
   onChanged: () => void;
 }) {
   const { t, formatMoney } = useI18n();
   const [delta, setDelta] = useState('');
   const [reason, setReason] = useState('');
-  const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [statusError, setStatusError] = useState<unknown>(null);
@@ -150,51 +307,112 @@ function ProductRow({
   };
 
   return (
-    <>
     <tr>
-      <td>{product.sku}</td>
-      <td>{product.name}</td>
-      <td className="mono">{formatMoney(product.priceCents, product.currency)}</td>
-      <td><StatusBadge value={product.status} /></td>
-      <td className="mono">{stock ? `${stock.available} / ${stock.reserved} / ${stock.onHand}` : '—'}</td>
       <td>
-        <div className="inline-form">
-          <input placeholder={t('adjustment')} value={delta} onChange={(e) => setDelta(e.target.value)} />
-          <input placeholder={t('reason')} value={reason} onChange={(e) => setReason(e.target.value)} />
-          <button className="button" type="button" disabled={submitting} onClick={handleAdjust}>
-            {t('adjust')}
-          </button>
+        <div className="product-sku-cell">
+          <span className="mono">{product.sku}</span>
+          <CopyButton text={product.sku} label="SKU" />
         </div>
-        {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-        <div className="inline-form">
-          <button className="button" type="button" disabled={submitting} onClick={() => setEditing((value) => !value)}>{t('edit')}</button>
-          {NEXT_STATUS[product.status].map((transition) => (
-            <button key={transition.to} className="button" type="button" disabled={submitting} onClick={() => void changeStatus(transition.to)}>
-              {t(transition.label)}
+      </td>
+      <td>
+        <div className="product-name-cell">
+          <strong>{product.name}</strong>
+          {product.description ? (
+            <p className="product-desc-snippet" title={product.description}>
+              {product.description}
+            </p>
+          ) : null}
+        </div>
+      </td>
+      <td className="mono product-price-cell">
+        {formatMoney(product.priceCents, product.currency)}
+      </td>
+      <td>
+        <StatusBadge value={product.status} />
+      </td>
+      <td>
+        {stock ? (
+          <div className="stock-breakdown">
+            <span className={`stock-avail ${stock.available > 0 ? 'stock-avail--ok' : 'stock-avail--out'}`}>
+              可售 {stock.available}
+            </span>
+            <span className="stock-meta">
+              (保留 {stock.reserved} / 現貨 {stock.onHand})
+            </span>
+          </div>
+        ) : (
+          <span className="text-muted">—</span>
+        )}
+      </td>
+      <td>
+        <div className="product-actions-cell">
+          <div className="inline-form inventory-inline-form">
+            <input
+              className="inventory-delta-input"
+              placeholder={t('adjustment')}
+              value={delta}
+              onChange={(e) => setDelta(e.target.value)}
+            />
+            <input
+              className="inventory-reason-input"
+              placeholder={t('reason')}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+            <button className="button" type="button" disabled={submitting} onClick={handleAdjust}>
+              {t('adjust')}
             </button>
-          ))}
+          </div>
+          {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+
+          <div className="inline-form product-lifecycle-form">
+            <button
+              className="button button--primary edit-btn"
+              type="button"
+              disabled={submitting}
+              onClick={onEdit}
+            >
+              <Icon name="receipt" /> {t('edit')}
+            </button>
+            {NEXT_STATUS[product.status].map((transition) => (
+              <button
+                key={transition.to}
+                className="button status-transition-btn"
+                type="button"
+                disabled={submitting}
+                onClick={() => void changeStatus(transition.to)}
+              >
+                {t(transition.label)}
+              </button>
+            ))}
+          </div>
+          {statusError ? <ErrorBanner error={statusError} onDismiss={() => setStatusError(null)} /> : null}
         </div>
-        {statusError ? <ErrorBanner error={statusError} onDismiss={() => setStatusError(null)} /> : null}
       </td>
     </tr>
-    {editing ? (
-      <tr>
-        <td colSpan={6}>
-          <EditProductForm product={product} onClose={() => setEditing(false)} onSaved={onChanged} />
-        </td>
-      </tr>
-    ) : null}
-    </>
   );
 }
 
-function EditProductForm({ product, onClose, onSaved }: { product: Product; onClose: () => void; onSaved: () => void }) {
-  const { t } = useI18n();
+/** 側邊專業滑出編輯抽屜 */
+function EditProductDrawer({
+  product,
+  onClose,
+  onSaved,
+}: {
+  product: Product;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t, formatMoney } = useI18n();
   const [name, setName] = useState(product.name);
   const [description, setDescription] = useState(product.description ?? '');
   const [priceCents, setPriceCents] = useState(String(product.priceCents));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
+
+  // 計算價格即時預覽
+  const parsedPrice = parsePriceCents(priceCents);
+  const previewFormatted = parsedPrice !== null ? formatMoney(parsedPrice, product.currency) : '無效金額';
 
   const submit = async () => {
     const price = parsePriceCents(priceCents);
@@ -228,19 +446,92 @@ function EditProductForm({ product, onClose, onSaved }: { product: Product; onCl
   };
 
   return (
-    <form className="form-panel" aria-label={`${t('editProduct')} ${product.sku}`} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-      <div className="inline-form">
-        <label>{t('productName')}<input aria-label={t('productName')} value={name} onChange={(e) => setName(e.target.value)} /></label>
-        <label>{t('description')}<textarea aria-label={t('description')} rows={3} maxLength={4000} value={description} onChange={(e) => setDescription(e.target.value)} /></label>
-        <label>{t('priceCents')}<input aria-label={t('priceCents')} value={priceCents} onChange={(e) => setPriceCents(e.target.value)} /></label>
+    <div className="payload-overlay" role="presentation" onMouseDown={onClose}>
+      <div
+        className="payload-drawer product-edit-drawer"
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <header className="product-drawer-header">
+          <div>
+            <h2>{t('editProduct')}</h2>
+            <p className="product-drawer-sku">
+              SKU: <span className="mono">{product.sku}</span> · ID: <span className="mono">{product.id.slice(0, 8)}...</span>
+            </p>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('close')} title={t('close')}>
+            <Icon name="chevron" />
+          </button>
+        </header>
+
+        <form
+          className="form-panel product-drawer-form"
+          aria-label={`${t('editProduct')} ${product.sku}`}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+
+          <div className="drawer-form-body">
+            <div className="form-field">
+              <label htmlFor="edit-product-name">
+                <span className="field-label-text">{t('productName')} <b className="required-star">*</b></span>
+              </label>
+              <input
+                id="edit-product-name"
+                aria-label={t('productName')}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="輸入商品名稱"
+              />
+            </div>
+
+            <div className="form-field">
+              <label htmlFor="edit-product-price">
+                <span className="field-label-text">{t('priceCents')} <b className="required-star">*</b></span>
+                <span className="price-preview-badge">預覽：{previewFormatted}</span>
+              </label>
+              <input
+                id="edit-product-price"
+                aria-label={t('priceCents')}
+                value={priceCents}
+                onChange={(e) => setPriceCents(e.target.value)}
+                placeholder="例如：128000"
+              />
+              <p className="field-hint">{t('priceSnapshotHint')}</p>
+            </div>
+
+            <div className="form-field">
+              <label htmlFor="edit-product-desc">
+                <span className="field-label-text">{t('description')}</span>
+                <span className="char-counter">{description.length} / 4000 字</span>
+              </label>
+              <textarea
+                id="edit-product-desc"
+                aria-label={t('description')}
+                rows={8}
+                maxLength={4000}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="輸入商品的天然材質、工藝特點、尺寸規格與保養指南..."
+              />
+            </div>
+          </div>
+
+          <footer className="product-drawer-footer">
+            <button className="button" type="button" onClick={onClose}>
+              {t('cancel')}
+            </button>
+            <button className="button button--primary" disabled={submitting}>
+              {submitting ? '儲存中…' : t('saveChanges')}
+            </button>
+          </footer>
+        </form>
       </div>
-      <p className="muted">{t('priceSnapshotHint')}</p>
-      <div className="inline-form">
-        <button className="button button--primary" disabled={submitting}>{t('saveChanges')}</button>
-        <button className="button" type="button" onClick={onClose}>{t('cancel')}</button>
-      </div>
-    </form>
+    </div>
   );
 }
 
@@ -276,16 +567,18 @@ function CreateProductForm({ onCreated }: { onCreated: () => void }) {
   };
 
   return (
-    <fieldset id="create-product" className="form-panel">
-      <legend>{t('createProduct')}</legend>
+    <fieldset id="create-product" className="form-panel create-product-panel">
+      <legend>+ {t('createProduct')}</legend>
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-      <div className="inline-form">
-        <input placeholder="SKU" value={sku} onChange={(e) => setSku(e.target.value)} />
+      <div className="inline-form create-product-inputs">
+        <input placeholder="SKU (例如: WD-NEW-01)" value={sku} onChange={(e) => setSku(e.target.value)} />
         <input placeholder={t('name')} value={name} onChange={(e) => setName(e.target.value)} />
         <input placeholder={t('priceCents')} value={priceCents} onChange={(e) => setPriceCents(e.target.value)} />
-        <input placeholder={t('currency')} value={currency} onChange={(e) => setCurrency(e.target.value)} />
+        <input placeholder={t('currency')} value={currency} onChange={(e) => setCurrency(e.target.value)} style={{ width: '80px' }} />
         <select value={status} onChange={(e) => setStatus(e.target.value as Product['status'])}>
-          <option value="draft">{t('draft')}</option><option value="active">{t('active')}</option><option value="archived">{t('archived')}</option>
+          <option value="draft">{t('draft')}</option>
+          <option value="active">{t('active')}</option>
+          <option value="archived">{t('archived')}</option>
         </select>
         <button className="button button--primary" type="button" disabled={submitting} onClick={handleSubmit}>
           {t('create')}
