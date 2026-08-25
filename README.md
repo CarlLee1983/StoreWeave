@@ -45,7 +45,8 @@ export DATABASE_URL=postgres://commerce:devpw@127.0.0.1:5432/commerce
 export COMMERCE_ADMIN_TOKEN=dev-admin-token COMMERCE_MCP_TOKEN=dev-mcp-token DEMO_ERP_API_KEY=dev-erp-key
 export COMMERCE_CONFIG=deployments/example-store/commerce.yaml
 pnpm commerce migrate
-pnpm "dev:api"      # 另開一個終端機
+pnpm seed            # 一鍵注入 24 款選品、促銷券、會員等級與示範帳號
+pnpm "dev:api"       # 另開一個終端機
 pnpm "dev:worker"
 ```
 
@@ -53,6 +54,7 @@ pnpm "dev:worker"
 
 | 文件 | 內容 |
 | --- | --- |
+| [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | **全功能 Demo 演示指南（示範帳號、前台體驗、折扣碼測試與後台操作）** |
 | [docs/architecture.md](docs/architecture.md) | 模組邊界、Command/Query/Event 流向、目錄結構 |
 | [docs/extension-development.md](docs/extension-development.md) | Extension SDK 十項契約與完整開發範例 |
 | [docs/deployment-docker.md](docs/deployment-docker.md) | Docker 安裝與維運 |
