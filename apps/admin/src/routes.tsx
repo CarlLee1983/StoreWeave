@@ -13,6 +13,8 @@ import { ErpPage } from './pages/ErpPage';
 import { SystemPage } from './pages/SystemPage';
 import { DlqPage } from './pages/DlqPage';
 import { ShippingPage } from './pages/ShippingPage';
+import { RmaPage } from './pages/RmaPage';
+import { InvoicesPage } from './pages/InvoicesPage';
 
 /** 側欄的分組，順序即呈現順序。 */
 export const NAV_SECTIONS = ['commerce', 'integrations'] as const;
@@ -71,6 +73,24 @@ const ENTRIES = [
     subtitle: 'shippingSubtitle',
     action: { label: 'createShippingMethod', targetId: 'create-shipping-method' },
     render: () => <ShippingPage />,
+  },
+  {
+    path: 'rmas',
+    navLabel: 'rmas',
+    icon: 'receipt',
+    section: 'commerce',
+    title: 'rmasTitle',
+    subtitle: 'rmasSubtitle',
+    render: () => <RmaPage />,
+  },
+  {
+    path: 'invoices',
+    navLabel: 'invoices',
+    icon: 'receipt',
+    section: 'commerce',
+    title: 'invoicesTitle',
+    subtitle: 'invoicesSubtitle',
+    render: () => <InvoicesPage />,
   },
   {
     path: 'promotions',

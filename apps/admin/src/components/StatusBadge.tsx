@@ -2,9 +2,9 @@ type Tone = 'pass' | 'warn' | 'fail' | 'neutral';
 
 function toneFor(value: string): Tone {
   const status = value.toLowerCase();
-  if (/(paid|sent|deliver|pass|ok|healthy|connected|active|running)/.test(status)) return 'pass';
-  if (/(fail|error|cancel|expired|dead|down)/.test(status)) return 'fail';
-  if (/(pending|processing|retry|warn|degrad)/.test(status)) return 'warn';
+  if (/(paid|sent|deliver|pass|ok|healthy|connected|active|running|issued|voided|completed|received|approved)/.test(status)) return 'pass';
+  if (/(fail|error|cancel|expired|dead|down|rejected)/.test(status)) return 'fail';
+  if (/(pending|processing|retry|warn|degrad|requested|needs_information)/.test(status)) return 'warn';
   return 'neutral';
 }
 

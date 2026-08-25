@@ -188,6 +188,35 @@ export type Rma = {
   lines: RmaLine[];
 };
 
+export type InvoiceCarrier =
+  | { kind: 'ecpay' }
+  | { kind: 'mobile'; number: string }
+  | { kind: 'natural_person'; number: string }
+  | { kind: 'donation'; loveCode: string };
+
+export type Invoice = {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  provider: string;
+  reference: string;
+  currency: string;
+  amountCents: number;
+  taxCents: number;
+  carrier: InvoiceCarrier;
+  status: 'pending' | 'issued' | 'issue_failed' | 'void_pending' | 'voided' | 'void_failed';
+  providerRef: string | null;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  issueAttempts: number;
+  voidAttempts: number;
+  lastError: string | null;
+  issuedAt: string | null;
+  voidedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type PromotionRule =
   | { type: 'threshold_fixed_amount'; thresholdCents: number; discountCents: number }
   | { type: 'threshold_percentage'; thresholdCents: number; percentOffBasisPoints: number; maxDiscountCents?: number | null }
@@ -578,8 +607,8 @@ export const api = {
   listRmas(params: { orderId?: string; status?: Rma['status']; limit?: number; offset?: number }) {
     return request<Paged<Rma>>(`/api/v1/rmas${toQuery(params)}`);
   },
-  approveRma(id: string) {
-    return request<Rma>(`/api/v1/rmas/${id}/approve`, { method: 'POST', body: {}, idempotent: true });
+  approveRma(id: string, note?: string) {
+    return request<Rma>(`/api/v1/rmas/${id}/approve`, { method: 'POST', body: note ? { note } : {}, idempotent: true });
   },
   requestRmaInformation(id: string, note: string) {
     return request<Rma>(`/api/v1/rmas/${id}/request-information`, { method: 'POST', body: { note }, idempotent: true });
@@ -589,6 +618,15 @@ export const api = {
   },
   receiveRma(id: string, lines: { rmaLineId: string; disposition: 'restock' | 'discard'; discardReason?: string }[]) {
     return request<Rma>(`/api/v1/rmas/${id}/receive`, { method: 'POST', body: { lines }, idempotent: true });
+  },
+  listInvoices(params: { orderId?: string; status?: Invoice['status']; limit?: number; offset?: number }) {
+    return request<Paged<Invoice>>(`/api/v1/invoices${toQuery(params)}`);
+  },
+  retryInvoiceIssue(id: string) {
+    return request<Invoice>(`/api/v1/invoices/${id}/retry-issue`, { method: 'POST', body: {}, idempotent: true });
+  },
+  retryInvoiceVoid(id: string) {
+    return request<Invoice>(`/api/v1/invoices/${id}/retry-void`, { method: 'POST', body: {}, idempotent: true });
   },
   requestRmaRefund(id: string, reason?: string) {
     return request<Rma>(`/api/v1/rmas/${id}/request-refund`, { method: 'POST', body: reason ? { reason } : {}, idempotent: true });
