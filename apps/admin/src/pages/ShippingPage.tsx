@@ -244,8 +244,21 @@ function ShipmentWorkbench({ orders }: { orders: Order[] }) {
   const [label, setLabel] = useState<ShipmentLabelInfo | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [ecpayInstalled, setEcpayInstalled] = useState(false);
   const loadFailedOperations = async () => setFailedOperations((await api.listEcpayLogisticsShipmentOperations({ status: 'failed', limit: 50 })).items);
-  useEffect(() => { void loadFailedOperations().catch(() => undefined); }, []);
+  // 綠界物流是選配 extension：沒安裝就整塊不查也不顯示。
+  // 無條件查詢等於每次進頁面都在 console 留一筆 404。
+  useEffect(() => {
+    let cancelled = false;
+    void api.listExtensions()
+      .then((result) => {
+        if (cancelled || !result.items.some((extension) => extension.id === 'ecpay-logistics')) return;
+        setEcpayInstalled(true);
+        return loadFailedOperations();
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
   const loadOperation = async (value: Shipment) => {
     setOperation(value.provider === 'ecpay-logistics' ? await api.getEcpayLogisticsShipmentOperation(value.id) : null);
   };
@@ -265,7 +278,7 @@ function ShipmentWorkbench({ orders }: { orders: Order[] }) {
     <div className="inline-form"><label>已付款訂單<select aria-label="已付款訂單" value={orderId} onChange={(event) => setOrderId(event.target.value)}><option value="">選擇訂單</option>{orders.map((order) => <option key={order.id} value={order.id}>{order.number} · {order.delivery!.shippingMethodName}</option>)}</select></label><button className="button button--primary" type="button" disabled={submitting} onClick={() => void create()}>建立物流單</button></div>
     <div className="inline-form"><label>物流單 ID<input aria-label="物流單 ID" value={shipmentId} onChange={(event) => setShipmentId(event.target.value)} /></label><button className="button" type="button" disabled={submitting} onClick={() => void inspect()}>查詢物流單</button></div>
     {shipment ? <div className="order-detail"><dl className="order-totals"><dt>狀態</dt><dd><StatusBadge value={shipment.status} /></dd><dt>Provider</dt><dd>{shipment.provider} / {shipment.type}</dd><dt>Provider reference</dt><dd className="mono"><span className="cell-truncate" title={shipment.providerRef ?? undefined}>{shipment.providerRef ?? '—'}</span></dd><dt>追蹤號</dt><dd className="mono"><span className="cell-truncate" title={shipment.trackingNumber ?? undefined}>{shipment.trackingNumber ?? '—'}</span></dd><dt>建立時間</dt><dd>{shipment.createdAt}</dd><dt>最後更新</dt><dd>{shipment.updatedAt}</dd></dl><div className="inline-form">{nextLabel ? <button className="button button--primary" type="button" disabled={submitting} onClick={() => void advance()}>{nextLabel}</button> : null}<button className="button" type="button" disabled={submitting} onClick={() => void labelInfo()}>讀取標籤列印參照</button></div>{label ? <p>標籤列印參照：<code>{label.labelReference}</code>（僅為不透明參照，非公開網址。）</p> : null}{operation ? <ShipmentOperationDetail operation={operation} submitting={submitting} onRetry={() => void retry()} /> : shipment.provider === 'ecpay-logistics' ? <p className="muted">尚無綠界物流建單作業紀錄。</p> : null}</div> : null}
-    <FailedShipmentOperations operations={failedOperations} onInspect={(id) => setShipmentId(id)} />
+    {ecpayInstalled ? <FailedShipmentOperations operations={failedOperations} onInspect={(id) => setShipmentId(id)} /> : null}
   </section>;
 }
 

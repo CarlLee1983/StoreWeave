@@ -8,7 +8,7 @@ import { api, type EcpayLogisticsShipmentOperation, type Order, type Shipment, t
 
 vi.mock('../api', async () => {
   const actual = await vi.importActual<typeof import('../api')>('../api');
-  return { ...actual, api: { listShippingMethods: vi.fn(), createShippingMethod: vi.fn(), updateShippingMethod: vi.fn(), listOrders: vi.fn(), createShipment: vi.fn(), getShipment: vi.fn(), advanceShipmentStage: vi.fn(), getShipmentLabelInfo: vi.fn(), getEcpayLogisticsShipmentOperation: vi.fn(), listEcpayLogisticsShipmentOperations: vi.fn(), retryEcpayLogisticsShipment: vi.fn() } };
+  return { ...actual, api: { listShippingMethods: vi.fn(), createShippingMethod: vi.fn(), updateShippingMethod: vi.fn(), listOrders: vi.fn(), createShipment: vi.fn(), getShipment: vi.fn(), advanceShipmentStage: vi.fn(), getShipmentLabelInfo: vi.fn(), getEcpayLogisticsShipmentOperation: vi.fn(), listEcpayLogisticsShipmentOperations: vi.fn(), retryEcpayLogisticsShipment: vi.fn(), listExtensions: vi.fn() } };
 });
 
 const method: ShippingMethod = {
@@ -32,9 +32,25 @@ beforeEach(() => {
   vi.mocked(api.getEcpayLogisticsShipmentOperation).mockReset().mockResolvedValue(null);
   vi.mocked(api.listEcpayLogisticsShipmentOperations).mockReset().mockResolvedValue({ items: [] });
   vi.mocked(api.retryEcpayLogisticsShipment).mockReset().mockResolvedValue({ ...failedOperation, status: 'pending', manualRetries: 1, lastError: null });
+  vi.mocked(api.listExtensions).mockReset().mockResolvedValue({
+    items: [{ id: 'ecpay-logistics', name: 'ECPay Logistics', version: '1.0.0', platformVersion: '^1.0.0', permissions: [], subscribedEvents: [], commands: [], queries: [], providers: [], mcpTools: [] }],
+  });
 });
 
 const renderPage = () => render(<I18nProvider><ShippingPage /></I18nProvider>);
+
+describe('未安裝綠界物流時', () => {
+  beforeEach(() => {
+    vi.mocked(api.listExtensions).mockResolvedValue({ items: [] });
+  });
+
+  it('不去查一個不存在的 extension：那只會在 console 留下 404', async () => {
+    renderPage();
+    await screen.findByText('7-ELEVEN 取貨');
+    await waitFor(() => expect(api.listExtensions).toHaveBeenCalled());
+    expect(api.listEcpayLogisticsShipmentOperations).not.toHaveBeenCalled();
+  });
+});
 
 describe('ShippingPage', () => {
   it('建立表單改由抽屜開啟：頁首動作事件會開抽屜而不是捲動頁面', async () => {
