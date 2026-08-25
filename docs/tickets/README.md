@@ -133,7 +133,7 @@
 | [69](69-invoice-operations.md) | 電子發票的營運介面 | 66 |
 | [70](70-invoice-issue-reconciliation.md) | 發票開立的對帳查詢：回應遺失時的補救 | 58, 69 |
 | [71](71-admin-product-editing.md) | 後台商品編輯與上下架（**done**） | 02 |
-| [72](72-loyalty-settings-operations.md) | 會員等級與購物金設定的營運介面 | 43, 45 |
+| [72](72-loyalty-settings-operations.md) | 會員等級與購物金設定的營運介面（**done**） | 43, 45 |
 | [73](73-notification-delivery-log.md) | 訂單與出貨通知的投遞紀錄 | 62 |
 | [74](74-customer-birthday-correction.md) | 客服修正會員生日 | 22, 35 |
 | [75](75-remove-legacy-markpaid.md) | 移除沒有呼叫端的 `commerce.order.markPaid` | — |

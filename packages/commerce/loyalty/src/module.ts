@@ -27,6 +27,9 @@ export function createLoyaltyModule(deps: LoyaltyModuleDeps): PlatformModule {
   return defineModule({
   name: 'loyalty',
   migrations: loyaltyMigrations,
+  // 等級門檻與購物金累積比例原本借用 promotion:write。改成自己的鍵：
+  // 改累積比例會直接改動購物金這本負債帳，那與編一檔活動不是同一種授權。
+  permissions: [{ key: 'loyalty:write', description: '維護會員等級與購物金累積規則', owner: 'loyalty' }],
   commands: [
     { descriptor: updateRewardSettingsCommand, handler: updateRewardSettingsHandler },
     { descriptor: adjustRewardsCommand, handler: adjustRewardsHandler },

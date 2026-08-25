@@ -53,6 +53,9 @@ export const getRewardSettingsQuery = defineQuery({
   summary: '購物金的累積規則',
   input: z.object({}).strict(),
   output: rewardSettingsDto,
+  // 寫入已經搬到 loyalty:write，讀取刻意留在 promotion:read：拿得到後台促銷頁的人
+  // 本來就看得到這些規則，另開一個 loyalty:read 只會多一個沒人發得出去的鍵。
+  // 日後若有角色只拿 loyalty:write 而沒有 promotion:read，這一頁會在載入時就掛掉。
   permission: 'promotion:read',
 });
 

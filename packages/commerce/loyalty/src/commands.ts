@@ -29,7 +29,7 @@ export const updateRewardSettingsCommand = defineCommand({
   summary: '設定購物金的累積比例與生效天數',
   input: updateRewardSettingsInput,
   output: rewardSettingsDto,
-  permission: 'promotion:write',
+  permission: 'loyalty:write',
   idempotency: 'optional',
   audit: {
     action: 'loyalty.settings-updated',
@@ -118,7 +118,7 @@ export const saveTierCommand = defineCommand({
   summary: '新增或修改一個會員等級',
   input: saveTierInput,
   output: tierDto,
-  permission: 'promotion:write',
+  permission: 'loyalty:write',
   idempotency: 'optional',
   audit: {
     action: 'loyalty.tier-saved',
@@ -130,6 +130,21 @@ export const saveTierCommand = defineCommand({
 
 /** 名稱是等級的識別：同名就是修改，不是再開一級。 */
 export const saveTierHandler = async (input: z.infer<typeof saveTierInput>, ctx: CommandContext) => {
+  const existing = await tierService.definitions(ctx.tx);
+  // 門檻有唯一索引。不先問一次的話，撞號會是一個看不懂的 500，
+  // 而店員在後台看到的只有「Internal server error」。
+  const clash = existing.find((tier) => tier.thresholdPoints === input.thresholdPoints && tier.name !== input.name);
+  if (clash) {
+    throw PlatformError.validation(
+      `Threshold ${input.thresholdPoints} already belongs to tier "${clash.name}"; two tiers cannot share a threshold`,
+    );
+  }
+  // 保底那一級不能消失——這在刪除那一側早就守著了，但同名 upsert 是另一條
+  // 通往同一個結果的路：把零門檻那級的門檻抬起來，新會員一樣不屬於任何等級。
+  const zeroThresholdElsewhere = existing.some((tier) => tier.thresholdPoints === 0 && tier.name !== input.name);
+  if (input.thresholdPoints !== 0 && !zeroThresholdElsewhere) {
+    throw PlatformError.validation('At least one tier with a zero threshold must remain');
+  }
   const row = await repository.upsertTier(ctx.tx, {
     id: randomUUID(),
     name: input.name,
@@ -149,7 +164,7 @@ export const removeTierCommand = defineCommand({
   summary: '移除一個會員等級',
   input: removeTierInput,
   output: listTiersOutput,
-  permission: 'promotion:write',
+  permission: 'loyalty:write',
   idempotency: 'optional',
   audit: {
     action: 'loyalty.tier-removed',
@@ -167,7 +182,9 @@ export const removeTierHandler = async (input: z.infer<typeof removeTierInput>, 
       `Tier "${input.name}" is still used by ${referencing.length} promotion(s); update them first`,
     );
   }
-  await repository.deleteTier(ctx.tx, input.name);
+  const deleted = await repository.deleteTier(ctx.tx, input.name);
+  // 名稱打錯時靜默回一份完整清單，看起來與成功一模一樣。
+  if (deleted === 0) throw PlatformError.notFound('Loyalty tier', input.name);
   const items = await tierService.definitions(ctx.tx);
   // 保底那一級不能消失：沒有門檻為零的等級，新會員不屬於任何等級。
   if (!items.some((tier) => tier.thresholdPoints === 0)) {

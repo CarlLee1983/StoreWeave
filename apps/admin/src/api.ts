@@ -217,6 +217,22 @@ export type Invoice = {
   updatedAt: string;
 };
 
+export type RewardSettings = {
+  /** 基點。100 = 1%。UI 一律換算成百分比。 */
+  accrualBasisPoints: number;
+  effectiveAfterDays: number;
+  expiresAfterDays: number | null;
+  expiryNoticeDays: number;
+  updatedAt: string;
+};
+
+export type Tier = {
+  name: string;
+  thresholdPoints: number;
+  /** 基點。10000 = 1 倍。UI 一律換算成倍數。 */
+  multiplierBasisPoints: number;
+};
+
 export type PromotionRule =
   | { type: 'threshold_fixed_amount'; thresholdCents: number; discountCents: number }
   | { type: 'threshold_percentage'; thresholdCents: number; percentOffBasisPoints: number; maxDiscountCents?: number | null }
@@ -618,6 +634,21 @@ export const api = {
   },
   receiveRma(id: string, lines: { rmaLineId: string; disposition: 'restock' | 'discard'; discardReason?: string }[]) {
     return request<Rma>(`/api/v1/rmas/${id}/receive`, { method: 'POST', body: { lines }, idempotent: true });
+  },
+  getRewardSettings() {
+    return request<RewardSettings>('/api/v1/loyalty/settings');
+  },
+  updateRewardSettings(body: { accrualBasisPoints?: number; effectiveAfterDays?: number; expiresAfterDays?: number | null; expiryNoticeDays?: number }) {
+    return request<RewardSettings>('/api/v1/loyalty/settings', { method: 'PATCH', body, idempotent: true });
+  },
+  listTiers() {
+    return request<{ items: Tier[] }>('/api/v1/loyalty/tiers');
+  },
+  saveTier(body: Tier) {
+    return request<Tier>('/api/v1/loyalty/tiers', { method: 'PUT', body, idempotent: true });
+  },
+  removeTier(name: string) {
+    return request<{ items: Tier[] }>(`/api/v1/loyalty/tiers/${encodeURIComponent(name)}`, { method: 'DELETE', idempotent: true });
   },
   listInvoices(params: { orderId?: string; status?: Invoice['status']; limit?: number; offset?: number }) {
     return request<Paged<Invoice>>(`/api/v1/invoices${toQuery(params)}`);

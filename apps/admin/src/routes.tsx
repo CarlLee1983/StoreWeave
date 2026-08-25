@@ -15,6 +15,7 @@ import { DlqPage } from './pages/DlqPage';
 import { ShippingPage } from './pages/ShippingPage';
 import { RmaPage } from './pages/RmaPage';
 import { InvoicesPage } from './pages/InvoicesPage';
+import { LoyaltyPage } from './pages/LoyaltyPage';
 
 /** 側欄的分組，順序即呈現順序。 */
 export const NAV_SECTIONS = ['commerce', 'integrations'] as const;
@@ -111,6 +112,15 @@ const ENTRIES = [
     subtitle: 'couponsSubtitle',
     action: { label: 'createCoupon', targetId: 'create-coupon' },
     render: () => <CouponsPage />,
+  },
+  {
+    path: 'loyalty',
+    navLabel: 'loyaltySettings',
+    icon: 'activity',
+    section: 'commerce',
+    title: 'loyaltySettingsTitle',
+    subtitle: 'loyaltySettingsSubtitle',
+    render: () => <LoyaltyPage />,
   },
   {
     path: 'customers',

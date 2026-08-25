@@ -436,3 +436,54 @@ describe('工單 69：發票的 HTTP 營運介面', () => {
     expect((await inject({ method: 'GET', url: '/api/v1/invoices' })).statusCode).toBe(401);
   });
 });
+
+describe('工單 72：會員等級與購物金設定的營運介面', () => {
+  const auth = { authorization: `Bearer ${ADMIN_TOKEN}` };
+  const mcp = { authorization: `Bearer ${MCP_TOKEN}` };
+
+  it('讀得到購物金設定，並且改得動累積比例', async () => {
+    const before = await inject({ method: 'GET', url: '/api/v1/loyalty/settings', headers: auth });
+    expect(before.statusCode).toBe(200);
+    expect(JSON.parse(before.body).data).toMatchObject({ accrualBasisPoints: expect.any(Number), effectiveAfterDays: expect.any(Number) });
+
+    const original = JSON.parse(before.body).data.accrualBasisPoints;
+    const patched = await inject({ method: 'PATCH', url: '/api/v1/loyalty/settings', headers: auth, payload: { accrualBasisPoints: 250 } });
+    expect(patched.statusCode).toBe(200);
+    expect(JSON.parse(patched.body).data.accrualBasisPoints).toBe(250);
+    expect(JSON.parse((await inject({ method: 'GET', url: '/api/v1/loyalty/settings', headers: auth })).body).data.accrualBasisPoints).toBe(250);
+    // 設定是全域單例：留著 2.5% 會讓日後加進這個檔案的結帳測試拿到一個沒人預期的數字。
+    await inject({ method: 'PATCH', url: '/api/v1/loyalty/settings', headers: auth, payload: { accrualBasisPoints: original } });
+  });
+
+  it('等級可以新增、修改與移除，同名視為修改而不是再開一級', async () => {
+    const created = await inject({ method: 'PUT', url: '/api/v1/loyalty/tiers', headers: auth, payload: { name: 'ops-gold', thresholdPoints: 5000, multiplierBasisPoints: 15000 } });
+    expect(created.statusCode).toBe(200);
+    await inject({ method: 'PUT', url: '/api/v1/loyalty/tiers', headers: auth, payload: { name: 'ops-gold', thresholdPoints: 6000, multiplierBasisPoints: 15000 } });
+    const listed = JSON.parse((await inject({ method: 'GET', url: '/api/v1/loyalty/tiers', headers: auth })).body).data.items;
+    expect(listed.filter((tier: any) => tier.name === 'ops-gold')).toEqual([{ name: 'ops-gold', thresholdPoints: 6000, multiplierBasisPoints: 15000 }]);
+
+    const removed = await inject({ method: 'DELETE', url: '/api/v1/loyalty/tiers/ops-gold', headers: auth });
+    expect(removed.statusCode).toBe(200);
+    expect(JSON.parse(removed.body).data.items.some((tier: any) => tier.name === 'ops-gold')).toBe(false);
+  });
+
+  // 這幾級由 migration 種下（一般會員／銀卡／金卡），不是測試自己建的。
+  it('保底那一級移不掉：沒有門檻為零的等級，新會員不屬於任何等級', async () => {
+    const tiers = JSON.parse((await inject({ method: 'GET', url: '/api/v1/loyalty/tiers', headers: auth })).body).data.items;
+    const base = tiers.find((tier: any) => tier.thresholdPoints === 0);
+    expect(base).toBeDefined();
+    const res = await inject({ method: 'DELETE', url: `/api/v1/loyalty/tiers/${base.name}`, headers: auth });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('匿名讀不到營運設定', async () => {
+    expect((await inject({ method: 'GET', url: '/api/v1/loyalty/settings' })).statusCode).toBe(401);
+  });
+
+  // 這裡驗的是端點有被守住；「寫入確實搬到 loyalty:write」由 loyalty-operations 那支
+  // 以一個持有 promotion:write 但沒有 loyalty:write 的身分驗，mcp token 兩種情況都會 403。
+  it('沒有 loyalty:write 的 token 改不動設定與等級', async () => {
+    expect((await inject({ method: 'PATCH', url: '/api/v1/loyalty/settings', headers: mcp, payload: { accrualBasisPoints: 1 } })).statusCode).toBe(403);
+    expect((await inject({ method: 'PUT', url: '/api/v1/loyalty/tiers', headers: mcp, payload: { name: 'nope', thresholdPoints: 1, multiplierBasisPoints: 10000 } })).statusCode).toBe(403);
+  });
+});
