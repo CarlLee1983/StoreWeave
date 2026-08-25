@@ -6,6 +6,7 @@ import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
 import { CopyButton } from '../components/CopyButton';
 import { Icon, type IconName } from '../components/Icon';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 /**
  * 售價只接受十進位的非負整數字串。驗 `Number()` 的結果會放行 ''、'   '、
@@ -406,6 +407,8 @@ function AdjustStockModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
+  useEscapeKey(onClose);
+
   const currentOnHand = stock?.onHand ?? 0;
   const currentReserved = stock?.reserved ?? 0;
   const currentAvailable = stock?.available ?? 0;
@@ -658,6 +661,8 @@ function EditProductDrawer({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
+  useEscapeKey(onClose);
+
   // 計算價格即時預覽
   const parsedPrice = parsePriceCents(priceCents);
   const previewFormatted = parsedPrice !== null ? formatMoney(parsedPrice, product.currency) : '無效金額';
@@ -699,6 +704,7 @@ function EditProductDrawer({
         className="payload-drawer product-edit-drawer"
         role="dialog"
         aria-modal="true"
+        aria-label={`${t('editProduct')} - ${product.name}`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="product-drawer-header">

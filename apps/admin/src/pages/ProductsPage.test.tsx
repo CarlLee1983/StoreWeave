@@ -171,3 +171,27 @@ describe('ProductsPage 編輯（工單 71）', () => {
     expect(screen.getByText(/既有訂單的價格快照不受影響/)).toBeInTheDocument();
   });
 });
+
+describe('對話框的 Esc 退場', () => {
+  it('編輯抽屜按 Esc 就關掉，不用移動滑鼠去找關閉鈕', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('藍色帆布鞋');
+    await user.click(screen.getByRole('button', { name: '編輯' }));
+    expect(await screen.findByRole('dialog', { name: /編輯商品/ })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /編輯商品/ })).not.toBeInTheDocument());
+  });
+
+  it('庫存調整對話框按 Esc 就關掉', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('藍色帆布鞋');
+    await user.click(screen.getByRole('button', { name: '調整庫存' }));
+    expect(await screen.findByRole('dialog', { name: /調整庫存/ })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /調整庫存/ })).not.toBeInTheDocument());
+  });
+});

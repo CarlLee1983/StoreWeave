@@ -4,6 +4,7 @@ import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 export function ErpPage() {
   const { t } = useI18n();
@@ -110,6 +111,8 @@ function PayloadDrawer({ delivery, onClose, onResent }: { delivery: Delivery; on
   const [error, setError] = useState<unknown>(null);
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const [resending, setResending] = useState(false);
+
+  useEscapeKey(onClose);
 
   useEffect(() => {
     let cancelled = false;
