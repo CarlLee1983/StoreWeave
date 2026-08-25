@@ -6,10 +6,12 @@
 
 **Blocked by:** —
 
-- [ ] customer controller 補上生日更正端點，權限走既有的 `customers:manage`
-- [ ] 後台會員頁可修正生日，強制填寫原因，稽核留下操作者、原值與新值
-- [ ] 修正不補發已經錯過的生日禮券——那是另一個決定；UI 要說明這件事
-- [ ] 補 HTTP 與 jsdom 測試，涵蓋原因必填與無權限的 403
+**Status:** completed
+
+- [x] customer controller 補上生日更正端點，權限走既有的 `customers:manage`
+- [x] 後台會員頁可修正生日，強制填寫原因，稽核留下操作者、原值與新值
+- [x] 修正不補發已經錯過的生日禮券——那是另一個決定；UI 要說明這件事
+- [x] 補 HTTP 與 jsdom 測試，涵蓋原因必填與無權限的 403
 
 ## 不做的事
 

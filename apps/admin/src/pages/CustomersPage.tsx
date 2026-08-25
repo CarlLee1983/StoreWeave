@@ -150,6 +150,7 @@ function CustomerRow({ customer, onChanged }: { customer: AdminCustomer; onChang
                     <dt>{t('address')}</dt>
                     <dd>{detail.address ? `${detail.address.postcode} ${detail.address.city} ${detail.address.line1} ${detail.address.line2 ?? ''}` : '—'}</dd>
                   </dl>
+                  <BirthdayCorrection customerId={customer.id} onCorrected={() => setDetail(null)} />
                   <LoyaltyPanel
                     customerId={customer.id}
                     loyalty={loyalty}
@@ -295,4 +296,44 @@ function OrderRow({ order }: { order: AdminCustomerDetail['orders'][number] }) {
       <td className="mono">{formatDateTime(order.placedAt)}</td>
     </tr>
   );
+}
+
+/**
+ * 生日決定生日禮券的發放資格，前台填完就鎖住——所以更正只能走這裡，
+ * 而且要說得出為什麼：沒有理由的更正事後查不到帳。
+ */
+function BirthdayCorrection({ customerId, onCorrected }: { customerId: string; onCorrected: () => void }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [birthday, setBirthday] = useState('');
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const submit = async () => {
+    // 日期由 <input type="date"> 保證是真的日曆日；這裡只確認有填。
+    if (!birthday.trim() || !reason.trim()) {
+      setError(new Error(t('invalidBirthdayCorrection')));
+      return;
+    }
+    setSubmitting(true); setError(null);
+    try {
+      await api.correctCustomerBirthday(customerId, { birthday: birthday.trim(), reason: reason.trim() });
+      setOpen(false); setBirthday(''); setReason('');
+      onCorrected();
+    } catch (err) { setError(err); } finally { setSubmitting(false); }
+  };
+
+  if (!open) return <button className="button" type="button" onClick={() => setOpen(true)}>{t('correctBirthday')}</button>;
+  return <form className="form-panel" aria-label={t('correctBirthday')} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+    <h4>{t('correctBirthday')}</h4>
+    {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+    <p className="muted">{t('birthdayCorrectionHint')}</p>
+    <div className="inline-form">
+      <label>{t('correctedBirthday')}<input aria-label={t('correctedBirthday')} type="date" max={new Date().toISOString().slice(0, 10)} value={birthday} onChange={(event) => setBirthday(event.target.value)} /></label>
+      <label>{t('correctionReason')}<input aria-label={t('correctionReason')} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
+      <button className="button button--primary" disabled={submitting}>{t('submitCorrection')}</button>
+      <button className="button" type="button" onClick={() => setOpen(false)}>{t('cancel')}</button>
+    </div>
+  </form>;
 }

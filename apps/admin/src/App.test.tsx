@@ -29,6 +29,7 @@ vi.mock('./pages/OrdersPage', () => ({ OrdersPage: () => <div>ORDERS_PAGE</div> 
 vi.mock('./pages/ShippingPage', () => ({ ShippingPage: () => <div>SHIPPING_PAGE</div> }));
 vi.mock('./pages/RmaPage', () => ({ RmaPage: () => <div>RMA_PAGE</div> }));
 vi.mock('./pages/InvoicesPage', () => ({ InvoicesPage: () => <div>INVOICES_PAGE</div> }));
+vi.mock('./pages/NotificationsPage', () => ({ NotificationsPage: () => <div>NOTIFICATIONS_PAGE</div> }));
 vi.mock('./pages/LoyaltyPage', () => ({ LoyaltyPage: () => <div>LOYALTY_PAGE</div> }));
 vi.mock('./pages/PromotionsPage', () => ({ PromotionsPage: () => <div>PROMOTIONS_PAGE</div> }));
 vi.mock('./pages/CouponsPage', () => ({ CouponsPage: () => <div>COUPONS_PAGE</div> }));
@@ -59,7 +60,7 @@ describe('後台外殼的導覽', () => {
 
     const nav = screen.getByLabelText('主要導覽');
     const labels = Array.from(nav.querySelectorAll('.nav-link')).map((el) => el.getAttribute('aria-label'));
-    expect(labels).toEqual(['訂單', '商品', '配送與出貨', '退貨案件', '電子發票', '促銷活動', '優惠券', '購物金與等級', '會員', '行銷分析', 'ERP 佇列', '死信佇列', '系統健康度']);
+    expect(labels).toEqual(['訂單', '商品', '配送與出貨', '退貨案件', '電子發票', '促銷活動', '優惠券', '購物金與等級', '會員', '行銷分析', '通知紀錄', 'ERP 佇列', '死信佇列', '系統健康度']);
   });
 
   it('預設進到商品頁，標題與副標題正確', async () => {
@@ -184,7 +185,7 @@ describe('命令面板', () => {
     const dialog = await screen.findByRole('dialog', { name: '命令選單' });
     const labels = Array.from(dialog.querySelectorAll('button')).map((el) => el.textContent);
 
-    expect(labels).toEqual(['訂單', '商品', '配送與出貨', '退貨案件', '電子發票', '促銷活動', '優惠券', '購物金與等級', '會員', '行銷分析', 'ERP 佇列', '死信佇列', '系統健康度']);
+    expect(labels).toEqual(['訂單', '商品', '配送與出貨', '退貨案件', '電子發票', '促銷活動', '優惠券', '購物金與等級', '會員', '行銷分析', '通知紀錄', 'ERP 佇列', '死信佇列', '系統健康度']);
   });
 
   it('Esc 關閉命令面板', async () => {

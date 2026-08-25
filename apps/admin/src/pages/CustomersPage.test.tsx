@@ -12,7 +12,7 @@ vi.mock('../api', async () => {
     ...actual,
     api: {
       listCustomers: vi.fn(), getCustomer: vi.fn(), setCustomerStatus: vi.fn(),
-      customerLoyalty: vi.fn(), adjustRewards: vi.fn(), adjustTierPoints: vi.fn(),
+      customerLoyalty: vi.fn(), adjustRewards: vi.fn(), adjustTierPoints: vi.fn(), correctCustomerBirthday: vi.fn(),
     },
   };
 });
@@ -49,6 +49,7 @@ const renderPage = () => render(<I18nProvider><CustomersPage /></I18nProvider>);
 
 beforeEach(() => {
   vi.mocked(api.listCustomers).mockReset().mockResolvedValue({ items: [customer], total: 1 });
+  vi.mocked(api.correctCustomerBirthday).mockReset().mockResolvedValue({ ...customer, birthday: '1990-02-03' });
   vi.mocked(api.getCustomer).mockReset().mockResolvedValue(detail);
   vi.mocked(api.setCustomerStatus).mockReset().mockResolvedValue({ ...customer, status: 'disabled' });
   vi.mocked(api.customerLoyalty).mockReset().mockResolvedValue(loyalty);
@@ -190,5 +191,39 @@ describe('調帳的冪等（審查發現）', () => {
     await waitFor(() => expect(api.adjustRewards).toHaveBeenCalledTimes(2));
     const [first, second] = vi.mocked(api.adjustRewards).mock.calls;
     expect(second[2]).toBe(first[2]);
+  });
+});
+
+describe('客服修正生日（工單 74）', () => {
+  it('沒填原因就不送出：沒有理由的更正事後查不到帳', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByText('buyer@example.com'));
+    await user.click(await screen.findByRole('button', { name: '修正生日' }));
+    await user.type(screen.getByLabelText('更正後的生日'), '1990-02-03');
+    await user.click(screen.getByRole('button', { name: '送出更正' }));
+    expect(await screen.findByText(/請填寫更正原因/)).toBeInTheDocument();
+    expect(api.correctCustomerBirthday).not.toHaveBeenCalled();
+  });
+
+  it('填了生日與原因才送得出去', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByText('buyer@example.com'));
+    await user.click(await screen.findByRole('button', { name: '修正生日' }));
+    await user.type(screen.getByLabelText('更正後的生日'), '1990-02-03');
+    await user.type(screen.getByLabelText('更正原因'), '顧客來信說填錯月份');
+    await user.click(screen.getByRole('button', { name: '送出更正' }));
+    await waitFor(() => expect(api.correctCustomerBirthday).toHaveBeenCalledWith(
+      expect.any(String), { birthday: '1990-02-03', reason: '顧客來信說填錯月份' },
+    ));
+  });
+
+  it('說明更正不補發已經錯過的生日禮券', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByText('buyer@example.com'));
+    await user.click(await screen.findByRole('button', { name: '修正生日' }));
+    expect(await screen.findByText(/不會補發/)).toBeInTheDocument();
   });
 });

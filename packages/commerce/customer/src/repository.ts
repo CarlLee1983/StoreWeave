@@ -48,6 +48,12 @@ export class CustomerRepository {
     return row ?? null;
   }
 
+  /** 讀來的舊值要進稽核紀錄時用這支：沒有鎖，記下的原值在併發下會說謊。 */
+  async lockById(tx: Tx, id: string): Promise<CustomerRow | null> {
+    const [row] = await tx.select().from(customers).where(eq(customers.id, id)).limit(1).for('update');
+    return row ?? null;
+  }
+
   /**
    * 後台清單。email 屬於帳號、顯示名稱屬於顧客，兩邊都要搜得到，
    * 因此這一支是 customer 模組唯一讀 platform_users 的地方——而且只讀，不寫。

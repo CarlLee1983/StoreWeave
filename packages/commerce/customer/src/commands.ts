@@ -124,20 +124,25 @@ export const setCustomerBirthdayCommand = defineCommand({
   // 顧客自己沒有這個權限：這正是「要改得找客服」的實作方式。
   permission: 'customers:manage',
   idempotency: 'optional',
-  audit: {
-    action: 'customer.birthday-corrected',
-    resourceType: 'customer',
-    resourceId: (i: z.infer<typeof setCustomerBirthdayInput>) => i.customerId,
-    redact: () => ({}),
-  },
+  // 稽核由 handler 自己寫：原值只有 handler 讀得到，而宣告式的 redact 只拿得到 input。
 });
 
 export const setCustomerBirthdayHandler = async (
   input: z.infer<typeof setCustomerBirthdayInput>,
   ctx: CommandContext,
 ) => {
+  // 鎖住再讀：原值要進稽核紀錄，兩位客服同時更正時不鎖會讓兩筆紀錄記下同一個原值，
+  // 其中一筆就把另一次更正蓋掉的東西寫錯了。
+  const before = await repository.lockById(ctx.tx, input.customerId);
+  if (!before) throw PlatformError.notFound('Customer', input.customerId);
   const row = await repository.update(ctx.tx, input.customerId, { birthday: input.birthday, updatedAt: ctx.now });
   if (!row) throw PlatformError.notFound('Customer', input.customerId);
+  await ctx.audit({
+    action: 'customer.birthday-corrected',
+    resourceType: 'customer',
+    resourceId: input.customerId,
+    payload: { birthday: input.birthday, reason: input.reason, previousBirthday: before.birthday ?? null },
+  });
   return toCustomerDto(row);
 };
 

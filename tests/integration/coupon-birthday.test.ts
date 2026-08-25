@@ -47,7 +47,7 @@ async function customerBornOn(birthday: string | null, tag: string) {
   const customer = await createCustomer(h.runtime, { email: `bday-${tag}-${randomUUID()}@example.test` });
   if (birthday) {
     await h.runtime.commands.execute('commerce.customer.setCustomerBirthday',
-      { customerId: customer.customerId, birthday },
+      { customerId: customer.customerId, birthday, reason: '測試資料設定' },
       { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
   }
   return customer;

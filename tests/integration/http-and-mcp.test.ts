@@ -487,3 +487,40 @@ describe('工單 72：會員等級與購物金設定的營運介面', () => {
     expect((await inject({ method: 'PUT', url: '/api/v1/loyalty/tiers', headers: mcp, payload: { name: 'nope', thresholdPoints: 1, multiplierBasisPoints: 10000 } })).statusCode).toBe(403);
   });
 });
+
+describe('工單 73／74：通知紀錄與生日更正的 HTTP 面', () => {
+  const auth = { authorization: `Bearer ${ADMIN_TOKEN}` };
+  const mcp = { authorization: `Bearer ${MCP_TOKEN}` };
+
+  it('通知紀錄讀得到，limit 不是數字時回 400 而不是 500', async () => {
+    const res = await inject({ method: 'GET', url: '/api/v1/notification-deliveries?limit=5', headers: auth });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).data).toMatchObject({ items: expect.any(Array), total: expect.any(Number) });
+    expect((await inject({ method: 'GET', url: '/api/v1/notification-deliveries?limit=abc', headers: auth })).statusCode).toBe(400);
+  });
+
+  it('通知紀錄擋匿名與沒有 notification:read 的 token', async () => {
+    expect((await inject({ method: 'GET', url: '/api/v1/notification-deliveries' })).statusCode).toBe(401);
+    expect((await inject({ method: 'GET', url: '/api/v1/notification-deliveries', headers: mcp })).statusCode).toBe(403);
+  });
+
+  it('生日更正沒帶原因回 400，帶了不存在的會員回 404', async () => {
+    const missing = '00000000-0000-4000-8000-000000000000';
+    const noReason = await inject({ method: 'POST', url: `/api/v1/customers/${missing}/birthday`, headers: auth, payload: { birthday: '1990-01-01' } });
+    expect(noReason.statusCode).toBe(400);
+    const notFound = await inject({ method: 'POST', url: `/api/v1/customers/${missing}/birthday`, headers: auth, payload: { birthday: '1990-01-01', reason: '客服更正' } });
+    expect(notFound.statusCode).toBe(404);
+  });
+
+  it('生日不是真的日曆日就回 400，形狀對不代表日期存在', async () => {
+    const missing = '00000000-0000-4000-8000-000000000000';
+    const res = await inject({ method: 'POST', url: `/api/v1/customers/${missing}/birthday`, headers: auth, payload: { birthday: '1990-02-31', reason: '客服更正' } });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('生日更正擋匿名與沒有 customers:manage 的 token', async () => {
+    const missing = '00000000-0000-4000-8000-000000000000';
+    expect((await inject({ method: 'POST', url: `/api/v1/customers/${missing}/birthday`, payload: { birthday: '1990-01-01', reason: 'x' } })).statusCode).toBe(401);
+    expect((await inject({ method: 'POST', url: `/api/v1/customers/${missing}/birthday`, headers: mcp, payload: { birthday: '1990-01-01', reason: 'x' } })).statusCode).toBe(403);
+  });
+});

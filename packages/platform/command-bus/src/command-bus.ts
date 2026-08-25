@@ -188,11 +188,21 @@ export class CommandBus {
       const output = outputParsed.data;
 
       if (descriptor.audit && auditEntries.length === 0) {
+        // resourceId / redact 是宣告式的投影函式。它們丟出不該讓一個已經成功的
+        // command 整筆回滾——稽核寫不出漂亮的欄位是缺陷，不是這次交易的失敗。
+        let resourceId: string | undefined;
+        let payload: Record<string, unknown> | undefined;
+        try {
+          resourceId = descriptor.audit.resourceId?.(input, output);
+          payload = descriptor.audit.redact?.(input);
+        } catch (error) {
+          logger.warn({ err: error, command: descriptor.name }, 'audit projection failed; writing entry without it');
+        }
         await this.deps.audit.write(tx, {
           action: descriptor.audit.action,
           resourceType: descriptor.audit.resourceType,
-          resourceId: descriptor.audit.resourceId?.(input, output),
-          payload: descriptor.audit.redact?.(input),
+          resourceId,
+          payload,
           actor: options.actor,
           correlationId,
         });

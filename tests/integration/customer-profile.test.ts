@@ -68,7 +68,7 @@ describe('會員維護自己的資料', () => {
     await update(customer, { birthday: '1990-05-20' });
 
     const fixed = await h.runtime.commands.execute<any>('commerce.customer.setCustomerBirthday',
-      { customerId: (await profileOf(customer)).id, birthday: '1990-06-21' },
+      { customerId: (await profileOf(customer)).id, birthday: '1990-06-21', reason: '顧客來信更正' },
       { actor: ADMIN_ACTOR });
 
     expect(fixed.birthday).toBe('1990-06-21');

@@ -217,6 +217,23 @@ export type Invoice = {
   updatedAt: string;
 };
 
+export type LifecycleDelivery = {
+  id: string;
+  eventId: string;
+  orderId: string;
+  template: 'customer.order-placed' | 'customer.order-paid' | 'customer.shipment-shipped' | 'customer.shipment-arrived';
+  reference: string;
+  /** 伺服器只給遮蔽值；完整地址不離開通知模組。 */
+  recipientMasked: string;
+  status: 'pending' | 'sent' | 'failed';
+  providerRef: string | null;
+  attempts: number;
+  lastError: string | null;
+  sentAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type RewardSettings = {
   /** 基點。100 = 1%。UI 一律換算成百分比。 */
   accrualBasisPoints: number;
@@ -634,6 +651,12 @@ export const api = {
   },
   receiveRma(id: string, lines: { rmaLineId: string; disposition: 'restock' | 'discard'; discardReason?: string }[]) {
     return request<Rma>(`/api/v1/rmas/${id}/receive`, { method: 'POST', body: { lines }, idempotent: true });
+  },
+  listLifecycleDeliveries(params: { orderId?: string; status?: LifecycleDelivery['status']; limit?: number; offset?: number }) {
+    return request<Paged<LifecycleDelivery>>(`/api/v1/notification-deliveries${toQuery(params)}`);
+  },
+  correctCustomerBirthday(id: string, body: { birthday: string; reason: string }) {
+    return request<Omit<AdminCustomer, 'email'>>(`/api/v1/customers/${id}/birthday`, { method: 'POST', body, idempotent: true });
   },
   getRewardSettings() {
     return request<RewardSettings>('/api/v1/loyalty/settings');

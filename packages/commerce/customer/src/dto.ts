@@ -20,7 +20,18 @@ export const addressDto = z.object({
 export const addressInput = addressDto.strict();
 
 /** 生日只存日期，不存時刻——它是禮券的依據，不是時間戳。 */
-const birthday = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'birthday must be YYYY-MM-DD');
+/**
+ * 形狀對不代表日期存在：`1990-02-31` 過得了 regex。生日決定發券資格，
+ * 所以這裡要的是一個真的日曆日，而且不在未來、不早於 1900。
+ */
+const birthday = z.string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'birthday must be YYYY-MM-DD')
+  .refine((value) => {
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  }, 'birthday must be a real calendar date')
+  .refine((value) => value >= '1900-01-01', 'birthday must not be before 1900');
 
 export const customerDto = z.object({
   id: z.string().uuid(),
@@ -61,6 +72,8 @@ export const updateMyProfileInput = z.object({
 export const setCustomerBirthdayInput = z.object({
   customerId: z.string().uuid(),
   birthday,
+  /** 生日決定發券資格，改它要說得出為什麼；沒有理由的更正事後查不到帳。 */
+  reason: z.string().trim().min(1).max(500),
 }).strict();
 
 /** 後台看到的會員：顧客資料 + 帳號 email。永遠不含密碼雜湊。 */

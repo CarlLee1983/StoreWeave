@@ -16,6 +16,7 @@ import { ShippingPage } from './pages/ShippingPage';
 import { RmaPage } from './pages/RmaPage';
 import { InvoicesPage } from './pages/InvoicesPage';
 import { LoyaltyPage } from './pages/LoyaltyPage';
+import { NotificationsPage } from './pages/NotificationsPage';
 
 /** 側欄的分組，順序即呈現順序。 */
 export const NAV_SECTIONS = ['commerce', 'integrations'] as const;
@@ -139,6 +140,15 @@ const ENTRIES = [
     title: 'analyticsTitle',
     subtitle: 'analyticsSubtitle',
     render: () => <AnalyticsPage />,
+  },
+  {
+    path: 'notifications',
+    navLabel: 'notifications',
+    icon: 'activity',
+    section: 'integrations',
+    title: 'notificationsTitle',
+    subtitle: 'notificationsSubtitle',
+    render: () => <NotificationsPage />,
   },
   {
     path: 'erp',

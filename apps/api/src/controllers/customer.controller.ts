@@ -94,6 +94,12 @@ export class CustomerController extends BusController {
     }));
   }
 
+  @Post(':id/birthday')
+  @HttpCode(200)
+  async correctBirthday(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return ok(await this.command(req, 'commerce.customer.setCustomerBirthday', { customerId: id, birthday: body.birthday, reason: body.reason }));
+  }
+
   @Post(':id/status')
   async setStatus(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     return ok(await this.command(req, 'commerce.customer.setCustomerStatus', { customerId: id, status: body.status }));

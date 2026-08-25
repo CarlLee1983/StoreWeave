@@ -39,6 +39,13 @@
 盤點同時確認乾淨的部分：114 支 command/query 除上述外都有呼叫端，週期性工作那幾支由 job
 正確觸發；31 篇 ADR 全部有 `Falsified if`，30 篇 accepted、1 篇 obsolete，沒有 proposed 卡著。
 
+**71–75 於 2026-08-25 全部做完**。四處「寫好了點不到」都接上了入口，死碼也清掉了。
+過程中審查擋下兩個實質缺陷：商品編輯清空售價會靜默把價格改成 0（`Number('')` 是 0 而
+`Number.isInteger(0)` 為真），以及等級門檻的唯一索引撞號會丟一個店員看不懂的 500。
+做 73 時順手把通知的收件人改成遮蔽值並拿掉 `variables`——營運要回答的是「送了沒、
+為什麼失敗」，不需要顧客姓名與訂單細節。做 74 時把 `redact` 的簽章從 `(input)` 放寬成
+`(input, output)`，否則稽核記不下「這次更正把什麼蓋掉了」。
+
 **剩下的關卡不在程式碼裡**。58、59、60、61、62 的實機驗證要一座有公開網域的部署與
 商家開通，那是釋出檢查，不是程式阻擋；66 已通過 Stage UAT，正式開通同樣是釋出設定。
 **64 仍是 blocked**——它等的是商家實際開通的退款／查詢產品與它的契約，在拿到之前
@@ -134,9 +141,9 @@
 | [70](70-invoice-issue-reconciliation.md) | 發票開立的對帳查詢：回應遺失時的補救 | 58, 69 |
 | [71](71-admin-product-editing.md) | 後台商品編輯與上下架（**done**） | 02 |
 | [72](72-loyalty-settings-operations.md) | 會員等級與購物金設定的營運介面（**done**） | 43, 45 |
-| [73](73-notification-delivery-log.md) | 訂單與出貨通知的投遞紀錄 | 62 |
-| [74](74-customer-birthday-correction.md) | 客服修正會員生日 | 22, 35 |
-| [75](75-remove-legacy-markpaid.md) | 移除沒有呼叫端的 `commerce.order.markPaid` | — |
+| [73](73-notification-delivery-log.md) | 訂單與出貨通知的投遞紀錄（**done**） | 62 |
+| [74](74-customer-birthday-correction.md) | 客服修正會員生日（**done**） | 22, 35 |
+| [75](75-remove-legacy-markpaid.md) | 移除沒有呼叫端的 `commerce.order.markPaid`（**done**） | — |
 
 ## 已知、刻意沒做的
 
