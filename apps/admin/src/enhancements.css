@@ -1306,3 +1306,164 @@
   flex-direction: column;
   align-items: stretch;
 }
+
+/* ── 區塊容器 ───────────────────────────────────────────
+   .account-panel 與 .section-heading 被 Orders / Rma / Loyalty / Shipping
+   四頁當成主要的分區容器與區塊標題，但同樣從來沒有定義過，於是那些頁面
+   看起來是一連串沒有邊界的內容直接疊在背景上。 */
+.account-panel {
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.account-panel > .table-wrap,
+.account-panel > .order-detail {
+  margin-top: 12px;
+}
+
+.section-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
+.section-heading h2,
+.section-heading h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.section-heading p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.section-heading code {
+  font-size: 12px;
+}
+
+/* 巢狀表格：外層已經有卡片邊界，內層只留分隔線與較低的列高。 */
+.data-table--nested {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-surface-raised);
+}
+
+.data-table--nested th {
+  height: 30px;
+  font-size: 11px;
+}
+
+.data-table--nested td {
+  height: 38px;
+  font-size: 12px;
+}
+
+.text-muted,
+.muted {
+  color: var(--text-muted);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+/* 核取方塊與其標籤排成一行，不要讓標籤文字掉到方塊下面。 */
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.checkbox input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent-brand);
+}
+
+/* API Token 面板（頂列的浮出設定） */
+.token-panel {
+  position: absolute;
+  top: 52px;
+  right: 24px;
+  z-index: 40;
+  width: min(360px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-surface-raised);
+  box-shadow: var(--shadow-dropdown);
+}
+
+.token-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.token-panel__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 擴充套件清單 */
+.extension-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.extension-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-surface-raised);
+}
+
+.extension-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.extension-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
