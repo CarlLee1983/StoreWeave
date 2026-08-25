@@ -3,7 +3,10 @@ import type {
   StorefrontTheme, ThemeAccountCouponsView, ThemeAuthView, ThemeCartView, ThemeCatalogView, ThemeContext, ThemeOrderView,
 } from '@storeweave/kernel';
 import { escapeHtml, formatMoney, layout } from './layout';
-import { getCategoryBadge, getProductCategory, renderProductArtwork } from './artwork';
+import {
+  BENTO_IMAGES, BRAND_HERO_IMAGE, CRAFT_POTTERY_IMAGE, CRAFT_TEXTILE_IMAGE, CRAFT_WOOD_IMAGE,
+  getProductPhoto, ICONS, JOURNAL_ARTICLES, STORY_HERO_IMAGE,
+} from './gallery';
 
 type AccountSection = 'orders' | 'coupons' | 'rewards' | 'profile';
 
@@ -360,23 +363,28 @@ export const defaultTheme: StorefrontTheme = {
   optionsSchema: defaultThemeOptions,
 
   renderHome(ctx, { products, q, minPrice, maxPrice, page, pageSize, total }: ThemeCatalogView) {
-    const cards = products.map((product) => {
+    const isFilteredOrPaged = Boolean(q) || minPrice !== null || maxPrice !== null || page > 1;
+
+    // 若使用者帶有篩選條件或分頁，直接呈現目錄模式
+    if (isFilteredOrPaged) {
+      return this.renderCatalog ? this.renderCatalog(ctx, { products, q, minPrice, maxPrice, page, pageSize, total }) : '';
+    }
+
+    const featuredCards = products.slice(0, 8).map((product) => {
       const soldOut = product.available !== null && product.available <= 0;
       const availability = product.available === null
         ? ''
         : product.available > 0 ? `可售 ${product.available} 件` : '已售完';
-      const category = getProductCategory(product.sku, product.name);
-      const badge = getCategoryBadge(category);
-      const artwork = renderProductArtwork(product.sku, product.name);
+      const photo = getProductPhoto(product.sku, product.name);
       return `
-        <article class="product-card" data-category="${category}">
-          <div class="product-card__visual">
-            ${artwork}
-            <span class="product-card__category-badge">${badge.label}</span>
+        <article class="product-card">
+          <div class="product-card__photo-wrap">
+            <div class="product-card__photo" style="background-image: url('${escapeHtml(photo.url)}');" role="img" aria-label="${escapeHtml(product.name)}"></div>
+            <span class="product-card__category-badge">${escapeHtml(photo.badgeZh)}</span>
           </div>
           <a class="product-card__link" href="/p/${escapeHtml(product.id)}" aria-label="${escapeHtml(product.name)} 的商品詳情">
             <div class="product-card__content">
-              <span class="product-card__tag">選物精選</span>
+              <span class="product-card__tag">✦ 職人選品</span>
               ${ctx.options.showSku !== false ? `<p class="product-card__sku">${escapeHtml(product.sku)}</p>` : ''}
               <h2>${escapeHtml(product.name)}</h2>
               ${product.description ? `<p class="product-card__description">${escapeHtml(product.description)}</p>` : ''}
@@ -388,58 +396,58 @@ export const defaultTheme: StorefrontTheme = {
           </a>
         </article>`;
     }).join('');
-    const pageCount = Math.max(1, Math.ceil(total / pageSize));
-    const outOfRange = total > 0 && page > pageCount;
-    const hasFilters = Boolean(q) || minPrice !== null || maxPrice !== null;
-    const heading = q ? `搜尋「${escapeHtml(q)}」` : '目前商品';
-    const empty = outOfRange
-      ? `<p class="empty-state">第 ${page} 頁沒有商品。<a href="${escapeHtml(catalogUrl(q, minPrice, maxPrice, 1))}">回到第一頁</a></p>`
-      : hasFilters ? '<p class="empty-state">找不到符合目前篩選條件的商品。</p>' : '<p class="empty-state">目前沒有上架的商品。</p>';
-    const pagination = pageCount > 1 ? `<nav class="catalog-pagination" aria-label="商品分頁">
-      ${page > 1 ? `<a href="${escapeHtml(catalogUrl(q, minPrice, maxPrice, page - 1))}" rel="prev">上一頁</a>` : '<span aria-hidden="true">上一頁</span>'}
-      <span>第 ${page}／${pageCount} 頁</span>
-      ${page < pageCount ? `<a href="${escapeHtml(catalogUrl(q, minPrice, maxPrice, page + 1))}" rel="next">下一頁</a>` : '<span aria-hidden="true">下一頁</span>'}
-    </nav>` : '';
 
     const heroSection = `
-      <section class="catalog-hero" aria-labelledby="catalog-title">
-        <div>
-          <p class="eyebrow">生活風格提案 · ${escapeHtml(ctx.storeName)}</p>
-          <h1 id="catalog-title">日日相伴的器物與織物，<br>讓生活回歸本質。</h1>
-          <p class="catalog-hero__copy">從手作陶皿到天然亞麻，我們用心採集每件溫潤質樸的日常器物。尊重材質本身的紋理，陪伴日常三餐與四季流轉。</p>
-          <div class="catalog-hero__actions">
-            <a class="cta" href="#products-title">探索本季選品</a>
-            <a class="secondary-action" href="#philosophy">了解品牌工藝</a>
+      <section class="editorial-hero" style="background-image: linear-gradient(to top, rgba(28, 22, 18, .88) 0%, rgba(28, 22, 18, .45) 55%, rgba(28, 22, 18, .15) 100%), url('${escapeHtml(BRAND_HERO_IMAGE)}'); background-size: cover; background-position: center 35%;" aria-labelledby="hero-title">
+        <div class="editorial-hero__content">
+          <p class="editorial-hero__eyebrow">Lifestyle Flagship · ${escapeHtml(ctx.storeName)}</p>
+          <h1 id="hero-title">日日相伴的器物與織物，<br>讓生活回歸溫潤本質。</h1>
+          <p class="editorial-hero__copy">從手捏陶皿到純天然亞麻，我們用心採集每件具備呼吸感的日常道具。尊重材質原始紋理，陪伴三餐煙火與四季流轉。</p>
+          <div class="editorial-hero__actions">
+            <a class="cta" href="/catalog">探索本季選品 (24)</a>
+            <a class="secondary-action" href="/story">閱讀品牌工藝</a>
           </div>
         </div>
       </section>`;
 
     const brandPillars = `
-      <section class="brand-pillars" id="pillars" aria-label="品牌承諾與服務">
+      <section class="brand-pillars" aria-label="品牌承諾與服務">
         <article class="pillar-card">
-          <span class="pillar-icon" aria-hidden="true">🌿</span>
+          <div class="pillar-card__header">
+            <span class="pillar-num">01</span>
+            <div class="pillar-icon-box">${ICONS.leaf}</div>
+          </div>
           <h3>天然與手作質地</h3>
-          <p>嚴選天然陶土、原木與天然亞麻，保留自然質樸紋理與手作溫度。</p>
+          <p>嚴選天然陶土、原木與長纖亞麻，保留自然質樸紋理與手作溫度。</p>
         </article>
         <article class="pillar-card">
-          <span class="pillar-icon" aria-hidden="true">📦</span>
+          <div class="pillar-card__header">
+            <span class="pillar-num">02</span>
+            <div class="pillar-icon-box">${ICONS.box}</div>
+          </div>
           <h3>全站滿額免運</h3>
           <p>單筆消費滿額即享宅配或超商免費配送，安心包裝快速送達。</p>
         </article>
         <article class="pillar-card">
-          <span class="pillar-icon" aria-hidden="true">🕊️</span>
+          <div class="pillar-card__header">
+            <span class="pillar-num">03</span>
+            <div class="pillar-icon-box">${ICONS.shield}</div>
+          </div>
           <h3>7 日安心鑑賞</h3>
           <p>提供完整售後服務與透明退換保障，讓每次選物都安心無憂。</p>
         </article>
         <article class="pillar-card">
-          <span class="pillar-icon" aria-hidden="true">🏷️</span>
+          <div class="pillar-card__header">
+            <span class="pillar-num">04</span>
+            <div class="pillar-icon-box">${ICONS.star}</div>
+          </div>
           <h3>會員購物金回饋</h3>
           <p>每筆消費均享點數累積與等級加成，生日再享專屬折扣禮遇。</p>
         </article>
       </section>`;
 
     const curatedBento = `
-      <section class="curated-section" id="curated" aria-labelledby="curated-title">
+      <section class="curated-section" aria-labelledby="curated-title">
         <div class="section-heading">
           <div>
             <p class="eyebrow">精選系列</p>
@@ -448,80 +456,88 @@ export const defaultTheme: StorefrontTheme = {
           <p>為不同時段與空間準備的選物提案</p>
         </div>
         <div class="curated-grid">
-          <a class="curated-card" href="/?q=器皿#products-title">
-            <div>
+          <a class="curated-card" href="/catalog?q=器皿" style="background-image: linear-gradient(to top, rgba(28, 22, 18, .9) 0%, rgba(28, 22, 18, .4) 60%, rgba(28, 22, 18, .1) 100%), url('${escapeHtml(BENTO_IMAGES.pottery)}'); background-size: cover; background-position: center;">
+            <div class="curated-card__content">
               <p class="curated-card__tag">Dining & Kitchen</p>
               <h3>日常器皿</h3>
-              <p>溫潤觸感的陶作器皿與碗盤，承載三餐日常的煙火氣息與料理溫度。</p>
+              <p>溫潤觸感的陶作器皿與碗盤，承載三餐日常的煙火氣息。</p>
+              <span class="curated-card__cta">探索器皿 ${ICONS.arrowRight}</span>
             </div>
-            <span class="curated-card__cta">探索器皿 →</span>
           </a>
-          <a class="curated-card" href="/?q=布#products-title">
-            <div>
+          <a class="curated-card" href="/catalog?q=布" style="background-image: linear-gradient(to top, rgba(28, 22, 18, .9) 0%, rgba(28, 22, 18, .4) 60%, rgba(28, 22, 18, .1) 100%), url('${escapeHtml(BENTO_IMAGES.textile)}'); background-size: cover; background-position: center;">
+            <div class="curated-card__content">
               <p class="curated-card__tag">Textile & Living</p>
               <h3>手織布品</h3>
-              <p>具備呼吸感的純麻與棉織布品，越洗越柔軟的親膚觸感與自然垂墜。</p>
+              <p>呼吸感的純麻與棉織布品，越洗越柔軟的親膚觸感。</p>
+              <span class="curated-card__cta">探索織品 ${ICONS.arrowRight}</span>
             </div>
-            <span class="curated-card__cta">探索織品 →</span>
           </a>
-          <a class="curated-card" href="/?q=木#products-title">
-            <div>
+          <a class="curated-card" href="/catalog?q=木" style="background-image: linear-gradient(to top, rgba(28, 22, 18, .9) 0%, rgba(28, 22, 18, .4) 60%, rgba(28, 22, 18, .1) 100%), url('${escapeHtml(BENTO_IMAGES.wood)}'); background-size: cover; background-position: center;">
+            <div class="curated-card__content">
               <p class="curated-card__tag">Wooden Utensils</p>
-              <h3>木作與生活道具</h3>
-              <p>保留天然木紋的質樸托盤與收納道具，為桌面帶來沉靜秩序感。</p>
+              <h3>木作與道具</h3>
+              <p>天然木紋的質樸托盤與收納道具，為桌面帶來沉靜秩序。</p>
+              <span class="curated-card__cta">探索木作 ${ICONS.arrowRight}</span>
             </div>
-            <span class="curated-card__cta">探索木作 →</span>
           </a>
         </div>
       </section>`;
 
-    const categoryTabs = `
-      <nav class="catalog-category-tabs" aria-label="商品分類快速瀏覽">
-        <a href="/#products-title" class="category-tab${!q && minPrice === null && maxPrice === null ? ' category-tab--active' : ''}">全部選品 (${total})</a>
-        <a href="/?q=器皿#products-title" class="category-tab${q === '器皿' ? ' category-tab--active' : ''}">日常器皿</a>
-        <a href="/?q=布#products-title" class="category-tab${q === '布' || q === '麻' ? ' category-tab--active' : ''}">手織布品</a>
-        <a href="/?q=木#products-title" class="category-tab${q === '木' ? ' category-tab--active' : ''}">木作道具</a>
-        <a href="/?q=香氛#products-title" class="category-tab${q === '香氛' || q === '蠟燭' ? ' category-tab--active' : ''}">居家香氛</a>
-      </nav>`;
+    const featuredSection = `
+      <section class="catalog-section" aria-labelledby="featured-title">
+        <div class="catalog-section__header">
+          <div>
+            <p class="eyebrow">Curated Selection</p>
+            <h2 id="featured-title">本季焦點選品</h2>
+          </div>
+          <a class="secondary-action" href="/catalog">查看全部 24 件商品 →</a>
+        </div>
+        <div class="catalog-grid">${featuredCards}</div>
+      </section>`;
 
     const philosophySection = `
-      <section class="philosophy-section" id="philosophy" aria-labelledby="philosophy-title">
-        <div class="philosophy-header">
+      <section class="philosophy-section" aria-labelledby="philosophy-title">
+        <div class="philosophy-body">
           <p class="eyebrow">品牌工藝精神</p>
           <h2 id="philosophy-title">把時間花在<br>看不見的細節上</h2>
-        </div>
-        <div class="philosophy-content">
           <p>我們相信一件好的器物，不僅在於造型的美感，更在於被雙手捧起時的重量、盛裝熱湯時的溫潤，以及隨時光流逝所留下的使用痕跡。</p>
           <p>織日選物走訪各地的獨立工作坊與職人，堅持選用對環境友善的天然素材。每一件物品都經過真實生活場景的驗證，只為成為你日常中最長久、最安心的陪伴。</p>
+          <div>
+            <a class="cta" href="/story">閱讀完整品牌故事 →</a>
+          </div>
+        </div>
+        <div class="philosophy-photo-wrap">
+          <div class="philosophy-photo" style="background-image: url('${escapeHtml(CRAFT_POTTERY_IMAGE)}'); width: 100%; height: 100%; background-size: cover; background-position: center;" role="img" aria-label="陶藝職人工作坊"></div>
         </div>
       </section>`;
 
     const journalSection = `
-      <section class="journal-section" id="journal" aria-labelledby="journal-title">
+      <section class="journal-section" aria-labelledby="journal-title">
         <div class="section-heading">
           <div>
             <p class="eyebrow">Woven Journal</p>
-            <h2 id="journal-title">品牌誌 · 日常選物筆記</h2>
+            <h2 id="journal-title">生活風格誌 · 選物筆記</h2>
           </div>
-          <p>器物保養指南與空間搭配靈感</p>
+          <a class="secondary-action" href="/journal">專欄文章庫 →</a>
         </div>
         <div class="journal-grid">
-          <article class="journal-card">
-            <div class="journal-card__meta">
-              <span>器物保養</span> · <span>5 分鐘閱讀</span>
-            </div>
-            <h3>如何養出一只溫潤質樸的陶杯？</h3>
-            <p>陶器是有毛細孔的器物。從初次使用前的「開陶」淘米水浸泡，到日常使用後的徹底風乾，了解善待陶皿的溫柔心法。</p>
-            <span class="journal-card__read">閱讀專題 →</span>
-          </article>
-          <article class="journal-card">
-            <div class="journal-card__meta">
-              <span>居家風格</span> · <span>4 分鐘閱讀</span>
-            </div>
-            <h3>晨光與亞麻：讓空間自然呼吸的織物佈置學</h3>
-            <p>亞麻不只適合盛夏。探索如何利用不同織度與垂墜感的亞麻餐墊、抱枕套與布巾，為室內光線注入柔和濾鏡。</p>
-            <span class="journal-card__read">閱讀專題 →</span>
-          </article>
+          ${JOURNAL_ARTICLES.map((article) => `
+            <article class="journal-card">
+              <a href="/journal/${escapeHtml(article.slug)}" class="journal-card__cover-wrap">
+                <div class="journal-card__cover" style="background-image: url('${escapeHtml(article.coverImage)}'); width: 100%; height: 100%; background-size: cover; background-position: center;" role="img" aria-label="${escapeHtml(article.title)}"></div>
+              </a>
+              <div class="journal-card__body">
+                <div class="journal-card__meta">
+                  <span>${escapeHtml(article.category)}</span>
+                  <span>·</span>
+                  <span>${escapeHtml(article.readTime)}</span>
+                </div>
+                <h3><a href="/journal/${escapeHtml(article.slug)}">${escapeHtml(article.title)}</a></h3>
+                <p>${escapeHtml(article.summary)}</p>
+                <a class="journal-card__read" href="/journal/${escapeHtml(article.slug)}">閱讀專題 ${ICONS.arrowRight}</a>
+              </div>
+            </article>
+          `).join('')}
         </div>
       </section>`;
 
@@ -537,20 +553,79 @@ export const defaultTheme: StorefrontTheme = {
         </div>
       </section>`;
 
-    const isFilteredOrPaged = hasFilters || page > 1;
+    const body = `
+      <div class="catalog-page">
+        ${heroSection}
+        ${brandPillars}
+        ${curatedBento}
+        ${featuredSection}
+        ${philosophySection}
+        ${journalSection}
+        ${memberBanner}
+      </div>`;
+    return layout({ title: '首頁', body, ctx });
+  },
+
+  renderCatalog(ctx, { products, q, minPrice, maxPrice, page, pageSize, total }: ThemeCatalogView) {
+    const cards = products.map((product) => {
+      const soldOut = product.available !== null && product.available <= 0;
+      const availability = product.available === null
+        ? ''
+        : product.available > 0 ? `可售 ${product.available} 件` : '已售完';
+      const photo = getProductPhoto(product.sku, product.name);
+      return `
+        <article class="product-card">
+          <div class="product-card__photo-wrap">
+            <div class="product-card__photo" style="background-image: url('${escapeHtml(photo.url)}');" role="img" aria-label="${escapeHtml(product.name)}"></div>
+            <span class="product-card__category-badge">${escapeHtml(photo.badgeZh)}</span>
+          </div>
+          <a class="product-card__link" href="/p/${escapeHtml(product.id)}" aria-label="${escapeHtml(product.name)} 的商品詳情">
+            <div class="product-card__content">
+              <span class="product-card__tag">✦ 職人選品</span>
+              ${ctx.options.showSku !== false ? `<p class="product-card__sku">${escapeHtml(product.sku)}</p>` : ''}
+              <h2>${escapeHtml(product.name)}</h2>
+              ${product.description ? `<p class="product-card__description">${escapeHtml(product.description)}</p>` : ''}
+            </div>
+            <div class="product-card__footer">
+              <p class="price">${formatMoney(product.priceCents, product.currency, ctx.locale)}</p>
+              ${availability ? `<p class="product-card__availability${soldOut ? ' product-card__availability--sold-out' : ''}">${availability}</p>` : ''}
+            </div>
+          </a>
+        </article>`;
+    }).join('');
+
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    const outOfRange = total > 0 && page > pageCount;
+    const hasFilters = Boolean(q) || minPrice !== null || maxPrice !== null;
+    const heading = q ? `搜尋「${escapeHtml(q)}」` : '選物全目錄';
+    const empty = outOfRange
+      ? `<p class="empty-state">第 ${page} 頁沒有商品。<a href="${escapeHtml(catalogUrl(q, minPrice, maxPrice, 1))}">回到第一頁</a></p>`
+      : hasFilters ? '<p class="empty-state">找不到符合目前篩選條件的商品。</p>' : '<p class="empty-state">目前沒有上架的商品。</p>';
+    const pagination = pageCount > 1 ? `<nav class="catalog-pagination" aria-label="商品分頁">
+      ${page > 1 ? `<a href="${escapeHtml(catalogUrl(q, minPrice, maxPrice, page - 1))}" rel="prev">上一頁</a>` : '<span aria-hidden="true">上一頁</span>'}
+      <span>第 ${page}／${pageCount} 頁</span>
+      ${page < pageCount ? `<a href="${escapeHtml(catalogUrl(q, minPrice, maxPrice, page + 1))}" rel="next">下一頁</a>` : '<span aria-hidden="true">下一頁</span>'}
+    </nav>` : '';
+
+    const categoryTabs = `
+      <nav class="catalog-category-tabs" aria-label="商品分類快速瀏覽">
+        <a href="/catalog" class="category-tab${!q && minPrice === null && maxPrice === null ? ' category-tab--active' : ''}">全部選品 (${total})</a>
+        <a href="/catalog?q=器皿" class="category-tab${q === '器皿' ? ' category-tab--active' : ''}">日常器皿</a>
+        <a href="/catalog?q=布" class="category-tab${q === '布' || q === '麻' ? ' category-tab--active' : ''}">手織布品</a>
+        <a href="/catalog?q=木" class="category-tab${q === '木' ? ' category-tab--active' : ''}">木作道具</a>
+        <a href="/catalog?q=香氛" class="category-tab${q === '香氛' || q === '蠟燭' ? ' category-tab--active' : ''}">居家香氛</a>
+      </nav>`;
 
     const body = `
       <div class="catalog-page">
-        ${isFilteredOrPaged ? '' : heroSection}
-        ${isFilteredOrPaged ? '' : brandPillars}
-        ${isFilteredOrPaged ? '' : curatedBento}
-        <section class="catalog-section" id="products-title" aria-labelledby="products-heading">
-          <div class="catalog-section__header">
-            <h2 id="products-heading">${heading}</h2>
-            <p class="catalog-section__count">共 ${total} 件上架商品</p>
-          </div>
+        <header class="page-heading">
+          <p class="eyebrow">Collection · ${escapeHtml(ctx.storeName)}</p>
+          <h1>${heading}</h1>
+          <p class="page-heading__copy">探索 24 款日日相伴的質樸器物與手織工藝，全品項皆採天然材質製作。</p>
+        </header>
+        <section class="catalog-section" aria-labelledby="catalog-products-heading">
           ${categoryTabs}
-          <form class="catalog-search" method="get" action="/#products-title" role="search">
+          <form class="catalog-search" method="get" action="/catalog" role="search">
             <label for="catalog-query">商品名稱或 SKU</label>
             <input id="catalog-query" type="search" name="q" value="${escapeHtml(q)}" maxlength="200" autocomplete="off">
             <label for="catalog-min-price">最低價格（元）</label>
@@ -564,11 +639,145 @@ export const defaultTheme: StorefrontTheme = {
             : empty}
           ${pagination}
         </section>
-        ${isFilteredOrPaged ? '' : philosophySection}
-        ${isFilteredOrPaged ? '' : journalSection}
-        ${isFilteredOrPaged ? '' : memberBanner}
       </div>`;
-    return layout({ title: '商品', body, ctx });
+    return layout({ title: '選物目錄', body, ctx });
+  },
+
+  renderStory(ctx) {
+    const body = `
+      <article class="story-page">
+        <section class="story-hero" style="background-image: linear-gradient(to top, rgba(28, 22, 18, .9) 0%, rgba(28, 22, 18, .35) 60%, rgba(28, 22, 18, .1) 100%), url('${escapeHtml(STORY_HERO_IMAGE)}'); background-size: cover; background-position: center;" aria-labelledby="story-title">
+          <div class="story-hero__content">
+            <p class="eyebrow" style="color: #E2B9A0;">Our Story · 品牌工藝宣言</p>
+            <h1 id="story-title">把時間花在<br>看不見的細節上</h1>
+            <p style="margin: 0; color: rgba(255,253,249,.85); font-size: 1.05rem; line-height: 1.7;">一件真正的好器物，經得起日復一日的使用，並在歲月中溫潤生長。</p>
+          </div>
+        </section>
+
+        <section class="story-intro">
+          <p class="eyebrow">工藝哲學</p>
+          <h2>為日常生活，採集純粹本質</h2>
+          <p>「織日選物」創立於 2026 年，我們探訪各地的獨立作坊與手作工藝家。在這個快速量產與拋棄的時代，我們堅持挑選由天然泥陶、原木、長纖亞麻所製成的日常器物。我們深信：每一次雙手捧起器物的觸感，都是人與生活空間最真實的對話。</p>
+        </section>
+
+        <section class="story-craft-section" aria-label="三大工藝工序">
+          <article class="story-craft-card">
+            <div class="story-craft-photo" style="background-image: url('${escapeHtml(CRAFT_POTTERY_IMAGE)}');" role="img" aria-label="陶藝拉胚與柴燒"></div>
+            <div class="story-craft-body">
+              <span class="story-craft-num">01</span>
+              <p class="eyebrow">土與火的淬鍊</p>
+              <h3>陶作器皿：1280°C 高溫還原燒</h3>
+              <p>選用天然礦質陶土，經過拉胚、陰乾、素燒與高溫釉燒。每一只盤皿表層的微小氣孔與礦物結晶，讓器皿具備呼吸感，隨使用時間漸漸養出專屬光澤。</p>
+            </div>
+          </article>
+
+          <article class="story-craft-card story-craft-card--reverse">
+            <div class="story-craft-photo" style="background-image: url('${escapeHtml(CRAFT_TEXTILE_IMAGE)}');" role="img" aria-label="天然亞麻織造"></div>
+            <div class="story-craft-body">
+              <span class="story-craft-num">02</span>
+              <p class="eyebrow">草木染與經緯</p>
+              <h3>手織布品：未漂染長纖亞麻</h3>
+              <p>保留歐洲長纖亞麻的自然韌性與垂墜紋理，搭配無毒植物草木染。越經水洗越發柔軟親膚，陪伴餐桌與居家起居的每一刻溫暖時光。</p>
+            </div>
+          </article>
+
+          <article class="story-craft-card">
+            <div class="story-craft-photo" style="background-image: url('${escapeHtml(CRAFT_WOOD_IMAGE)}');" role="img" aria-label="原木切削手工"></div>
+            <div class="story-craft-body">
+              <span class="story-craft-num">03</span>
+              <p class="eyebrow">原木雕鑿</p>
+              <h3>木作道具：北美黑胡桃與天然蜂蠟</h3>
+              <p>取自可持續林業認證的黑胡桃木與柚木原木，由木工師傅手工切削刨光，塗抹食品級天然蜂蠟油保養。觸感沉穩溫潤，帶給案頭安定的自然秩序。</p>
+            </div>
+          </article>
+        </section>
+
+        <section class="member-banner">
+          <div class="member-banner__content">
+            <p class="eyebrow">選物提案</p>
+            <h2>親身體驗日日相伴的溫潤生活</h2>
+            <p>探索我們精選的 24 款日常道具，全品項享 7 日安心鑑賞期與滿額免運服務。</p>
+          </div>
+          <div class="member-banner__actions">
+            <a class="cta" href="/catalog">探索全系列商品</a>
+            <a class="secondary-action" href="/journal">閱讀生活風格誌</a>
+          </div>
+        </section>
+      </article>`;
+    return layout({ title: '品牌工藝故事', body, ctx });
+  },
+
+  renderJournalList(ctx) {
+    const body = `
+      <div class="catalog-page">
+        <header class="page-heading">
+          <p class="eyebrow">Woven Journal · ${escapeHtml(ctx.storeName)}</p>
+          <h1>生活風格誌</h1>
+          <p class="page-heading__copy">為器物留下一篇筆記，紀錄日常空間搭配靈感與器皿長久保養指南。</p>
+        </header>
+
+        <section class="journal-grid">
+          ${JOURNAL_ARTICLES.map((article) => `
+            <article class="journal-card">
+              <a href="/journal/${escapeHtml(article.slug)}" class="journal-card__cover-wrap">
+                <div class="journal-card__cover" style="background-image: url('${escapeHtml(article.coverImage)}'); width: 100%; height: 100%; background-size: cover; background-position: center;" role="img" aria-label="${escapeHtml(article.title)}"></div>
+              </a>
+              <div class="journal-card__body">
+                <div class="journal-card__meta">
+                  <span>${escapeHtml(article.category)}</span>
+                  <span>·</span>
+                  <span>${escapeHtml(article.readTime)}</span>
+                </div>
+                <h3><a href="/journal/${escapeHtml(article.slug)}">${escapeHtml(article.title)}</a></h3>
+                <p>${escapeHtml(article.summary)}</p>
+                <a class="journal-card__read" href="/journal/${escapeHtml(article.slug)}">閱讀完整專題 ${ICONS.arrowRight}</a>
+              </div>
+            </article>
+          `).join('')}
+        </section>
+      </div>`;
+    return layout({ title: '生活風格誌', body, ctx });
+  },
+
+  renderJournalArticle(ctx, { article: { slug } }) {
+    const article = JOURNAL_ARTICLES.find((a) => a.slug === slug) || JOURNAL_ARTICLES[0];
+    const body = `
+      <article class="journal-article-page">
+        <nav class="breadcrumb" aria-label="麵包屑">
+          <a href="/">首頁</a><span aria-hidden="true"> / </span><a href="/journal">生活風格誌</a><span aria-hidden="true"> / </span><span>${escapeHtml(article.title)}</span>
+        </nav>
+        <header class="article-header">
+          <div class="article-meta">
+            <span>${escapeHtml(article.category)}</span>
+            <span>·</span>
+            <span>${escapeHtml(article.date)}</span>
+            <span>·</span>
+            <span>${escapeHtml(article.readTime)}</span>
+          </div>
+          <h1>${escapeHtml(article.title)}</h1>
+        </header>
+
+        <div class="article-hero-wrap">
+          <div class="article-hero-img" style="background-image: url('${escapeHtml(article.coverImage)}'); width: 100%; aspect-ratio: 16 / 9; background-size: cover; background-position: center;" role="img" aria-label="${escapeHtml(article.title)}"></div>
+        </div>
+
+        <div class="article-content">
+          ${article.contentHtml}
+        </div>
+
+        <section class="member-banner" style="margin-top: 2rem;">
+          <div class="member-banner__content">
+            <p class="eyebrow">本篇相關選物</p>
+            <h2>將溫潤質地帶入你的日常</h2>
+            <p>探索專題中推薦的手工陶皿與天然長纖亞麻系列。</p>
+          </div>
+          <div class="member-banner__actions">
+            <a class="cta" href="/catalog">瀏覽選物目錄</a>
+            <a class="secondary-action" href="/journal">閱讀其他文章</a>
+          </div>
+        </section>
+      </article>`;
+    return layout({ title: article.title, body, ctx });
   },
 
   renderProduct(ctx, { product }) {
@@ -576,26 +785,24 @@ export const defaultTheme: StorefrontTheme = {
     const availability = product.available === null
       ? ''
       : product.available > 0 ? `可售 ${product.available} 件` : '已售完';
-    const category = getProductCategory(product.sku, product.name);
-    const badge = getCategoryBadge(category);
-    const heroArtwork = renderProductArtwork(product.sku, product.name, 'hero');
+    const photo = getProductPhoto(product.sku, product.name);
 
     const body = `
       <article class="product-page">
         <nav class="breadcrumb" aria-label="麵包屑">
-          <a href="/">商品選購</a><span aria-hidden="true"> / </span><span>${badge.label}</span><span aria-hidden="true"> / </span><span>${escapeHtml(product.name)}</span>
+          <a href="/">首頁</a><span aria-hidden="true"> / </span><a href="/catalog">選物目錄</a><span aria-hidden="true"> / </span><span>${escapeHtml(photo.badgeZh)}</span><span aria-hidden="true"> / </span><span>${escapeHtml(product.name)}</span>
         </nav>
         <div class="product-detail">
           <section class="product-detail__content">
-            <div class="product-hero-visual">
-              ${heroArtwork}
-              <div class="product-hero-visual__badge">
-                <span>${badge.en}</span>
-                <strong>${badge.label}</strong>
+            <div class="product-hero-photo-wrap">
+              <div class="product-hero-photo" style="background-image: url('${escapeHtml(photo.url)}'); width: 100%; height: 100%; background-size: cover; background-position: center;" role="img" aria-label="${escapeHtml(product.name)}"></div>
+              <div class="product-hero-photo__badge">
+                <span>${escapeHtml(photo.badgeEn)}</span>
+                <strong>${escapeHtml(photo.badgeZh)}</strong>
               </div>
             </div>
             <div>
-              <p class="eyebrow">${badge.en} · ${escapeHtml(ctx.storeName)}</p>
+              <p class="eyebrow">${escapeHtml(photo.badgeEn)} · ${escapeHtml(ctx.storeName)}</p>
               <h1>${escapeHtml(product.name)}</h1>
               ${ctx.options.showSku !== false ? `<p class="product-detail__sku">${escapeHtml(product.sku)}</p>` : ''}
             </div>
@@ -638,9 +845,9 @@ export const defaultTheme: StorefrontTheme = {
                   <button type="submit">加入購物車</button>
                 </form>`}
             <div class="product-guarantees">
-              <div><span>✓</span> 全站消費滿額享免運服務</div>
-              <div><span>✓</span> 登入會員本單享購物金回饋</div>
-              <div><span>✓</span> 嚴選天然材質與安心包裝</div>
+              <div><span class="guarantee-icon">${ICONS.check}</span> 全站消費滿額享免運服務</div>
+              <div><span class="guarantee-icon">${ICONS.check}</span> 登入會員本單享購物金回饋</div>
+              <div><span class="guarantee-icon">${ICONS.check}</span> 嚴選天然材質與 7 日安心鑑賞</div>
             </div>
           </aside>
         </div>

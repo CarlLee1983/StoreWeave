@@ -305,4 +305,12 @@ export interface StorefrontTheme {
   renderAccountOrders(ctx: ThemeContext, data: ThemeAccountOrdersView): string;
   /** 會員中心的個人資料與收件地址。 */
   renderAccountProfile(ctx: ThemeContext, data: ThemeAccountProfileView): string;
+  /** 選物全目錄獨立頁面。 */
+  renderCatalog?(ctx: ThemeContext, data: ThemeCatalogView): string;
+  /** 品牌工藝故事獨立專頁。 */
+  renderStory?(ctx: ThemeContext): string;
+  /** 品牌生活風格誌清單頁。 */
+  renderJournalList?(ctx: ThemeContext, data: { articles: any[] }): string;
+  /** 品牌生活風格誌專題文章閱讀頁。 */
+  renderJournalArticle?(ctx: ThemeContext, data: { article: any }): string;
 }

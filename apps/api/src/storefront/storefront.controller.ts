@@ -178,6 +178,81 @@ export class StorefrontController {
     }
   }
 
+  @Get('catalog')
+  async catalog(
+    @Req() req: AuthenticatedRequest,
+    @Query('q') rawQuery: unknown,
+    @Query('minPrice') rawMinPrice: unknown,
+    @Query('maxPrice') rawMaxPrice: unknown,
+    @Query('page') rawPage: unknown,
+    @Res() reply: FastifyReply,
+  ) {
+    const actor = actorOf(req);
+    try {
+      const q = catalogQuery(rawQuery);
+      const minPrice = catalogPrice(rawMinPrice, 'Minimum price');
+      const maxPrice = catalogPrice(rawMaxPrice, 'Maximum price');
+      if (minPrice !== null && maxPrice !== null && minPrice > maxPrice) {
+        throw PlatformError.validation('Maximum price must be greater than or equal to minimum price');
+      }
+      const page = catalogPage(rawPage);
+      const result = await this.runtime.queries.execute<{ items: ProductDtoShape[]; total: number }>(
+        'commerce.catalog.searchProducts',
+        {
+          ...(q ? { q } : {}),
+          ...(minPrice !== null ? { minPriceCents: minPrice * 100 } : {}),
+          ...(maxPrice !== null ? { maxPriceCents: maxPrice * 100 } : {}),
+          status: 'active', limit: CATALOG_PAGE_SIZE, offset: (page - 1) * CATALOG_PAGE_SIZE,
+        },
+        { actor, channel: 'rest' },
+      );
+      const products = await Promise.all(result.items.map((p) => this.withStock(actor, p)));
+      const viewData = { products, q, minPrice, maxPrice, page, pageSize: CATALOG_PAGE_SIZE, total: result.total };
+      const content = this.theme.renderCatalog
+        ? this.theme.renderCatalog(this.themeContext(req, reply), viewData)
+        : this.theme.renderHome(this.themeContext(req, reply), viewData);
+      this.html(reply, 200, content);
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
+  }
+
+  @Get('story')
+  story(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    try {
+      const content = this.theme.renderStory
+        ? this.theme.renderStory(this.themeContext(req, reply))
+        : this.theme.renderHome(this.themeContext(req, reply), { products: [], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: CATALOG_PAGE_SIZE, total: 0 });
+      this.html(reply, 200, content);
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
+  }
+
+  @Get('journal')
+  journal(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    try {
+      const content = this.theme.renderJournalList
+        ? this.theme.renderJournalList(this.themeContext(req, reply), { articles: [] })
+        : this.theme.renderHome(this.themeContext(req, reply), { products: [], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: CATALOG_PAGE_SIZE, total: 0 });
+      this.html(reply, 200, content);
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
+  }
+
+  @Get('journal/:slug')
+  journalArticle(@Req() req: AuthenticatedRequest, @Param('slug') slug: string, @Res() reply: FastifyReply) {
+    try {
+      const content = this.theme.renderJournalArticle
+        ? this.theme.renderJournalArticle(this.themeContext(req, reply), { article: { slug } })
+        : this.theme.renderHome(this.themeContext(req, reply), { products: [], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: CATALOG_PAGE_SIZE, total: 0 });
+      this.html(reply, 200, content);
+    } catch (err) {
+      this.renderError(reply, err, req);
+    }
+  }
+
   @Get('p/:id')
   async product(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Res() reply: FastifyReply) {
     const actor = actorOf(req);
