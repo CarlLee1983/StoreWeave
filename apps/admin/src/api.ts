@@ -566,7 +566,7 @@ export const api = {
   },
   patchProduct(
     id: string,
-    body: { name?: string; description?: string; priceCents?: number; status?: Product['status'] },
+    body: { name?: string; description?: string | null; priceCents?: number; status?: Product['status'] },
   ) {
     return request<Product>(`/api/v1/products/${id}`, { method: 'PATCH', body, idempotent: true });
   },

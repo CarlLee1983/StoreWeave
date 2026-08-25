@@ -33,6 +33,7 @@
 | [0029](0029-shipping-is-a-module-payment-is-not.md) | 物流獨立成模組，付款留在 order | accepted |
 | [0030](0030-awaiting-payment-and-variable-reservation.md) | `awaiting_payment` 與依付款方式而異的預留期限 | accepted |
 | [0031](0031-shipment-events-are-domain-stages.md) | 出貨事件只表達領域階段，不轉述廠商狀態碼 | accepted |
+| [0032](0032-product-status-transitions-are-not-enforced.md) | 商品狀態的合法轉換只在後台具名，command 不強制 | accepted |
 
 寫法：每篇結尾用 `## Falsified if` 這個標題起一段，段落裡以反引號標出這個決策所依賴的檔案；
 那些檔案就是這個決策的邊界清單，條件本身要寫成某個東西可以檢查的形式。

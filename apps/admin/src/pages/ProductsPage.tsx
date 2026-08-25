@@ -5,6 +5,15 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
 
+/**
+ * 售價只接受十進位的非負整數字串。驗 `Number()` 的結果會放行 ''、'   '、
+ * '1e3' 與 '0x10'——清空欄位就等於把商品改成 0 元，而且沒有任何警示。
+ * 建立與編輯共用這一個述詞，不各留一份。
+ */
+export function parsePriceCents(raw: string): number | null {
+  return /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : null;
+}
+
 export function ProductsPage() {
   const { t } = useI18n();
   const [q, setQ] = useState('');
@@ -58,10 +67,10 @@ export function ProductsPage() {
 
       <CreateProductForm onCreated={reload} />
 
-      {loading ? (
+      {loading && products.length === 0 ? (
         <Loading />
       ) : (
-        <div className="table-wrap"><table className="data-table">
+        <div className="table-wrap" aria-busy={loading}><table className="data-table">
           <thead>
             <tr>
               <th>SKU</th>
@@ -70,7 +79,7 @@ export function ProductsPage() {
           </thead>
           <tbody>
             {products.map((product) => (
-              <ProductRow key={product.id} product={product} stock={stocks[product.id]} onAdjusted={reload} />
+              <ProductRow key={product.id} product={product} stock={stocks[product.id]} onChanged={reload} />
             ))}
           </tbody>
         </table></div>
@@ -79,20 +88,46 @@ export function ProductsPage() {
   );
 }
 
+/**
+ * 上下架寫成具名的轉換而不是一個自由下拉：command 那一側沒有狀態機，
+ * 任何轉換都收，所以「哪些走得通」這件事只存在於這裡。
+ */
+const NEXT_STATUS: Record<Product['status'], { to: Product['status']; label: 'publish' | 'unpublish' | 'archive' | 'republish' }[]> = {
+  draft: [{ to: 'active', label: 'publish' }],
+  // 下架回草稿與封存是兩件事：前者是「先收回去改」，後者是「這個商品退役了」。
+  active: [{ to: 'draft', label: 'unpublish' }, { to: 'archived', label: 'archive' }],
+  archived: [{ to: 'active', label: 'republish' }],
+};
+
 function ProductRow({
   product,
   stock,
-  onAdjusted,
+  onChanged,
 }: {
   product: Product;
   stock: Stock | undefined;
-  onAdjusted: () => void;
+  onChanged: () => void;
 }) {
   const { t, formatMoney } = useI18n();
   const [delta, setDelta] = useState('');
   const [reason, setReason] = useState('');
+  const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [statusError, setStatusError] = useState<unknown>(null);
+
+  const changeStatus = async (to: Product['status']) => {
+    setSubmitting(true);
+    setStatusError(null);
+    try {
+      await api.patchProduct(product.id, { status: to });
+      onChanged();
+    } catch (err) {
+      setStatusError(err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleAdjust = async () => {
     const deltaNum = Number(delta);
@@ -106,7 +141,7 @@ function ProductRow({
       await api.adjustInventory({ productId: product.id, delta: deltaNum, reason: reason.trim() });
       setDelta('');
       setReason('');
-      onAdjusted();
+      onChanged();
     } catch (err) {
       setError(err);
     } finally {
@@ -115,6 +150,7 @@ function ProductRow({
   };
 
   return (
+    <>
     <tr>
       <td>{product.sku}</td>
       <td>{product.name}</td>
@@ -130,8 +166,81 @@ function ProductRow({
           </button>
         </div>
         {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+        <div className="inline-form">
+          <button className="button" type="button" disabled={submitting} onClick={() => setEditing((value) => !value)}>{t('edit')}</button>
+          {NEXT_STATUS[product.status].map((transition) => (
+            <button key={transition.to} className="button" type="button" disabled={submitting} onClick={() => void changeStatus(transition.to)}>
+              {t(transition.label)}
+            </button>
+          ))}
+        </div>
+        {statusError ? <ErrorBanner error={statusError} onDismiss={() => setStatusError(null)} /> : null}
       </td>
     </tr>
+    {editing ? (
+      <tr>
+        <td colSpan={6}>
+          <EditProductForm product={product} onClose={() => setEditing(false)} onSaved={onChanged} />
+        </td>
+      </tr>
+    ) : null}
+    </>
+  );
+}
+
+function EditProductForm({ product, onClose, onSaved }: { product: Product; onClose: () => void; onSaved: () => void }) {
+  const { t } = useI18n();
+  const [name, setName] = useState(product.name);
+  const [description, setDescription] = useState(product.description ?? '');
+  const [priceCents, setPriceCents] = useState(String(product.priceCents));
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const submit = async () => {
+    const price = parsePriceCents(priceCents);
+    if (!name.trim() || price === null) {
+      setError(new Error(t('invalidProductEdit')));
+      return;
+    }
+    // 只送真的改過的欄位：全欄位 PATCH 會把「沒碰」與「清空」混為一談，
+    // 而空的 patch 在 command 那一側是必然被拒的 validation error。
+    const patch: { name?: string; description?: string | null; priceCents?: number } = {};
+    if (name.trim() !== product.name) patch.name = name.trim();
+    // 清空描述送 null，不送 ''：兩者都會被讀成「沒有描述」，但留兩種寫法
+    // 等於讓資料庫同時存在兩個真值，而建立那一側走的是 `?? null`。
+    if (description.trim() !== (product.description ?? '')) patch.description = description.trim() || null;
+    if (price !== product.priceCents) patch.priceCents = price;
+    if (Object.keys(patch).length === 0) {
+      setError(new Error(t('noFieldsChanged')));
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.patchProduct(product.id, patch);
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form className="form-panel" aria-label={`${t('editProduct')} ${product.sku}`} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+      <div className="inline-form">
+        <label>{t('productName')}<input aria-label={t('productName')} value={name} onChange={(e) => setName(e.target.value)} /></label>
+        <label>{t('description')}<textarea aria-label={t('description')} rows={3} maxLength={4000} value={description} onChange={(e) => setDescription(e.target.value)} /></label>
+        <label>{t('priceCents')}<input aria-label={t('priceCents')} value={priceCents} onChange={(e) => setPriceCents(e.target.value)} /></label>
+      </div>
+      <p className="muted">{t('priceSnapshotHint')}</p>
+      <div className="inline-form">
+        <button className="button button--primary" disabled={submitting}>{t('saveChanges')}</button>
+        <button className="button" type="button" onClick={onClose}>{t('cancel')}</button>
+      </div>
+    </form>
   );
 }
 
@@ -146,8 +255,8 @@ function CreateProductForm({ onCreated }: { onCreated: () => void }) {
   const [error, setError] = useState<unknown>(null);
 
   const handleSubmit = async () => {
-    const price = Number(priceCents);
-    if (!sku.trim() || !name.trim() || !Number.isInteger(price) || price < 0) {
+    const price = parsePriceCents(priceCents);
+    if (!sku.trim() || !name.trim() || price === null) {
       setError(new Error(t('invalidProduct')));
       return;
     }
