@@ -1158,3 +1158,151 @@
   font-size: 12px;
   color: var(--text-secondary);
 }
+
+/* ── 展開明細區塊 ─────────────────────────────────────────
+   .order-detail 與 .order-totals 被訂單、退貨、會員、配送四頁拿來排版，
+   但一直沒有任何樣式定義，等於整塊吃瀏覽器預設：dt/dd 逐行縮排、h4 撐開
+   大 margin、並排的表單擠成一團。 */
+.order-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-surface-subtle);
+}
+
+.order-detail > h4 {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* 名稱與值排成兩欄。Orders 的加價項目用 <div> 包一組 dt/dd，
+   display: contents 讓它們回到同一個 grid 流裡對齊。 */
+.order-totals {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 20px;
+  margin: 0;
+  align-items: baseline;
+}
+
+.order-totals > div {
+  display: contents;
+}
+
+.order-totals dt {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.order-totals dd {
+  margin: 0;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+
+/* ── 會員詳細 ───────────────────────────────────────── */
+.detail-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.detail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+
+.detail-card--wide {
+  grid-column: 1 / -1;
+}
+
+.detail-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.detail-card__header h4 {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* 購物金與等級積分是兩本帳，各自一張表單，欄位排成一列不互相擠壓。 */
+.adjust-forms {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.adjust-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 8px;
+  align-items: end;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.adjust-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.adjust-form .error-banner {
+  grid-column: 1 / -1;
+}
+
+/* 生日更正：收合時是卡片標題列上的小按鈕，展開時佔滿卡片寬度。 */
+.birthday-correction-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-surface-raised);
+}
+
+.birthday-correction-form .muted {
+  margin: 0;
+  font-size: 11.5px;
+}
+
+.birthday-correction-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.detail-card__header:has(.birthday-correction-form) {
+  flex-direction: column;
+  align-items: stretch;
+}

@@ -148,47 +148,56 @@ function CustomerRow({ customer, onChanged }: { customer: AdminCustomer; onChang
             <div className="order-detail">
               {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
               {!detail ? <Loading /> : (
-                <>
-                  <dl className="order-totals">
-                    <dt>{t('birthday')}</dt><dd>{detail.birthday ?? '—'}</dd>
-                    <dt>{t('phone')}</dt><dd className="mono">{detail.phone ?? '—'}</dd>
-                    <dt>{t('address')}</dt>
-                    <dd>
-                      {detail.address ? (
-                        <span
-                          className="cell-truncate"
-                          title={`${detail.address.postcode} ${detail.address.city} ${detail.address.line1} ${detail.address.line2 ?? ''}`}
-                        >
-                          {`${detail.address.postcode} ${detail.address.city} ${detail.address.line1} ${detail.address.line2 ?? ''}`}
-                        </span>
-                      ) : '—'}
-                    </dd>
-                  </dl>
-                  <BirthdayCorrection customerId={customer.id} onCorrected={() => setDetail(null)} />
+                <div className="detail-cards">
+                  <section className="detail-card">
+                    <div className="detail-card__header">
+                      <h4>{t('profile')}</h4>
+                      <BirthdayCorrection customerId={customer.id} onCorrected={() => setDetail(null)} />
+                    </div>
+                    <dl className="order-totals">
+                      <dt>{t('birthday')}</dt><dd>{detail.birthday ?? '—'}</dd>
+                      <dt>{t('phone')}</dt><dd className="mono">{detail.phone ?? '—'}</dd>
+                      <dt>{t('address')}</dt>
+                      <dd>
+                        {detail.address ? (
+                          <span
+                            className="cell-truncate"
+                            title={`${detail.address.postcode} ${detail.address.city} ${detail.address.line1} ${detail.address.line2 ?? ''}`}
+                          >
+                            {`${detail.address.postcode} ${detail.address.city} ${detail.address.line1} ${detail.address.line2 ?? ''}`}
+                          </span>
+                        ) : '—'}
+                      </dd>
+                    </dl>
+                  </section>
+
                   <LoyaltyPanel
                     customerId={customer.id}
                     loyalty={loyalty}
                     onAdjusted={() => setLoyaltyKey((k) => k + 1)}
                   />
-                  <h4>{t('orderHistory')}</h4>
-                  {detail.orders.length === 0 ? <p className="muted">{t('noOrders')}</p> : (
-                    <table className="data-table data-table--nested data-table--fixed">
-                      <thead>
-                        <tr>
-                          <th style={{ width: '28%' }}>{t('orderNumber')}</th>
-                          <th style={{ width: '20%' }}>{t('status')}</th>
-                          <th style={{ width: '24%' }} className="col-numeric">{t('total')}</th>
-                          <th style={{ width: '28%' }}>{t('orderedAt')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.orders.map((order) => (
-                          <OrderRow key={order.id} order={order} />
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </>
+
+                  <section className="detail-card detail-card--wide">
+                    <div className="detail-card__header"><h4>{t('orderHistory')}</h4></div>
+                    {detail.orders.length === 0 ? <p className="muted">{t('noOrders')}</p> : (
+                      <table className="data-table data-table--nested data-table--fixed">
+                        <thead>
+                          <tr>
+                            <th style={{ width: '28%' }}>{t('orderNumber')}</th>
+                            <th style={{ width: '20%' }}>{t('status')}</th>
+                            <th style={{ width: '24%' }} className="col-numeric">{t('total')}</th>
+                            <th style={{ width: '28%' }}>{t('orderedAt')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {detail.orders.map((order) => (
+                            <OrderRow key={order.id} order={order} />
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </section>
+                </div>
               )}
             </div>
           </td>
@@ -212,11 +221,11 @@ function LoyaltyPanel({
   onAdjusted: () => void;
 }) {
   const { t, formatMoney, formatDateTime } = useI18n();
-  if (!loyalty) return <Loading />;
+  if (!loyalty) return <section className="detail-card"><Loading /></section>;
 
   return (
-    <>
-      <h4>{t('loyalty')}</h4>
+    <section className="detail-card">
+      <div className="detail-card__header"><h4>{t('loyalty')}</h4></div>
       <dl className="order-totals">
         <dt>{t('rewardAvailable')}</dt><dd className="mono">{formatMoney(loyalty.balance.availableCents, loyalty.currency)}</dd>
         <dt>{t('rewardPending')}</dt><dd className="mono">{formatMoney(loyalty.balance.pendingCents, loyalty.currency)}</dd>
@@ -228,7 +237,7 @@ function LoyaltyPanel({
         </dd>
         <dt>{t('memberTier')}</dt><dd>{loyalty.tierName}（{loyalty.tierPoints}）</dd>
       </dl>
-      <div className="inline-form">
+      <div className="adjust-forms">
         <AdjustForm
           label={t('adjustRewards')}
           unit={t('rewardUnit')}
@@ -242,7 +251,7 @@ function LoyaltyPanel({
           onDone={onAdjusted}
         />
       </div>
-    </>
+    </section>
   );
 }
 
@@ -292,7 +301,7 @@ function AdjustForm({
   };
 
   return (
-    <form onSubmit={submit}>
+    <form className="adjust-form" onSubmit={submit}>
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
       <label>{label}
         <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={unit} />
@@ -300,7 +309,7 @@ function AdjustForm({
       <label>{t('reason')}
         <input value={reason} onChange={(e) => setReason(e.target.value)} />
       </label>
-      <button type="submit" disabled={submitting}>{t('adjust')}</button>
+      <button className="button button--primary" type="submit" disabled={submitting}>{t('adjust')}</button>
     </form>
   );
 }
@@ -343,9 +352,8 @@ function BirthdayCorrection({ customerId, onCorrected }: { customerId: string; o
     } catch (err) { setError(err); } finally { setSubmitting(false); }
   };
 
-  if (!open) return <button className="button" type="button" onClick={() => setOpen(true)}>{t('correctBirthday')}</button>;
-  return <form className="form-panel" aria-label={t('correctBirthday')} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-    <h4>{t('correctBirthday')}</h4>
+  if (!open) return <button className="button button--quiet" type="button" onClick={() => setOpen(true)}><Icon name="pencil" /> {t('correctBirthday')}</button>;
+  return <form className="birthday-correction-form" aria-label={t('correctBirthday')} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
     {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
     <p className="muted">{t('birthdayCorrectionHint')}</p>
     <div className="inline-form">
