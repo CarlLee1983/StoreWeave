@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext, type DrizzleDb, type Tx } from '@storeweave/contracts';
 import type { InvoiceCarrier, InvoiceIssueInput, ProviderRegistry } from '@storeweave/extension-sdk';
 import { InvoiceRepository, toInvoiceDto } from './repository';
-import { invoiceDto, queueInvoiceIssueInput, queueInvoiceVoidInput, recordInvoiceIssueInput, recordInvoiceVoidInput, type InvoiceDto } from './dto';
+import { invoiceDto, queueInvoiceIssueInput, retryInvoiceIssueInput, retryInvoiceVoidInput, queueInvoiceVoidInput, recordInvoiceIssueInput, recordInvoiceVoidInput, type InvoiceDto } from './dto';
 
 export const ISSUE_INVOICE_JOB = 'commerce.invoice.issue';
 export const VOID_INVOICE_JOB = 'commerce.invoice.void';
@@ -84,7 +84,7 @@ export const queueInvoiceVoidHandler = async (input: z.infer<typeof queueInvoice
   if (input.amountCents !== invoice.amountCents || invoice.status !== 'issued') return toInvoiceDto(invoice);
   const updated = await repository.update(ctx.tx, invoice.id, { status: 'void_pending', voidAttempts: invoice.voidAttempts, lastError: null, updatedAt: ctx.now });
   if (!updated) throw PlatformError.internal(`Invoice ${invoice.id} disappeared`);
-  await ctx.enqueue({ type: VOID_INVOICE_JOB, payload: { invoiceId: updated.id, refundId: input.refundId }, dedupeKey: `invoice:void:${updated.id}` });
+  await ctx.enqueue({ type: VOID_INVOICE_JOB, payload: { invoiceId: updated.id }, dedupeKey: `invoice:void:${updated.id}` });
   return toInvoiceDto(updated);
 };
 
@@ -106,5 +106,49 @@ export const recordInvoiceVoidHandler = async (input: z.infer<typeof recordInvoi
     ? { status: 'voided', providerRef: input.providerRef!, voidAttempts: row.voidAttempts + 1, lastError: null, voidedAt: ctx.now, updatedAt: ctx.now }
     : { status: 'void_failed', voidAttempts: row.voidAttempts + 1, lastError: input.error!, updatedAt: ctx.now });
   if (!updated) throw PlatformError.internal(`Invoice ${row.id} disappeared`);
+  return toInvoiceDto(updated);
+};
+
+export const retryInvoiceIssueCommand = defineCommand({
+  name: 'commerce.invoice.retryIssue', summary: '營運人員重送失敗的電子發票開立', input: retryInvoiceIssueInput, output: invoiceDto,
+  permission: 'invoice:write', idempotency: 'required',
+  audit: { action: 'invoice.issue-retried', resourceType: 'invoice', resourceId: (input: { id: string }) => input.id, redact: (input: { id: string }) => ({ id: input.id }) },
+});
+
+export const retryInvoiceIssueHandler = async (input: z.infer<typeof retryInvoiceIssueInput>, ctx: CommandContext): Promise<InvoiceDto> => {
+  const row = await repository.lockById(ctx.tx, input.id);
+  if (!row) throw PlatformError.notFound('Invoice', input.id);
+  // `pending` is included on purpose: a provider exception leaves the record
+  // there with its job dead, and that is exactly the state an operator needs
+  // to be able to push out of.
+  if (!['pending', 'issue_failed'].includes(row.status)) throw PlatformError.conflict(`Invoice ${row.id} cannot be re-attempted from ${row.status}`);
+  // Re-schedule the one job this invoice owns rather than adding a second.
+  // A fresh key would let a manual retry run beside an automatic retry that is
+  // still backing off, and two live jobs can issue two invoices at ECPay.
+  await ctx.enqueue({ type: ISSUE_INVOICE_JOB, payload: { invoiceId: row.id }, dedupeKey: `invoice:issue:${row.id}`, replaceExisting: true });
+  return toInvoiceDto(row);
+};
+
+export const retryInvoiceVoidCommand = defineCommand({
+  name: 'commerce.invoice.retryVoid', summary: '營運人員重送失敗的電子發票作廢', input: retryInvoiceVoidInput, output: invoiceDto,
+  permission: 'invoice:write', idempotency: 'required',
+  audit: { action: 'invoice.void-retried', resourceType: 'invoice', resourceId: (input: { id: string }) => input.id, redact: (input: { id: string }) => ({ id: input.id }) },
+});
+
+export const retryInvoiceVoidHandler = async (input: z.infer<typeof retryInvoiceVoidInput>, ctx: CommandContext): Promise<InvoiceDto> => {
+  const row = await repository.lockById(ctx.tx, input.id);
+  if (!row) throw PlatformError.notFound('Invoice', input.id);
+  // `void_pending` is included for the same reason as `pending` above: a
+  // provider exception never reaches recordVoid, so the record would otherwise
+  // be stuck in a state no operator action can leave.
+  if (!['void_pending', 'void_failed'].includes(row.status)) throw PlatformError.conflict(`Invoice ${row.id} cannot be re-attempted from ${row.status}`);
+  // The void job only runs from void_pending; a retry is what puts the record
+  // back in flight. The decision that this invoice should be voided was
+  // already made by the full refund that queued it. `lastError` stays until a
+  // new result lands — clearing it first would erase the only explanation the
+  // operator has if this attempt also fails to report back.
+  const updated = await repository.update(ctx.tx, row.id, { status: 'void_pending', updatedAt: ctx.now });
+  if (!updated) throw PlatformError.internal(`Invoice ${row.id} disappeared`);
+  await ctx.enqueue({ type: VOID_INVOICE_JOB, payload: { invoiceId: row.id }, dedupeKey: `invoice:void:${row.id}`, replaceExisting: true });
   return toInvoiceDto(updated);
 };

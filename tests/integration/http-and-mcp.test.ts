@@ -410,3 +410,29 @@ describe('死信佇列 HTTP 端點', () => {
     expect(res.statusCode).toBe(400);
   });
 });
+
+describe('工單 69：發票的 HTTP 營運介面', () => {
+  const auth = { authorization: `Bearer ${ADMIN_TOKEN}` };
+
+  it('lists invoices for an operator token', async () => {
+    const res = await inject({ method: 'GET', url: '/api/v1/invoices?limit=5', headers: auth });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).data).toMatchObject({ items: expect.any(Array), total: expect.any(Number) });
+  });
+
+  it('does not expose the invoice queue or its retries to a token without invoice permissions', async () => {
+    const mcp = { authorization: `Bearer ${MCP_TOKEN}` };
+    expect((await inject({ method: 'GET', url: '/api/v1/invoices', headers: mcp })).statusCode).toBe(403);
+    const retry = await inject({ method: 'POST', url: '/api/v1/invoices/00000000-0000-4000-8000-000000000000/retry-issue', headers: mcp, payload: {} });
+    expect(retry.statusCode).toBe(403);
+  });
+
+  it('reports a missing invoice as 404 rather than an empty record', async () => {
+    const res = await inject({ method: 'GET', url: '/api/v1/invoices/00000000-0000-4000-8000-000000000000', headers: auth });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('refuses an anonymous read of the invoice queue', async () => {
+    expect((await inject({ method: 'GET', url: '/api/v1/invoices' })).statusCode).toBe(401);
+  });
+});

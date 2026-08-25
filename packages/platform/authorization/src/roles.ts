@@ -1,8 +1,8 @@
 /** MVP 的角色→權限映射，由設定檔的 API token 指向角色。 */
 export const BUILT_IN_ROLES: Record<string, readonly string[]> = {
   admin: ['*'],
-  staff: ['catalog:read', 'catalog:write', 'inventory:read', 'inventory:write', 'order:read', 'order:write', 'refund:read', 'refund:write', 'rma:read', 'rma:write', 'promotion:read', 'promotion:write', 'promotion:quote', 'customers:manage', 'shipping:read', 'shipping:shipment-read', 'shipping:label-read', 'shipping:write', 'notification:read', 'erp:read', 'erp:write'],
-  readonly: ['catalog:read', 'inventory:read', 'order:read', 'promotion:read', 'shipping:read', 'shipping:shipment-read', 'notification:read', 'erp:read'],
+  staff: ['catalog:read', 'catalog:write', 'inventory:read', 'inventory:write', 'order:read', 'order:write', 'refund:read', 'refund:write', 'rma:read', 'rma:write', 'invoice:read', 'invoice:write', 'promotion:read', 'promotion:write', 'promotion:quote', 'customers:manage', 'shipping:read', 'shipping:shipment-read', 'shipping:label-read', 'shipping:write', 'notification:read', 'erp:read', 'erp:write'],
+  readonly: ['catalog:read', 'inventory:read', 'order:read', 'invoice:read', 'promotion:read', 'shipping:read', 'shipping:shipment-read', 'notification:read', 'erp:read'],
   mcp: ['catalog:read', 'inventory:read', 'inventory:write', 'order:read', 'analytics:read'],
   // 匿名訪客。刻意沒有 order:read：無範圍的訂單讀取等於任何人猜到訂單號就能讀別人的
   // 訂單。訂單頁在工單 21 之後需要登入，訪客沒有訂單可看。

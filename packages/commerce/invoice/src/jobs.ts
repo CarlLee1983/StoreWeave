@@ -23,7 +23,7 @@ export function createIssueInvoiceJob(providers: ProviderRegistry): JobHandler {
       await ctx.executeCommand('commerce.invoice.recordIssue', { id: invoice.id, status: 'issued', providerRef: result.providerRef, invoiceNumber: result.invoiceNumber, invoiceDate: result.invoiceDate }, `invoice:issue:${invoice.id}:issued:${result.invoiceNumber}`);
       return;
     }
-    await ctx.executeCommand('commerce.invoice.recordIssue', { id: invoice.id, status: 'issue_failed', error: result.message }, `invoice:issue:${invoice.id}:failed:${ctx.attempt}`);
+    await ctx.executeCommand('commerce.invoice.recordIssue', { id: invoice.id, status: 'issue_failed', error: result.message }, `invoice:issue:${invoice.id}:failed:${invoice.issueAttempts}:${ctx.attempt}`);
     throw new Error(result.message);
   };
 }
@@ -41,7 +41,7 @@ export function createVoidInvoiceJob(providers: ProviderRegistry): JobHandler {
       await ctx.executeCommand('commerce.invoice.recordVoid', { id: invoice.id, status: 'voided', providerRef: result.providerRef }, `invoice:void:${invoice.id}:voided:${result.providerRef}`);
       return;
     }
-    await ctx.executeCommand('commerce.invoice.recordVoid', { id: invoice.id, status: 'void_failed', error: result.message }, `invoice:void:${invoice.id}:failed:${ctx.attempt}`);
+    await ctx.executeCommand('commerce.invoice.recordVoid', { id: invoice.id, status: 'void_failed', error: result.message }, `invoice:void:${invoice.id}:failed:${invoice.voidAttempts}:${ctx.attempt}`);
     throw new Error(result.message);
   };
 }

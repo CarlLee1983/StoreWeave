@@ -18,6 +18,7 @@ import { SystemController } from './controllers/system.controller';
 import { ShippingController } from './controllers/shipping.controller';
 import { CallbackController } from './controllers/callback.controller';
 import { RefundController } from './controllers/refund.controller';
+import { InvoiceController } from './controllers/invoice.controller';
 import { RmaController } from './controllers/rma.controller';
 import { McpController } from './mcp/mcp.controller';
 import { StorefrontController } from './storefront/storefront.controller';
@@ -28,7 +29,7 @@ export class AppModule {
   static forRuntime(runtime: Runtime, theme: StorefrontTheme, release: ReleaseInfo): DynamicModule {
     const controllers = [
       HealthController, MetaController, AuthController, CatalogController, InventoryController, SystemController,
-      OrderController, PromotionController, CouponController, CustomerController, CartController, ShippingController, RefundController, RmaController, CallbackController, AnalyticsController, ExtensionsController, StorefrontController,
+      OrderController, PromotionController, CouponController, CustomerController, CartController, ShippingController, RefundController, RmaController, InvoiceController, CallbackController, AnalyticsController, ExtensionsController, StorefrontController,
     ];
     if (runtime.config.mcp.enabled) controllers.push(McpController as never);
 
