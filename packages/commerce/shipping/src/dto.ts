@@ -3,6 +3,12 @@ import { z } from 'zod';
 const money = z.number().int().nonnegative();
 const methodCode = z.string().min(1).max(64).regex(/^[A-Za-z0-9._-]+$/);
 const providerOrType = z.string().min(1).max(64).regex(/^[A-Za-z0-9._-]+$/);
+/** A carrier label handle must be opaque metadata, never a URL or signed credential. */
+const labelReference = z.string().min(1).max(200).regex(/^[A-Za-z0-9._:-]+$/);
+const trackingUrl = z.string().max(2_000).url().refine((value) => {
+  const url = new URL(value);
+  return url.protocol === 'https:' && !url.username && !url.password;
+}, 'Tracking URL must be an HTTPS URL without credentials');
 
 export const shippingDestinationKind = z.enum(['taiwan_home', 'pickup_store']);
 export type ShippingDestinationKind = z.infer<typeof shippingDestinationKind>;
@@ -73,6 +79,18 @@ export const checkoutShippingQuoteInput = z.object({
 }).strict();
 export const checkoutShippingQuoteOutput = z.object({ shippingCents: money });
 
+const pickupToken = z.string().min(32).max(200).regex(/^[A-Za-z0-9_-]+$/);
+export const beginPickupSelectionInput = z.object({ cartId: z.string().uuid(), shippingMethodId: z.string().uuid() }).strict();
+export const beginPickupSelectionOutput = z.object({ token: pickupToken, expiresAt: z.coerce.date() }).strict();
+export const completePickupSelectionOutput = z.object({ expiresAt: z.coerce.date() }).strict();
+export const completePickupSelectionInput = z.object({ token: pickupToken, providerStoreId: z.string().min(1).max(120) }).strict();
+export const pickupSelectionViewInput = z.object({ token: pickupToken, cartId: z.string().uuid(), customerId: z.string().uuid(), shippingMethodId: z.string().uuid().optional() }).strict();
+export const pickupSelectionViewDto = z.object({
+  token: pickupToken, shippingMethodId: z.string().uuid(), provider: providerOrType, type: providerOrType,
+  expiresAt: z.coerce.date(), store: z.object({ providerStoreId: z.string(), storeName: z.string(), storeAddress: z.string() }).nullable(),
+}).strict();
+export type PickupSelectionViewDto = z.infer<typeof pickupSelectionViewDto>;
+
 /** Public shipment view. Raw provider status is deliberately excluded (ADR 0031). */
 export const shipmentDto = z.object({
   id: z.string().uuid(),
@@ -82,6 +100,7 @@ export const shipmentDto = z.object({
   type: providerOrType,
   providerRef: z.string().nullable(),
   trackingNumber: z.string().nullable(),
+  trackingUrl: trackingUrl.nullable(),
   status: shipmentStatus,
   createdAt: z.coerce.date(),
   shippedAt: z.coerce.date().nullable(),
@@ -118,6 +137,74 @@ export const createShipmentInput = z.object({
   providerRef: z.string().min(1).max(200).optional(),
   trackingNumber: z.string().min(1).max(200).optional(),
 }).strict();
+
+/**
+ * Private projection for a carrier adapter. The customer-facing Shipment DTO
+ * deliberately cannot carry recipient data, idempotency references, or labels.
+ */
+export const providerShipmentRequestDto = z.object({
+  shipmentId: z.string().uuid(),
+  orderId: z.string().uuid(),
+  provider: providerOrType,
+  serviceCode: methodCode,
+  serviceType: providerOrType,
+  reference: z.string().min(1).max(200),
+  destination: shippingDestinationInput,
+  /** Existing locally-recorded evidence means an import/manual path already created the consignment. */
+  existingProviderRef: z.string().min(1).max(200).nullable(),
+  existingTrackingNumber: z.string().min(1).max(200).nullable(),
+}).strict();
+export type ProviderShipmentRequestDto = z.infer<typeof providerShipmentRequestDto>;
+
+/** Carrier-only reconciliation projection: intentionally excludes delivery PII and label material. */
+export const providerShipmentStatusRequestDto = z.object({
+  shipmentId: z.string().uuid(),
+  provider: providerOrType,
+  reference: z.string().min(1).max(200),
+  providerRef: z.string().min(1).max(200),
+  trackingNumber: z.string().min(1).max(200).nullable(),
+}).strict();
+export type ProviderShipmentStatusRequestDto = z.infer<typeof providerShipmentStatusRequestDto>;
+
+/** Only a matching carrier adapter can write its provider-neutral result. */
+export const recordProviderShipmentInput = z.object({
+  shipmentId: z.string().uuid(),
+  provider: providerOrType,
+  /** Must match the platform reference frozen with this shipment before any carrier I/O. */
+  reference: z.string().min(1).max(200),
+  providerRef: z.string().min(1).max(200),
+  trackingNumber: z.string().min(1).max(200).optional(),
+  labelReference: labelReference.optional(),
+}).strict();
+
+/** Only the owning carrier adapter may persist raw provider evidence and advance a mapped domain stage. */
+export const recordProviderStatusInput = z.object({
+  shipmentId: z.string().uuid(),
+  provider: providerOrType,
+  rawStatus: z.string().min(1).max(200),
+  stage: z.enum(['shipped', 'arrived', 'completed']).optional(),
+}).strict();
+
+/** Only the generic verified-callback controller may use this provider-ref lookup path. */
+export const recordProviderCallbackInput = z.object({
+  provider: providerOrType,
+  providerRef: z.string().min(1).max(200),
+  rawStatus: z.string().min(1).max(200),
+  /** Private, lossless raw bytes encoded by the callback controller; never returned from Shipping. */
+  callbackPayloadBase64: z.string().min(1).max(2_000_000).regex(/^[A-Za-z0-9+/]+={0,2}$/),
+  stage: z.enum(['shipped', 'arrived', 'completed']).optional(),
+  callbackId: z.string().min(1).max(400),
+  trackingUrl: trackingUrl.optional(),
+}).strict();
+
+/** Authorised operators receive an opaque label reference, never a vendor URL or file. */
+export const shipmentLabelInfoDto = z.object({
+  shipmentId: z.string().uuid(),
+  provider: providerOrType,
+  providerRef: z.string().min(1).max(200),
+  labelReference: labelReference,
+}).strict();
+export type ShipmentLabelInfoDto = z.infer<typeof shipmentLabelInfoDto>;
 
 export const advanceShipmentStageInput = z.object({
   shipmentId: z.string().uuid(),

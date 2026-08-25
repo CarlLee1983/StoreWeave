@@ -323,12 +323,22 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
       maxRedeemableCents(balance.availableCents, subtotalCents),
     );
 
+    const destination = input.pickupSelectionToken
+      ? await shippingService.consumePickupSelection(ctx.tx, {
+        token: input.pickupSelectionToken, cartId: cart.id, customerId: buyer.customerId, shippingMethodId: input.shippingMethodId,
+        recipient: input.pickupRecipient!, phone: input.pickupPhone!,
+      }, ctx.now)
+      : input.destination!;
+
     const order = await createOrderFromLines(deps, {
       lines: bounded.data,
-      metadata: input.metadata,
+      // `metadata` is caller extensible, but invoice preference is a reserved,
+      // typed checkout fact. Overwrite any caller-supplied shadow value rather
+      // than letting an unvalidated JSON shape reach the invoice worker.
+      metadata: { ...input.metadata, invoicePreference: input.invoicePreference ?? { kind: 'ecpay' } },
       couponPromotionIds: locked ? [locked.promotionId] : [],
       rewardRedeemCents,
-      delivery: { shippingMethodId: input.shippingMethodId, destination: input.destination },
+      delivery: { shippingMethodId: input.shippingMethodId, destination },
     }, ctx);
 
     // 折抵與訂單在同一個交易內成立：訂單回滾了，購物金就沒有被扣過。

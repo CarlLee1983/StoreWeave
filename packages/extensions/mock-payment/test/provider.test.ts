@@ -65,6 +65,15 @@ describe('mock payment provider', () => {
     expect(await ctx.store.get(`payment:${payment.reference}`)).toBeNull();
   });
 
+  it('以平台退款 reference 去重，並回傳穩定的 provider refund reference', async () => {
+    const { provider: p } = provider();
+    const refund = { providerRef: 'mock_charge_1', amountCents: 1000, currency: 'TWD', reference: 'refund:1:attempt:1' };
+    const first = await p.refund(refund);
+    const replay = await p.refund(refund);
+    expect(first).toMatchObject({ status: 'succeeded', providerRefundRef: expect.stringMatching(/^mock_refund_/) });
+    expect(replay).toEqual({ ...first, message: 'replayed' });
+  });
+
   it('原子解析 callback 並回傳 provider acknowledgement', async () => {
     const p = provider().provider;
     const callback = await p.parseCallback({

@@ -124,7 +124,10 @@ export function createEcpayPaymentProvider(ctx: ExtensionContext<EcpayPaymentCon
     },
 
     async refund() {
-      return { status: 'failed' as const, message: 'ECPay AIO refunds are not implemented by this checkout adapter' };
+      // Ticket 58 has not yet established which refund/query product this
+      // merchant account can use. Keep the local refund requested and stop the
+      // job permanently rather than inventing an endpoint or moving money facts.
+      return { status: 'unsupported' as const, message: 'ECPay refund automation is unavailable until the merchant refund product and UAT contract are confirmed' };
     },
 
     async healthCheck() {

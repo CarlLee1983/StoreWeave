@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { BusController } from './base';
 import { ok } from '../http/envelope';
 import type { AuthenticatedRequest } from '../http/auth';
@@ -35,6 +35,13 @@ export class ShippingController extends BusController {
   @Patch('methods/:id')
   async updateMethod(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     return ok(await this.command(req, 'commerce.shipping.updateShippingMethod', { ...body, id }));
+  }
+
+  /** Returns an opaque carrier label handle only to actors with shipping:label-read. */
+  @Get('shipments/:id/label')
+  @Header('Cache-Control', 'no-store')
+  async getShipmentLabelInfo(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+    return ok(await this.query(req, 'commerce.shipping.getShipmentLabelInfo', { id }));
   }
 
   @Get('shipments/:id')

@@ -168,4 +168,10 @@ describe('ECPay payment provider', () => {
     expect(result.message).not.toContain(secrets.ECPAY_HASH_KEY);
     expect(result.message).not.toContain(secrets.ECPAY_HASH_IV);
   });
+
+  it('does not invent a refund transport before the merchant capability is confirmed', async () => {
+    const { provider: p } = provider();
+    await expect(p.refund({ providerRef: '2408241234567890', amountCents: 10_000, currency: 'TWD', reference: 'refund:test:attempt:1' }))
+      .resolves.toEqual({ status: 'unsupported', message: expect.stringMatching(/UAT contract/) });
+  });
 });

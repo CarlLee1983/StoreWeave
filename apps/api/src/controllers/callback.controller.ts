@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { Controller, Param, Post, Query, Req, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { SYSTEM_ACTOR } from '@storeweave/contracts';
-import type { PaymentCallbackEvent, PaymentProvider } from '@storeweave/extension-sdk';
+import type { PaymentCallbackEvent, PaymentProvider, ShippingCallbackEvent, ShippingProvider } from '@storeweave/extension-sdk';
 import { ExternalCallback, correlationIdOf, type AuthenticatedRequest } from '../http/auth';
 import { RUNTIME, type Runtime } from '../tokens';
 import { Inject } from '@nestjs/common';
@@ -28,8 +28,10 @@ export class CallbackController {
     @Req() request: CallbackRequest,
     @Res() reply: FastifyReply,
   ): Promise<void> {
-    // Keep the generic path for future kinds without pretending arbitrary provider
-    // interfaces exist today.
+    if (kind === 'shipping') {
+      await this.handleShipping(providerId, query, request, reply);
+      return;
+    }
     if (kind !== 'payment') {
       void reply.status(404).type('text/plain; charset=utf-8').send('Not found');
       return;
@@ -70,8 +72,51 @@ export class CallbackController {
     }
   }
 
+  private async handleShipping(
+    providerId: string,
+    query: CallbackQuery,
+    request: CallbackRequest,
+    reply: FastifyReply,
+  ): Promise<void> {
+    let provider: ShippingProvider;
+    try {
+      provider = this.runtime.providers.get<ShippingProvider>('shipping', providerId);
+    } catch {
+      void reply.status(404).type('text/plain; charset=utf-8').send('Not found');
+      return;
+    }
+    if (!provider.parseCallback || !provider.acknowledgeCallback) {
+      void reply.status(404).type('text/plain; charset=utf-8').send('Not found');
+      return;
+    }
+    try {
+      if (!request.rawBody) throw new Error('Raw callback body was not captured');
+      const event = await provider.parseCallback({ body: request.rawBody, headers: request.headers, query });
+      await this.runtime.commands.execute(
+        'commerce.shipping.recordProviderCallback',
+        shippingCallbackInput(provider.id, event, request.rawBody),
+        {
+          actor: SYSTEM_ACTOR,
+          idempotencyKey: shippingCallbackIdempotencyKey(provider.id, event),
+          correlationId: correlationIdOf(request),
+          channel: 'rest',
+        },
+      );
+      this.sendShippingAcknowledgement(reply, provider, true);
+    } catch (error) {
+      this.runtime.logger.warn({ kind: 'shipping', providerId, errorType: error instanceof Error ? error.name : typeof error }, 'external callback rejected');
+      this.sendShippingAcknowledgement(reply, provider, false);
+    }
+  }
+
   private sendAcknowledgement(reply: FastifyReply, provider: PaymentProvider, accepted: boolean): void {
     const acknowledgement = provider.acknowledgeCallback({ accepted });
+    for (const [name, value] of Object.entries(acknowledgement.headers ?? {})) reply.header(name, value);
+    void reply.status(acknowledgement.statusCode ?? (accepted ? 200 : 500)).send(acknowledgement.body);
+  }
+
+  private sendShippingAcknowledgement(reply: FastifyReply, provider: ShippingProvider, accepted: boolean): void {
+    const acknowledgement = provider.acknowledgeCallback!({ accepted });
     for (const [name, value] of Object.entries(acknowledgement.headers ?? {})) reply.header(name, value);
     void reply.status(acknowledgement.statusCode ?? (accepted ? 200 : 500)).send(acknowledgement.body);
   }
@@ -107,4 +152,23 @@ function callbackIdempotencyKey(provider: string, event: PaymentCallbackEvent): 
     ? { provider, type: event.type, reference: event.reference, providerRef: event.providerRef, expiresAt: event.expiresAt, instructions: event.instructions }
     : { provider, type: event.type, reference: event.reference, providerRef: event.providerRef ?? null };
   return `callback:${createHash('sha256').update(JSON.stringify(identity)).digest('hex')}`;
+}
+
+/**
+ * The signed bytes are durable private evidence. Base64 preserves arbitrary
+ * payloads without interpreting or logging carrier-controlled fields.
+ */
+function shippingCallbackInput(provider: string, event: ShippingCallbackEvent, rawBody: Uint8Array): Record<string, unknown> {
+  return {
+    provider, providerRef: event.providerRef, rawStatus: event.rawStatus,
+    callbackPayloadBase64: Buffer.from(rawBody).toString('base64'),
+    ...(event.stage ? { stage: event.stage } : {}),
+    callbackId: event.callbackId,
+    ...(event.trackingUrl ? { trackingUrl: event.trackingUrl } : {}),
+  };
+}
+
+/** Callback identity is provider-verified and hashed before it reaches durable idempotency storage. */
+function shippingCallbackIdempotencyKey(provider: string, event: ShippingCallbackEvent): string {
+  return `shipping-callback:${createHash('sha256').update(JSON.stringify({ provider, callbackId: event.callbackId })).digest('hex')}`;
 }

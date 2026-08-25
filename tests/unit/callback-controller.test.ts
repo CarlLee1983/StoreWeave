@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SYSTEM_ACTOR } from '@storeweave/contracts';
-import { createTestExtensionContext, type PaymentProvider } from '@storeweave/extension-sdk';
+import { createTestExtensionContext, type PaymentProvider, type ShippingProvider } from '@storeweave/extension-sdk';
 import { createCheckMacValue, createEcpayPaymentProvider, ecpayPaymentConfig } from '@storeweave/ext-ecpay';
 import type { Runtime } from '@storeweave/kernel';
 import { CallbackController } from '../../apps/api/src/controllers/callback.controller';
@@ -46,6 +46,15 @@ function paymentProvider(overrides: Partial<PaymentProvider> = {}): PaymentProvi
     refund: vi.fn(),
     ...overrides,
   } as PaymentProvider;
+}
+
+function shippingProvider(overrides: Partial<ShippingProvider> = {}): ShippingProvider {
+  return {
+    id: 'carrier-a', kind: 'shipping', createShipment: vi.fn(),
+    parseCallback: vi.fn(),
+    acknowledgeCallback: vi.fn(() => ({ statusCode: 204, body: 'carrier accepted' })),
+    ...overrides,
+  } as ShippingProvider;
 }
 
 function controllerFor(provider: PaymentProvider, options: { get?: () => PaymentProvider; execute?: ReturnType<typeof vi.fn> } = {}) {
@@ -212,12 +221,35 @@ describe('CallbackController', () => {
     });
   });
 
+  it('accepts a verified shipping callback using its opaque carrier identity and retains raw bytes as private evidence', async () => {
+    const provider = shippingProvider({
+      parseCallback: vi.fn(async () => ({
+        providerRef: 'carrier-private-ref', rawStatus: 'carrier-arrived-v7', stage: 'arrived' as const,
+        callbackId: 'carrier-event-123', trackingUrl: 'https://carrier.example.test/track/123',
+      })),
+    });
+    const { controller, runtime } = controllerFor(provider as any);
+    const { reply, state } = replyStub();
+
+    const rawBody = new Uint8Array([5]);
+    await controller.handlePayment('shipping', 'carrier-a', {}, { rawBody, headers: {} }, reply);
+
+    expect(runtime.commands.execute).toHaveBeenCalledWith(
+      'commerce.shipping.recordProviderCallback',
+      expect.objectContaining({ provider: 'carrier-a', providerRef: 'carrier-private-ref', stage: 'arrived', callbackId: 'carrier-event-123', callbackPayloadBase64: Buffer.from(rawBody).toString('base64') }),
+      expect.objectContaining({ actor: SYSTEM_ACTOR, idempotencyKey: expect.stringMatching(/^shipping-callback:[a-f0-9]{64}$/) }),
+    );
+    const [first] = (runtime.commands.execute as ReturnType<typeof vi.fn>).mock.calls;
+    expect((first![2] as any).idempotencyKey).not.toContain('carrier-event-123');
+    expect(state).toMatchObject({ statusCode: 204, body: 'carrier accepted' });
+  });
+
   it('returns 404 without resolving a provider for unsupported callback kinds', async () => {
     const provider = paymentProvider();
     const { controller, runtime } = controllerFor(provider);
     const { reply, state } = replyStub();
 
-    await controller.handlePayment('shipping', 'gateway-a', {}, { rawBody: new Uint8Array(), headers: {} }, reply);
+    await controller.handlePayment('erp', 'gateway-a', {}, { rawBody: new Uint8Array(), headers: {} }, reply);
 
     expect(runtime.providers.get).not.toHaveBeenCalled();
     expect(state).toEqual({ statusCode: 404, headers: {}, body: 'Not found' });

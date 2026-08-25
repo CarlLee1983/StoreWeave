@@ -52,6 +52,18 @@ export const customerPaymentAttemptDto = z.object({
 });
 export type CustomerPaymentAttemptDto = z.infer<typeof customerPaymentAttemptDto>;
 
+/**
+ * The invoice module receives this immutable checkout snapshot after payment.
+ * It contains no tax ID because the merchant chose B2C-only issuance.
+ */
+export const invoicePreferenceInput = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('ecpay') }).strict(),
+  z.object({ kind: z.literal('mobile'), number: z.string().regex(/^\/[0-9A-Z+\-.]{7}$/, 'must be a valid mobile barcode') }).strict(),
+  z.object({ kind: z.literal('natural_person'), number: z.string().regex(/^[A-Z]{2}[0-9]{14}$/, 'must be a natural-person certificate number') }).strict(),
+  z.object({ kind: z.literal('donation'), loveCode: z.string().regex(/^\d{3,7}$/, 'must be a 3–7 digit love code') }).strict(),
+]);
+export type InvoicePreferenceInput = z.infer<typeof invoicePreferenceInput>;
+
 export const orderLineDto = z.object({
   id: z.string().uuid(),
   productId: z.string().uuid(),
@@ -272,8 +284,24 @@ export const checkoutCartInput = z.object({
    * （ADR 0022）——重送表單的瀏覽器不會、也沒辦法帶同一把鍵。
    */
   cartId: z.string().uuid(),
-  /** The merchant-owned method and complete delivery destination selected for this checkout. */
+  /** The merchant-owned method selected for this checkout. */
   shippingMethodId: z.string().uuid(),
-  destination: shippingDestinationInput,
+  /** Home deliveries use a complete address; pickup uses a server-issued selection capability. */
+  destination: shippingDestinationInput.optional(),
+  pickupSelectionToken: z.string().min(32).max(200).regex(/^[A-Za-z0-9_-]+$/).optional(),
+  pickupRecipient: z.string().min(1).max(120).optional(),
+  pickupPhone: z.string().min(1).max(40).optional(),
+  /** Defaults to ECPay's email/phone carrier when the customer makes no choice. */
+  invoicePreference: invoicePreferenceInput.optional(),
   metadata: z.record(z.unknown()).optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.pickupSelectionToken) {
+    if (value.destination) context.addIssue({ code: z.ZodIssueCode.custom, path: ['destination'], message: 'Pickup checkout must use the verified selection token only' });
+    if (!value.pickupRecipient) context.addIssue({ code: z.ZodIssueCode.custom, path: ['pickupRecipient'], message: 'Pickup recipient is required' });
+    if (!value.pickupPhone) context.addIssue({ code: z.ZodIssueCode.custom, path: ['pickupPhone'], message: 'Pickup phone is required' });
+  } else if (!value.destination) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['destination'], message: 'A delivery destination is required' });
+  } else if (value.destination.kind === 'pickup_store') {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['pickupSelectionToken'], message: 'Pickup checkout requires a verified selection token' });
+  }
+});

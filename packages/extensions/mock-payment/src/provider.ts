@@ -81,11 +81,12 @@ export function createMockPaymentProvider(
     },
 
     async refund(input) {
-      const key = `refund:${input.providerRef}`;
-      const existing = await ctx.store.get<{ status: 'succeeded' }>(key);
-      if (existing) return { status: 'succeeded', message: 'replayed' };
-      await ctx.store.set(key, { status: 'succeeded', amountCents: input.amountCents });
-      return { status: 'succeeded' };
+      const key = `refund:${input.reference}`;
+      const existing = await ctx.store.get<{ providerRefundRef: string }>(key);
+      if (existing) return { status: 'succeeded', providerRefundRef: existing.providerRefundRef, message: 'replayed' };
+      const providerRefundRef = `mock_refund_${createHash('sha256').update(input.reference).digest('hex').slice(0, 20)}`;
+      await ctx.store.set(key, { providerRefundRef, providerRef: input.providerRef, amountCents: input.amountCents, currency: input.currency });
+      return { status: 'succeeded', providerRefundRef };
     },
 
     async healthCheck() {

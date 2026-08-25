@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext } from '@storeweave/contracts';
+import type { ProviderRegistry } from '@storeweave/extension-sdk';
 import {
-  advanceShipmentStageInput, createShipmentInput, createShippingMethodInput, shipmentDto,
-  shippingMethodDto, updateShippingMethodInput, type ShipmentDto, type ShippingMethodDto,
+  advanceShipmentStageInput, beginPickupSelectionInput, beginPickupSelectionOutput, completePickupSelectionInput, completePickupSelectionOutput, createShipmentInput, createShippingMethodInput, recordProviderCallbackInput, recordProviderShipmentInput, recordProviderStatusInput,
+  shipmentDto, shippingMethodDto, updateShippingMethodInput, type ShipmentDto, type ShippingMethodDto,
 } from './dto';
 import { ShippingRepository, toShippingMethodDto } from './repository';
-import { shippingService, type ShipmentOrderLookup } from './service';
+import { shippingService, type ShipmentOrderLookup, type ShipmentRefundGuard } from './service';
 
 const repository = new ShippingRepository();
 
@@ -39,15 +40,77 @@ export const updateShippingMethodHandler = async (input: z.infer<typeof updateSh
   return toShippingMethodDto(row);
 };
 
+export const beginPickupSelectionCommand = defineCommand({
+  name: 'commerce.shipping.beginPickupSelection', summary: '建立超商選店回填權杖', input: beginPickupSelectionInput,
+  output: beginPickupSelectionOutput, permission: 'shipping:read', idempotency: 'optional',
+  audit: { action: 'shipping.pickup_selection.started', resourceType: 'cart', resourceId: (input) => input.cartId, redact: () => ({}) },
+});
+export const beginPickupSelectionHandler = (providers: ProviderRegistry) =>
+  (input: z.infer<typeof beginPickupSelectionInput>, ctx: CommandContext) => shippingService.beginPickupSelection(ctx, input, providers);
+
+export const completePickupSelectionCommand = defineCommand({
+  name: 'commerce.shipping.completePickupSelection', summary: '回填超商門市', input: completePickupSelectionInput,
+  output: completePickupSelectionOutput, permission: 'shipping:read', idempotency: 'optional',
+  audit: { action: 'shipping.pickup_selection.completed', resourceType: 'pickup_selection', resourceId: () => 'opaque', redact: () => ({}) },
+});
+export const completePickupSelectionHandler = (providers: ProviderRegistry) =>
+  (input: z.infer<typeof completePickupSelectionInput>, ctx: CommandContext) => shippingService.completePickupSelection(ctx, input, providers);
+
 export const createShipmentCommand = defineCommand({
   name: 'commerce.shipping.createShipment', summary: '建立物流單', input: createShipmentInput,
   output: shipmentDto, permission: 'shipping:write', idempotency: 'required',
   audit: { action: 'shipping.shipment.created', resourceType: 'shipment', resourceId: (_i, o: ShipmentDto) => o.id },
 });
 
-export const createShipmentHandler = (orders: ShipmentOrderLookup) =>
+export const createShipmentHandler = (orders: ShipmentOrderLookup, providers: ProviderRegistry, refunds?: ShipmentRefundGuard) =>
   (input: z.infer<typeof createShipmentInput>, ctx: CommandContext): Promise<ShipmentDto> =>
-    shippingService.createShipment(ctx, input, orders);
+    shippingService.createShipment(ctx, input, orders, providers, refunds);
+
+/** Carrier extensions persist a completed remote create without exposing their HTTP protocol to Shipping. */
+export const recordProviderShipmentCommand = defineCommand({
+  name: 'commerce.shipping.recordProviderShipment', summary: '記錄 carrier 建單結果', input: recordProviderShipmentInput,
+  output: shipmentDto, permission: 'shipping:provider-write', idempotency: 'required',
+  audit: {
+    action: 'shipping.shipment.provider_recorded', resourceType: 'shipment', resourceId: (i) => i.shipmentId,
+    // Keep a normalized, reviewable outcome without persisting the opaque
+    // label handle or any carrier request payload (which may contain PII).
+    redact: (i) => ({
+      provider: i.provider,
+      reference: i.reference,
+      providerRef: i.providerRef,
+      trackingNumber: i.trackingNumber ?? null,
+      labelAvailable: Boolean(i.labelReference),
+    }),
+  },
+});
+
+export const recordProviderShipmentHandler = (input: z.infer<typeof recordProviderShipmentInput>, ctx: CommandContext): Promise<ShipmentDto> =>
+  shippingService.recordProviderShipment(ctx, input);
+
+/** A carrier adapter records private evidence; it cannot mutate another provider's shipment. */
+export const recordProviderStatusCommand = defineCommand({
+  name: 'commerce.shipping.recordProviderStatus', summary: '記錄 carrier 主動查詢狀態', input: recordProviderStatusInput,
+  output: shipmentDto, permission: 'shipping:provider-write', idempotency: 'required',
+  audit: {
+    action: 'shipping.shipment.provider_status_recorded', resourceType: 'shipment', resourceId: (input) => input.shipmentId,
+    // Raw provider material is private operational evidence and may contain
+    // fields not suitable for the longer-lived audit retention policy.
+    redact: (input) => ({ provider: input.provider, stage: input.stage ?? null }),
+  },
+});
+export const recordProviderStatusHandler = (input: z.infer<typeof recordProviderStatusInput>, ctx: CommandContext): Promise<ShipmentDto> =>
+  shippingService.recordProviderStatus(ctx, input);
+
+export const recordProviderCallbackCommand = defineCommand({
+  name: 'commerce.shipping.recordProviderCallback', summary: '記錄已驗簽 carrier callback', input: recordProviderCallbackInput,
+  output: shipmentDto, permission: 'shipping:provider-write', idempotency: 'required',
+  audit: {
+    action: 'shipping.shipment.provider_callback_recorded', resourceType: 'shipment', resourceId: (_input, output: ShipmentDto) => output.id,
+    redact: (input) => ({ provider: input.provider, stage: input.stage ?? null }),
+  },
+});
+export const recordProviderCallbackHandler = (input: z.infer<typeof recordProviderCallbackInput>, ctx: CommandContext): Promise<ShipmentDto> =>
+  shippingService.recordProviderCallback(ctx, input);
 
 export const advanceShipmentStageCommand = defineCommand({
   name: 'commerce.shipping.advanceShipmentStage', summary: '推進出貨領域階段', input: advanceShipmentStageInput,
