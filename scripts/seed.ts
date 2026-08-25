@@ -480,7 +480,7 @@ async function seed(runtime: Runtime) {
       );
       productId = product.id;
     } catch {
-      const rows = await runtime.db.execute<{ id: string }>(
+      const rows = await runtime.database.db.execute<{ id: string }>(
         sql`SELECT id FROM catalog_products WHERE sku = ${item.sku}`,
       );
       productId = rows.rows[0]?.id;
@@ -508,7 +508,7 @@ async function seed(runtime: Runtime) {
 
   // 管理員帳號 (Staff)
   try {
-    await runtime.db.transaction(async (tx) => {
+    await runtime.database.db.transaction(async (tx) => {
       await accountService.createAccount(tx, {
         email: 'admin@storeweave.test',
         password: 'AdminPassword123!',
@@ -517,7 +517,9 @@ async function seed(runtime: Runtime) {
       });
     });
     console.log('  ✓ 管理員帳號: admin@storeweave.test (密碼: AdminPassword123!)');
-  } catch {}
+  } catch (err) {
+    console.error('  ✕ 建立管理員帳號錯誤:', err);
+  }
 
   // 金卡 VIP 顧客
   let vipCustomerId: string | undefined;
@@ -533,7 +535,7 @@ async function seed(runtime: Runtime) {
     );
     vipCustomerId = vip.customer.id;
   } catch {
-    const rows = await runtime.db.execute<{ id: string }>(
+    const rows = await runtime.database.db.execute<{ id: string }>(
       sql`SELECT c.id FROM customer_profiles c JOIN platform_users u ON c.account_id = u.id WHERE u.email = 'gold_vip@woven-day.test'`,
     );
     vipCustomerId = rows.rows[0]?.id;
