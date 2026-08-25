@@ -194,6 +194,64 @@ describe('Storefront SSR', () => {
     expect(res.body).toContain('Test Store');
   });
 
+  it('公開型錄保留搜尋與分頁 query，只呈現 active 商品', async () => {
+    const tag = `SSR-DISC-${Date.now()}`;
+    for (let index = 0; index < 25; index += 1) {
+      await createProduct(h.runtime, { sku: `${tag}-${index}`, name: `${tag} 商品 ${index}`, priceCents: 1_000 });
+    }
+    await createProduct(h.runtime, { sku: `${tag}-EXPENSIVE`, name: `${tag} 高價商品`, priceCents: 100_000 });
+    const archived = await createProduct(h.runtime, { sku: `${tag}-ARCHIVED`, name: `${tag} 已封存`, status: 'archived' });
+
+    const first = await inject({ method: 'GET', url: `/?q=${encodeURIComponent(tag)}&minPrice=0&maxPrice=10&page=1` });
+    expect(first.statusCode).toBe(200);
+    expect(first.body).toContain(`${tag} 商品 0`);
+    expect(first.body).not.toContain(`${tag} 已封存`);
+    expect(first.body).toContain(`href="/?q=${tag}&amp;minPrice=0&amp;maxPrice=10&amp;page=2"`);
+    expect(first.body).toContain('rel="next"');
+
+    const second = await inject({ method: 'GET', url: `/?q=${encodeURIComponent(tag)}&minPrice=0&maxPrice=10&page=2` });
+    expect(second.statusCode).toBe(200);
+    expect(second.body).toContain(`${tag} 商品 24`);
+    expect(second.body).toContain(`href="/?q=${tag}&amp;minPrice=0&amp;maxPrice=10"`);
+    expect(second.body).toContain('rel="prev"');
+
+    const priceFiltered = await inject({ method: 'GET', url: `/?q=${encodeURIComponent(tag)}&minPrice=500` });
+    expect(priceFiltered.statusCode).toBe(200);
+    expect(priceFiltered.body).toContain(`${tag} 高價商品`);
+    expect(priceFiltered.body).not.toContain(`${tag} 商品 0`);
+
+    const inclusiveBounds = await inject({ method: 'GET', url: `/?q=${encodeURIComponent(tag)}&minPrice=10&maxPrice=10` });
+    expect(inclusiveBounds.statusCode).toBe(200);
+    expect(inclusiveBounds.body).toContain(`${tag} 商品 0`);
+    expect(inclusiveBounds.body).not.toContain(`${tag} 高價商品`);
+
+    const maxOnly = await inject({ method: 'GET', url: `/?q=${encodeURIComponent(tag)}&maxPrice=10` });
+    expect(maxOnly.statusCode).toBe(200);
+    expect(maxOnly.body).toContain(`${tag} 商品 0`);
+    expect(maxOnly.body).not.toContain(`${tag} 高價商品`);
+
+    const apiFiltered = await inject({
+      method: 'GET',
+      url: `/api/v1/products?q=${encodeURIComponent(tag)}&minPriceCents=50000`,
+      headers: auth(),
+    });
+    expect(apiFiltered.statusCode).toBe(200);
+    expect(apiFiltered.json().data.items.map((item: { name: string }) => item.name)).toContain(`${tag} 高價商品`);
+    expect(apiFiltered.json().data.items.map((item: { name: string }) => item.name)).not.toContain(`${tag} 商品 0`);
+
+    const invalidPage = await inject({ method: 'GET', url: '/?page=0' });
+    expect(invalidPage.statusCode).toBe(400);
+    expect(invalidPage.headers['content-type']).toContain('text/html');
+
+    const invalidRange = await inject({ method: 'GET', url: '/?minPrice=20&maxPrice=10' });
+    expect(invalidRange.statusCode).toBe(400);
+    const invalidPrice = await inject({ method: 'GET', url: '/?minPrice=1.5' });
+    expect(invalidPrice.statusCode).toBe(400);
+
+    const hiddenDetail = await inject({ method: 'GET', url: `/p/${archived.id}` });
+    expect(hiddenDetail.statusCode).toBe(404);
+  });
+
   it('登入後的商品頁帶著 CSRF 隱藏欄位，未登入則沒有', async () => {
     const product = await createProduct(h.runtime, { sku: 'SSR-CSRF', name: 'CSRF 測試' });
     await stockUp(h.runtime, product.id, 1);

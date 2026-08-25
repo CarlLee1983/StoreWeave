@@ -45,6 +45,7 @@ describe('所有 Command / Query 輸入都拒絕未知欄位', () => {
     const prefixes = [
       'commerce.catalog.', 'commerce.inventory.', 'commerce.customer.', 'commerce.cart.',
       'commerce.promotion.', 'commerce.coupon.', 'commerce.loyalty.', 'commerce.order.',
+      'commerce.refund.',
       'platform.identity.', 'platform.jobs.',
     ];
     // 只斷言總數的話，少掉整個模組也看不出來。
@@ -74,6 +75,13 @@ describe('所有 Command / Query 輸入都拒絕未知欄位', () => {
     });
     expect(result.success).toBe(false);
     expect(JSON.stringify(result.error!.issues)).toContain('statuss');
+  });
+
+  it('型錄價格界線接受 REST query 傳來的數字字串，並保留整數限制', () => {
+    const [, schema] = registeredInputs().find(([name]) => name === 'commerce.catalog.searchProducts')!;
+    const parsed = (schema as z.ZodTypeAny).parse({ minPriceCents: '50000', maxPriceCents: '100000' });
+    expect(parsed).toMatchObject({ minPriceCents: 50_000, maxPriceCents: 100_000 });
+    expect((schema as z.ZodTypeAny).safeParse({ minPriceCents: '1.5' }).success).toBe(false);
   });
 });
 
