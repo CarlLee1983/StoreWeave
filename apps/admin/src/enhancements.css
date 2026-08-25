@@ -1214,6 +1214,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 12px;
+  /* 不要拉成等高：基本資料只有三行，被撐到跟購物金一樣高就是一大片空白。 */
+  align-items: start;
 }
 
 .detail-card {

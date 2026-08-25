@@ -63,7 +63,7 @@ describe('CustomersPage', () => {
 
     const row = (await screen.findByText('buyer@example.com')).closest('tr')!;
     expect(row).toHaveTextContent('買家');
-    expect(row).toHaveTextContent('上架中');
+    expect(row).toHaveTextContent('啟用中');
   });
 
   it('搜尋會帶著關鍵字重新查詢', async () => {
@@ -227,3 +227,14 @@ describe('客服修正生日（工單 74）', () => {
     expect(await screen.findByText(/不會補發/)).toBeInTheDocument();
   });
 });
+
+describe('會員狀態的語彙', () => {
+  it('帳號是啟用中，不是「上架中」——那是商品的說法', async () => {
+    renderPage();
+    expect(await screen.findByText('buyer@example.com')).toBeInTheDocument();
+    expect(screen.queryByText('上架中')).not.toBeInTheDocument();
+    const row = screen.getByText('buyer@example.com').closest('tr')!;
+    expect(row).toHaveTextContent('啟用中');
+  });
+});
+

@@ -43,10 +43,13 @@ export function CustomersPage() {
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
 
       <div className="toolbar">
-        <input aria-label={t('searchCustomers')} placeholder={t('searchCustomers')} value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="toolbar__search-group">
+          <Icon name="search" />
+          <input aria-label={t('searchCustomers')} placeholder={t('searchCustomers')} value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
         <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label={t('status')}>
           <option value="">{t('allStatuses')}</option>
-          <option value="active">{t('active')}</option>
+          <option value="active">{t('enabledStatus')}</option>
           <option value="disabled">{t('disabled')}</option>
         </select>
         {total > customers.length ? <span>{`${customers.length} / ${total}`}</span> : null}
@@ -60,12 +63,12 @@ export function CustomersPage() {
         <div className="table-wrap"><table className="data-table data-table--fixed">
           <thead>
             <tr>
-              <th style={{ width: '26%' }}>{t('email')}</th>
-              <th style={{ width: '16%' }}>{t('name')}</th>
-              <th style={{ width: '12%' }}>{t('phone')}</th>
-              <th style={{ width: '16%' }}>{t('joinedAt')}</th>
+              <th style={{ width: '28%' }}>{t('email')}</th>
+              <th style={{ width: '18%' }}>{t('name')}</th>
+              <th style={{ width: '14%' }}>{t('phone')}</th>
+              <th style={{ width: '14%' }}>{t('joinedAt')}</th>
               <th style={{ width: '12%' }}>{t('status')}</th>
-              <th style={{ width: '18%' }} className="col-actions">操作</th>
+              <th style={{ width: '14%' }} className="col-actions">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -80,7 +83,7 @@ export function CustomersPage() {
 }
 
 function CustomerRow({ customer, onChanged }: { customer: AdminCustomer; onChanged: () => void }) {
-  const { t, formatDateTime } = useI18n();
+  const { t, formatDate } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<AdminCustomerDetail | null>(null);
   const [loyalty, setLoyalty] = useState<CustomerLoyalty | null>(null);
@@ -127,11 +130,17 @@ function CustomerRow({ customer, onChanged }: { customer: AdminCustomer; onChang
         <td><span className="cell-truncate" title={customer.email}>{customer.email}</span></td>
         <td>{customer.displayName}</td>
         <td className="mono">{customer.phone ?? '—'}</td>
-        <td className="mono">{formatDateTime(customer.createdAt)}</td>
-        <td><StatusBadge value={customer.status === 'active' ? 'active' : 'disabled'} /></td>
+        <td className="mono">{formatDate(customer.createdAt)}</td>
+        <td>
+          <StatusBadge
+            value={customer.status === 'active' ? 'active' : 'disabled'}
+            label={customer.status === 'active' ? t('enabledStatus') : t('disabled')}
+          />
+        </td>
         <td className="col-actions">
           <button
             type="button"
+            className="button button--quiet"
             disabled={submitting}
             onClick={(e) => {
               e.stopPropagation();

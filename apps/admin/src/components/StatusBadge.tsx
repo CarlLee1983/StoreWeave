@@ -8,10 +8,15 @@ function toneFor(value: string): Tone {
   return 'neutral';
 }
 
-export function StatusBadge({ value }: { value: string }) {
+/**
+ * label 讓呼叫端覆寫顯示文字：同一個 `active` 在商品是「上架中」，
+ * 在帳號是「啟用中」——共用一組狀態字典會把商品的說法套到會員身上。
+ * 色調一律由狀態值推導，覆寫的只有文字。
+ */
+export function StatusBadge({ value, label }: { value: string; label?: string }) {
   const { statusLabel } = useI18n();
   const tone = toneFor(value);
-  return <span className={`status-pill status-pill--${tone}`}><StatusIcon tone={tone} />{statusLabel(value)}</span>;
+  return <span className={`status-pill status-pill--${tone}`}><StatusIcon tone={tone} />{label ?? statusLabel(value)}</span>;
 }
 
 function StatusIcon({ tone }: { tone: Tone }) {
