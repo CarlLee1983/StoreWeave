@@ -30,6 +30,15 @@
 「送出成功但回應遺失」之後每一次重送都會被判重複，而 provider 沒有查詢介面。同工單 64，
 擋在商家開通上。
 
+**71–75 來自 2026-08-25 的一次盤點**，找的是「命令寫好了、權限也發了，但沒有任何入口點得到」
+這一種缺口——工單 68 與 69 補的正是它，盤點是問還有沒有別的。有四處：商品建得出來改不了
+（`patchProduct` 與 PATCH 端點都在，`ProductsPage` 沒有編輯）；等級門檻與購物金倍率只能改
+程式碼（五支命令零 HTTP 面）；通知投遞紀錄查不到（權限發了、端點沒有）；會員生日填錯無法
+更正（命令的 summary 就寫著「客服代為修正」，但沒有 UI）。另外找到一支疑似死碼，開在 75。
+
+盤點同時確認乾淨的部分：114 支 command/query 除上述外都有呼叫端，週期性工作那幾支由 job
+正確觸發；31 篇 ADR 全部有 `Falsified if`，30 篇 accepted、1 篇 obsolete，沒有 proposed 卡著。
+
 **剩下的關卡不在程式碼裡**。58、59、60、61、62 的實機驗證要一座有公開網域的部署與
 商家開通，那是釋出檢查，不是程式阻擋；66 已通過 Stage UAT，正式開通同樣是釋出設定。
 **64 仍是 blocked**——它等的是商家實際開通的退款／查詢產品與它的契約，在拿到之前
@@ -123,6 +132,11 @@
 | [68](68-admin-rma-workbench.md) | 後台退貨案件工作台 | 65 |
 | [69](69-invoice-operations.md) | 電子發票的營運介面 | 66 |
 | [70](70-invoice-issue-reconciliation.md) | 發票開立的對帳查詢：回應遺失時的補救 | 58, 69 |
+| [71](71-admin-product-editing.md) | 後台商品編輯與上下架 | 02 |
+| [72](72-loyalty-settings-operations.md) | 會員等級與購物金設定的營運介面 | 43, 45 |
+| [73](73-notification-delivery-log.md) | 訂單與出貨通知的投遞紀錄 | 62 |
+| [74](74-customer-birthday-correction.md) | 客服修正會員生日 | 22, 35 |
+| [75](75-remove-legacy-markpaid.md) | 移除沒有呼叫端的 `commerce.order.markPaid` | — |
 
 ## 已知、刻意沒做的
 
