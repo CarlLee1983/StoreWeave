@@ -134,11 +134,19 @@ importers:
 
   packages/commerce/inventory: {}
 
+  packages/commerce/invoice: {}
+
   packages/commerce/loyalty: {}
+
+  packages/commerce/notification: {}
 
   packages/commerce/order: {}
 
   packages/commerce/promotion: {}
+
+  packages/commerce/refund: {}
+
+  packages/commerce/rma: {}
 
   packages/commerce/shipping: {}
 
@@ -146,7 +154,13 @@ importers:
 
   packages/extensions/ecpay: {}
 
+  packages/extensions/ecpay-invoice: {}
+
+  packages/extensions/ecpay-logistics: {}
+
   packages/extensions/mcp: {}
+
+  packages/extensions/mock-invoice: {}
 
   packages/extensions/mock-notification: {}
 

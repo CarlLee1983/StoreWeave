@@ -5,7 +5,7 @@ import { PlatformError } from '@storeweave/contracts';
  * Provider Contract —— Extension 對外部世界（金流／物流／ERP／通知）的可替換介面。
  * Core 只認識這些介面，不認識任何供應商名稱。
  */
-export type ProviderKind = 'payment' | 'shipping' | 'erp' | 'notification';
+export type ProviderKind = 'payment' | 'shipping' | 'erp' | 'notification' | 'invoice';
 
 export interface ProviderBase {
   readonly id: string;
@@ -132,6 +132,22 @@ export interface PaymentCallbackAcknowledgement {
   readonly body: string;
 }
 
+/** A platform-owned, replay-safe request to reverse one confirmed payment. */
+export interface PaymentRefundInput {
+  /** The gateway payment reference captured when the original payment settled. */
+  readonly providerRef: string;
+  readonly amountCents: number;
+  readonly currency: string;
+  /** A stable platform reference; adapters must use it to make retries safe. */
+  readonly reference: string;
+}
+
+/** A definite gateway response. Transport uncertainty must reject instead. */
+export type PaymentRefundResult =
+  | { readonly status: 'succeeded'; readonly providerRefundRef: string; readonly message?: string }
+  | { readonly status: 'rejected'; readonly message: string }
+  | { readonly status: 'unsupported'; readonly message: string };
+
 export interface PaymentProvider extends ProviderBase {
   readonly kind: 'payment';
   /** Store-selectable payment methods; callers choose one before any redirect. */
@@ -143,7 +159,7 @@ export interface PaymentProvider extends ProviderBase {
    */
   parseCallback(request: PaymentCallbackRequest): Promise<PaymentCallbackEvent>;
   acknowledgeCallback(result: PaymentCallbackHandlingResult): PaymentCallbackAcknowledgement;
-  refund(input: { providerRef: string; amountCents: number }): Promise<{ status: 'succeeded' | 'failed'; message?: string }>;
+  refund(input: PaymentRefundInput): Promise<PaymentRefundResult>;
 }
 
 /** Provider-neutral destination captured by checkout; merchant pricing never calls a provider. */
@@ -180,9 +196,101 @@ export interface ShippingShipmentInput {
   readonly destination: ShippingDestination;
 }
 
+/**
+ * Opaque carrier-owned reference used later to prepare or print a label.
+ * It is deliberately not a URL, signed download credential, or label content:
+ * the platform persists it privately and an authorised back-office flow asks
+ * the owning provider to turn it into a carrier-specific print/download action.
+ */
+export interface ShippingLabelReference {
+  readonly reference: string;
+}
+
+export interface ShippingShipmentResult {
+  readonly providerRef: string;
+  readonly trackingNumber?: string;
+  readonly label?: ShippingLabelReference;
+}
+
+/** Minimal carrier evidence needed to reconcile an already-created shipment. */
+export interface ShippingShipmentStatusInput {
+  readonly shipmentId: string;
+  /** Platform idempotency reference, retained by the carrier adapter. */
+  readonly reference: string;
+  readonly providerRef: string;
+  readonly trackingNumber?: string;
+}
+
+/** Provider-specific status stays private; adapters may map it to a stable domain stage. */
+export interface ShippingShipmentStatusResult {
+  readonly rawStatus: string;
+  readonly stage?: 'shipped' | 'arrived' | 'completed';
+}
+
+/** The unmodified HTTP material supplied to a carrier for callback verification. */
+export interface ShippingCallbackRequest {
+  readonly body: Uint8Array;
+  readonly headers: Readonly<Record<string, string | readonly string[] | undefined>>;
+  readonly query: Readonly<Record<string, string | readonly string[] | undefined>>;
+}
+
+/**
+ * A carrier callback after its signature has been verified. Provider status
+ * names remain operational evidence; only `stage` is a customer lifecycle fact.
+ */
+export interface ShippingCallbackEvent {
+  readonly providerRef: string;
+  readonly rawStatus: string;
+  readonly stage?: 'shipped' | 'arrived' | 'completed';
+  /** Stable carrier delivery/event identity, used by core replay protection. */
+  readonly callbackId: string;
+  /** Optional provider-owned public HTTPS tracking page; never a label URL. */
+  readonly trackingUrl?: string;
+}
+
+export interface ShippingCallbackHandlingResult {
+  readonly accepted: boolean;
+  readonly duplicate?: boolean;
+}
+
+export interface ShippingCallbackAcknowledgement {
+  readonly statusCode?: number;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly body: string;
+}
+
+/** A store record returned by a carrier-owned pickup selector. */
+export interface PickupStore {
+  readonly providerStoreId: string;
+  readonly storeName: string;
+  readonly storeAddress: string;
+}
+
+/**
+ * Optional capability for carriers which support convenience-store pickup.
+ * Core owns the short-lived selection token and only accepts a store id; the
+ * adapter remains the authority for the display name and address.
+ */
+export interface PickupStoreSelectionInput {
+  readonly serviceType: string;
+}
+
 export interface ShippingProvider extends ProviderBase {
   readonly kind: 'shipping';
-  createShipment(input: ShippingShipmentInput): Promise<{ providerRef: string; trackingNumber?: string }>;
+  /**
+   * The caller supplies a stable platform reference. Providers must make replay
+   * safe with the carrier's supported idempotency or query/reconciliation
+   * mechanism; core never assumes a carrier honours an idempotency key.
+   */
+  createShipment(input: ShippingShipmentInput): Promise<ShippingShipmentResult>;
+  /** Optional because legacy/manual carriers may support creation only. */
+  queryShipmentStatus?(input: ShippingShipmentStatusInput): Promise<ShippingShipmentStatusResult>;
+  /** Optional: only callback-capable carriers expose this verified parser. */
+  parseCallback?(request: ShippingCallbackRequest): Promise<ShippingCallbackEvent>;
+  /** Optional because carriers without callbacks do not need an acknowledgement contract. */
+  acknowledgeCallback?(result: ShippingCallbackHandlingResult): ShippingCallbackAcknowledgement;
+  /** Absent means this carrier/method cannot be offered as a pickup selector. */
+  pickupStores?(input: PickupStoreSelectionInput): Promise<readonly PickupStore[]>;
 }
 
 export interface ErpDocument {
@@ -219,7 +327,76 @@ export interface NotificationProvider extends ProviderBase {
   send(message: NotificationMessage): Promise<NotificationSendResult>;
 }
 
-export type AnyProvider = PaymentProvider | ShippingProvider | ErpProvider | NotificationProvider;
+/**
+ * The checkout-time invoice choice. It is a deliberately small, provider-neutral
+ * snapshot: a provider receives only the durable choice and sale facts, never an
+ * Order repository or a browser request.
+ */
+export type InvoiceCarrier =
+  | { readonly kind: 'ecpay' }
+  | { readonly kind: 'mobile'; readonly number: string }
+  | { readonly kind: 'natural_person'; readonly number: string }
+  | { readonly kind: 'donation'; readonly loveCode: string };
+
+export interface InvoiceLine {
+  readonly name: string;
+  readonly quantity: number;
+  /** Tax-inclusive unit price in cents. */
+  readonly unitPriceCents: number;
+  /** Tax-inclusive line total after discounts in cents. */
+  readonly amountCents: number;
+}
+
+/** One durable attempt to issue a B2C invoice after payment is settled. */
+export interface InvoiceIssueInput {
+  readonly invoiceId: string;
+  /** Stable platform idempotency reference; adapters must preserve it on retry. */
+  readonly reference: string;
+  readonly orderId: string;
+  readonly orderNumber: string;
+  readonly currency: string;
+  /** Total including tax, in cents. */
+  readonly amountCents: number;
+  /** Tax amount included in amountCents, in cents. */
+  readonly taxCents: number;
+  readonly customer: { readonly email: string; readonly name: string; readonly phone: string };
+  readonly carrier: InvoiceCarrier;
+  readonly lines: readonly InvoiceLine[];
+}
+
+export type InvoiceIssueResult =
+  | { readonly status: 'issued'; readonly providerRef: string; readonly invoiceNumber: string; readonly invoiceDate: string }
+  | { readonly status: 'rejected'; readonly message: string };
+
+export interface InvoiceVoidInput {
+  readonly invoiceId: string;
+  /** Stable platform idempotency reference; adapters must preserve it on retry. */
+  readonly reference: string;
+  readonly providerRef: string;
+  readonly invoiceNumber: string;
+  /** Provider-formatted invoice issue date. */
+  readonly invoiceDate: string;
+  readonly reason: string;
+}
+
+export type InvoiceVoidResult =
+  | { readonly status: 'voided'; readonly providerRef: string }
+  | { readonly status: 'rejected'; readonly message: string };
+
+/**
+ * Invoice adapters own provider authentication, encryption, and carrier/love-code
+ * verification. Core owns the durable lifecycle and never calls provider APIs in
+ * the payment/refund transaction.
+ */
+export interface InvoiceProvider extends ProviderBase {
+  readonly kind: 'invoice';
+  issue(input: InvoiceIssueInput): Promise<InvoiceIssueResult>;
+  void(input: InvoiceVoidInput): Promise<InvoiceVoidResult>;
+  /** Required before accepting a donation choice; false means the code cannot be used. */
+  validateLoveCode(loveCode: string): Promise<boolean>;
+}
+
+export type AnyProvider = PaymentProvider | ShippingProvider | ErpProvider | NotificationProvider | InvoiceProvider;
 
 export interface ProviderRegistration {
   readonly provider: AnyProvider;

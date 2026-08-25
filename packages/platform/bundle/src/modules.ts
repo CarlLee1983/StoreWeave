@@ -2,15 +2,22 @@ import type { PlatformModule } from '@storeweave/kernel';
 import type { ExtensionDefinition, ProviderRegistry } from '@storeweave/extension-sdk';
 import { catalogModule } from '@storeweave/catalog';
 import { inventoryModule } from '@storeweave/inventory';
-import { createOrderModule, orderFulfillmentService } from '@storeweave/order';
+import { createOrderModule, orderFulfillmentService, orderInvoiceService, orderNotificationService, orderRefundService, orderReturnService } from '@storeweave/order';
+import { createInvoiceModule } from '@storeweave/invoice';
+import { createRefundModule, refundShipmentGuard } from '@storeweave/refund';
+import { createRmaModule } from '@storeweave/rma';
 import { customerModule } from '@storeweave/customer';
 import { createCart } from '@storeweave/cart';
-import { createShippingModule } from '@storeweave/shipping';
+import { createShippingModule, shippingService } from '@storeweave/shipping';
 import { createCouponModule } from '@storeweave/coupon';
 import { createLoyaltyModule } from '@storeweave/loyalty';
 import { createPromotionModule } from '@storeweave/promotion';
+import { createNotificationModule } from '@storeweave/notification';
 import { mockPaymentExtension } from '@storeweave/ext-mock-payment';
+import { mockInvoiceExtension } from '@storeweave/ext-mock-invoice';
 import { ecpayPaymentExtension } from '@storeweave/ext-ecpay';
+import { ecpayInvoiceExtension } from '@storeweave/ext-ecpay-invoice';
+import { ecpayLogisticsExtension } from '@storeweave/ext-ecpay-logistics';
 import { mockNotificationExtension } from '@storeweave/ext-mock-notification';
 import { demoErpExtension } from '@storeweave/ext-demo-erp';
 import { mcpExtension } from '@storeweave/ext-mcp';
@@ -33,7 +40,7 @@ export function coreModules(options: {
     inventoryModule,
     customerModule,
     createCart({ defaultCurrency: options.defaultCurrency }),
-    createShippingModule(orderFulfillmentService),
+    createShippingModule(orderFulfillmentService, options.providers, refundShipmentGuard),
     createPromotionModule({ defaultCurrency: options.defaultCurrency }),
     createCouponModule({
       providers: options.providers,
@@ -47,12 +54,19 @@ export function coreModules(options: {
       defaultCurrency: options.defaultCurrency,
       orderNumberPrefix: options.orderNumberPrefix,
     }),
+    createInvoiceModule(orderInvoiceService, options.providers),
+    createNotificationModule(orderNotificationService, options.providers),
+    createRefundModule(orderRefundService, { hasShipmentForOrder: shippingService.hasShipmentForOrder }, options.providers),
+    createRmaModule(orderReturnService, { hasReturnableShipment: shippingService.hasReturnableShipment }),
   ];
 }
 
 export const AVAILABLE_EXTENSIONS: Record<string, ExtensionDefinition<any>> = {
   'mock-payment': mockPaymentExtension,
+  'mock-invoice': mockInvoiceExtension,
   ecpay: ecpayPaymentExtension,
+  'ecpay-invoice': ecpayInvoiceExtension,
+  'ecpay-logistics': ecpayLogisticsExtension,
   'mock-notification': mockNotificationExtension,
   'demo-erp': demoErpExtension,
   mcp: mcpExtension,

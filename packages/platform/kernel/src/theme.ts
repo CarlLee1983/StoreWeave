@@ -10,13 +10,26 @@ export interface ThemeProductView {
   available: number | null;
 }
 
+/** Public catalog result: filtering and pagination remain server-derived. */
+export interface ThemeCatalogView {
+  products: ThemeProductView[];
+  q: string;
+  /** Whole currency units supplied by the public form; null means unbounded. */
+  minPrice: number | null;
+  maxPrice: number | null;
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
 export interface ThemeOrderView {
   number: string;
   status: string;
   currency: string;
   totalCents: number;
   customerEmail: string;
-  lines: { sku: string; name: string; quantity: number; lineTotalCents: number }[];
+  /** IDs are rendered only as form values for a customer-owned RMA submission. */
+  lines: { id: string; sku: string; name: string; quantity: number; lineTotalCents: number }[];
   /** Latest attempt is presented without exposing provider-specific raw callback fields. */
   payment: {
     status: 'created' | 'submitted' | 'awaiting_payment' | 'succeeded' | 'failed' | 'expired';
@@ -30,6 +43,8 @@ export interface ThemeOrderView {
     provider: string;
     methods: { code: string; label: string; timing: 'immediate' | 'deferred' }[];
   } | null;
+  /** Customer-safe invoice progress. Carrier values and provider diagnostics stay private. */
+  invoice?: { status: 'pending' | 'issued' | 'issue_failed' | 'void_pending' | 'voided' | 'void_failed'; invoiceNumber: string | null } | null;
   /** The command still rechecks ownership, payment state, and the shipment gate. */
   canCancel: boolean;
   /** Immutable delivery snapshot, so an order remains intelligible after merchant policy changes. */
@@ -41,6 +56,24 @@ export interface ThemeOrderView {
       kind: 'pickup_store'; recipient: string; phone: string; storeName: string; storeAddress: string;
     };
   } | null;
+  /** Safe, normalized shipment projection; raw carrier status and references stay private. */
+  shipment: {
+    status: 'created' | 'shipped' | 'arrived' | 'completed';
+    trackingNumber: string | null;
+    trackingUrl: string | null;
+  } | null;
+  /** Customer-safe refund progress; provider evidence and staff reason stay private. */
+  refunds: { amountCents: number; status: 'requested' | 'succeeded' | 'failed'; requestedAt: Date; completedAt: Date | null }[];
+  /** The domain command remains the authority for eligibility and remaining quantities. */
+  canRequestRma: boolean;
+  /** Customer-scoped RMA progress; identities, provider evidence, and inventory disposition stay private. */
+  rmas: {
+    status: 'requested' | 'needs_information' | 'approved' | 'rejected' | 'received' | 'refund_pending' | 'refund_failed' | 'completed';
+    reason: string;
+    staffNote: string | null;
+    createdAt: Date;
+    lines: { name: string; quantity: number }[];
+  }[];
 }
 
 export interface ThemeAccountOrdersView {
@@ -154,10 +187,12 @@ export interface ThemeAccountCouponsView {
 export interface ThemeCheckoutView extends ThemeCartView {
   /** 訂單會寄到哪裡。結帳必須是會員，因此它一定有值。 */
   customerEmail: string;
-  /** Home-delivery methods are merchant policy, already filtered for the address form on this page. */
+  /** Merchant methods compatible with address or pickup checkout. */
   shippingMethods: {
     id: string;
     name: string;
+    /** Omitted by older themes/tests; it retains the historical home-delivery rendering. */
+    destinationKind?: 'taiwan_home' | 'pickup_store';
     feeCents: number;
     freeShippingThresholdCents: number | null;
   }[];
@@ -174,11 +209,21 @@ export interface ThemeCheckoutView extends ThemeCartView {
     line1: string;
     line2: string | null;
   } | null;
+  pickupSelection?: { token: string; storeName: string; storeAddress: string } | null;
   /** The store selects a provider; the customer must select its configured method before redirection. */
   payment: {
     provider: string;
     methods: { code: string; label: string; timing: 'immediate' | 'deferred' }[];
   };
+  /** Present only when the merchant has enabled a B2C invoice provider. */
+  invoice?: { enabled: boolean };
+}
+
+export interface ThemePickupStorePickerView {
+  token: string;
+  shippingMethodId: string;
+  expiresAt: Date;
+  stores: { providerStoreId: string; storeName: string; storeAddress: string }[];
 }
 
 export interface ThemeAccountRewardsView {
@@ -236,7 +281,7 @@ export interface StorefrontTheme {
   readonly id: string;
   readonly name: string;
   readonly optionsSchema: ZodTypeAny;
-  renderHome(ctx: ThemeContext, data: { products: ThemeProductView[] }): string;
+  renderHome(ctx: ThemeContext, data: ThemeCatalogView): string;
   renderProduct(ctx: ThemeContext, data: { product: ThemeProductView }): string;
   renderOrder(ctx: ThemeContext, data: { order: ThemeOrderView }): string;
   renderError(ctx: ThemeContext, data: { status: number; message: string }): string;
@@ -251,6 +296,7 @@ export interface StorefrontTheme {
    */
   renderCart(ctx: ThemeContext, data: ThemeCartView): string;
   renderCheckout(ctx: ThemeContext, data: ThemeCheckoutView): string;
+  renderPickupStorePicker(ctx: ThemeContext, data: ThemePickupStorePickerView): string;
   /** 會員中心的購物金與會員等級。 */
   renderAccountRewards(ctx: ThemeContext, data: ThemeAccountRewardsView): string;
   /** 會員中心的我的券。 */

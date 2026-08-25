@@ -3,6 +3,8 @@ import { sql } from 'drizzle-orm';
 import type { DrizzleDb, Logger, Tx } from '@storeweave/contracts';
 import { PlatformError } from '@storeweave/contracts';
 
+export { PermanentJobError } from '@storeweave/contracts';
+
 export interface EnqueueInput {
   type: string;
   payload: unknown;
@@ -45,17 +47,12 @@ export interface JobContext {
   readonly logger: Logger;
   readonly attempt: number;
   readonly jobId: string;
+  /** Core jobs may cross a Command/Query boundary; extension jobs stay on the SDK surface. */
+  readonly executeCommand?: (name: string, input: unknown, idempotencyKey: string) => Promise<unknown>;
+  readonly executeQuery?: (name: string, input: unknown) => Promise<unknown>;
 }
 
 export type JobHandler = (payload: unknown, ctx: JobContext) => Promise<void>;
-
-/** 標記為不可重試的錯誤 —— 直接進 dead，不再消耗重試次數。 */
-export class PermanentJobError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'PermanentJobError';
-  }
-}
 
 export class JobQueue {
   /** 在交易內排入工作。dedupeKey 衝突時預設視為已排入（no-op）。 */
@@ -138,13 +135,13 @@ export class JobQueue {
     return exhausted ? 'dead' : 'retry';
   }
 
-  /** 人工重送：把 dead / completed 的工作重新排入。 */
-  async requeue(db: DrizzleDb, id: string): Promise<void> {
+  /** 人工重送：把 dead / completed 的工作重新排入。`typePrefix` 用來隔離 extension 工作。 */
+  async requeue(db: DrizzleDb, id: string, typePrefix?: string): Promise<void> {
     const res = await db.execute<{ id: string }>(sql`
       UPDATE platform_jobs
       SET status = 'pending', run_at = now(), attempts = 0, last_error = NULL,
           locked_at = NULL, locked_by = NULL, completed_at = NULL, updated_at = now()
-      WHERE id = ${id}
+      WHERE id = ${id} ${typePrefix ? sql`AND type LIKE ${`${typePrefix}%`}` : sql``}
       RETURNING id
     `);
     if (res.rows.length === 0) throw PlatformError.notFound('Job', id);
@@ -154,12 +151,12 @@ export class JobQueue {
    * 死信專用的重送：只放行 status = 'dead' 的工作。
    * 與 requeue 分開是刻意的 —— 對 completed 的工作重送會再產生一次外部副作用。
    */
-  async retryDead(db: DrizzleDb, id: string): Promise<void> {
+  async retryDead(db: DrizzleDb, id: string, typePrefix?: string): Promise<void> {
     const res = await db.execute<{ id: string }>(sql`
       UPDATE platform_jobs
       SET status = 'pending', run_at = now(), attempts = 0, last_error = NULL,
           locked_at = NULL, locked_by = NULL, completed_at = NULL, updated_at = now()
-      WHERE id = ${id} AND status = 'dead'
+      WHERE id = ${id} AND status = 'dead' ${typePrefix ? sql`AND type LIKE ${`${typePrefix}%`}` : sql``}
       RETURNING id
     `);
     if (res.rows.length === 0) throw PlatformError.notFound('Dead job', id);

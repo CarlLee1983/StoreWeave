@@ -6,6 +6,7 @@ import type { AnyProvider, ProviderKind } from './providers';
 /** 記憶體版 ExtensionStore，供 contract test 與單元測試使用。 */
 export class InMemoryExtensionStore implements ExtensionStore {
   private readonly data = new Map<string, { value: unknown; updatedAt: Date }>();
+  private readonly mutationLocks = new Map<string, Promise<void>>();
 
   async get<T>(key: string): Promise<T | null> {
     const hit = this.data.get(key);
@@ -17,16 +18,27 @@ export class InMemoryExtensionStore implements ExtensionStore {
   async delete(key: string): Promise<void> {
     this.data.delete(key);
   }
-  async list<T>(prefix = '', limit = 100): Promise<ExtensionStoreEntry<T>[]> {
+  async list<T>(prefix = '', limit = 100, afterKey?: string): Promise<ExtensionStoreEntry<T>[]> {
     return [...this.data.entries()]
-      .filter(([k]) => k.startsWith(prefix))
+      .filter(([k]) => k.startsWith(prefix) && k > (afterKey ?? ''))
+      .sort(([a], [b]) => a.localeCompare(b))
       .slice(0, limit)
       .map(([key, v]) => ({ key, value: structuredClone(v.value) as T, updatedAt: v.updatedAt }));
   }
   async mutate<T>(key: string, fn: (current: T | null) => T): Promise<T> {
-    const next = fn(await this.get<T>(key));
-    await this.set(key, next);
-    return next;
+    const previous = this.mutationLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const lock = new Promise<void>((resolve) => { release = resolve; });
+    this.mutationLocks.set(key, lock);
+    await previous;
+    try {
+      const next = fn(await this.get<T>(key));
+      await this.set(key, next);
+      return next;
+    } finally {
+      release();
+      if (this.mutationLocks.get(key) === lock) this.mutationLocks.delete(key);
+    }
   }
 }
 
@@ -100,6 +112,13 @@ export function createTestExtensionContext<TConfig>(
       async requeue(jobId) {
         const existing = queue.find((j) => j.id === jobId);
         if (!existing) throw new Error(`Job ${jobId} not found`);
+        existing.attempts = 0;
+      },
+      async retryDead(jobId) {
+        const existing = queue.find((j) => j.id === jobId);
+        if (!existing) throw new Error(`Dead job ${jobId} not found`);
+        // The in-memory contract double has no worker-status lifecycle. Its
+        // production counterpart is status-guarded by JobQueue.retryDead().
         existing.attempts = 0;
       },
     },

@@ -17,6 +17,12 @@ export interface ExtensionQueryApi {
 export interface ExtensionJobApi {
   /** 排入自己的背景工作。dedupeKey 用來保證外部副作用只發生一次。 */
   enqueue(input: { type: string; payload: unknown; dedupeKey?: string; runAt?: Date; maxAttempts?: number }): Promise<{ id: string; deduped: boolean }>;
+  /** 僅重送已進死信佇列的工作；適合可能造成外部副作用的人工重試。 */
+  retryDead(jobId: string): Promise<void>;
+  /**
+   * 人工重送任意狀態的既有工作。僅適用於 handler 本身有安全重播語意的情況；
+   * carrier create 等外部副作用應改用 retryDead()。
+   */
   requeue(jobId: string): Promise<void>;
 }
 

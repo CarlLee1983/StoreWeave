@@ -12,7 +12,8 @@ export interface ExtensionStore {
   get<T = unknown>(key: string): Promise<T | null>;
   set<T = unknown>(key: string, value: T): Promise<void>;
   delete(key: string): Promise<void>;
-  list<T = unknown>(prefix?: string, limit?: number): Promise<ExtensionStoreEntry<T>[]>;
+  /** Lexical cursor enables bounded, fair scans without exposing database access to extensions. */
+  list<T = unknown>(prefix?: string, limit?: number, afterKey?: string): Promise<ExtensionStoreEntry<T>[]>;
   /** 讀-改-寫，於單一交易內完成，避免併發覆寫。 */
   mutate<T = unknown>(key: string, fn: (current: T | null) => T): Promise<T>;
 }

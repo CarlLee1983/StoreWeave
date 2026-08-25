@@ -10,6 +10,12 @@ export interface Actor {
   readonly permissions: readonly string[];
   /** extension actor 才會有；用於 audit 與權限縮限 */
   readonly extensionId?: string;
+  /**
+   * ExtensionHost derives these from the manifest's registered providers.
+   * Provider-scoped core operations use them in addition to ordinary RBAC, so
+   * one carrier extension cannot read or write another carrier's shipments.
+   */
+  readonly providerBindings?: readonly string[];
 }
 
 export const SYSTEM_ACTOR: Actor = Object.freeze({
@@ -19,12 +25,13 @@ export const SYSTEM_ACTOR: Actor = Object.freeze({
   permissions: Object.freeze(['*']) as readonly string[],
 });
 
-export function extensionActor(extensionId: string, permissions: readonly string[]): Actor {
+export function extensionActor(extensionId: string, permissions: readonly string[], providerBindings: readonly string[] = []): Actor {
   return {
     id: `extension:${extensionId}`,
     type: 'extension',
     displayName: extensionId,
     permissions: [...permissions],
     extensionId,
+    providerBindings: [...providerBindings],
   };
 }

@@ -58,6 +58,18 @@ export class PlatformError extends Error {
   }
 }
 
+/**
+ * A job handler can throw this public contract error when retrying cannot make
+ * progress. It lives in contracts so extensions can request dead-letter
+ * handling without importing the queue implementation.
+ */
+export class PermanentJobError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PermanentJobError';
+  }
+}
+
 export function httpStatusOf(err: unknown): number {
   return err instanceof PlatformError ? err.httpStatus : 500;
 }

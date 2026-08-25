@@ -8,7 +8,7 @@ export const EXTENSION_ID_PATTERN = /^[a-z][a-z0-9-]{2,63}$/;
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 export const providerDeclarationSchema = z.object({
-  kind: z.enum(['payment', 'shipping', 'erp', 'notification']),
+  kind: z.enum(['payment', 'shipping', 'erp', 'notification', 'invoice']),
   id: z.string().min(1),
   isDefault: z.boolean().optional(),
 });

@@ -17,7 +17,9 @@ describe('Extension Contract Test', () => {
         returnUrl: 'https://shop.example.test/callbacks/payment/ecpay',
         paymentInfoUrl: 'https://shop.example.test/callbacks/payment/ecpay',
       }
-      : {};
+      : id === 'ecpay-logistics'
+        ? { mode: 'fake' }
+        : {};
     const checks = await runExtensionContractChecks(AVAILABLE_EXTENSIONS[id], {
       knownEvents,
       knownPermissions,
@@ -27,6 +29,12 @@ describe('Extension Contract Test', () => {
         ECPAY_MERCHANT_ID: 'test-merchant-id',
         ECPAY_HASH_KEY: 'test-hash-key',
         ECPAY_HASH_IV: 'test-hash-iv',
+        ECPAY_LOGISTICS_MERCHANT_ID: 'test-logistics-merchant-id',
+        ECPAY_LOGISTICS_HASH_KEY: 'test-logistics-hash-key',
+        ECPAY_LOGISTICS_HASH_IV: 'test-logistics-hash-iv',
+        ECPAY_INVOICE_MERCHANT_ID: '2000132',
+        ECPAY_INVOICE_HASH_KEY: '1234567890123456',
+        ECPAY_INVOICE_HASH_IV: '1234567890123456',
       },
       providers: {
         erp: { id: 'demo-erp', kind: 'erp', push: async () => ({ accepted: true, remoteId: 'x' }) } as any,
@@ -109,7 +117,12 @@ describe('Release bundle', () => {
       'commerce.order.placed.v3',
       'commerce.product.created.v1',
       'commerce.product.updated.v1',
-      'commerce.shipment.arrived.v1',
+    'commerce.refund.failed.v1',
+    'commerce.refund.requested.v1',
+    'commerce.refund.succeeded.v1',
+    'commerce.rma.changed.v1',
+    'commerce.rma.requested.v1',
+    'commerce.shipment.arrived.v1',
       'commerce.shipment.completed.v1',
       'commerce.shipment.created.v1',
       'commerce.shipment.shipped.v1',

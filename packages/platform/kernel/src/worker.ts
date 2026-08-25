@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
-import { PermanentJobError, type JobRow } from '@storeweave/jobs';
+import { type JobRow } from '@storeweave/jobs';
 import { toDomainEvent } from '@storeweave/outbox';
 import type { Runtime } from './runtime';
 import { EVENT_DELIVERY_JOB } from './event-delivery';
-import { SYSTEM_ACTOR } from '@storeweave/contracts';
+import { PermanentJobError, SYSTEM_ACTOR } from '@storeweave/contracts';
 
 export interface WorkerOptions {
   concurrency?: number;
@@ -87,7 +87,7 @@ export class Worker {
             logger, attempt: job.attempts, jobId: job.id,
             executeCommand: (name: string, input: unknown, idempotencyKey: string) => this.runtime.commands.execute(name, input, { actor: SYSTEM_ACTOR, idempotencyKey, channel: 'worker' }),
             executeQuery: (name: string, input: unknown) => this.runtime.queries.execute(name, input, { actor: SYSTEM_ACTOR, channel: 'worker' }),
-          } as any);
+          });
           await this.runtime.jobs.complete(this.runtime.database.db, job.id, this.workerId);
           processed += 1;
         } catch (err) {

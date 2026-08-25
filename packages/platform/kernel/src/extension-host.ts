@@ -101,11 +101,44 @@ export class ExtensionHost {
       );
     }
 
-    const actor: Actor = extensionActor(manifest.id, manifest.permissions);
-    const context = this.createContext(definition, parsedConfig.data, actor);
-    const registration = await definition.setup(context);
+    // The manifest is not a claim to an already-owned carrier id. Reject known
+    // collisions before setup(), so a misconfigured extension never starts
+    // initialization.
+    const declaredProviderKeys = manifest.registeredProviders.map((provider) => `${provider.kind}:${provider.id}`);
+    if (new Set(declaredProviderKeys).size !== declaredProviderKeys.length) {
+      throw PlatformError.validation(`Extension "${manifest.id}" declares the same provider more than once`);
+    }
+    for (const provider of manifest.registeredProviders) {
+      if (this.deps.providers.has(provider.kind, provider.id)) {
+        throw PlatformError.conflict(`Provider "${provider.kind}:${provider.id}" already registered`);
+      }
+    }
+
+    // setup() has configuration/secrets/store access, but not carrier-bound
+    // data access. A manifest is only a declaration; bind provider ownership
+    // after its concrete providers have passed validation and been registered.
+    const setupActor: Actor = extensionActor(manifest.id, manifest.permissions);
+    const setupContext = this.createContext(definition, parsedConfig.data, setupActor);
+    const registration = await definition.setup(setupContext);
 
     this.assertMatchesManifest(manifest.id, manifest, registration);
+
+    for (const provider of registration.providers ?? []) {
+      // The manifest is the declaration checked before setup. Preserve its default
+      // designation when mounting so replacing a payment extension is configuration,
+      // not a change to order or storefront code.
+      const declared = manifest.registeredProviders.find(
+        (candidate) => candidate.kind === provider.kind && candidate.id === provider.id,
+      );
+      this.deps.providers.register({ provider, owner: manifest.id, isDefault: declared?.isDefault });
+    }
+
+    const actor: Actor = extensionActor(
+      manifest.id,
+      manifest.permissions,
+      manifest.registeredProviders.map((provider) => `${provider.kind}:${provider.id}`),
+    );
+    const context = this.createContext(definition, parsedConfig.data, actor);
 
     for (const permission of registration.permissions ?? []) {
       this.deps.authorization.permissions.register({ ...permission, owner: manifest.id });
@@ -132,15 +165,6 @@ export class ExtensionHost {
     }
     for (const tool of registration.mcpTools ?? []) {
       this.deps.mcpTools.register(tool, manifest.id);
-    }
-    for (const provider of registration.providers ?? []) {
-      // The manifest is the declaration checked before setup. Preserve its default
-      // designation when mounting so replacing a payment extension is configuration,
-      // not a change to order or storefront code.
-      const declared = manifest.registeredProviders.find(
-        (candidate) => candidate.kind === provider.kind && candidate.id === provider.id,
-      );
-      this.deps.providers.register({ provider, owner: manifest.id, isDefault: declared?.isDefault });
     }
     for (const job of registration.jobs ?? []) {
       this.deps.jobRegistry.register(job.type, async (payload, jobCtx) => {
@@ -263,7 +287,10 @@ export class ExtensionHost {
           return deps.database.transaction((tx) => deps.jobs.enqueue(tx, input));
         },
         async requeue(jobId) {
-          await deps.jobs.requeue(deps.database.db, jobId);
+          await deps.jobs.requeue(deps.database.db, jobId, `ext.${manifest.id}.`);
+        },
+        async retryDead(jobId) {
+          await deps.jobs.retryDead(deps.database.db, jobId, `ext.${manifest.id}.`);
         },
       },
       getProvider<T extends AnyProvider>(kind: ProviderKind, id?: string): T {

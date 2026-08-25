@@ -23,13 +23,26 @@ describe('customer 角色', () => {
     expect(holds(customer, 'order:read')).toBe(true);
   });
 
+  it('只能看自己的退款進度，不能建立或重試退款', () => {
+    expect(holds(customer, 'refund:read')).toBe(true);
+    expect(holds(customer, 'refund:write')).toBe(false);
+    expect(holds(customer, 'refund:provider-write')).toBe(false);
+  });
+
+  it('可建立與讀取自己的退貨案件，不能操作後台狀態', () => {
+    expect(holds(customer, 'rma:read')).toBe(true);
+    expect(holds(customer, 'rma:create')).toBe(true);
+    expect(holds(customer, 'rma:write')).toBe(false);
+    expect(holds(customer, 'rma:system-write')).toBe(false);
+  });
+
   it('讀寫得了自己的顧客資料', () => {
     expect(holds(customer, 'customer:read')).toBe(true);
     expect(holds(customer, 'customer:write')).toBe(true);
   });
 
   it('沒有後台的任何權限', () => {
-    for (const forbidden of ['catalog:write', 'inventory:write', 'users:read', 'users:write', 'analytics:read', 'jobs:read', 'erp:read', 'promotion:read', 'promotion:write']) {
+    for (const forbidden of ['catalog:write', 'inventory:write', 'users:read', 'users:write', 'analytics:read', 'jobs:read', 'erp:read', 'promotion:read', 'promotion:write', 'refund:write', 'refund:provider-write', 'rma:write', 'rma:system-write']) {
       expect(holds(customer, forbidden)).toBe(false);
     }
   });
