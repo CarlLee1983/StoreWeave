@@ -140,7 +140,6 @@ function styles(accent: string): string {
   return `
 :root {
   --accent: ${accent};
-  --accent-light: color-mix(in srgb, var(--accent) 12%, var(--surface-raised));
   --accent-hover: color-mix(in srgb, var(--accent) 85%, #000);
   --surface-canvas: #f7f3ed;
   --surface-raised: #fffdfc;
@@ -197,21 +196,6 @@ button[disabled] { cursor: not-allowed; opacity: .55; }
   text-decoration: none;
 }
 .skip-link:focus { transform: translateY(0); }
-
-/* 頂部公告列 */
-.announcement-bar {
-  background: var(--accent);
-  color: var(--ink-inverse);
-  font-size: .8rem;
-  font-weight: 500;
-  letter-spacing: .04em;
-  text-align: center;
-  padding: .5rem 1rem;
-}
-.announcement-bar__inner {
-  width: min(100% - 2rem, 74rem);
-  margin: 0 auto;
-}
 
 .site-header {
   position: sticky;
@@ -490,170 +474,10 @@ th { color: var(--ink-muted); font-size: .75rem; font-weight: 700; letter-spacin
   border-color: #FFF;
 }
 
-/* 品牌四大承諾 Brand Pillars (Zero Emojis, Minimalist Monochrome Icons) */
-.brand-pillars {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14.5rem, 1fr));
-  gap: 1.25rem;
-}
-.pillar-card {
-  border: 1px solid var(--line-subtle);
-  border-radius: 1rem;
-  padding: 1.6rem;
-  background: var(--surface-raised);
-  display: grid;
-  gap: .6rem;
-  transition: transform .2s ease, box-shadow .2s ease;
-}
-.pillar-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px -6px rgba(43, 37, 32, .08);
-}
-.pillar-card__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: .2rem;
-}
-.pillar-num {
-  font-family: var(--font-serif);
-  color: var(--accent);
-  font-size: .88rem;
-  font-weight: 700;
-  letter-spacing: .08em;
-}
-.pillar-icon-box {
-  width: 2.2rem;
-  height: 2.2rem;
-  border-radius: 50%;
-  background: var(--surface-tint);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--accent);
-}
-.pillar-card h3 { margin: 0; font-size: 1.08rem; }
-.pillar-card p { margin: 0; color: var(--ink-muted); font-size: .88rem; line-height: 1.65; }
-
-/* 主題策展 Bento Collections */
-.curated-section { display: grid; gap: 1.5rem; }
-.curated-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1.25rem;
-}
-.curated-card {
-  position: relative;
-  border-radius: 1.25rem;
-  overflow: hidden;
-  min-height: 19rem;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  padding: 1.8rem;
-  text-decoration: none;
-  border: 1px solid rgba(220, 209, 197, .5);
-  box-shadow: 0 6px 18px -6px rgba(43, 37, 32, .08);
-  transition: transform .3s cubic-bezier(.16, 1, .3, 1), box-shadow .3s ease;
-}
-.curated-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 14px 30px -8px rgba(43, 37, 32, .18);
-}
-.curated-card__bg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform .6s cubic-bezier(.16, 1, .3, 1);
-}
-.curated-card:hover .curated-card__bg {
-  transform: scale(1.06);
-}
-.curated-card__overlay {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to top, rgba(28, 22, 18, .9) 0%, rgba(28, 22, 18, .4) 60%, rgba(28, 22, 18, .1) 100%);
-}
-.curated-card__content {
-  position: relative;
-  z-index: 2;
-  color: #FFFDF9;
-  display: grid;
-  gap: .35rem;
-}
-.curated-card__tag {
-  color: #E2B9A0;
-  font-size: .72rem;
-  font-weight: 700;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  margin: 0;
-}
-.curated-card h3 {
-  margin: 0;
-  color: #FFFDF9;
-  font-size: 1.45rem;
-}
-.curated-card p {
-  margin: 0;
-  color: rgba(255, 253, 249, .82);
-  font-size: .88rem;
-  line-height: 1.6;
-}
-.curated-card__cta {
-  margin-top: .75rem;
-  color: #FFF;
-  font-weight: 700;
-  font-size: .85rem;
-  display: inline-flex;
-  align-items: center;
-  gap: .4rem;
-}
-
-/* 商品選購區塊 */
 .catalog-section { display: grid; gap: 1.5rem; }
 .catalog-section__header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .catalog-section__header h2 { margin: 0; font-size: clamp(1.65rem, 3vw, 2.4rem); }
 .catalog-section__count { margin: 0; color: var(--ink-muted); font-size: .85rem; }
-
-/* 分類篩選 Tab */
-.catalog-category-tabs {
-  display: flex;
-  gap: .6rem;
-  flex-wrap: wrap;
-  align-items: center;
-  padding-bottom: .8rem;
-  border-bottom: 1px solid var(--line-subtle);
-}
-.category-tab {
-  display: inline-flex;
-  align-items: center;
-  padding: .45rem 1.1rem;
-  border-radius: 999px;
-  border: 1px solid var(--line-subtle);
-  background: var(--surface-raised);
-  color: var(--ink-muted);
-  text-decoration: none;
-  font-size: .85rem;
-  font-weight: 600;
-  transition: all .2s ease;
-}
-.category-tab:hover {
-  color: var(--ink-strong);
-  border-color: var(--line-strong);
-  background: var(--surface-tint);
-}
-.category-tab--active {
-  background: var(--accent);
-  color: var(--ink-inverse);
-  border-color: var(--accent);
-}
-.category-tab--active:hover {
-  background: var(--accent-hover);
-  color: var(--ink-inverse);
-}
 
 .catalog-search { display: grid; grid-template-columns: minmax(12rem, 2fr) repeat(2, minmax(7rem, 1fr)) auto; align-items: end; gap: .65rem; max-width: 48rem; }
 .catalog-search label { display: grid; flex: 1; gap: .35rem; color: var(--ink-muted); font-size: .82rem; font-weight: 700; }
@@ -741,37 +565,6 @@ th { color: var(--ink-muted); font-size: .75rem; font-weight: 700; letter-spacin
 .product-card__footer { display: flex; align-items: end; justify-content: space-between; gap: .75rem; margin-top: 1.4rem; padding-top: 1rem; border-top: 1px solid var(--line-subtle); }
 .product-card__availability { margin: 0; color: var(--state-success); font-size: .8rem; font-weight: 700; text-align: end; }
 .product-card__availability--sold-out { color: var(--state-danger); }
-
-/* 品牌工藝理念專區 (首頁摘要) */
-.philosophy-section {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr);
-  gap: clamp(2rem, 5vw, 4rem);
-  border: 1px solid var(--line-subtle);
-  border-radius: 1.5rem;
-  overflow: hidden;
-  background: var(--surface-raised);
-  align-items: center;
-}
-.philosophy-body {
-  padding: clamp(2.5rem, 5vw, 4rem);
-  display: grid;
-  gap: 1.25rem;
-}
-.philosophy-body h2 { font-size: clamp(1.8rem, 3.5vw, 2.6rem); line-height: 1.2; margin: 0; }
-.philosophy-body p { margin: 0; color: var(--ink-muted); font-size: 1.02rem; line-height: 1.8; }
-.philosophy-photo-wrap {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  min-height: 22rem;
-}
-.philosophy-photo {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
 
 /* 品牌誌生活專欄 Woven Journal */
 .journal-section { display: grid; gap: 1.5rem; }
@@ -1365,8 +1158,6 @@ th { color: var(--ink-muted); font-size: .75rem; font-weight: 700; letter-spacin
   .site-nav { grid-row: 2; grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; }
   .account { align-self: start; }
   .site-footer__inner { grid-template-columns: 1fr 1fr; }
-  .curated-grid { grid-template-columns: 1fr; }
-  .philosophy-section { grid-template-columns: 1fr; }
   .journal-grid { grid-template-columns: 1fr; }
   .member-banner { grid-template-columns: 1fr; }
   .storefront-hero { grid-template-columns: 1fr; }
@@ -1387,7 +1178,7 @@ th { color: var(--ink-muted); font-size: .75rem; font-weight: 700; letter-spacin
   .account-tabs { justify-content: flex-start; }
 }
 @media (max-width: 620px) {
-  .site-header__inner, main, .site-footer__inner, .site-footer__bottom-inner, .announcement-bar__inner { width: min(100% - 1.25rem, 74rem); }
+  .site-header__inner, main, .site-footer__inner, .site-footer__bottom-inner { width: min(100% - 1.25rem, 74rem); }
   .site-header__inner { gap: .85rem; }
   .tagline { margin-left: 0; }
   .account { gap: .55rem; font-size: .78rem; }

@@ -32,6 +32,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm typecheck:admin
       - run: pnpm test
+      # 後台的 React 元件測試跑在 jsdom，不需要 Docker，和上面同一個 job 就夠。
+      - run: pnpm test:admin
 
   # Testcontainers 會自己起 PostgreSQL，runner 內建的 Docker 就夠。
   integration:
