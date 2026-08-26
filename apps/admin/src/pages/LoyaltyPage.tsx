@@ -101,17 +101,19 @@ function RewardSettingsForm({ settings, onSaved }: { settings: RewardSettings; o
   return <form className="form-panel" aria-label={t('rewardSettings')} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
     <h2>{t('rewardSettings')}</h2>
     {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-    <div className="inline-form">
+    <div className="form-grid">
       <label>{t('accrualPercent')}<input aria-label={t('accrualPercent')} value={accrual} onChange={(event) => setAccrual(event.target.value)} /></label>
       <label>{t('effectiveAfterDays')}<input aria-label={t('effectiveAfterDays')} value={effectiveAfterDays} onChange={(event) => setEffectiveAfterDays(event.target.value)} /></label>
       <div className="field-with-toggle">
         <label>{t('expiresAfterDays')}<input aria-label={t('expiresAfterDays')} disabled={neverExpires} value={expiresAfterDays} onChange={(event) => setExpiresAfterDays(event.target.value)} /></label>
         {/* 這個開關就是在關掉上面那個欄位，放在它底下才看得出從屬關係。 */}
-        <label><input aria-label={t('neverExpires')} type="checkbox" checked={neverExpires} onChange={(event) => setNeverExpires(event.target.checked)} /> {t('neverExpires')}</label>
+        <label className="checkbox"><input aria-label={t('neverExpires')} type="checkbox" checked={neverExpires} onChange={(event) => setNeverExpires(event.target.checked)} /> {t('neverExpires')}</label>
       </div>
       <label>{t('expiryNoticeDays')}<input aria-label={t('expiryNoticeDays')} value={expiryNoticeDays} onChange={(event) => setExpiryNoticeDays(event.target.value)} /></label>
     </div>
-    <button className="button button--primary" disabled={submitting}>{t('saveSettings')}</button>
+    <div className="form-actions">
+      <button className="button button--primary" disabled={submitting}>{t('saveSettings')}</button>
+    </div>
   </form>;
 }
 
@@ -161,7 +163,7 @@ function TierSection({ tiers, onChanged }: { tiers: Tier[]; onChanged: () => voi
         />
       ))}</tbody>
     </table></div>
-    <div className="inline-form">
+    <div className="form-grid form-grid--with-submit">
       <label>{t('tierName')}<input aria-label={t('tierName')} value={name} onChange={(event) => setName(event.target.value)} /></label>
       <label>{t('thresholdPoints')}<input aria-label={t('thresholdPoints')} value={thresholdPoints} onChange={(event) => setThresholdPoints(event.target.value)} /></label>
       <label>{t('tierMultiplier')}<input aria-label={t('tierMultiplier')} value={multiplier} onChange={(event) => setMultiplier(event.target.value)} /></label>

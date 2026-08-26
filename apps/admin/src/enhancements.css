@@ -1587,11 +1587,54 @@ td .empty-state {
   padding: 20px 12px;
 }
 
-/* 欄位加上它自己的開關（例如「永不到期」關掉「幾天後到期」）。 */
+/* 欄位加上它自己的開關（例如「永不到期」關掉「幾天後到期」）。
+   開關長在欄位底下，所以這一格比別人高——用 grid 的第一列對齊標籤，
+   否則整組欄位的基線會被它帶歪。 */
 .field-with-toggle {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  align-self: start;
+}
+
+/* 這一格裡的欄位也要跟隔壁一樣是「標籤在上、輸入框在下」，
+   沒有這條就會退回瀏覽器預設的同一行排列，跟旁邊對不齊。 */
+.field-with-toggle > label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.field-with-toggle > label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+/* 表單的送出列：與欄位之間留一條分隔線，不要讓按鈕孤零零地黏在左下角。 */
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* 送出鈕排在最後一格，與同列輸入框的底線對齊。 */
+.form-grid--with-submit {
+  align-items: end;
+}
+
+.form-grid--with-submit > button {
+  height: 34px;
+  justify-self: start;
+  padding: 0 16px;
 }
 
 /* ── 日期欄位 ───────────────────────────────────────────
