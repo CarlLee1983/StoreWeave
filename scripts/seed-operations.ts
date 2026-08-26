@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { sql } from 'drizzle-orm';
@@ -261,6 +262,94 @@ async function seedOperations(runtime: Runtime) {
     { actor: SYSTEM, idempotencyKey: key('receive-rma') },
   );
   console.log('  ✓ 退貨案件：已收件（可申請退款）');
+
+  // ── 電子發票 ────────────────────────────────────────────
+  // example-store 沒有裝發票 provider，queueIssue 會在取 provider 時就失敗，
+  // 所以這裡直接寫入投影表。這是 dev seed 才容許的抄近路：正式流程一定要
+  // 經過 command，才會有稽核與事件。
+  const issueInvoice = async (order: PlacedOrder, outcome: 'issued' | 'issue_failed') => {
+    const now = new Date();
+    await runtime.database.db.execute(sql`
+      INSERT INTO invoice_invoices (
+        id, event_id, order_id, order_number, provider, reference, currency, amount_cents, tax_cents,
+        customer, carrier, lines, status, provider_ref, invoice_number, invoice_date,
+        issue_attempts, last_error, issued_at, created_at, updated_at
+      ) VALUES (
+        ${randomUUID()}, ${randomUUID()}, ${order.id}, ${order.number}, 'demo-einvoice',
+        ${`INV-${order.number}`}, 'TWD', ${order.totalCents}, ${Math.round(order.totalCents * 0.05)},
+        ${JSON.stringify({ name: '示範買方', email: 'buyer@example.com' })}::jsonb,
+        ${JSON.stringify({ kind: 'mobile', number: '/DEMO123' })}::jsonb,
+        ${JSON.stringify(order.lines.map((l) => ({ name: l.name, quantity: l.quantity })))}::jsonb,
+        ${outcome},
+        ${outcome === 'issued' ? `einv:${order.number}` : null},
+        ${outcome === 'issued' ? `AB${order.number.replace(/\D/g, '')}` : null},
+        ${outcome === 'issued' ? now.toISOString().slice(0, 10) : null},
+        ${outcome === 'issued' ? 1 : 3},
+        ${outcome === 'issued' ? null : '財政部平台回覆：買方統編格式錯誤，請確認後重開'},
+        ${outcome === 'issued' ? now.toISOString() : null}, now(), now()
+      )
+      ON CONFLICT (order_id) DO NOTHING
+    `);
+  };
+  await issueInvoice(shippedA, 'issued');
+  await issueInvoice(shippedB, 'issued');
+  await issueInvoice(packing, 'issue_failed');
+  console.log('  ✓ 電子發票：2 張已開立、1 張開立失敗（可重送）');
+
+  // ── 通知：寄出成功與寄送失敗 ─────────────────────────────────
+  const notify = async (order: PlacedOrder, template: string, outcome: 'sent' | 'failed') => {
+    const delivery = await runtime.commands.execute<{ id: string }>(
+      'commerce.notification.queueLifecycleDelivery',
+      { eventId: randomUUID(), orderId: order.id, template, variables: { orderNumber: order.number, total: money(order.totalCents) } },
+      { actor: SYSTEM, idempotencyKey: key('queue-notification') },
+    );
+    await runtime.commands.execute(
+      'commerce.notification.recordLifecycleDelivery',
+      outcome === 'sent'
+        ? { id: delivery.id, status: 'sent', providerRef: `mail:${order.number}` }
+        : { id: delivery.id, status: 'failed', providerRef: `mail:${order.number}`, error: 'SMTP 退信：收件匣已滿（mailbox full）' },
+      { actor: SYSTEM, idempotencyKey: key('record-notification') },
+    );
+  };
+  await notify(shippedA, 'customer.order-paid', 'sent');
+  await notify(shippedA, 'customer.shipment-shipped', 'sent');
+  await notify(packing, 'customer.order-paid', 'failed');
+  console.log('  ✓ 通知紀錄：2 筆已送達、1 筆退信');
+
+  // ── ERP 投遞：extension 自己的 key-value 狀態，直接寫一筆成功與一筆失敗 ──
+  const erpDelivery = async (order: PlacedOrder, status: 'sent' | 'failed') => {
+    const now = new Date().toISOString();
+    const record = {
+      orderId: order.id, orderNumber: order.number, reference: `SO-${order.number}`,
+      status, attempts: status === 'failed' ? 3 : 1, manualResends: 0,
+      lastError: status === 'failed' ? 'ERP 回應 503：庫存服務維護中，稍後重試' : null,
+      remoteId: status === 'sent' ? `ERP-${order.number}` : null,
+      jobId: null, firstSeenAt: now, updatedAt: now,
+    };
+    await runtime.database.db.execute(sql`
+      INSERT INTO platform_extension_state (extension_id, key, value, updated_at)
+      VALUES ('demo-erp', ${`delivery:${order.id}`}, ${JSON.stringify(record)}::jsonb, now())
+      ON CONFLICT (extension_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+    `);
+  };
+  await erpDelivery(shippedA, 'sent');
+  await erpDelivery(packing, 'failed');
+  console.log('  ✓ ERP 投遞：1 筆成功、1 筆失敗');
+
+  // ── 死信佇列：排一個工作、鎖起來、讓它用盡重試 ────────────────
+  await runtime.database.transaction(async (tx) => {
+    const enqueued = await runtime.jobs.enqueue(tx, {
+      type: 'demo-erp.pushOrder',
+      payload: { orderId: packing.id, orderNumber: packing.number },
+      maxAttempts: 1,
+    });
+    return enqueued;
+  });
+  const claimed = await runtime.database.transaction((tx) => runtime.jobs.claim(tx, 'seed-ops-worker', 1, ['demo-erp.pushOrder']));
+  for (const job of claimed) {
+    await runtime.jobs.fail(runtime.database.db, job, 'ERP 連線逾時：連續三次無回應，已停止重試', true, 'seed-ops-worker');
+  }
+  console.log(`  ✓ 死信佇列：${claimed.length} 筆（可在死信佇列重送）`);
 
   console.log('\n🎉 營運示範資料完成。可重複執行，每次都會再建一批新的。');
 }

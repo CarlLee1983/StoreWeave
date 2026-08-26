@@ -45,9 +45,9 @@ export function DlqPage({ onChanged }: { onChanged: () => void }) {
         <div className="table-wrap"><table className="data-table data-table--fixed">
           <thead>
             <tr>
-              <th style={{ width: '24%' }}>{t('jobType')}</th>
-              <th style={{ width: '14%' }} className="col-numeric">{t('attempts')} / {t('maxAttempts')}</th>
-              <th style={{ width: '18%' }}>{t('failedAt')}</th>
+              <th style={{ width: '22%' }}>{t('jobType')}</th>
+              <th style={{ width: '18%' }} className="col-numeric">{t('attempts')} / {t('maxAttempts')}</th>
+              <th style={{ width: '16%' }}>{t('failedAt')}</th>
               <th style={{ width: '32%' }}>{t('lastError')}</th>
               <th style={{ width: '12%' }} className="col-actions">操作</th>
             </tr>

@@ -53,15 +53,15 @@ export function InvoicesPage() {
     </div>
     {loading ? <Loading /> : items.length === 0 ? <p className="muted">這個狀態下目前沒有發票紀錄。</p> : <div className="table-wrap"><table className="data-table data-table--fixed">
       <thead><tr>
-        <th style={{ width: '8%' }}>訂單</th>
-        <th style={{ width: '8%' }}>狀態</th>
-        <th style={{ width: '11%' }}>發票號碼</th>
-        <th style={{ width: '12%' }}>開立日期</th>
-        <th style={{ width: '13%' }}>載具</th>
-        <th style={{ width: '13%' }} className="col-numeric">金額 / 稅額</th>
-        <th style={{ width: '8%' }} className="col-numeric">嘗試次數</th>
-        <th style={{ width: '17%' }}>最後錯誤</th>
-        <th style={{ width: '10%' }} className="col-actions">操作</th>
+        <th style={{ width: '13%' }}>訂單</th>
+        <th style={{ width: '10%' }}>狀態</th>
+        <th style={{ width: '10%' }}>發票號碼</th>
+        <th style={{ width: '11%' }}>開立日期</th>
+        <th style={{ width: '11%' }}>載具</th>
+        <th style={{ width: '14%' }} className="col-numeric">金額 / 稅額</th>
+        <th style={{ width: '7%' }} className="col-numeric">嘗試</th>
+        <th style={{ width: '12%' }}>最後錯誤</th>
+        <th style={{ width: '12%' }} className="col-actions">操作</th>
       </tr></thead>
       <tbody>{items.map((invoice) => <tr key={invoice.id}>
         <td className="mono">{invoice.orderNumber}</td>
@@ -73,8 +73,8 @@ export function InvoicesPage() {
         <td className="col-numeric">{invoice.issueAttempts} / {invoice.voidAttempts}</td>
         <td>{invoice.lastError ? <span className="cell-truncate" title={invoice.lastError}>{invoice.lastError}</span> : '—'}</td>
         <td className="col-actions">
-          {invoice.status === 'issue_failed' || invoice.status === 'pending' ? <button className="button button--primary" type="button" disabled={submitting} onClick={() => void retry(() => api.retryInvoiceIssue(invoice.id))}><Icon name="send" /> 重送開立</button> : null}
-          {invoice.status === 'void_failed' || invoice.status === 'void_pending' ? <button className="button button--primary" type="button" disabled={submitting} onClick={() => void retry(() => api.retryInvoiceVoid(invoice.id))}><Icon name="send" /> 重送作廢</button> : null}
+          {invoice.status === 'issue_failed' || invoice.status === 'pending' ? <button className="button button--primary" type="button" disabled={submitting} onClick={() => void retry(() => api.retryInvoiceIssue(invoice.id))} title="重送開立" aria-label="重送開立"><Icon name="send" /> 重送</button> : null}
+          {invoice.status === 'void_failed' || invoice.status === 'void_pending' ? <button className="button button--primary" type="button" disabled={submitting} onClick={() => void retry(() => api.retryInvoiceVoid(invoice.id))} title="重送作廢" aria-label="重送作廢"><Icon name="send" /> 重送</button> : null}
         </td>
       </tr>)}</tbody>
     </table></div>}

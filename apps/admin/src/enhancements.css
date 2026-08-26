@@ -1824,3 +1824,11 @@ input[type="datetime-local"] {
   width: 14px;
   height: 14px;
 }
+
+/* 編號、代碼這類等寬欄位不要斷行：斷成兩行會把整列撐高，
+   欄寬不足時寧可截斷（值都在 title 或旁邊的複製鈕上）。 */
+.data-table--fixed td.mono {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

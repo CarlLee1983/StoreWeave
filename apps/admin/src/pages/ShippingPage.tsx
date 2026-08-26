@@ -168,17 +168,17 @@ function ShippingMethodList({ methods, onEdit }: { methods: ShippingMethod[]; on
   return <section className="account-panel" aria-label="配送方式清單">
     <div className="section-heading"><h2>配送方式</h2><p>停用會保留既有訂單的配送快照；此 API 沒有刪除端點。</p></div>
     {methods.length === 0 ? <EmptyState icon="truck" title="目前沒有配送方式" hint="建立配送方式之後，前台結帳才有得選。" /> : <div className="table-wrap"><table className="data-table data-table--fixed"><thead><tr>
-      <th style={{ width: '12%' }}>代碼</th>
-      <th style={{ width: '18%' }}>名稱</th>
-      <th style={{ width: '18%' }}>Provider / Type</th>
-      <th style={{ width: '14%' }}>目的地</th>
+      <th style={{ width: '13%' }}>代碼</th>
+      <th style={{ width: '17%' }}>名稱</th>
+      <th style={{ width: '16%' }} title="Provider / Type">Provider / Type</th>
+      <th style={{ width: '13%' }}>目的地</th>
       <th style={{ width: '10%' }} className="col-numeric">費率</th>
-      <th style={{ width: '12%' }} className="col-numeric">免運門檻</th>
-      <th style={{ width: '8%' }}>狀態</th>
-      <th style={{ width: '8%' }} className="col-actions">操作</th>
+      <th style={{ width: '11%' }} className="col-numeric">免運門檻</th>
+      <th style={{ width: '9%' }}>狀態</th>
+      <th style={{ width: '11%' }} className="col-actions">操作</th>
     </tr></thead><tbody>
       {methods.map((method) => <tr key={method.id}>
-        <td className="mono">{method.code}</td>
+        <td className="mono" title={method.code}>{method.code}</td>
         <td>{method.name}</td>
         <td>{method.provider} / {method.type}</td>
         <td>{method.destinationKind === 'pickup_store' ? '超商取貨' : '台灣宅配'}</td>

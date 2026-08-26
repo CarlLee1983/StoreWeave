@@ -39,16 +39,16 @@ export function NotificationsPage() {
     </div>
     {loading && items.length === 0 ? <Loading /> : items.length === 0 ? <p className="muted">{t('noDeliveries')}</p> : <div className="table-wrap"><table className="data-table data-table--fixed">
       <thead><tr>
-        <th style={{ width: '16%' }}>{t('notificationTemplate')}</th>
+        <th style={{ width: '22%' }}>{t('notificationTemplate')}</th>
         <th style={{ width: '9%' }}>{t('status')}</th>
         <th style={{ width: '14%' }}>{t('recipient')}</th>
-        <th style={{ width: '8%' }} className="col-numeric">{t('attempts')}</th>
-        <th style={{ width: '25%' }}>{t('lastError')}</th>
-        <th style={{ width: '14%' }}>{t('sentAt')}</th>
-        <th style={{ width: '14%' }}>{t('orderId')}</th>
+        <th style={{ width: '9%' }} className="col-numeric">{t('attempts')}</th>
+        <th style={{ width: '20%' }}>{t('lastError')}</th>
+        <th style={{ width: '13%' }}>{t('sentAt')}</th>
+        <th style={{ width: '13%' }}>{t('orderId')}</th>
       </tr></thead>
       <tbody>{items.map((delivery) => <tr key={delivery.id}>
-        <td className="mono">{delivery.template}</td>
+        <td><span className="cell-truncate mono" title={delivery.template}>{delivery.template}</span></td>
         <td><StatusBadge value={delivery.status} /></td>
         <td><span className="cell-truncate mono" title={delivery.recipientMasked}>{delivery.recipientMasked}</span></td>
         <td className="col-numeric">{delivery.attempts}</td>

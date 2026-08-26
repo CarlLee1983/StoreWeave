@@ -44,14 +44,14 @@ export function ErpPage() {
         <div className="table-wrap"><table className="data-table data-table--fixed">
           <thead>
             <tr>
-              <th style={{ width: '10%' }}>{t('orderNumber')}</th>
-              <th style={{ width: '12%' }}>{t('reference')}</th>
+              <th style={{ width: '13%' }}>{t('orderNumber')}</th>
+              <th style={{ width: '13%' }}>{t('reference')}</th>
               <th style={{ width: '9%' }}>{t('status')}</th>
-              <th style={{ width: '9%' }} className="col-numeric">{t('attempts')}</th>
-              <th style={{ width: '12%' }} className="col-numeric">{t('manualResends')}</th>
-              <th style={{ width: '22%' }}>{t('lastError')}</th>
-              <th style={{ width: '14%' }}>{t('remoteId')}</th>
-              <th style={{ width: '12%' }} className="col-actions">操作</th>
+              <th style={{ width: '8%' }} className="col-numeric" title={t('attempts')}>{t('attempts')}</th>
+              <th style={{ width: '11%' }} className="col-numeric" title={t('manualResends')}>{t('manualResends')}</th>
+              <th style={{ width: '20%' }}>{t('lastError')}</th>
+              <th style={{ width: '12%' }}>{t('remoteId')}</th>
+              <th style={{ width: '14%' }} className="col-actions">操作</th>
             </tr>
           </thead>
           <tbody>

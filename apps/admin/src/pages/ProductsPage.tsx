@@ -369,7 +369,7 @@ function ProductRow({
                 可售 {stock.available}
               </span>
               {/* 保留為 0 時不佔位：一整欄的「保留 0」只是噪音。 */}
-              <span className="stock-meta">
+              <span className="stock-meta" title={`現貨 ${stock.onHand} · 保留 ${stock.reserved}`}>
                 現貨 {stock.onHand}{stock.reserved > 0 ? ` · 保留 ${stock.reserved}` : ''}
               </span>
             </div>

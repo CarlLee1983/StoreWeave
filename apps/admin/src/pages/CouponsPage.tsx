@@ -171,7 +171,7 @@ function CouponRow({
       <td><span className="cell-truncate mono" title={coupon.code}>{coupon.code}</span></td>
       <td>{t(couponKind(coupon))}{coupon.partnerCode ? ` · ${coupon.partnerCode}` : ''}</td>
       <td><span className="cell-truncate" title={promotionName}>{promotionName}</span></td>
-      <td className="mono">
+      <td className="mono" title={`${coupon.startsAt ? formatDateTime(coupon.startsAt) : '未設定開始'} → ${coupon.endsAt ? formatDateTime(coupon.endsAt) : '不限結束'}`}>
         {coupon.startsAt ? formatDateTime(coupon.startsAt) : '—'} → {coupon.endsAt ? formatDateTime(coupon.endsAt) : '—'}
       </td>
       {/* 已用 / 上限。不限量時只說用了幾次——「3 / ∞」讀起來像是壞掉的畫面 */}
