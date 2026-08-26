@@ -144,6 +144,16 @@
 | [73](73-notification-delivery-log.md) | 訂單與出貨通知的投遞紀錄（**done**） | 62 |
 | [74](74-customer-birthday-correction.md) | 客服修正會員生日（**done**） | 22, 35 |
 | [75](75-remove-legacy-markpaid.md) | 移除沒有呼叫端的 `commerce.order.markPaid`（**done**） | — |
+| [76](76-content-module.md) | content 領域模組與接線（**done**） | — |
+| [77](77-theme-contract-and-storefront-pages.md) | Theme 契約收斂與前台品牌頁面（**done**） | 76 |
+| [78](78-admin-brand-content.md) | 後台品牌內容管理（**done**） | 76 |
+| [79](79-contact-us.md) | 聯絡我們：前台表單與後台收件匣（**done**） | 76, 77 |
+| [80](80-migrate-brand-content-to-seed.md) | 織日內容搬進 seed，`brand-content.ts` 下線（**done**） | 76, 77 |
+
+**76–80 是 Spec 0007 的回填紀錄**（2026-08-26）：這一批不是先開工單再做，而是照
+[Spec 0007](../specs/0007-brand-content-and-contact.md) 直接實作完再補上工單。
+所以每張的驗收清單記的是**實際發生的事**，包含中途推翻的做法與 code review 擋下的缺陷，
+而不是動工前的預期。設計理由在 ADR 0033、0034；這五張怎麼切，看 Spec 的交付順序。
 
 ## 已知、刻意沒做的
 
