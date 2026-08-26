@@ -42,7 +42,8 @@ export type IconName =
   | 'plus'
   | 'ticket'
   | 'truck'
-  | 'refresh';
+  | 'refresh'
+  | 'calendar';
 
 export function Icon({ name }: { name: IconName }): ReactNode {
   const paths: Record<IconName, ReactNode> = {
@@ -243,6 +244,12 @@ export function Icon({ name }: { name: IconName }): ReactNode {
         <path d="M3 6h11v9H3zM14 9h4l3 3v3h-7z" />
         <circle cx="7" cy="18" r="1.6" />
         <circle cx="17" cy="18" r="1.6" />
+      </>
+    ),
+    calendar: (
+      <>
+        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <path d="M3 10h18M8 3v4M16 3v4" />
       </>
     ),
     refresh: (

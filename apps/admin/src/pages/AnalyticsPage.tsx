@@ -9,6 +9,7 @@ import {
 import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
+import { DateField } from '../components/DateField';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -33,14 +34,8 @@ export function AnalyticsPage() {
   return (
     <section>
       <div className="toolbar">
-        <label>
-          {t('from')}
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        </label>
-        <label>
-          {t('to')}
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        </label>
+        <DateField id="analytics-from" label={t('from')} value={from} max={to} onChange={setFrom} />
+        <DateField id="analytics-to" label={t('to')} value={to} min={from} onChange={setTo} />
       </div>
       <SalesSummarySection from={from} to={to} />
       <PromotionPerformanceSection from={from} to={to} />

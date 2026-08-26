@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { I18nProvider } from './i18n';
+import 'react-day-picker/style.css';
 import './styles.css';
 import './enhancements.css';
 

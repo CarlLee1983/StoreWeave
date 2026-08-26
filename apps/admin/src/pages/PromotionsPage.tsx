@@ -8,6 +8,7 @@ import { Icon } from '../components/Icon';
 import { EmptyState } from '../components/EmptyState';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { RowMenu, type RowMenuItem } from '../components/RowMenu';
+import { DateTimeField } from '../components/DateTimeField';
 
 /** 規則型別在編譯期已知，每一種有自己的表單欄位——折扣設定需要客製 UI，不做 schema 驅動的動態表單。 */
 const RULE_TYPES = ['threshold_fixed_amount', 'threshold_percentage', 'order_percentage'] as const;
@@ -345,13 +346,19 @@ function PromotionFields({
         <input value={form.priority} onChange={(e) => onChange({ priority: e.target.value })} inputMode="numeric" />
       </label>
 
-      <label>{t('startsAt')}
-        <input type="datetime-local" value={form.startsAt} onChange={(e) => onChange({ startsAt: e.target.value })} />
-      </label>
+      <DateTimeField
+        id="promotion-starts-at"
+        label={t('startsAt')}
+        value={form.startsAt}
+        onChange={(next) => onChange({ startsAt: next })}
+      />
 
-      <label>{t('endsAt')}
-        <input type="datetime-local" value={form.endsAt} onChange={(e) => onChange({ endsAt: e.target.value })} />
-      </label>
+      <DateTimeField
+        id="promotion-ends-at"
+        label={t('endsAt')}
+        value={form.endsAt}
+        onChange={(next) => onChange({ endsAt: next })}
+      />
 
       <label className="checkbox">
         <input type="checkbox" checked={form.stackable} onChange={(e) => onChange({ stackable: e.target.checked })} />

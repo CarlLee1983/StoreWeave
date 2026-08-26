@@ -6,6 +6,7 @@ import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
 import { Icon } from '../components/Icon';
 import { EmptyState } from '../components/EmptyState';
+import { DateTimeField } from '../components/DateTimeField';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 
 /**
@@ -324,18 +325,12 @@ function CreateCouponDrawer({
                 />
               </div>
 
-              <div className="form-field">
-                <label htmlFor="create-coupon-ends-at">
-                  <span className="field-label-text">{t('endsAt')}</span>
-                </label>
-                <input
-                  id="create-coupon-ends-at"
-                  aria-label={t('endsAt')}
-                  type="datetime-local"
-                  value={endsAt}
-                  onChange={(e) => setEndsAt(e.target.value)}
-                />
-              </div>
+              <DateTimeField
+                id="create-coupon-ends-at"
+                label={t('endsAt')}
+                value={endsAt}
+                onChange={setEndsAt}
+              />
             </div>
 
             <label className="checkbox">

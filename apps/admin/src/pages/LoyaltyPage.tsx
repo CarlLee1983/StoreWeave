@@ -104,8 +104,11 @@ function RewardSettingsForm({ settings, onSaved }: { settings: RewardSettings; o
     <div className="inline-form">
       <label>{t('accrualPercent')}<input aria-label={t('accrualPercent')} value={accrual} onChange={(event) => setAccrual(event.target.value)} /></label>
       <label>{t('effectiveAfterDays')}<input aria-label={t('effectiveAfterDays')} value={effectiveAfterDays} onChange={(event) => setEffectiveAfterDays(event.target.value)} /></label>
-      <label>{t('expiresAfterDays')}<input aria-label={t('expiresAfterDays')} disabled={neverExpires} value={expiresAfterDays} onChange={(event) => setExpiresAfterDays(event.target.value)} /></label>
-      <label><input aria-label={t('neverExpires')} type="checkbox" checked={neverExpires} onChange={(event) => setNeverExpires(event.target.checked)} /> {t('neverExpires')}</label>
+      <div className="field-with-toggle">
+        <label>{t('expiresAfterDays')}<input aria-label={t('expiresAfterDays')} disabled={neverExpires} value={expiresAfterDays} onChange={(event) => setExpiresAfterDays(event.target.value)} /></label>
+        {/* 這個開關就是在關掉上面那個欄位，放在它底下才看得出從屬關係。 */}
+        <label><input aria-label={t('neverExpires')} type="checkbox" checked={neverExpires} onChange={(event) => setNeverExpires(event.target.checked)} /> {t('neverExpires')}</label>
+      </div>
       <label>{t('expiryNoticeDays')}<input aria-label={t('expiryNoticeDays')} value={expiryNoticeDays} onChange={(event) => setExpiryNoticeDays(event.target.value)} /></label>
     </div>
     <button className="button button--primary" disabled={submitting}>{t('saveSettings')}</button>

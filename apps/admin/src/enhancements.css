@@ -1580,3 +1580,164 @@
 td .empty-state {
   padding: 28px 16px;
 }
+
+/* 卡片內已經有自己的 padding，空狀態再給滿版留白會讓空清單比有資料還高。 */
+.account-panel > .empty-state,
+.detail-card > .empty-state {
+  padding: 20px 12px;
+}
+
+/* 欄位加上它自己的開關（例如「永不到期」關掉「幾天後到期」）。 */
+.field-with-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ── 日期欄位 ───────────────────────────────────────────
+   原生 <input type="date"> 的日曆圖示在深色主題下是深色的，幾乎看不見，
+   操作者會以為這個欄位只能手打。保留可打字的輸入框，另外掛一顆看得見的
+   按鈕開 react-day-picker 的日曆。 */
+.date-field {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.date-field__control {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.date-field__control input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 原生指示器交給我們自己的按鈕，避免同一個欄位出現兩個日曆圖示。 */
+.date-field__control input::-webkit-calendar-picker-indicator {
+  display: none;
+}
+
+.date-field__trigger {
+  padding: 0 10px;
+}
+
+.date-field__popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  padding: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-surface-raised);
+  box-shadow: var(--shadow-dropdown);
+}
+
+/* react-day-picker 的外觀對齊設計 token */
+.date-field__popup .rdp-root {
+  --rdp-accent-color: var(--accent-brand);
+  --rdp-accent-background-color: var(--accent-brand-subtle);
+  --rdp-day-height: 32px;
+  --rdp-day-width: 32px;
+  --rdp-day_button-height: 30px;
+  --rdp-day_button-width: 30px;
+  --rdp-day_button-border-radius: 6px;
+  --rdp-selected-border: 1px solid var(--accent-brand);
+  --rdp-today-color: var(--status-success-text);
+  --rdp-outside-opacity: 0.4;
+  --rdp-disabled-opacity: 0.3;
+  --rdp-font-family: inherit;
+  color: var(--text-primary);
+  font-size: 12.5px;
+}
+
+.date-field__popup .rdp-month_caption {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.date-field__popup .rdp-weekday {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.date-field__popup .rdp-day_button:hover {
+  background: var(--bg-surface-hover);
+}
+
+.date-field__popup .rdp-chevron {
+  fill: var(--text-secondary);
+}
+
+/* 其餘還在用原生 input 的日期／時間欄位：至少讓指示器在深色下看得見。 */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+:root:not([data-theme="light"]) input[type="date"]::-webkit-calendar-picker-indicator,
+:root:not([data-theme="light"]) input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+:root:not([data-theme="light"]) input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
+.datetime-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px;
+  gap: 8px;
+  align-items: start;
+}
+
+.datetime-field__time {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* ── 表單網格 ───────────────────────────────────────────
+   .form-grid 被促銷表單用來排欄位，但同樣沒有定義過：label 與輸入框
+   直接橫向流動，欄位名稱與別人的輸入框交錯在一起。 */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.form-grid > label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.form-grid > label.checkbox,
+.form-grid > label:has(> input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+/* 日期加時間需要兩欄的寬度才不會把時間擠成一條縫。 */
+.form-grid > .datetime-field {
+  grid-column: span 2;
+}
+
+@media (max-width: 720px) {
+  .form-grid > .datetime-field {
+    grid-column: auto;
+  }
+}

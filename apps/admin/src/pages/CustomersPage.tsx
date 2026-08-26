@@ -6,6 +6,7 @@ import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
 import { Icon } from '../components/Icon';
 import { EmptyState } from '../components/EmptyState';
+import { DateField } from '../components/DateField';
 
 export function CustomersPage() {
   const { t } = useI18n();
@@ -367,7 +368,13 @@ function BirthdayCorrection({ customerId, onCorrected }: { customerId: string; o
     {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
     <p className="muted">{t('birthdayCorrectionHint')}</p>
     <div className="inline-form">
-      <label>{t('correctedBirthday')}<input aria-label={t('correctedBirthday')} type="date" max={new Date().toISOString().slice(0, 10)} value={birthday} onChange={(event) => setBirthday(event.target.value)} /></label>
+      <DateField
+        id="corrected-birthday"
+        label={t('correctedBirthday')}
+        value={birthday}
+        max={new Date().toISOString().slice(0, 10)}
+        onChange={setBirthday}
+      />
       <label>{t('correctionReason')}<input aria-label={t('correctionReason')} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
       <button className="button button--primary" disabled={submitting}>{t('submitCorrection')}</button>
       <button className="button" type="button" onClick={() => setOpen(false)}>{t('cancel')}</button>
