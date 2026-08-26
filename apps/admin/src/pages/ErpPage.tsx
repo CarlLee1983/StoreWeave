@@ -47,9 +47,9 @@ export function ErpPage() {
               <th style={{ width: '10%' }}>{t('orderNumber')}</th>
               <th style={{ width: '12%' }}>{t('reference')}</th>
               <th style={{ width: '9%' }}>{t('status')}</th>
-              <th style={{ width: '8%' }} className="col-numeric">{t('attempts')}</th>
-              <th style={{ width: '10%' }} className="col-numeric">{t('manualResends')}</th>
-              <th style={{ width: '25%' }}>{t('lastError')}</th>
+              <th style={{ width: '9%' }} className="col-numeric">{t('attempts')}</th>
+              <th style={{ width: '12%' }} className="col-numeric">{t('manualResends')}</th>
+              <th style={{ width: '22%' }}>{t('lastError')}</th>
               <th style={{ width: '14%' }}>{t('remoteId')}</th>
               <th style={{ width: '12%' }} className="col-actions">操作</th>
             </tr>

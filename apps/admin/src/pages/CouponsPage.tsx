@@ -102,13 +102,13 @@ export function CouponsPage() {
           <table className="data-table data-table--fixed">
             <thead>
               <tr>
-                <th style={{ width: '10%' }}>{t('couponCode')}</th>
-                <th style={{ width: '13%' }}>{t('couponKind')}</th>
-                <th style={{ width: '22%' }}>{t('promotionName')}</th>
+                <th style={{ width: '16%' }}>{t('couponCode')}</th>
+                <th style={{ width: '11%' }}>{t('couponKind')}</th>
+                <th style={{ width: '20%' }}>{t('promotionName')}</th>
                 <th style={{ width: '17%' }}>{t('period')}</th>
-                <th style={{ width: '10%' }} className="col-numeric">{t('couponUsage')}</th>
+                <th style={{ width: '13%' }} className="col-numeric">{t('couponUsage')}</th>
                 <th style={{ width: '10%' }}>{t('status')}</th>
-                <th style={{ width: '18%' }} className="col-actions">操作</th>
+                <th style={{ width: '13%' }} className="col-actions">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -168,7 +168,7 @@ function CouponRow({
 
   return (
     <tr>
-      <td className="mono">{coupon.code}</td>
+      <td><span className="cell-truncate mono" title={coupon.code}>{coupon.code}</span></td>
       <td>{t(couponKind(coupon))}{coupon.partnerCode ? ` · ${coupon.partnerCode}` : ''}</td>
       <td><span className="cell-truncate" title={promotionName}>{promotionName}</span></td>
       <td className="mono">

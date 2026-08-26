@@ -1691,7 +1691,9 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 
 .datetime-field {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 110px;
+  /* 時間欄不能給死寬度：zh-TW 的 time input 顯示的是「上午 12:00」，
+     110px 會把它切掉，而 date input 在不同語系的長度也不一樣。 */
+  grid-template-columns: minmax(0, 1fr) minmax(140px, max-content);
   gap: 8px;
   align-items: start;
 }
@@ -1741,3 +1743,19 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     grid-column: auto;
   }
 }
+
+/* 日期與時間由瀏覽器自己排版，語系不同長度也不同（zh-TW 的「上午 12:00」
+   比 en-US 的「12:00 AM」還寬）。給它們足夠的最小寬度，不要讓值被切掉。 */
+input[type="time"] {
+  min-width: 132px;
+}
+
+input[type="date"] {
+  min-width: 148px;
+}
+
+input[type="datetime-local"] {
+  min-width: 210px;
+}
+
+
