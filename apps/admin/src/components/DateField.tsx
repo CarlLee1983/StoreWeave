@@ -25,6 +25,11 @@ function toISODate(date: Date): string {
  * 幾乎看不見，操作者會以為根本沒有選擇器。這裡保留可直接打字的輸入框，
  * 另外掛一顆看得見的按鈕開 react-day-picker 的日曆。
  */
+/**
+ * min/max 只約束日曆可選的範圍，不寫進原生 input 的 min/max：
+ * 那會讓瀏覽器在提交時靜默擋下表單，跳出一顆英文的原生氣泡，
+ * 使用者看不到我們自己那句說明是哪個欄位錯。越界值一律由送出前的檢查處理。
+ */
 export function DateField({
   label,
   value,
@@ -60,6 +65,8 @@ export function DateField({
   }, [open]);
 
   const selected = toDate(value);
+  // 還沒選日期時，從界線那個月開始顯示：不然打開結束日曆看到的整頁都是不能選的日子。
+  const defaultMonth = selected ?? toDate(min ?? '') ?? toDate(max ?? '');
 
   return (
     <div className="date-field" ref={wrapRef}>
@@ -72,8 +79,6 @@ export function DateField({
           type="date"
           aria-label={label}
           value={value}
-          max={max}
-          min={min}
           disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
         />
@@ -95,7 +100,7 @@ export function DateField({
             mode="single"
             locale={LOCALES[locale] ?? zhTW}
             selected={selected}
-            defaultMonth={selected}
+            defaultMonth={defaultMonth}
             disabled={[
               ...(min ? [{ before: toDate(min)! }] : []),
               ...(max ? [{ after: toDate(max)! }] : []),

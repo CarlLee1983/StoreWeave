@@ -204,3 +204,18 @@ describe('流通在外的購物金', () => {
     expect(api.outstandingRewards).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('查詢區間', () => {
+  it('把結束日拉到開始日之前，就把開始日一起帶過去，不會查出一段負區間', async () => {
+    renderPage();
+    await screen.findByText(/銷售摘要|Sales/);
+
+    const from = screen.getByLabelText('從') as HTMLInputElement;
+    const to = screen.getByLabelText('到') as HTMLInputElement;
+    fireEvent.change(from, { target: { value: '2026-08-20' } });
+    fireEvent.change(to, { target: { value: '2026-08-10' } });
+
+    await waitFor(() => expect(new Date(to.value).getTime()).toBeGreaterThanOrEqual(new Date(from.value).getTime()));
+  });
+});
+

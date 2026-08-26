@@ -221,7 +221,7 @@ function CreateCouponDrawer({
     }
     // 後端也會擋，但先在這裡說清楚：送出去再被退回，使用者得自己猜是哪一個欄位錯。
     if (startsAt && endsAt && new Date(endsAt).getTime() <= new Date(startsAt).getTime()) {
-      setError(new Error(t('invalidCouponPeriod')));
+      setError(new Error(t('invalidPeriod')));
       return;
     }
     setSubmitting(true);

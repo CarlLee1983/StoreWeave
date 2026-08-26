@@ -34,8 +34,28 @@ export function AnalyticsPage() {
   return (
     <section>
       <div className="toolbar">
-        <DateField id="analytics-from" label={t('from')} value={from} max={to} onChange={setFrom} />
-        <DateField id="analytics-to" label={t('to')} value={to} min={from} onChange={setTo} />
+        {/* 區間不接受反向：把一邊拖過另一邊時，另一邊跟著移動，
+            而不是送出一段查不到東西的負區間。 */}
+        <DateField
+          id="analytics-from"
+          label={t('from')}
+          value={from}
+          max={to}
+          onChange={(next) => {
+            setFrom(next);
+            if (next && to && next > to) setTo(next);
+          }}
+        />
+        <DateField
+          id="analytics-to"
+          label={t('to')}
+          value={to}
+          min={from}
+          onChange={(next) => {
+            setTo(next);
+            if (next && from && next < from) setFrom(next);
+          }}
+        />
       </div>
       <SalesSummarySection from={from} to={to} />
       <PromotionPerformanceSection from={from} to={to} />

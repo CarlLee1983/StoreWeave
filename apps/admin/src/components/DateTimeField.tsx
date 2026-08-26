@@ -11,12 +11,17 @@ export function DateTimeField({
   onChange,
   id,
   hint,
+  min,
+  max,
 }: {
   label: string;
   value: string;
   onChange: (next: string) => void;
   id?: string;
   hint?: string;
+  /** 這兩個吃 `datetime-local` 的值，日曆只用到日期的部分。 */
+  min?: string;
+  max?: string;
 }) {
   const [datePart = '', timePart = ''] = value ? value.split('T') : [];
 
@@ -33,6 +38,8 @@ export function DateTimeField({
         label={label}
         value={datePart}
         hint={hint}
+        min={min ? min.split('T')[0] : undefined}
+        max={max ? max.split('T')[0] : undefined}
         onChange={(next) => emit(next, timePart)}
       />
       <label className="datetime-field__time">

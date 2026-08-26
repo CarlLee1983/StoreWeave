@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type {} from '@testing-library/jest-dom/vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PromotionsPage } from './PromotionsPage';
 import { I18nProvider } from '../i18n';
@@ -233,3 +233,43 @@ describe('PromotionsPage 編輯', () => {
     expect(screen.queryByRole('form', { name: '編輯 滿千折百' })).not.toBeInTheDocument();
   });
 });
+
+describe('活動期間的先後', () => {
+  const openDrawer = () =>
+    window.dispatchEvent(new CustomEvent('admin:action:create-promotion', { cancelable: true }));
+
+  it('結束時間早於開始時間就擋下來，不必等後端退回', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('滿千折百');
+    openDrawer();
+
+    const dialog = await screen.findByRole('dialog', { name: '建立活動' });
+    await user.type(within(dialog).getByLabelText('活動名稱'), '錯誤檔期');
+    // 日期輸入逐字打在 jsdom 會留下中間狀態，直接給完整值才是瀏覽器裡的行為。
+    fireEvent.change(within(dialog).getByLabelText('開始時間'), { target: { value: '2026-09-10' } });
+    fireEvent.change(within(dialog).getByLabelText('結束時間'), { target: { value: '2026-09-01' } });
+    await user.click(screen.getByRole('button', { name: '建立活動' }));
+
+    expect(await screen.findByText(/結束時間必須晚於開始時間/)).toBeInTheDocument();
+    expect(api.createPromotion).not.toHaveBeenCalled();
+  });
+
+  it('結束時間的日曆不給選開始之前的日子', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('滿千折百');
+    openDrawer();
+
+    const dialog = await screen.findByRole('dialog', { name: '建立活動' });
+    fireEvent.change(within(dialog).getByLabelText('開始時間'), { target: { value: '2026-09-10' } });
+    await user.click(within(dialog).getByRole('button', { name: '結束時間：選擇日期' }));
+
+    // 日曆從界線那個月（9 月）打開：9/5 在開始之前不能選，9/20 之後可以。
+    const calendar = await screen.findByRole('dialog', { name: '結束時間：選擇日期' });
+    expect(within(calendar).getByText('2026年9月')).toBeInTheDocument();
+    expect(within(calendar).getByText('5').closest('button')).toBeDisabled();
+    expect(within(calendar).getByText('20').closest('button')).not.toBeDisabled();
+  });
+});
+

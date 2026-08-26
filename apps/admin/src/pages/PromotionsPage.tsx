@@ -95,6 +95,10 @@ function toPayload(form: FormState, t: (key: MessageKey) => string): PromotionPa
   const invalid = new Error(t('invalidPromotion'));
 
   if (!form.name.trim() || !Number.isInteger(priority)) return invalid;
+  // 後端也會擋，但先在這裡說清楚是哪一個欄位錯，不然只會拿到一個泛用錯誤。
+  if (form.startsAt && form.endsAt && new Date(form.endsAt).getTime() <= new Date(form.startsAt).getTime()) {
+    return new Error(t('invalidPeriod'));
+  }
   if (form.thresholdCents.trim() === '' && hasThreshold(form.ruleType)) return invalid;
   if (hasThreshold(form.ruleType) && (!Number.isInteger(threshold) || threshold < 0)) return invalid;
   if (max !== null && (!Number.isInteger(max) || max < 0)) return invalid;
@@ -350,6 +354,7 @@ function PromotionFields({
         id="promotion-starts-at"
         label={t('startsAt')}
         value={form.startsAt}
+        max={form.endsAt || undefined}
         onChange={(next) => onChange({ startsAt: next })}
       />
 
@@ -357,6 +362,7 @@ function PromotionFields({
         id="promotion-ends-at"
         label={t('endsAt')}
         value={form.endsAt}
+        min={form.startsAt || undefined}
         onChange={(next) => onChange({ endsAt: next })}
       />
 
