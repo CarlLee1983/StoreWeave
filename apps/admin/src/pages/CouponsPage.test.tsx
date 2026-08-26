@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type {} from '@testing-library/jest-dom/vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CouponsPage } from './CouponsPage';
 import { I18nProvider } from '../i18n';
@@ -187,3 +187,44 @@ describe('CouponsPage', () => {
     expect(await screen.findByText('目前沒有券。')).toBeInTheDocument();
   });
 });
+
+describe('還沒開始的券', () => {
+  const openDrawer = () =>
+    window.dispatchEvent(new CustomEvent('admin:action:create-coupon', { cancelable: true }));
+
+  it('可以指定開始時間：預告檔的券要先建好，時間到才生效', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('SUMMER20');
+    openDrawer();
+
+    await user.type(await screen.findByLabelText('折扣碼'), 'preorder');
+    await user.selectOptions(screen.getByLabelText('活動名稱'), promotion.id);
+    await user.type(screen.getByLabelText('開始時間'), '2026-09-01');
+    // time input 逐字輸入在 jsdom 會留下中間狀態，直接給完整值才是使用者在瀏覽器裡的行為。
+    fireEvent.change(screen.getByLabelText('開始時間 時間'), { target: { value: '10:00' } });
+    await user.click(screen.getByRole('button', { name: '建立' }));
+
+    await waitFor(() => expect(api.createCoupon).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'PREORDER',
+      startsAt: new Date('2026-09-01T10:00').toISOString(),
+    })));
+  });
+
+  it('結束時間早於開始時間就擋下來，不必等後端退回', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('SUMMER20');
+    openDrawer();
+
+    await user.type(await screen.findByLabelText('折扣碼'), 'badrange');
+    await user.selectOptions(screen.getByLabelText('活動名稱'), promotion.id);
+    await user.type(screen.getByLabelText('開始時間'), '2026-09-10');
+    await user.type(screen.getByLabelText('結束時間'), '2026-09-01');
+    await user.click(screen.getByRole('button', { name: '建立' }));
+
+    expect(await screen.findByText(/結束時間必須晚於開始時間/)).toBeInTheDocument();
+    expect(api.createCoupon).not.toHaveBeenCalled();
+  });
+});
+

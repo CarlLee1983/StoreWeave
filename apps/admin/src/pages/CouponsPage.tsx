@@ -205,6 +205,7 @@ function CreateCouponDrawer({
   const [partnerCode, setPartnerCode] = useState('');
   const [maxRedemptions, setMaxRedemptions] = useState('');
   const [perCustomerOnce, setPerCustomerOnce] = useState(true);
+  const [startsAt, setStartsAt] = useState('');
   const [endsAt, setEndsAt] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -218,6 +219,11 @@ function CreateCouponDrawer({
       setError(new Error(t('invalidCoupon')));
       return;
     }
+    // 後端也會擋，但先在這裡說清楚：送出去再被退回，使用者得自己猜是哪一個欄位錯。
+    if (startsAt && endsAt && new Date(endsAt).getTime() <= new Date(startsAt).getTime()) {
+      setError(new Error(t('invalidCouponPeriod')));
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -227,6 +233,7 @@ function CreateCouponDrawer({
         partnerCode: partnerCode.trim() || undefined,
         maxRedemptions: max,
         perCustomerLimit: perCustomerOnce ? 1 : null,
+        startsAt: startsAt ? new Date(startsAt).toISOString() : undefined,
         endsAt: endsAt ? new Date(endsAt).toISOString() : undefined,
       });
       onCreated();
@@ -311,27 +318,34 @@ function CreateCouponDrawer({
               />
             </div>
 
-            <div className="form-grid-2">
-              <div className="form-field">
-                <label htmlFor="create-coupon-max-redemptions">
-                  <span className="field-label-text">{t('maxRedemptions')}</span>
-                </label>
-                <input
-                  id="create-coupon-max-redemptions"
-                  aria-label={t('maxRedemptions')}
-                  value={maxRedemptions}
-                  onChange={(e) => setMaxRedemptions(e.target.value)}
-                  inputMode="numeric"
-                />
-              </div>
-
-              <DateTimeField
-                id="create-coupon-ends-at"
-                label={t('endsAt')}
-                value={endsAt}
-                onChange={setEndsAt}
+            <div className="form-field">
+              <label htmlFor="create-coupon-max-redemptions">
+                <span className="field-label-text">{t('maxRedemptions')}</span>
+              </label>
+              <input
+                id="create-coupon-max-redemptions"
+                aria-label={t('maxRedemptions')}
+                value={maxRedemptions}
+                onChange={(e) => setMaxRedemptions(e.target.value)}
+                inputMode="numeric"
               />
             </div>
+
+            {/* 檔期是一組：開始與結束各佔一列，兩邊的日期與時間欄寬才對得齊。 */}
+            <DateTimeField
+              id="create-coupon-starts-at"
+              label={t('startsAt')}
+              value={startsAt}
+              hint={t('couponStartsAtHint')}
+              onChange={setStartsAt}
+            />
+
+            <DateTimeField
+              id="create-coupon-ends-at"
+              label={t('endsAt')}
+              value={endsAt}
+              onChange={setEndsAt}
+            />
 
             <label className="checkbox">
               <input type="checkbox" checked={perCustomerOnce} onChange={(e) => setPerCustomerOnce(e.target.checked)} />
