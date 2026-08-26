@@ -1257,6 +1257,11 @@
   font-size: 12px;
 }
 
+/* 顧客留言的換行是內容的一部分，用 white-space 保留而不是壓成一行。 */
+.message-body {
+  white-space: pre-line;
+}
+
 .detail-card__header {
   display: flex;
   align-items: center;
@@ -1782,6 +1787,11 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 /* 日期加時間需要兩欄的寬度才不會把時間擠成一條縫。 */
 .form-grid > .datetime-field {
   grid-column: span 2;
+}
+
+/* 內文編輯欄是整頁最重要的欄位，不該被擠在半欄裡打字。 */
+.form-grid > .form-field--full {
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 720px) {

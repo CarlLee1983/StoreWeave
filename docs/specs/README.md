@@ -11,6 +11,7 @@
 | [0004](0004-coupons-and-marketing-codes.md) | 優惠券與行銷碼 | 0001–0003 | ready-for-agent |
 | [0005](0005-points-tiers-and-analytics.md) | 購物金、會員等級與行銷分析 | 0001–0004 | ready-for-agent |
 | [0006](0006-commerce-operations-closure.md) | 購物營運閉環：付款、履約、售後與探索 | 0001–0005 | ready-for-agent |
+| [0007](0007-brand-content-and-contact.md) | 品牌內容與聯絡我們 | 0001–0006 | ready-for-agent |
 
 0001 與 0002 沒有相依，可並行；兩條線在 0003 會合。加價購接在 0004 之後，
 是定價引擎輸出「可加購清單」的延伸，不獨立成規格。

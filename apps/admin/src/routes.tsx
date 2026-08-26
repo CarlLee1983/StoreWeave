@@ -17,6 +17,8 @@ import { RmaPage } from './pages/RmaPage';
 import { InvoicesPage } from './pages/InvoicesPage';
 import { LoyaltyPage } from './pages/LoyaltyPage';
 import { NotificationsPage } from './pages/NotificationsPage';
+import { BrandContentPage } from './pages/BrandContentPage';
+import { ContactInboxPage } from './pages/ContactInboxPage';
 
 /** 側欄的分組，順序即呈現順序。 */
 export const NAV_SECTIONS = ['commerce', 'integrations'] as const;
@@ -131,6 +133,25 @@ const ENTRIES = [
     title: 'customersTitle',
     subtitle: 'customersSubtitle',
     render: () => <CustomersPage />,
+  },
+  {
+    path: 'brand-content',
+    navLabel: 'brandContent',
+    icon: 'file-text',
+    section: 'commerce',
+    title: 'brandContentTitle',
+    subtitle: 'brandContentSubtitle',
+    action: { label: 'createArticle', targetId: 'create-article' },
+    render: () => <BrandContentPage />,
+  },
+  {
+    path: 'contact-inbox',
+    navLabel: 'contactInbox',
+    icon: 'send',
+    section: 'commerce',
+    title: 'contactInboxTitle',
+    subtitle: 'contactInboxSubtitle',
+    render: () => <ContactInboxPage />,
   },
   {
     path: 'analytics',

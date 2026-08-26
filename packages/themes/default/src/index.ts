@@ -1,10 +1,9 @@
 import { z } from 'zod';
 import type {
-  StorefrontTheme, ThemeAccountCouponsView, ThemeAuthView, ThemeCartView, ThemeCatalogView, ThemeContext, ThemeOrderView,
+  StorefrontTheme, ThemeAccountCouponsView, ThemeArticleView, ThemeAuthView, ThemeCartView, ThemeCatalogView, ThemeContext, ThemeHomeView, ThemeOrderView,
 } from '@storeweave/kernel';
 import { escapeHtml, formatMoney, layout } from './layout';
-import { renderStorefrontArtwork, renderWovenDayEditorialImage, renderWovenDayProductImage, type WovenDayEditorialImage } from './artwork';
-import { wovenDayBrand, wovenDayJournal, type BrandJournalArticle } from './brand-content';
+import { EDITORIAL_IMAGE_KEYS, renderStorefrontArtwork, renderWovenDayEditorialImage, renderWovenDayProductImage, type WovenDayEditorialImage } from './artwork';
 
 type AccountSection = 'orders' | 'coupons' | 'rewards' | 'profile';
 
@@ -370,28 +369,66 @@ function isWovenDay(ctx: ThemeContext): boolean {
   return ctx.storeId === 'example-store';
 }
 
-/** These are fixed editorial pairings, not a media lookup derived from products or customer data. */
-function journalImageFor(slug: string): WovenDayEditorialImage {
-  switch (slug) {
-    case 'room-for-the-table': return 'journal-room';
-    case 'objects-and-time': return 'journal-pause';
-    case 'a-quieter-home': return 'journal-occasion';
-    default: return 'journal-occasion';
-  }
+/**
+ * An article names a theme-owned photograph by key (ADR 0034). A key this theme
+ * no longer ships renders as no image at all: a missing photo must not take the
+ * page down with it.
+ */
+function editorialImage(article: ThemeArticleView, loading: 'eager' | 'lazy' = 'lazy'): string {
+  const key = article.imageKey;
+  if (!key || !EDITORIAL_IMAGE_KEYS.includes(key as WovenDayEditorialImage)) return '';
+  return renderWovenDayEditorialImage(key as WovenDayEditorialImage, loading);
 }
 
-function journalCard(article: BrandJournalArticle): string {
+/** Blocks with a heading are story chapters; everything else is a plain paragraph. */
+function articleBody(article: ThemeArticleView): string {
+  return article.body.map((block) => (block.heading
+    ? `<section class="article-block"><h2>${escapeHtml(block.heading)}</h2><p>${escapeHtml(block.text)}</p></section>`
+    : `<p>${escapeHtml(block.text)}</p>`)).join('');
+}
+
+/** News reads as a dated notice list, not a photo grid: the date is the point. */
+function newsRow(article: ThemeArticleView): string {
+  const href = `/news/${escapeHtml(article.slug)}`;
+  const date = article.publishedAt
+    ? `<time datetime="${article.publishedAt.toISOString().slice(0, 10)}">${article.publishedAt.toISOString().slice(0, 10)}</time>`
+    : '';
+  return `<li class="news-row">
+    ${date}
+    <div class="news-row__copy">
+      ${article.section ? `<p class="news-row__meta">${escapeHtml(article.section)}</p>` : ''}
+      <h3><a href="${href}">${escapeHtml(article.title)}</a></h3>
+      ${article.summary ? `<p>${escapeHtml(article.summary)}</p>` : ''}
+    </div>
+  </li>`;
+}
+
+function articleCard(article: ThemeArticleView, base: string): string {
+  const href = `${base}/${escapeHtml(article.slug)}`;
+  const cover = editorialImage(article);
   return `<article class="journal-card">
-    <a href="/journal/${escapeHtml(article.slug)}" class="journal-card__cover-wrap" aria-label="閱讀：${escapeHtml(article.title)}">
-      ${renderWovenDayEditorialImage(journalImageFor(article.slug))}
-    </a>
+    ${cover ? `<a href="${href}" class="journal-card__cover-wrap" aria-label="閱讀：${escapeHtml(article.title)}">${cover}</a>` : ''}
     <div class="journal-card__body">
-      <p class="journal-card__meta">${escapeHtml(article.section)}</p>
-      <h3><a href="/journal/${escapeHtml(article.slug)}">${escapeHtml(article.title)}</a></h3>
-      <p>${escapeHtml(article.summary)}</p>
-      <a class="journal-card__read" href="/journal/${escapeHtml(article.slug)}">閱讀全文 <span aria-hidden="true">→</span></a>
+      ${article.section ? `<p class="journal-card__meta">${escapeHtml(article.section)}</p>` : ''}
+      <h3><a href="${href}">${escapeHtml(article.title)}</a></h3>
+      ${article.summary ? `<p>${escapeHtml(article.summary)}</p>` : ''}
+      <a class="journal-card__read" href="${href}">閱讀全文 <span aria-hidden="true">→</span></a>
     </div>
   </article>`;
+}
+
+/** Shared by the journal and news reading pages; only the breadcrumb differs. */
+function articlePage(ctx: ThemeContext, article: ThemeArticleView, base: string, listLabel: string): string {
+  const cover = editorialImage(article, 'eager');
+  const body = `
+    <article class="journal-article-page">
+      <nav class="breadcrumb" aria-label="麵包屑"><a href="/">首頁</a><span aria-hidden="true"> / </span><a href="${base}">${escapeHtml(listLabel)}</a><span aria-hidden="true"> / </span><span>${escapeHtml(article.title)}</span></nav>
+      <header class="article-header">${article.section ? `<p class="eyebrow">${escapeHtml(article.section)}</p>` : ''}<h1>${escapeHtml(article.title)}</h1>${article.summary ? `<p>${escapeHtml(article.summary)}</p>` : ''}</header>
+      ${cover ? `<div class="article-hero-art">${cover}</div>` : ''}
+      <div class="article-content">${articleBody(article)}</div>
+      <p class="article-return"><a class="secondary-action" href="${base}">回到${escapeHtml(listLabel)}</a></p>
+    </article>`;
+  return layout({ title: article.title, body, ctx });
 }
 
 export const defaultThemeOptions = z.object({
@@ -408,14 +445,9 @@ export const defaultTheme: StorefrontTheme = {
   id: 'default',
   name: 'Default Storefront',
   optionsSchema: defaultThemeOptions,
+  editorialImageKeys: EDITORIAL_IMAGE_KEYS,
 
-  isStoryPublished: isWovenDay,
-  isJournalPublished: isWovenDay,
-  isJournalArticlePublished(ctx, slug) {
-    return isWovenDay(ctx) && wovenDayJournal.some((article) => article.slug === slug);
-  },
-
-  renderHome(ctx, { products, q, minPrice, maxPrice, page, pageSize, total }: ThemeCatalogView) {
+  renderHome(ctx, { products, q, minPrice, maxPrice, page, pageSize, total, story, journal, news }: ThemeHomeView) {
     const isFilteredOrPaged = Boolean(q) || minPrice !== null || maxPrice !== null || page > 1;
 
     // 若使用者帶有篩選條件或分頁，直接呈現目錄模式
@@ -430,36 +462,50 @@ export const defaultTheme: StorefrontTheme = {
     const heroSection = `
       <section class="storefront-hero" aria-labelledby="hero-title">
         <div class="storefront-hero__copy">
-          <p class="eyebrow">${branded ? wovenDayBrand.eyebrow : escapeHtml(ctx.storeName)}</p>
-          <h1 id="hero-title">${branded ? wovenDayBrand.title : '為日常，留下一點餘裕。'}</h1>
-          <p>${branded ? wovenDayBrand.introduction : '從正在販售的商品開始，找到適合你的選擇。'}${productCount}</p>
+          <p class="eyebrow">${escapeHtml(story?.section || ctx.storeName)}</p>
+          <h1 id="hero-title">${escapeHtml(story?.title ?? '為日常，留下一點餘裕。')}</h1>
+          <p>${escapeHtml(story?.summary ?? '從正在販售的商品開始，找到適合你的選擇。')}${productCount}</p>
           <a class="cta" href="/catalog">瀏覽商品</a>
         </div>
         <div class="storefront-hero__art">${branded ? renderWovenDayEditorialImage('hero', 'eager') : renderStorefrontArtwork(ctx.storeId, 'hero')}</div>
       </section>`;
 
-    const brandSection = branded ? `
+    const chapters = story?.body.filter((block) => block.heading) ?? [];
+    const brandSection = story ? `
       <section class="brand-manifesto" aria-labelledby="brand-manifesto-title">
         <div class="brand-manifesto__copy">
           <p class="eyebrow">我們相信</p>
-          <h2 id="brand-manifesto-title">${escapeHtml(wovenDayBrand.story.title)}</h2>
-          <p>${escapeHtml(wovenDayBrand.story.lead)}</p>
+          <!--
+            標題不重複 hero 的那一句：兩者讀的是同一篇品牌故事，
+            把 story.title 印兩次會讓首頁看起來像壞掉。
+          -->
+          <h2 id="brand-manifesto-title">選物的那幾件事</h2>
+          <p>${escapeHtml(story.summary)}</p>
           <a class="secondary-action" href="/story">閱讀品牌故事</a>
         </div>
-        <ol class="brand-manifesto__chapters">
-          ${wovenDayBrand.story.chapters.map((chapter) => `<li>
-            <span>${chapter.number}</span><h3>${escapeHtml(chapter.title)}</h3><p>${escapeHtml(chapter.body)}</p>
+        ${chapters.length ? `<ol class="brand-manifesto__chapters">
+          ${chapters.map((chapter, index) => `<li>
+            <span>${String(index + 1).padStart(2, '0')}</span><h3>${escapeHtml(chapter.heading!)}</h3><p>${escapeHtml(chapter.text)}</p>
           </li>`).join('')}
-        </ol>
+        </ol>` : ''}
       </section>` : '';
 
-    const journalSection = branded ? `
+    const newsSection = news.length ? `
+      <section class="storefront-news" aria-labelledby="news-title">
+        <div class="catalog-section__header">
+          <div><p class="eyebrow">店務公告</p><h2 id="news-title">最新消息</h2></div>
+          <a class="secondary-action" href="/news">查看全部消息</a>
+        </div>
+        <ul class="news-list news-list--compact">${news.map(newsRow).join('')}</ul>
+      </section>` : '';
+
+    const journalSection = journal.length ? `
       <section class="journal-section storefront-journal" aria-labelledby="journal-title">
         <div class="catalog-section__header">
           <div><p class="eyebrow">Woven Journal</p><h2 id="journal-title">為生活留下的筆記</h2></div>
           <a class="secondary-action" href="/journal">閱讀全部文章</a>
         </div>
-        <div class="journal-grid">${wovenDayJournal.slice(0, 2).map(journalCard).join('')}</div>
+        <div class="journal-grid">${journal.map((article) => articleCard(article, '/journal')).join('')}</div>
       </section>` : '';
 
     const discoverySection = `
@@ -502,6 +548,7 @@ export const defaultTheme: StorefrontTheme = {
       <div class="catalog-page">
         ${heroSection}
         ${brandSection}
+        ${newsSection}
         ${featuredSection}
         ${discoverySection}
         ${journalSection}
@@ -552,48 +599,105 @@ export const defaultTheme: StorefrontTheme = {
     return layout({ title: '選物目錄', body, ctx });
   },
 
-  renderStory(ctx) {
-    if (!isWovenDay(ctx)) return this.renderError(ctx, { status: 404, message: '找不到此頁面。' });
+  renderStory(ctx, { article }) {
+    const cover = editorialImage(article, 'eager');
+    const chapters = article.body.filter((block) => block.heading);
+    const paragraphs = article.body.filter((block) => !block.heading);
     const body = `
       <article class="brand-story-page">
         <header class="brand-story-hero">
-          <div><p class="eyebrow">${wovenDayBrand.eyebrow}</p><h1>${escapeHtml(wovenDayBrand.story.title)}</h1><p>${escapeHtml(wovenDayBrand.story.lead)}</p></div>
-          <div class="brand-story-hero__art">${renderWovenDayEditorialImage('story', 'eager')}</div>
+          <div>${article.section ? `<p class="eyebrow">${escapeHtml(article.section)}</p>` : ''}<h1>${escapeHtml(article.title)}</h1>${article.summary ? `<p>${escapeHtml(article.summary)}</p>` : ''}</div>
+          ${cover ? `<div class="brand-story-hero__art">${cover}</div>` : ''}
         </header>
-        <section class="brand-story-chapters" aria-label="織日選物的選物觀點">
-          ${wovenDayBrand.story.chapters.map((chapter) => `<article>
-            <p class="eyebrow">${chapter.number}</p><h2>${escapeHtml(chapter.title)}</h2><p>${escapeHtml(chapter.body)}</p>
+        ${paragraphs.length ? `<section class="brand-story-lead">${paragraphs.map((block) => `<p>${escapeHtml(block.text)}</p>`).join('')}</section>` : ''}
+        ${chapters.length ? `<section class="brand-story-chapters" aria-label="選物觀點">
+          ${chapters.map((chapter, index) => `<article>
+            <p class="eyebrow">${String(index + 1).padStart(2, '0')}</p><h2>${escapeHtml(chapter.heading!)}</h2><p>${escapeHtml(chapter.text)}</p>
           </article>`).join('')}
-        </section>
+        </section>` : ''}
         <section class="brand-story-closing">
           <p class="eyebrow">選物從使用開始</p><h2>把真正會回到手邊的，留在生活裡。</h2><a class="cta" href="/catalog">瀏覽商品型錄</a>
         </section>
       </article>`;
-    return layout({ title: '品牌故事', body, ctx });
+    return layout({ title: article.title, body, ctx });
   },
 
-  renderJournalList(ctx) {
-    if (!isWovenDay(ctx)) return this.renderError(ctx, { status: 404, message: '找不到此頁面。' });
+  renderJournalList(ctx, { articles }) {
     const body = `
       <article class="journal-page">
         <header class="page-heading"><p class="eyebrow">Woven Journal</p><h1>生活誌</h1><p class="page-heading__copy">記下物件、空間與日常之間，慢慢形成的關係。</p></header>
-        <section class="journal-grid journal-grid--three" aria-label="生活誌文章">${wovenDayJournal.map(journalCard).join('')}</section>
+        <section class="journal-grid journal-grid--three" aria-label="生活誌文章">${articles.map((article) => articleCard(article, '/journal')).join('')}</section>
       </article>`;
     return layout({ title: '生活誌', body, ctx });
   },
 
-  renderJournalArticle(ctx, { article: { slug } }) {
-    const article = wovenDayJournal.find((item) => item.slug === slug);
-    if (!isWovenDay(ctx) || !article) return this.renderError(ctx, { status: 404, message: '找不到這篇文章。' });
+  renderJournalArticle(ctx, { article }) {
+    return articlePage(ctx, article, '/journal', '生活誌');
+  },
+
+  renderNewsList(ctx, { articles }) {
     const body = `
-      <article class="journal-article-page">
-        <nav class="breadcrumb" aria-label="麵包屑"><a href="/">首頁</a><span aria-hidden="true"> / </span><a href="/journal">生活誌</a><span aria-hidden="true"> / </span><span>${escapeHtml(article.title)}</span></nav>
-        <header class="article-header"><p class="eyebrow">${escapeHtml(article.section)} · Woven Journal</p><h1>${escapeHtml(article.title)}</h1><p>${escapeHtml(article.summary)}</p></header>
-        <div class="article-hero-art">${renderWovenDayEditorialImage(journalImageFor(article.slug), 'eager')}</div>
-        <div class="article-content">${article.paragraphs.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join('')}</div>
-        <p class="article-return"><a class="secondary-action" href="/journal">回到生活誌</a></p>
+      <article class="news-page">
+        <header class="page-heading"><p class="eyebrow">店務公告</p><h1>最新消息</h1><p class="page-heading__copy">出貨安排、活動與服務調整，都會先公布在這裡。</p></header>
+        <ul class="news-list" aria-label="最新消息">${articles.map(newsRow).join('')}</ul>
       </article>`;
-    return layout({ title: article.title, body, ctx });
+    return layout({ title: '最新消息', body, ctx });
+  },
+
+  renderNewsArticle(ctx, { article }) {
+    return articlePage(ctx, article, '/news', '最新消息');
+  },
+
+  renderFaq(ctx, { articles }) {
+    // Grouped by the merchant's own section labels; ungrouped entries keep their order.
+    const groups = new Map<string, ThemeArticleView[]>();
+    for (const article of articles) {
+      const key = article.section || '';
+      groups.set(key, [...(groups.get(key) ?? []), article]);
+    }
+    const body = `
+      <article class="faq-page">
+        <header class="page-heading"><p class="eyebrow">常見問題</p><h1>需要協助嗎？</h1><p class="page-heading__copy">這裡整理了訂購、付款、出貨與退換貨最常被問到的問題。</p></header>
+        ${[...groups].map(([section, entries]) => `<section class="faq-group" ${section ? `aria-label="${escapeHtml(section)}"` : 'aria-label="常見問題"'}>
+          ${section ? `<h2 class="faq-group__title">${escapeHtml(section)}</h2>` : ''}
+          <dl class="faq-list">${entries.map((entry) => `
+            <div class="faq-item">
+              <dt>${escapeHtml(entry.title)}</dt>
+              <dd>${entry.summary ? `<p>${escapeHtml(entry.summary)}</p>` : ''}${articleBody(entry)}</dd>
+            </div>`).join('')}</dl>
+        </section>`).join('')}
+        <section class="faq-closing">
+          <p>沒有找到答案？<a href="/contact">寫訊息給我們</a>，我們會盡快回覆。</p>
+        </section>
+      </article>`;
+    return layout({ title: '常見問題', body, ctx });
+  },
+
+  renderContact(ctx, { submitted, values, error }) {
+    const csrf = ctx.csrfToken ? `<input type="hidden" name="_csrf" value="${escapeHtml(ctx.csrfToken)}">` : '';
+    const support = ctx.supportEmail
+      ? `<p class="contact-support">也可以直接寫信到 <a href="mailto:${escapeHtml(ctx.supportEmail)}">${escapeHtml(ctx.supportEmail)}</a>。</p>`
+      : '';
+    const form = `
+      <form class="contact-form" method="post" action="/contact">
+        ${csrf}
+        ${error ? `<p class="form-error" role="alert">${escapeHtml(error)}</p>` : ''}
+        <label class="field"><span>姓名</span><input name="name" required maxlength="80" value="${escapeHtml(values.name)}"></label>
+        <label class="field"><span>電子郵件</span><input type="email" name="email" required maxlength="320" value="${escapeHtml(values.email)}"></label>
+        <label class="field"><span>主旨</span><input name="subject" required maxlength="200" value="${escapeHtml(values.subject)}"></label>
+        <label class="field"><span>訊息內容</span><textarea name="message" required rows="8" maxlength="4000">${escapeHtml(values.message)}</textarea></label>
+        <p class="contact-hp"><label aria-hidden="true">請不要填寫這個欄位<input name="website" type="text" tabindex="-1" autocomplete="off"></label></p>
+        <button class="cta" type="submit">送出訊息</button>
+      </form>`;
+    const body = `
+      <article class="contact-page">
+        <header class="page-heading"><p class="eyebrow">聯絡我們</p><h1>有問題想問嗎？</h1><p class="page-heading__copy">留下訊息，我們會在營業日內回覆。</p></header>
+        ${submitted
+          ? `<section class="contact-done"><h2>訊息已送出</h2><p>謝謝你的來信，我們收到了，會盡快回覆到你留下的信箱。</p><a class="secondary-action" href="/">回到首頁</a></section>`
+          : form}
+        ${support}
+      </article>`;
+    return layout({ title: '聯絡我們', body, ctx });
   },
 
   renderProduct(ctx, { product }) {

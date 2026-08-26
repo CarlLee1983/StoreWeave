@@ -396,6 +396,39 @@ export type DeadJob = {
 export type HealthCheck = { name: string; status: string; detail?: string };
 export type HealthReport = { status: string; checks: HealthCheck[] };
 
+/** 一個內文區塊；`heading` 只有品牌故事的章節會用到，其餘 kind 一律是 null。 */
+export type ArticleBlock = { heading: string | null; text: string };
+
+export type Article = {
+  id: string;
+  kind: 'story' | 'journal' | 'news' | 'faq';
+  slug: string;
+  title: string;
+  summary: string;
+  section: string;
+  body: ArticleBlock[];
+  /** 封閉清單的 key；不存在的圖由前台自己降級呈現，這裡只負責存字串。 */
+  imageKey: string | null;
+  position: number;
+  status: 'draft' | 'published';
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ContactMessage = {
+  id: string;
+  customerId: string | null;
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  status: 'new' | 'handled';
+  handledByActorId: string | null;
+  handledAt: string | null;
+  createdAt: string;
+};
+
 export type CurrentUser = { id: string; email: string; displayName: string; role: string };
 
 export type Paged<T> = { items: T[]; total: number };
@@ -809,6 +842,64 @@ export const api = {
       `/api/v1/system/jobs/dead/${jobId}/retry`,
       { method: 'POST', body: {}, idempotent: true },
     );
+  },
+  /** Theme 決定哪些配圖存在（ADR 0034），這份清單只能問 API，不能寫死在畫面裡。 */
+  contentImageKeys() {
+    return request<{ keys: string[] }>('/api/v1/content/articles/image-keys');
+  },
+  listArticles(params: { kind?: Article['kind']; status?: Article['status']; limit?: number; offset?: number } = {}) {
+    return request<Paged<Article>>(`/api/v1/content/articles${toQuery(params)}`);
+  },
+  getArticle(id: string) {
+    return request<Article>(`/api/v1/content/articles/${id}`);
+  },
+  createArticle(body: {
+    kind: Article['kind'];
+    slug: string;
+    title: string;
+    summary?: string;
+    section?: string;
+    body?: ArticleBlock[];
+    imageKey?: string | null;
+    position?: number;
+  }) {
+    return request<Article>('/api/v1/content/articles', { method: 'POST', body, idempotent: true });
+  },
+  updateArticle(
+    id: string,
+    body: {
+      slug?: string;
+      title?: string;
+      summary?: string;
+      section?: string;
+      body?: ArticleBlock[];
+      imageKey?: string | null;
+      position?: number;
+    },
+  ) {
+    return request<Article>(`/api/v1/content/articles/${id}`, { method: 'POST', body, idempotent: true });
+  },
+  publishArticle(id: string) {
+    return request<Article>(`/api/v1/content/articles/${id}/publish`, { method: 'POST', body: {}, idempotent: true });
+  },
+  unpublishArticle(id: string) {
+    return request<Article>(`/api/v1/content/articles/${id}/unpublish`, { method: 'POST', body: {}, idempotent: true });
+  },
+  deleteArticle(id: string) {
+    return request<Article>(`/api/v1/content/articles/${id}`, { method: 'DELETE', idempotent: true });
+  },
+  listContactMessages(params: { status?: ContactMessage['status']; limit?: number; offset?: number } = {}) {
+    return request<Paged<ContactMessage>>(`/api/v1/content/contact-messages${toQuery(params)}`);
+  },
+  getContactMessage(id: string) {
+    return request<ContactMessage>(`/api/v1/content/contact-messages/${id}`);
+  },
+  markContactMessageHandled(id: string) {
+    return request<ContactMessage>(`/api/v1/content/contact-messages/${id}/handled`, {
+      method: 'POST',
+      body: {},
+      idempotent: true,
+    });
   },
   login(email: string, password: string) {
     return request<CurrentUser>('/api/v1/auth/login', { method: 'POST', body: { email, password }, withAuth: false });

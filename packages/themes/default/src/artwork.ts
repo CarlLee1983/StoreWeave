@@ -34,6 +34,12 @@ const WOVEN_DAY_EDITORIAL_IMAGES: Record<WovenDayEditorialImage, { file: string;
 };
 
 /**
+ * The closed key list an article may name (ADR 0034). It is the theme's, not
+ * the merchant's: staff pick from it, they never supply a path.
+ */
+export const EDITORIAL_IMAGE_KEYS = Object.keys(WOVEN_DAY_EDITORIAL_IMAGES) as readonly WovenDayEditorialImage[];
+
+/**
  * These are campaign/editorial photographs owned by the built-in Woven Day
  * theme. Their filenames are closed over here, so a renderer never turns a
  * store, product, or article input into a public filesystem path.

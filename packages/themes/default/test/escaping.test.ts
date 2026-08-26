@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type {
   ThemeAccountCouponsView,
+  ThemeArticleView,
   ThemeAccountProfileView,
   ThemeAccountRewardsView,
   ThemeAuthView,
@@ -156,8 +157,33 @@ const profile: ThemeAccountProfileView = {
   error: PROBE,
 };
 
+/** Every article field a merchant can type is a probe: the storefront renders them raw. */
+const probeArticle = (kind: ThemeArticleView['kind']): ThemeArticleView => ({
+  kind,
+  slug: PROBE,
+  section: PROBE,
+  title: PROBE,
+  summary: PROBE,
+  body: [{ heading: PROBE, text: PROBE }, { heading: null, text: PROBE }],
+  imageKey: PROBE,
+  publishedAt: DATE,
+});
+
 const surfaces: [name: string, render: () => string][] = [
-  ['renderHome', () => defaultTheme.renderHome(context(), { products: [product], q: PROBE, minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 })],
+  ['renderHome', () => defaultTheme.renderHome(context(), {
+    products: [product], q: PROBE, minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1,
+    story: probeArticle('story'), journal: [probeArticle('journal')], news: [probeArticle('news')],
+  })],
+  ['renderStory', () => defaultTheme.renderStory!(context(), { article: probeArticle('story') })],
+  ['renderJournalList', () => defaultTheme.renderJournalList!(context(), { kind: 'journal', articles: [probeArticle('journal')] })],
+  ['renderJournalArticle', () => defaultTheme.renderJournalArticle!(context(), { article: probeArticle('journal') })],
+  ['renderNewsList', () => defaultTheme.renderNewsList!(context(), { kind: 'news', articles: [probeArticle('news')] })],
+  ['renderNewsArticle', () => defaultTheme.renderNewsArticle!(context(), { article: probeArticle('news') })],
+  ['renderFaq', () => defaultTheme.renderFaq!(context(), { kind: 'faq', articles: [probeArticle('faq')] })],
+  // The only surface that reflects an attacker's own submission straight back.
+  ['renderContact', () => defaultTheme.renderContact!(context(), {
+    submitted: false, error: PROBE, values: { name: PROBE, email: PROBE, subject: PROBE, message: PROBE },
+  })],
   ['renderProduct', () => defaultTheme.renderProduct(context(), { product })],
   ['renderCart', () => defaultTheme.renderCart(context(), cart)],
   ['renderCheckout', () => defaultTheme.renderCheckout(context(), checkout)],
@@ -198,7 +224,7 @@ describe('Default Theme 把資料當文字輸出', () => {
   it('未登入的訪客頁面同樣不被 notice 與店名注入', () => {
     const html = defaultTheme.renderHome(
       context({ customerName: null, csrfToken: null }),
-      { products: [product], q: PROBE, minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 },
+      { products: [product], q: PROBE, minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] },
     );
 
     expectNoMarkupInjection(html);

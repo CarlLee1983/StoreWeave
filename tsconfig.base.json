@@ -40,6 +40,7 @@
       "@storeweave/order": ["packages/commerce/order/src/index.ts"],
       "@storeweave/invoice": ["packages/commerce/invoice/src/index.ts"],
       "@storeweave/refund": ["packages/commerce/refund/src/index.ts"],
+      "@storeweave/content": ["packages/commerce/content/src/index.ts"],
       "@storeweave/rma": ["packages/commerce/rma/src/index.ts"],
       "@storeweave/customer": ["packages/commerce/customer/src/index.ts"],
       "@storeweave/cart": ["packages/commerce/cart/src/index.ts"],

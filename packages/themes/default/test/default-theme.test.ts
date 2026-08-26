@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ThemeCartView, ThemeContext, ThemeOrderView, ThemeProductView } from '@storeweave/kernel';
+import type { ThemeArticleView, ThemeCartView, ThemeContext, ThemeOrderView, ThemeProductView } from '@storeweave/kernel';
 import { defaultTheme } from '../src/index';
 
 const context = (overrides: Partial<ThemeContext> = {}): ThemeContext => ({
@@ -24,6 +24,54 @@ const product: ThemeProductView = {
   priceCents: 128_000,
   currency: 'TWD',
   available: 3,
+};
+
+const story: ThemeArticleView = {
+  kind: 'story',
+  slug: 'woven-day',
+  section: '織日選物 · Woven Day',
+  title: '讓每天使用的物件，慢慢成為生活的一部分。',
+  summary: '我們從每天會碰觸、會使用、也會被留下的事物開始。',
+  body: [
+    { heading: null, text: '不是為了把空間佈置得更滿，而是希望讓生活裡常見的一刻，多一點從容。' },
+    { heading: '從手邊開始', text: '一只杯、一塊布、一張托盤，常常比想像中更接近生活的核心。' },
+    { heading: '替留白保留位置', text: '好的物件不需要搶走空間的聲音。' },
+  ],
+  imageKey: 'story',
+  publishedAt: new Date('2026-08-01T00:00:00Z'),
+};
+
+const journalArticle: ThemeArticleView = {
+  kind: 'journal',
+  slug: 'room-for-the-table',
+  section: '日常提案',
+  title: '為桌面留一塊空白',
+  summary: '把最常使用的物件留在手邊，讓桌面成為可以慢下來的一小段地方。',
+  body: [{ heading: null, text: '留下一小塊空白，是替下一個動作保留餘裕。' }],
+  imageKey: 'story',
+  publishedAt: new Date('2026-08-10T00:00:00Z'),
+};
+
+const newsArticle: ThemeArticleView = {
+  kind: 'news',
+  slug: 'holiday-shipping',
+  section: '店務公告',
+  title: '連假出貨安排',
+  summary: '連假期間出貨會順延一個工作天。',
+  body: [{ heading: null, text: '連假結束後會依下單順序依序出貨。' }],
+  imageKey: null,
+  publishedAt: new Date('2026-08-20T00:00:00Z'),
+};
+
+const faqEntry: ThemeArticleView = {
+  kind: 'faq',
+  slug: 'delivery-date',
+  section: '出貨',
+  title: '可以指定到貨日嗎？',
+  summary: '',
+  body: [{ heading: null, text: '目前無法指定，訂單成立後會依序安排出貨。' }],
+  imageKey: null,
+  publishedAt: new Date('2026-08-05T00:00:00Z'),
 };
 
 const cart: ThemeCartView = {
@@ -70,7 +118,7 @@ const order: ThemeOrderView = {
 
 describe('Default Theme 的商品瀏覽切片', () => {
   it('以 ThemeProductView 的資料建立可連到商品頁的型錄', () => {
-    const html = defaultTheme.renderHome(context(), { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
+    const html = defaultTheme.renderHome(context(), { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] });
 
     expect(html).toContain('class="catalog-page"');
     expect(html).toContain('class="product-card"');
@@ -88,7 +136,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
 
   it('只輸出 Theme 可證明的商品事實，且主導覽不連向沒有內容來源的頁面', () => {
     const ctx = context({ storeName: '另一間商店', storeId: 'another-store' });
-    const home = defaultTheme.renderHome(ctx, { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
+    const home = defaultTheme.renderHome(ctx, { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] });
     const catalog = defaultTheme.renderCatalog!(ctx, { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
     const detail = defaultTheme.renderProduct(ctx, { product });
 
@@ -115,48 +163,111 @@ describe('Default Theme 的商品瀏覽切片', () => {
     expect(detail).not.toContain('配送方式');
 
     const soldOutHome = defaultTheme.renderHome(ctx, {
-      products: [{ ...product, available: 0 }], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1,
+      products: [{ ...product, available: 0 }], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [],
     });
     expect(soldOutHome).toContain('目前有 1 件商品可瀏覽。');
     expect(soldOutHome).not.toContain('目前有 1 件商品正在販售。');
   });
 
-  it('將織日選物的具名品牌內容發布為首頁、品牌故事與生活誌', () => {
-    const ctx = context();
-    const home = defaultTheme.renderHome(ctx, { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
-    const story = defaultTheme.renderStory!(ctx);
-    const journal = defaultTheme.renderJournalList!(ctx, { articles: [] });
-    const article = defaultTheme.renderJournalArticle!(ctx, { article: { slug: 'room-for-the-table' } });
+  it('把 Core 的品牌內容排進首頁、品牌故事、生活誌與最新消息', () => {
+    const ctx = context({ publishedContentKinds: ['story', 'journal', 'news', 'faq'] });
+    const home = defaultTheme.renderHome(ctx, {
+      products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1,
+      story, journal: [journalArticle], news: [newsArticle],
+    });
+    const storyPage = defaultTheme.renderStory!(ctx, { article: story });
+    const journalPage = defaultTheme.renderJournalList!(ctx, { kind: 'journal', articles: [journalArticle] });
+    const articlePage = defaultTheme.renderJournalArticle!(ctx, { article: journalArticle });
+    const newsPage = defaultTheme.renderNewsList!(ctx, { kind: 'news', articles: [newsArticle] });
 
-    expect(home).toContain('Woven Day · 織日選物');
-    expect(home).toContain('<nav class="site-nav" aria-label="主要導覽">\n      <a href="/">首頁</a>\n      <a href="/catalog">商品型錄</a>\n      <a href="/story">品牌故事</a><a href="/journal">生活誌</a>');
+    expect(home).toContain('織日選物 · Woven Day');
+    expect(home).toContain('讓每天使用的物件，慢慢成為生活的一部分。');
+    // hero 與品牌區塊讀同一篇故事，標題不可以印兩次。
+    expect(home.match(/讓每天使用的物件，慢慢成為生活的一部分。/g)).toHaveLength(1);
     expect(home).toContain('href="/story"');
     expect(home).toContain('href="/journal"');
+    expect(home).toContain('href="/news"');
+    expect(home).toContain('href="/faq"');
+    expect(home).toContain('href="/contact"');
     expect(home).toContain('為生活留下的筆記');
-    expect(home).toContain('src="/storefront-assets/woven-day-hero.png"');
-    expect(home).toContain('alt="陽光下的木桌、陶杯、亞麻布與枝葉靜物。"');
-    expect(home).toContain('loading="eager"');
-    expect(story).toContain('class="brand-story-page"');
-    expect(story).toContain('src="/storefront-assets/woven-day-story.png"');
-    expect(journal).toContain('class="journal-grid journal-grid--three"');
-    expect(journal).toContain('src="/storefront-assets/woven-day-journal.png"');
-    expect(article).toContain('為桌面留一塊空白');
-    expect(article).toContain('src="/storefront-assets/woven-day-story.png"');
-    expect(defaultTheme.renderJournalArticle!(ctx, { article: { slug: 'objects-and-time' } }))
-      .toContain('src="/storefront-assets/woven-day-hero.png"');
-    expect(defaultTheme.renderJournalArticle!(ctx, { article: { slug: 'a-quieter-home' } }))
-      .toContain('src="/storefront-assets/woven-day-journal.png"');
-    expect(article).not.toContain('images.unsplash.com');
-    expect(defaultTheme.isStoryPublished!(ctx)).toBe(true);
-    expect(defaultTheme.isJournalArticlePublished!(ctx, 'room-for-the-table')).toBe(true);
-    expect(defaultTheme.isJournalArticlePublished!(ctx, 'not-a-real-article')).toBe(false);
-    expect(defaultTheme.renderJournalArticle!(ctx, { article: { slug: 'not-a-real-article' } })).toContain('找不到這篇文章。');
-    expect(defaultTheme.isStoryPublished!({ ...ctx, storeId: 'another-store' })).toBe(false);
+    expect(home).toContain('連假出貨安排');
+    // Chapters are numbered by position, not by a number stored with the text.
+    expect(home).toContain('<span>01</span><h3>從手邊開始</h3>');
+
+    expect(storyPage).toContain('class="brand-story-page"');
+    expect(storyPage).toContain('src="/storefront-assets/woven-day-story.png"');
+    expect(storyPage).toContain('從手邊開始');
+    expect(journalPage).toContain('class="journal-grid journal-grid--three"');
+    expect(journalPage).toContain('src="/storefront-assets/woven-day-story.png"');
+    expect(articlePage).toContain('為桌面留一塊空白');
+    expect(articlePage).toContain('href="/journal"');
+    expect(newsPage).toContain('連假出貨安排');
+    expect(newsPage).toContain('<time datetime="2026-08-20">');
+    expect(articlePage).not.toContain('images.unsplash.com');
+  });
+
+  it('沒有發布內容的商店，導覽列不出現品牌頁面入口', () => {
+    const html = defaultTheme.renderHome(context({ publishedContentKinds: [] }), {
+      products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1,
+      story: null, journal: [], news: [],
+    });
+    expect(html).not.toContain('href="/story"');
+    expect(html).not.toContain('href="/journal"');
+    expect(html).not.toContain('href="/news"');
+    expect(html).not.toContain('href="/faq"');
+    // Contact needs no content, so it stays.
+    expect(html).toContain('href="/contact"');
+  });
+
+  it('文章指向已經不存在的圖片 key 時，改用無圖版型而不是壞掉', () => {
+    const html = defaultTheme.renderJournalArticle!(context(), {
+      article: { ...journalArticle, imageKey: 'removed-last-season' },
+    });
+    expect(html).toContain('為桌面留一塊空白');
+    expect(html).not.toContain('storefront-assets/removed-last-season');
+    expect(html).not.toContain('class="article-hero-art"');
+  });
+
+  it('常見問題依店家的分類分組，並導向聯絡我們', () => {
+    const html = defaultTheme.renderFaq!(context(), {
+      kind: 'faq',
+      articles: [
+        { ...faqEntry, title: '可以指定到貨日嗎？', section: '出貨' },
+        { ...faqEntry, slug: 'returns', title: '收到後可以退貨嗎？', section: '退換貨' },
+      ],
+    });
+    expect(html).toContain('出貨');
+    expect(html).toContain('退換貨');
+    expect(html).toContain('可以指定到貨日嗎？');
+    expect(html).toContain('href="/contact"');
+  });
+
+  it('聯絡我們是標準表單 POST，帶 honeypot 與 CSRF，送出後改顯示結果', () => {
+    const form = defaultTheme.renderContact!(context({ csrfToken: 'token-1' }), {
+      submitted: false, values: { name: '', email: '', subject: '', message: '' },
+    });
+    expect(form).toContain('method="post" action="/contact"');
+    expect(form).toContain('name="_csrf" value="token-1"');
+    expect(form).toContain('name="website"');
+    expect(form).not.toContain('<script');
+
+    const failed = defaultTheme.renderContact!(context(), {
+      submitted: false, error: '請填寫訊息內容。',
+      values: { name: '林小姐', email: 'a@example.test', subject: '出貨', message: '' },
+    });
+    expect(failed).toContain('請填寫訊息內容。');
+    expect(failed).toContain('value="林小姐"');
+
+    const done = defaultTheme.renderContact!(context(), {
+      submitted: true, values: { name: '', email: '', subject: '', message: '' },
+    });
+    expect(done).toContain('訊息已送出');
+    expect(done).not.toContain('name="website"');
   });
 
   it('為織日選物已知 SKU 輸出對應的商品攝影格位', () => {
     const productPhoto = { ...product, sku: 'WD-POT-01' };
-    const home = defaultTheme.renderHome(context(), { products: [productPhoto], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
+    const home = defaultTheme.renderHome(context(), { products: [productPhoto], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] });
     const detail = defaultTheme.renderProduct(context(), { product: productPhoto });
 
     for (const html of [home, detail]) {
@@ -380,7 +491,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('使用指定的表面色與可預期的置頂頁首層級', () => {
-    const html = defaultTheme.renderHome(context(), { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
+    const html = defaultTheme.renderHome(context(), { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] });
 
     expect(html).toContain('--surface-raised: #fffdfc;');
     expect(html).toContain('position: sticky;');
@@ -391,7 +502,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
 
   it('保留搜尋字串並以安全連結輸出分頁與空頁提示', () => {
     const html = defaultTheme.renderHome(context(), {
-      products: [], q: '托盤 & <script>', minPrice: 300, maxPrice: 900, page: 4, pageSize: 12, total: 25,
+      products: [], q: '托盤 & <script>', minPrice: 300, maxPrice: 900, page: 4, pageSize: 12, total: 25, story: null, journal: [], news: [],
     });
 
     expect(html).toContain('role="search"');
@@ -404,7 +515,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
     expect(html).not.toContain('<script>');
 
     const priceOnlyEmpty = defaultTheme.renderHome(context(), {
-      products: [], q: '', minPrice: 300, maxPrice: null, page: 1, pageSize: 24, total: 0,
+      products: [], q: '', minPrice: 300, maxPrice: null, page: 1, pageSize: 24, total: 0, story: null, journal: [], news: [],
     });
     expect(priceOnlyEmpty).toContain('找不到符合目前篩選條件的商品。');
     expect(priceOnlyEmpty).not.toContain('目前沒有上架的商品。');

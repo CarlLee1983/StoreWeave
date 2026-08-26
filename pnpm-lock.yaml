@@ -131,6 +131,8 @@ importers:
 
   packages/commerce/catalog: {}
 
+  packages/commerce/content: {}
+
   packages/commerce/coupon: {}
 
   packages/commerce/customer: {}

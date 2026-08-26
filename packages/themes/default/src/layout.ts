@@ -46,7 +46,17 @@ export function layout({ title, body, ctx }: LayoutOptions): string {
   const accent = escapeHtml(ctx.options.accentColor ?? '#8C3E28');
   const tagline = escapeHtml(ctx.options.tagline ?? '');
   const supportEmail = ctx.supportEmail ? escapeHtml(ctx.supportEmail) : '';
-  const isWovenDay = ctx.storeId === 'example-store';
+  // Brand links appear only where the store has published something: the
+  // storefront tells the theme what exists, the theme never guesses (ADR 0033).
+  const published = new Set(ctx.publishedContentKinds ?? []);
+  const brandLink = (kind: 'story' | 'journal' | 'news' | 'faq', href: string, label: string) =>
+    (published.has(kind) ? `<a href="${href}">${label}</a>` : '');
+  const brandNav = [
+    brandLink('story', '/story', '品牌故事'),
+    brandLink('journal', '/journal', '生活誌'),
+    brandLink('news', '/news', '最新消息'),
+    brandLink('faq', '/faq', '常見問題'),
+  ].join('');
   return `<!doctype html>
 <html lang="${escapeHtml(ctx.locale)}">
 <head>
@@ -74,7 +84,8 @@ export function layout({ title, body, ctx }: LayoutOptions): string {
     <nav class="site-nav" aria-label="主要導覽">
       <a href="/">首頁</a>
       <a href="/catalog">商品型錄</a>
-      ${isWovenDay ? '<a href="/story">品牌故事</a><a href="/journal">生活誌</a>' : ''}
+      ${brandNav}
+      <a href="/contact">聯絡我們</a>
       <a href="/cart">購物車</a>
     </nav>
     <nav class="account" aria-label="帳戶操作">${accountNav(ctx)}</nav>
@@ -104,15 +115,13 @@ export function layout({ title, body, ctx }: LayoutOptions): string {
         <a href="/account/orders">訂單查詢</a>
       </nav>
     </div>
-    ${isWovenDay ? `<div class="footer-nav-col">
-      <p class="footer-heading">織日選物</p>
-      <nav class="footer-links">
-        <a href="/story">品牌故事</a>
-        <a href="/journal">生活誌</a>
-      </nav>
+    ${brandNav ? `<div class="footer-nav-col">
+      <p class="footer-heading">認識我們</p>
+      <nav class="footer-links">${brandNav}</nav>
     </div>` : ''}
     ${supportEmail ? `<div class="footer-nav-col">
       <p class="footer-heading">聯絡</p>
+      <nav class="footer-links"><a href="/contact">寫訊息給我們</a></nav>
       <p><a class="footer-email" href="mailto:${supportEmail}">${supportEmail}</a></p>
     </div>` : ''}
   </div>
@@ -807,6 +816,94 @@ th { color: var(--ink-muted); font-size: .75rem; font-weight: 700; letter-spacin
 .journal-card h3 { margin: 0; font-size: 1.35rem; line-height: 1.35; }
 .journal-card p { margin: 0; color: var(--ink-muted); font-size: .92rem; line-height: 1.7; }
 .journal-card__read { color: var(--accent); font-weight: 700; font-size: .85rem; margin-top: .4rem; display: inline-flex; align-items: center; gap: .3rem; }
+
+/* 最新消息 /news、常見問題 /faq、聯絡我們 /contact */
+
+/*
+  Honeypot。它必須真的離開視線：一個看得見的「請不要填寫」欄位，
+  只會讓手滑或密碼管理器自動填入的真人被當成機器人靜靜丟掉。
+  用位移而不是 display:none —— 後者有些自動填入工具會直接跳過。
+*/
+.contact-hp {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.news-page, .faq-page, .contact-page { display: grid; gap: clamp(2.5rem, 5vw, 4rem); }
+
+.news-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 1.5rem; }
+.news-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: clamp(1rem, 3vw, 2.5rem);
+  align-items: baseline;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--line-subtle);
+}
+.news-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.news-row time { color: var(--ink-muted); font-size: .85rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.news-row__copy { display: grid; gap: .5rem; }
+.news-row__meta { margin: 0; color: var(--accent); font-size: .78rem; font-weight: 700; letter-spacing: .06em; }
+.news-row h3 { margin: 0; font-size: 1.25rem; line-height: 1.4; }
+.news-row p { margin: 0; color: var(--ink-muted); font-size: .92rem; line-height: 1.7; }
+.news-list--compact .news-row:last-child { border-bottom: 0; }
+@media (max-width: 40rem) {
+  .news-row { grid-template-columns: 1fr; gap: .5rem; }
+}
+
+.faq-group { display: grid; gap: 1.25rem; }
+.faq-group__title { margin: 0; font-size: 1.05rem; color: var(--accent); letter-spacing: .04em; }
+.faq-list { margin: 0; display: grid; gap: 1.25rem; }
+.faq-item { padding-bottom: 1.25rem; border-bottom: 1px solid var(--line-subtle); }
+.faq-item:last-child { border-bottom: 0; padding-bottom: 0; }
+.faq-item dt { font-weight: 700; font-size: 1.05rem; margin-bottom: .6rem; }
+.faq-item dd { margin: 0; color: var(--ink-muted); line-height: 1.8; display: grid; gap: .75rem; }
+.faq-closing { color: var(--ink-muted); }
+.faq-closing a { color: var(--accent); font-weight: 700; }
+
+.contact-form { display: grid; gap: 1.25rem; max-width: 34rem; }
+.contact-form .field { display: grid; gap: .35rem; }
+.contact-form .field > span { font-weight: 700; font-size: .9rem; }
+.contact-form input, .contact-form textarea {
+  width: 100%;
+  padding: .7rem .85rem;
+  border: 1px solid var(--line-subtle);
+  border-radius: .6rem;
+  background: var(--surface-raised);
+  color: inherit;
+  font: inherit;
+}
+.contact-form textarea { resize: vertical; line-height: 1.7; }
+.contact-form input:focus-visible, .contact-form textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.contact-form .cta { justify-self: start; }
+.contact-done { display: grid; gap: .75rem; max-width: 34rem; }
+.contact-done h2 { margin: 0; }
+.contact-done p { margin: 0; color: var(--ink-muted); line-height: 1.8; }
+.contact-done .secondary-action { justify-self: start; }
+.contact-support { color: var(--ink-muted); font-size: .92rem; }
+.contact-support a { color: var(--accent); font-weight: 700; }
+
+/* 送出失敗的原因要看得出來是錯誤，不是一段說明文字。 */
+.form-error {
+  margin: 0;
+  padding: .75rem 1rem;
+  border-radius: .6rem;
+  border: 1px solid var(--state-danger);
+  background: var(--state-danger-surface);
+  color: var(--state-danger-ink);
+  font-size: .9rem;
+}
+
+/* 首頁的最新消息區塊與品牌故事的前言段落 */
+.storefront-news { display: grid; gap: 1.75rem; }
+.brand-story-lead { display: grid; gap: 1rem; max-width: 44rem; color: var(--ink-muted); line-height: 1.9; }
+.brand-story-lead p { margin: 0; }
+.article-block { display: grid; gap: .6rem; }
+.article-block h2 { margin: 0; font-size: 1.2rem; }
+.article-block p { margin: 0; }
 
 /* 品牌故事獨立專頁 /story */
 .story-page { display: grid; gap: clamp(3.5rem, 6vw, 5.5rem); }

@@ -34,7 +34,9 @@ packages/platform/
                         以及平台自身的維運模組（platform.jobs.* 死信佇列，見 ADR 0011）
   bundle/               這個 Commerce Release 編進了哪些模組、Extension 與 Theme
 
-packages/commerce/      第一個產品（Commerce Core）：catalog / inventory / order
+packages/commerce/      第一個產品（Commerce Core）：cart / catalog / content / coupon /
+                        customer / inventory / invoice / loyalty / notification /
+                        order / promotion / refund / rma / shipping
 packages/extensions/    mock-payment / demo-erp / mcp
 packages/themes/default 預設 Storefront Theme（純 SSR 表單，不載入 JavaScript）
 tools/cli/              commerce CLI
@@ -100,7 +102,8 @@ Worker 每一輪確保「當下這個切片」已排入。沒有自我續排的�
 
 ## 模組邊界
 
-- 每個平台模組各自擁有自己的資料表與 migration。Commerce Core 的是 `catalog_*`、`inventory_*`、`order_*`。
+- 每個平台模組各自擁有自己的資料表與 migration，前綴即模組名：`catalog_*`、`inventory_*`、
+  `order_*`、`content_*`⋯⋯以此類推。
 - 模組之間**只能**呼叫對方匯出的 service：`order` 扣庫存呼叫 `inventoryService.adjust(ctx, ...)`，
   取得商品呼叫 `catalogService.requireActiveProduct(tx, id)`。這兩個函式接受呼叫端的交易，
   因此跨模組操作仍在同一個交易內。

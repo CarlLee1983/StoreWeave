@@ -39,6 +39,7 @@ COPY packages/commerce/notification/package.json packages/commerce/notification/
 COPY packages/commerce/order/package.json packages/commerce/order/
 COPY packages/commerce/promotion/package.json packages/commerce/promotion/
 COPY packages/commerce/refund/package.json packages/commerce/refund/
+COPY packages/commerce/content/package.json packages/commerce/content/
 COPY packages/commerce/rma/package.json packages/commerce/rma/
 COPY packages/commerce/shipping/package.json packages/commerce/shipping/
 COPY packages/extensions/demo-erp/package.json packages/extensions/demo-erp/

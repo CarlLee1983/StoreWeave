@@ -582,8 +582,135 @@ async function seed(runtime: Runtime) {
     console.log('  ✓ 一般會員: alice@example.com (密碼: CustomerPassword123!)');
   } catch {}
 
+
+  // 品牌內容：品牌故事、生活誌、最新消息與常見問題
+  let brandPublished = 0;
+  for (const article of BRAND_ARTICLES) {
+    try {
+      const created = await runtime.commands.execute<{ id: string }>(
+        'commerce.content.createArticle',
+        {
+          kind: article.kind, slug: article.slug, title: article.title, summary: article.summary,
+          section: article.section, body: article.body.map((block) => ({ ...block })),
+          imageKey: article.imageKey, position: article.position,
+        },
+        { actor: SEED_ACTOR, idempotencyKey: `seed-content-${article.kind}-${article.slug}` },
+      );
+      await runtime.commands.execute(
+        'commerce.content.publishArticle',
+        { id: created.id },
+        { actor: SEED_ACTOR, idempotencyKey: `seed-content-publish-${article.kind}-${article.slug}` },
+      );
+      brandPublished += 1;
+    } catch (err) {
+      // 重跑 seed 時 slug 已存在是正常的；其他原因要看得見，否則整批沒進去也沒人知道。
+      const message = err instanceof Error ? err.message : String(err);
+      if (!/already used/.test(message)) console.warn(`  ! 品牌內容 ${article.kind}/${article.slug} 未建立: ${message}`);
+    }
+  }
+  // 重跑時冪等鍵會讓 command 重播回原本的結果，所以這是「確保已發布」的篇數，
+  // 不是「這一次新建」的篇數——寫成後者在第二次執行就是假的。
+  console.log(`  ✓ 品牌內容: 已確保 ${brandPublished} / ${BRAND_ARTICLES.length} 篇為發布狀態（品牌故事、生活誌、最新消息、常見問題）`);
+
   console.log('\n🎉 StoreWeave 完整 Demo 資料注入完成！');
 }
+
+
+/**
+ * 織日選物的品牌內容。這些文字在 ADR 0033 之前寫死在 Theme 裡，
+ * 現在是 content 模組的資料——店家改得動，Theme 只負責呈現。
+ */
+const BRAND_ARTICLES = [
+  {
+    kind: 'story', slug: 'woven-day', section: '織日選物 · Woven Day', position: 0, imageKey: 'story',
+    title: '為日常，採集一點剛好的溫度。',
+    summary: '我們從每天會碰觸、會使用、也會被留下的事物開始。不是為了把空間佈置得更滿，而是希望讓生活裡常見的一刻，多一點從容。',
+    body: [
+      { heading: null, text: '織日選物為桌面、餐桌與起居留下值得反覆使用的器物與織物。我們相信，生活的質地不在於填滿，而在於留下恰好的選擇。' },
+      { heading: '從手邊開始', text: '一只杯、一塊布、一張托盤，常常比想像中更接近生活的核心。我們把注意力放在這些反覆出現的小事，讓選擇回到使用本身。' },
+      { heading: '替留白保留位置', text: '好的物件不需要搶走空間的聲音。它可以安靜地陪伴餐桌、窗邊與工作桌，讓光線、時間與人的習慣自然形成自己的樣子。' },
+      { heading: '把使用看得更久', text: '我們喜歡會隨著日常留下痕跡的東西。當一件物件被持續使用，它不只屬於某個時刻，也慢慢長成每個人的生活記憶。' },
+    ],
+  },
+  {
+    kind: 'journal', slug: 'room-for-the-table', section: '日常提案', position: 0, imageKey: 'journal-room',
+    title: '為桌面留一塊空白',
+    summary: '不必每次都從添購開始。把最常使用的物件留在手邊，讓桌面成為可以慢下來的一小段地方。',
+    body: [
+      { heading: null, text: '桌面是一天裡最容易被事情填滿的地方：待辦、訊息、餐具、工作與零碎的心思都會暫時落在這裡。留下一小塊空白，並不是要讓生活變得過度整齊，而是替下一個動作保留餘裕。' },
+      { heading: null, text: '從一件會反覆使用的器物開始就好。把它放在順手的位置，觀察它如何參與早晨、午餐或傍晚。當物件有了固定的位置，空間也會開始長出自己的節奏。' },
+      { heading: null, text: '選物的意義不在於擁有更多，而是在每一次使用時，都能感覺到這件東西剛好適合留下來。' },
+    ],
+  },
+  {
+    kind: 'journal', slug: 'objects-and-time', section: '選物筆記', position: 1, imageKey: 'journal-pause',
+    title: '讓物件與時間一起生活',
+    summary: '真正被留下的物件，往往不是因為它完美無瑕，而是它在一次次日常裡變得熟悉。',
+    body: [
+      { heading: null, text: '我們喜歡物件被使用後留下的細微變化：一個總是被拿起的杯把、一塊洗過幾次後更柔軟的布，或是餐桌上漸漸熟悉的擺放方式。它們不需要被刻意紀錄，卻能讓日常有了辨識度。' },
+      { heading: null, text: '挑選時，先想像它會在哪個片刻出現：早餐的光線裡、朋友來訪前，或是一個人工作的下午。這個問題比風格名稱更接近真正的需要。' },
+      { heading: null, text: '當一件物件能自然地進入生活，它就不只是擺設，而是時間留在家裡的一種方式。' },
+    ],
+  },
+  {
+    kind: 'journal', slug: 'a-quieter-home', section: '空間片刻', position: 2, imageKey: 'journal-occasion',
+    title: '把家留得安靜一點',
+    summary: '從光線、觸感與常用物件出發，為每天的起居留下一個不必急著完成的角落。',
+    body: [
+      { heading: null, text: '家不必在一夜之間被佈置完成。比起追趕某種風格，更值得的是讓空間隨著生活慢慢長出樣子。' },
+      { heading: null, text: '先整理一個最常停留的角落：讓桌面只留下會使用的物件，讓一塊織物或一盞燈承接光線，然後暫時不要急著補上其他東西。' },
+      { heading: null, text: '安靜不是空無一物，而是每件留下來的東西都有它被需要的理由。' },
+    ],
+  },
+  {
+    kind: 'news', slug: 'holiday-shipping', section: '出貨公告', position: 0, imageKey: null,
+    title: '連假期間的出貨安排',
+    summary: '連假期間倉庫暫停作業，出貨會順延一個工作天。',
+    body: [
+      { heading: null, text: '連假期間倉庫暫停作業。假期內成立的訂單會在收假後的第一個工作日依下單順序陸續出貨，超商取貨的到店通知也會順延。' },
+      { heading: null, text: '若你的訂單有指定的使用時間，歡迎先寫訊息告訴我們，我們會盡量提前安排。' },
+    ],
+  },
+  {
+    kind: 'news', slug: 'new-arrival-pottery', section: '新品上架', position: 1, imageKey: 'journal-occasion',
+    title: '陶器系列補貨與新色上架',
+    summary: '長期缺貨的陶杯回來了，同時多了兩個新的釉色。',
+    body: [
+      { heading: null, text: '陶器系列這一批補了長期缺貨的品項，也加入兩個新的釉色。每一只都是手工上釉，顏色與紋理會有些微差異，那是它本來的樣子。' },
+      { heading: null, text: '數量有限，售完後的下一批要等窯期，我們會在最新消息更新。' },
+    ],
+  },
+  {
+    kind: 'faq', slug: 'shipping-time', section: '出貨與配送', position: 0, imageKey: null,
+    title: '下單後多久會出貨？',
+    summary: '',
+    body: [{ heading: null, text: '一般訂單會在付款完成後的一到兩個工作日內出貨。宅配約再一到兩天送達，超商取貨到店約兩到三天，到店後會收到通知簡訊。' }],
+  },
+  {
+    kind: 'faq', slug: 'shipping-fee', section: '出貨與配送', position: 1, imageKey: null,
+    title: '運費怎麼算？有免運嗎？',
+    summary: '',
+    body: [{ heading: null, text: '運費依你選擇的運送方式而定，結帳頁會顯示這一筆訂單的實際金額。達到免運門檻時，運費會自動歸零；折扣與購物金折抵不會用在運費上。' }],
+  },
+  {
+    kind: 'faq', slug: 'returns', section: '退換貨', position: 2, imageKey: null,
+    title: '收到商品後可以退換貨嗎？',
+    summary: '',
+    body: [
+      { heading: null, text: '商品送達後七天內，在保持完整、可再販售的狀態下都可以申請退貨。到「我的訂單」找到該筆訂單就能提出申請，我們會回覆後續的寄回方式。' },
+      { heading: null, text: '手工製品的釉色、織紋與尺寸會有些微差異，這屬於材質本身的特性，不算瑕疵。若你收到的商品有破損，請直接寫訊息給我們。' },
+    ],
+  },
+  {
+    kind: 'faq', slug: 'reward-points', section: '會員與購物金', position: 3, imageKey: null,
+    title: '購物金和等級積分有什麼不同？',
+    summary: '',
+    body: [
+      { heading: null, text: '購物金可以在結帳時折抵商品金額，每一批都有自己的有效期限；等級積分只用來決定會員等級，不能折抵金額。' },
+      { heading: null, text: '等級積分以滾動十二個月計算，因此會隨時間變動。兩者的明細都可以在「購物金與等級」頁面查到。' },
+    ],
+  },
+] as const;
 
 async function main() {
   const configPath = process.env.COMMERCE_CONFIG ?? (

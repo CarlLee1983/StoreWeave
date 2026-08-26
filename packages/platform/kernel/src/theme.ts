@@ -22,6 +22,46 @@ export interface ThemeCatalogView {
   total: number;
 }
 
+/** 一篇可發布的編輯文字。內容歸 content 模組，Theme 只決定它長什麼樣（ADR 0033）。 */
+export interface ThemeArticleView {
+  kind: 'story' | 'journal' | 'news' | 'faq';
+  slug: string;
+  title: string;
+  summary: string;
+  /** 標題上方的分組字樣：生活誌的欄目、FAQ 的分類。沒有就是空字串。 */
+  section: string;
+  /** 段落區塊。`heading` 只有品牌故事的章節會用到，其餘一律 null。 */
+  body: { heading: string | null; text: string }[];
+  /**
+   * Theme 自己擁有的照片 key，不含路徑與副檔名（ADR 0034）。
+   * key 指向的圖可能已經從 Theme 拿掉，版型必須容得下沒有圖。
+   */
+  imageKey: string | null;
+  publishedAt: Date | null;
+}
+
+export interface ThemeArticleListView {
+  kind: ThemeArticleView['kind'];
+  articles: ThemeArticleView[];
+}
+
+/** 首頁同時要商品與品牌內容；沒有發布任何品牌內容的商店拿到 null 與空陣列。 */
+export interface ThemeHomeView extends ThemeCatalogView {
+  story: ThemeArticleView | null;
+  journal: ThemeArticleView[];
+  news: ThemeArticleView[];
+}
+
+/**
+ * 聯絡我們。送出成功後以 `submitted` 呈現結果頁，失敗則帶回填值與錯誤——
+ * 這是標準表單 POST，沒有 JavaScript 也要說得清楚發生了什麼。
+ */
+export interface ThemeContactView {
+  submitted: boolean;
+  values: { name: string; email: string; subject: string; message: string };
+  error?: string;
+}
+
 export interface ThemeOrderView {
   number: string;
   status: string;
@@ -267,6 +307,11 @@ export interface ThemeContext {
   /** 登入者的 CSRF token。寫入表單必須把它放進隱藏欄位 `_csrf`。 */
   csrfToken?: string | null;
   /**
+   * 哪幾種品牌內容目前有已發布的文章。導覽列靠它決定要不要出現入口——
+   * Theme 不該自己猜哪些頁面存在（ADR 0033）。
+   */
+  publishedContentKinds?: readonly ThemeArticleView['kind'][];
+  /**
    * 一次性提示，例如「登入時有下架商品被移出購物車」。
    * 由 Storefront 讀取後即清除，Theme 只負責顯示。
    */
@@ -281,7 +326,12 @@ export interface StorefrontTheme {
   readonly id: string;
   readonly name: string;
   readonly optionsSchema: ZodTypeAny;
-  renderHome(ctx: ThemeContext, data: ThemeCatalogView): string;
+  /**
+   * 這個 Theme 可以配給文章的照片 key（ADR 0034）。後台從這份清單挑，
+   * 永遠不是自己填一個路徑。沒有宣告就是這個 Theme 的文章不配圖。
+   */
+  readonly editorialImageKeys?: readonly string[];
+  renderHome(ctx: ThemeContext, data: ThemeHomeView): string;
   renderProduct(ctx: ThemeContext, data: { product: ThemeProductView }): string;
   renderOrder(ctx: ThemeContext, data: { order: ThemeOrderView }): string;
   renderError(ctx: ThemeContext, data: { status: number; message: string }): string;
@@ -307,16 +357,16 @@ export interface StorefrontTheme {
   renderAccountProfile(ctx: ThemeContext, data: ThemeAccountProfileView): string;
   /** 選物全目錄獨立頁面。 */
   renderCatalog?(ctx: ThemeContext, data: ThemeCatalogView): string;
-  /** 品牌工藝故事獨立專頁。 */
-  renderStory?(ctx: ThemeContext): string;
-  /** 是否為目前商店發布品牌故事；未實作時，renderStory 即代表已發布。 */
-  isStoryPublished?(ctx: ThemeContext): boolean;
-  /** 品牌生活風格誌清單頁。 */
-  renderJournalList?(ctx: ThemeContext, data: { articles: any[] }): string;
-  /** 是否為目前商店發布生活誌；未實作時，renderJournalList 即代表已發布。 */
-  isJournalPublished?(ctx: ThemeContext): boolean;
-  /** 品牌生活風格誌專題文章閱讀頁。 */
-  renderJournalArticle?(ctx: ThemeContext, data: { article: any }): string;
-  /** 是否為目前商店發布指定文章；未實作時，renderJournalArticle 即代表已發布。 */
-  isJournalArticlePublished?(ctx: ThemeContext, slug: string): boolean;
+  /**
+   * 品牌內容的版型。方法存不存在表達的是 **Theme 有沒有這個版型**；
+   * 內容存不存在、發布了沒有，是 content 模組的事，Storefront 查完才決定要不要呼叫（ADR 0033）。
+   */
+  renderStory?(ctx: ThemeContext, data: { article: ThemeArticleView }): string;
+  renderJournalList?(ctx: ThemeContext, data: ThemeArticleListView): string;
+  renderJournalArticle?(ctx: ThemeContext, data: { article: ThemeArticleView }): string;
+  renderNewsList?(ctx: ThemeContext, data: ThemeArticleListView): string;
+  renderNewsArticle?(ctx: ThemeContext, data: { article: ThemeArticleView }): string;
+  /** 常見問題是一頁清單，沒有單篇閱讀頁。 */
+  renderFaq?(ctx: ThemeContext, data: ThemeArticleListView): string;
+  renderContact?(ctx: ThemeContext, data: ThemeContactView): string;
 }

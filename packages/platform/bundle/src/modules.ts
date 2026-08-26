@@ -5,6 +5,7 @@ import { inventoryModule } from '@storeweave/inventory';
 import { createOrderModule, orderFulfillmentService, orderInvoiceService, orderNotificationService, orderRefundService, orderReturnService } from '@storeweave/order';
 import { createInvoiceModule } from '@storeweave/invoice';
 import { createRefundModule, refundShipmentGuard } from '@storeweave/refund';
+import { createContentModule } from '@storeweave/content';
 import { createRmaModule } from '@storeweave/rma';
 import { customerModule } from '@storeweave/customer';
 import { createCart } from '@storeweave/cart';
@@ -58,6 +59,7 @@ export function coreModules(options: {
     createNotificationModule(orderNotificationService, options.providers),
     createRefundModule(orderRefundService, { hasShipmentForOrder: shippingService.hasShipmentForOrder }, options.providers),
     createRmaModule(orderReturnService, { hasReturnableShipment: shippingService.hasReturnableShipment }),
+    createContentModule(),
   ];
 }
 

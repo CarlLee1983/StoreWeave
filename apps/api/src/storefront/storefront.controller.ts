@@ -5,7 +5,7 @@ import { Body, Controller, Get, Inject, Param, Post, Query, Req, Res } from '@ne
 import type { FastifyReply } from 'fastify';
 import { PlatformError, SYSTEM_ACTOR, type Actor } from '@storeweave/contracts';
 import { csrfTokenFor } from '@storeweave/identity';
-import type { StorefrontTheme, ThemeContext } from '@storeweave/kernel';
+import type { StorefrontTheme, ThemeArticleView, ThemeContext } from '@storeweave/kernel';
 import type { NotificationProvider, PaymentProvider, ShippingProvider } from '@storeweave/extension-sdk';
 import { customerService } from '@storeweave/customer';
 import { Anonymous, ExternalCallback, Public, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
@@ -27,6 +27,28 @@ const WOVEN_DAY_ARTWORK = new Set([
 /** 重設連結的時效。夠久到收得到信，短到外洩的信件不會長期有效。 */
 const RESET_TTL_MS = 60 * 60 * 1000;
 const CATALOG_PAGE_SIZE = 24;
+
+/** Home only teases brand content; the dedicated pages carry the full list. */
+const HOME_JOURNAL_COUNT = 2;
+const HOME_NEWS_COUNT = 3;
+/** One address may land this many messages per window before it is quietly dropped. */
+const CONTACT_WINDOW_MS = 10 * 60 * 1000;
+const CONTACT_WINDOW_LIMIT = 10;
+
+interface ArticleDtoShape {
+  kind: 'story' | 'journal' | 'news' | 'faq';
+  slug: string; title: string; summary: string; section: string;
+  body: { heading: string | null; text: string }[];
+  imageKey: string | null; publishedAt: string | Date | null;
+}
+
+function toArticleView(article: ArticleDtoShape): ThemeArticleView {
+  return {
+    kind: article.kind, slug: article.slug, title: article.title, summary: article.summary,
+    section: article.section, body: article.body ?? [], imageKey: article.imageKey,
+    publishedAt: article.publishedAt ? new Date(article.publishedAt) : null,
+  };
+}
 
 function catalogQuery(value: unknown): string {
   if (value === undefined) return '';
@@ -119,6 +141,9 @@ export class StorefrontController {
     @Inject(RELEASE) private readonly release: ReleaseInfo,
   ) {}
 
+  /** Sliding contact-form windows keyed by address; in-process, never persisted. */
+  private readonly contactAttempts = new Map<string, number[]>();
+
   /**
    * SSR pages may refer to theme-owned editorial media before a development
    * watcher has rebuilt its release descriptor. Keep this narrow fallback in
@@ -154,7 +179,26 @@ export class StorefrontController {
     return notice;
   }
 
-  private themeContext(req?: AuthenticatedRequest, reply?: FastifyReply): ThemeContext {
+  /**
+   * Which brand pages currently have content. This is one distinct read on a
+   * small indexed table, so the navigation stays truthful the moment staff
+   * publish rather than after a cache window nobody can see.
+   */
+  private async publishedContentKinds(): Promise<readonly ThemeArticleView['kind'][]> {
+    try {
+      const result = await this.runtime.queries.execute<{ kinds: ThemeArticleView['kind'][] }>(
+        'commerce.content.getPublishedKinds', {}, { actor: anonymousActor(), channel: 'rest' },
+      );
+      return result.kinds;
+    } catch (err) {
+      // The navigation is not worth failing a page for, but a failure here is
+      // still a fault: show no brand links and say why in the log.
+      this.runtime.logger.warn({ error: (err as Error).message }, 'brand navigation lookup failed');
+      return [];
+    }
+  }
+
+  private async themeContext(req?: AuthenticatedRequest, reply?: FastifyReply): Promise<ThemeContext> {
     const store = this.runtime.config.store;
     const sessionToken = sessionTokenOf(req, this.runtime.config.http.publicUrl);
     const actor = req?.actor;
@@ -170,6 +214,7 @@ export class StorefrontController {
       // 有 session 就發 token：守衛對任何 cookie 身分都會驗 CSRF，只發給顧客的話，
       // 後台身分逛前台送出表單會拿到裸的 403，而不是那句「請先登入」。
       csrfToken: sessionToken && actor && actor.type !== 'service' ? csrfTokenFor(sessionToken) : null,
+      publishedContentKinds: await this.publishedContentKinds(),
       notice: this.takeNotice(req, reply),
     };
   }
@@ -207,11 +252,17 @@ export class StorefrontController {
         { actor, channel: 'rest' },
       );
       const products = await Promise.all(result.items.map((p) => this.withStock(actor, p)));
-      this.html(reply, 200, this.theme.renderHome(this.themeContext(req, reply), {
+      const [story, journal, news] = await Promise.all([
+        this.publishedArticles('story', 1),
+        this.publishedArticles('journal', HOME_JOURNAL_COUNT),
+        this.publishedArticles('news', HOME_NEWS_COUNT),
+      ]);
+      this.html(reply, 200, this.theme.renderHome(await this.themeContext(req, reply), {
         products, q, minPrice, maxPrice, page, pageSize: CATALOG_PAGE_SIZE, total: result.total,
+        story: story[0] ?? null, journal, news,
       }));
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
@@ -245,48 +296,175 @@ export class StorefrontController {
       );
       const products = await Promise.all(result.items.map((p) => this.withStock(actor, p)));
       const viewData = { products, q, minPrice, maxPrice, page, pageSize: CATALOG_PAGE_SIZE, total: result.total };
+      // A theme without a catalog layout falls back to the home one, which also
+      // wants brand content; only that fallback pays for the extra queries.
       const content = this.theme.renderCatalog
-        ? this.theme.renderCatalog(this.themeContext(req, reply), viewData)
-        : this.theme.renderHome(this.themeContext(req, reply), viewData);
+        ? this.theme.renderCatalog(await this.themeContext(req, reply), viewData)
+        : this.theme.renderHome(await this.themeContext(req, reply), {
+            ...viewData,
+            story: (await this.publishedArticles('story', 1))[0] ?? null,
+            journal: await this.publishedArticles('journal', HOME_JOURNAL_COUNT),
+            news: await this.publishedArticles('news', HOME_NEWS_COUNT),
+          });
       this.html(reply, 200, content);
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
+    }
+  }
+
+  /** Published-only by construction: the storefront never sees the staff queries. */
+  private async publishedArticles(kind: ArticleDtoShape['kind'], limit: number) {
+    // Published brand content is public by definition, so it is read as the
+    // anonymous visitor: a signed-in operator must not see a different storefront.
+    const result = await this.runtime.queries.execute<{ items: ArticleDtoShape[] }>(
+      'commerce.content.listPublishedArticles', { kind, limit }, { actor: anonymousActor(), channel: 'rest' },
+    );
+    return result.items.map(toArticleView);
+  }
+
+  private async publishedArticle(kind: ArticleDtoShape['kind'], slug: string) {
+    const article = await this.runtime.queries.execute<ArticleDtoShape>(
+      'commerce.content.getPublishedArticle', { kind, slug }, { actor: anonymousActor(), channel: 'rest' },
+    );
+    return toArticleView(article);
+  }
+
+  /** A layout the theme does not have, or content the store has not published, is a 404. */
+  private async renderArticleList(
+    req: AuthenticatedRequest, reply: FastifyReply,
+    kind: 'journal' | 'news' | 'faq', render: 'renderJournalList' | 'renderNewsList' | 'renderFaq',
+  ) {
+    try {
+      const layout = this.theme[render];
+      if (!layout) throw PlatformError.notFound('Page', kind);
+      const articles = await this.publishedArticles(kind, 50);
+      if (!articles.length) throw PlatformError.notFound('Page', kind);
+      this.html(reply, 200, layout.call(this.theme, await this.themeContext(req, reply), { kind, articles }));
+    } catch (err) {
+      await this.renderError(reply, err, req);
+    }
+  }
+
+  private async renderArticlePage(
+    req: AuthenticatedRequest, reply: FastifyReply,
+    kind: 'journal' | 'news', slug: string, render: 'renderJournalArticle' | 'renderNewsArticle',
+  ) {
+    try {
+      const layout = this.theme[render];
+      if (!layout) throw PlatformError.notFound('Article', slug);
+      const article = await this.publishedArticle(kind, slug);
+      this.html(reply, 200, layout.call(this.theme, await this.themeContext(req, reply), { article }));
+    } catch (err) {
+      await this.renderError(reply, err, req);
     }
   }
 
   @Get('story')
-  story(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+  async story(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     try {
-      const ctx = this.themeContext(req, reply);
-      if (!this.theme.renderStory || this.theme.isStoryPublished?.(ctx) === false) throw PlatformError.notFound('Page', 'story');
-      const content = this.theme.renderStory(ctx);
-      this.html(reply, 200, content);
+      if (!this.theme.renderStory) throw PlatformError.notFound('Page', 'story');
+      // At most one published story is expected; the first is the one the store means.
+      const [article] = await this.publishedArticles('story', 1);
+      if (!article) throw PlatformError.notFound('Page', 'story');
+      this.html(reply, 200, this.theme.renderStory(await this.themeContext(req, reply), { article }));
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
   @Get('journal')
-  journal(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
-    try {
-      const ctx = this.themeContext(req, reply);
-      if (!this.theme.renderJournalList || this.theme.isJournalPublished?.(ctx) === false) throw PlatformError.notFound('Page', 'journal');
-      const content = this.theme.renderJournalList(ctx, { articles: [] });
-      this.html(reply, 200, content);
-    } catch (err) {
-      this.renderError(reply, err, req);
-    }
+  async journal(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    await this.renderArticleList(req, reply, 'journal', 'renderJournalList');
   }
 
   @Get('journal/:slug')
-  journalArticle(@Req() req: AuthenticatedRequest, @Param('slug') slug: string, @Res() reply: FastifyReply) {
+  async journalArticle(@Req() req: AuthenticatedRequest, @Param('slug') slug: string, @Res() reply: FastifyReply) {
+    await this.renderArticlePage(req, reply, 'journal', slug, 'renderJournalArticle');
+  }
+
+  @Get('news')
+  async news(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    await this.renderArticleList(req, reply, 'news', 'renderNewsList');
+  }
+
+  @Get('news/:slug')
+  async newsArticle(@Req() req: AuthenticatedRequest, @Param('slug') slug: string, @Res() reply: FastifyReply) {
+    await this.renderArticlePage(req, reply, 'news', slug, 'renderNewsArticle');
+  }
+
+  @Get('faq')
+  async faq(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    await this.renderArticleList(req, reply, 'faq', 'renderFaq');
+  }
+
+  @Get('contact')
+  async contactPage(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    if (!this.theme.renderContact) return this.renderError(reply, PlatformError.notFound('Page', 'contact'), req);
+    this.html(reply, 200, this.theme.renderContact(await this.themeContext(req, reply), {
+      submitted: false, values: { name: '', email: '', subject: '', message: '' },
+    }));
+  }
+
+  @Post('contact')
+  async submitContact(@Req() req: AuthenticatedRequest, @Body() body: unknown, @Res() reply: FastifyReply) {
+    const render = this.theme.renderContact;
+    if (!render) return this.renderError(reply, PlatformError.notFound('Page', 'contact'), req);
+    // A form body is untrusted shape as much as untrusted content: a repeated
+    // field arrives as an array, and a JSON post can put an object here.
+    const form = (body ?? {}) as Record<string, unknown>;
+    const field = (name: string) => (typeof form[name] === 'string' ? (form[name] as string).trim() : '');
+    const values = { name: field('name'), email: field('email'), subject: field('subject'), message: field('message') };
+    const blank = { name: '', email: '', subject: '', message: '' };
+    const done = async () => this.html(reply, 200, render.call(this.theme, await this.themeContext(req, reply), { submitted: true, values: blank }));
+
+    // A bot that fills the hidden field gets the same success page as everyone
+    // else. Telling it apart is exactly what it came for.
+    if (field('website') || this.contactOverLimit(req)) return done();
     try {
-      const ctx = this.themeContext(req, reply);
-      if (!this.theme.renderJournalArticle || this.theme.isJournalArticlePublished?.(ctx, slug) === false) throw PlatformError.notFound('Journal article', slug);
-      const content = this.theme.renderJournalArticle(ctx, { article: { slug } });
-      this.html(reply, 200, content);
+      await this.runtime.commands.execute('commerce.content.submitContactMessage', values, {
+        actor: actorOf(req), channel: 'rest', idempotencyKey: randomUUID(),
+      });
     } catch (err) {
-      this.renderError(reply, err, req);
+      const message = err instanceof PlatformError && err.httpStatus < 500 ? err.message : '訊息送出失敗，請稍後再試一次。';
+      return this.html(reply, 400, render.call(this.theme, await this.themeContext(req, reply), { submitted: false, values, error: message }));
+    }
+    // Counted only once a message actually lands, so a visitor who mistypes
+    // their address several times is not silently swallowed on the next try.
+    this.recordContactLanding(req);
+    await done();
+  }
+
+  /**
+   * In-process only, and deliberately so: the address is never persisted, and a
+   * restart forgetting the window is cheaper than storing what visitors did.
+   *
+   * Behind a reverse proxy with `http.trustProxy` off, every visitor shares the
+   * proxy's address and therefore one window. That is why the limit is a
+   * per-window ceiling on stored messages rather than a tight anti-spam rule,
+   * and why tripping it is logged.
+   */
+  private contactWindow(req: AuthenticatedRequest): { key: string; times: number[] } {
+    const key = (req as { ip?: string }).ip ?? 'unknown';
+    const now = Date.now();
+    return { key, times: (this.contactAttempts.get(key) ?? []).filter((at) => now - at < CONTACT_WINDOW_MS) };
+  }
+
+  private contactOverLimit(req: AuthenticatedRequest): boolean {
+    const { key, times } = this.contactWindow(req);
+    if (times.length < CONTACT_WINDOW_LIMIT) return false;
+    this.contactAttempts.set(key, times);
+    this.runtime.logger.warn({ window: CONTACT_WINDOW_MS }, 'contact form window exhausted; message dropped');
+    return true;
+  }
+
+  private recordContactLanding(req: AuthenticatedRequest): void {
+    const now = Date.now();
+    const { key, times } = this.contactWindow(req);
+    this.contactAttempts.set(key, [...times, now]);
+    if (this.contactAttempts.size > 5_000) {
+      for (const [other, at] of this.contactAttempts) {
+        if (!at.some((time) => now - time < CONTACT_WINDOW_MS)) this.contactAttempts.delete(other);
+      }
     }
   }
 
@@ -298,9 +476,9 @@ export class StorefrontController {
         'commerce.catalog.getProduct', { id }, { actor, channel: 'rest' },
       );
       if (product.status !== 'active') throw PlatformError.notFound('Product', id);
-      this.html(reply, 200, this.theme.renderProduct(this.themeContext(req, reply), { product: await this.withStock(actor, product) }));
+      this.html(reply, 200, this.theme.renderProduct(await this.themeContext(req, reply), { product: await this.withStock(actor, product) }));
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
@@ -324,7 +502,7 @@ export class StorefrontController {
         { limit: limit ?? 20, offset: offset ?? 0 },
         { actor, channel: 'rest' },
       );
-      this.html(reply, 200, this.theme.renderAccountOrders(this.themeContext(req, reply), {
+      this.html(reply, 200, this.theme.renderAccountOrders(await this.themeContext(req, reply), {
         orders: result.items.map((order) => ({
           number: order.number,
           status: order.status,
@@ -338,7 +516,7 @@ export class StorefrontController {
         total: result.total,
       }));
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
@@ -395,7 +573,7 @@ export class StorefrontController {
     const profile = await this.runtime.queries.execute<any>(
       'commerce.customer.getMyProfile', {}, { actor: actorOf(req), channel: 'rest' },
     );
-    this.html(reply, 200, this.theme.renderAccountProfile(this.themeContext(req, reply), {
+    this.html(reply, 200, this.theme.renderAccountProfile(await this.themeContext(req, reply), {
       displayName: profile.displayName,
       phone: profile.phone,
       birthday: profile.birthday,
@@ -435,7 +613,7 @@ export class StorefrontController {
       const retryProvider = order.status === 'pending'
         ? this.runtime.providers.get<PaymentProvider>('payment')
         : null;
-      this.html(reply, 200, this.theme.renderOrder(this.themeContext(req, reply), {
+      this.html(reply, 200, this.theme.renderOrder(await this.themeContext(req, reply), {
         order: {
           number: order.number,
           status: order.status,
@@ -486,7 +664,7 @@ export class StorefrontController {
         },
       }));
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
@@ -515,7 +693,7 @@ export class StorefrontController {
       }, { actor, idempotencyKey: `storefront-rma:${order.id}:${randomUUID()}`, correlationId: randomUUID(), channel: 'rest' });
       void reply.status(303).header('location', `/orders/${order.number}`).send();
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
@@ -554,7 +732,7 @@ export class StorefrontController {
       });
       void reply.status(303).header('location', `/orders/${order.number}`).send();
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
@@ -584,16 +762,16 @@ export class StorefrontController {
       });
       void reply.status(303).header('location', `/orders/${order.number}`).send();
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
   @Get('cart')
   async cart(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     try {
-      this.html(reply, 200, this.theme.renderCart(this.themeContext(req, reply), await this.cartView(req, reply)));
+      this.html(reply, 200, this.theme.renderCart(await this.themeContext(req, reply), await this.cartView(req, reply)));
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
@@ -649,7 +827,7 @@ export class StorefrontController {
       void reply.status(303).header('location', '/cart').send();
     } catch (err) {
       const message = err instanceof PlatformError && err.httpStatus < 500 ? err.message : '這組折扣碼無法使用。';
-      this.html(reply, 400, this.theme.renderCart(this.themeContext(req, reply), {
+      this.html(reply, 400, this.theme.renderCart(await this.themeContext(req, reply), {
         ...await this.cartView(req, reply),
         couponError: message,
       }));
@@ -670,7 +848,7 @@ export class StorefrontController {
         this.runtime.queries.execute<any>('commerce.loyalty.getMyTier', {}, { actor, channel: 'rest' }),
       ]);
 
-      this.html(reply, 200, this.theme.renderAccountRewards(this.themeContext(req, reply), {
+      this.html(reply, 200, this.theme.renderAccountRewards(await this.themeContext(req, reply), {
         currency: this.runtime.config.store.currency,
         balance: rewards.balance,
         entries: rewards.entries.map((entry: any) => ({
@@ -689,7 +867,7 @@ export class StorefrontController {
         },
       }));
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
@@ -704,9 +882,9 @@ export class StorefrontController {
       const result = await this.runtime.queries.execute<{ items: any[] }>(
         'commerce.coupon.listMyCoupons', {}, { actor, channel: 'rest' },
       );
-      this.html(reply, 200, this.theme.renderAccountCoupons(this.themeContext(req, reply), { coupons: result.items }));
+      this.html(reply, 200, this.theme.renderAccountCoupons(await this.themeContext(req, reply), { coupons: result.items }));
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
@@ -795,7 +973,7 @@ export class StorefrontController {
         }, { actor, channel: 'rest' })
         : null;
       if (selection && !selection.store) throw PlatformError.validation('Please choose a convenience store before checkout');
-      this.html(reply, 200, this.theme.renderCheckout(this.themeContext(req, reply), {
+      this.html(reply, 200, this.theme.renderCheckout(await this.themeContext(req, reply), {
         ...view,
         customerEmail: await this.emailOf(actor),
         shippingMethods,
@@ -821,7 +999,7 @@ export class StorefrontController {
         invoice: this.runtime.providers.has('invoice') ? { enabled: true } : undefined,
       }));
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
@@ -838,7 +1016,7 @@ export class StorefrontController {
       }, { actor, correlationId: randomUUID(), channel: 'rest' });
       void reply.status(303).header('location', `/checkout/pickup/select?token=${encodeURIComponent(selection.token)}`).send();
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
@@ -859,12 +1037,12 @@ export class StorefrontController {
       }, { actor, channel: 'rest' });
       const provider = this.runtime.providers.get<ShippingProvider>('shipping', selection.provider);
       if (!provider.pickupStores) throw PlatformError.validation('This shipping provider does not have a store picker');
-      this.html(reply, 200, this.theme.renderPickupStorePicker(this.themeContext(req, reply), {
+      this.html(reply, 200, this.theme.renderPickupStorePicker(await this.themeContext(req, reply), {
         token, shippingMethodId: selection.shippingMethodId, expiresAt: selection.expiresAt,
         stores: [...await provider.pickupStores({ serviceType: selection.type })],
       }));
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
@@ -878,7 +1056,7 @@ export class StorefrontController {
       }, { actor: this.runtime.actorForRole('storefront'), idempotencyKey: `pickup-callback:${createHash('sha256').update(`${body.token}:${body.providerStoreId}`).digest('base64url')}`, correlationId: randomUUID(), channel: 'rest' });
       void reply.status(303).header('location', `/checkout?pickupSelectionToken=${encodeURIComponent(body.token)}`).send();
     } catch (err) {
-      this.renderError(reply, err);
+      await this.renderError(reply, err);
     }
   }
 
@@ -933,14 +1111,14 @@ export class StorefrontController {
       });
       void reply.status(303).header('location', `/orders/${order.number}`).send();
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
   @Anonymous()
   @Get('forgot-password')
   async forgotPasswordPage(@Res() reply: FastifyReply) {
-    this.html(reply, 200, this.theme.renderAuth(this.themeContext(), { mode: 'forgot-password', next: '/' }));
+    this.html(reply, 200, this.theme.renderAuth(await this.themeContext(), { mode: 'forgot-password', next: '/' }));
   }
 
   @Anonymous()
@@ -970,7 +1148,7 @@ export class StorefrontController {
       // 寄信失敗也不改變對外的訊息，只留在 log 裡——否則它就是那條枚舉管道。
       this.runtime.logger.error({ error: (err as Error).message }, 'password reset delivery failed');
     }
-    this.html(reply, 200, this.theme.renderAuth(this.themeContext(), {
+    this.html(reply, 200, this.theme.renderAuth(await this.themeContext(), {
       mode: 'forgot-password', next: '/', notice: neutral,
     }));
   }
@@ -978,7 +1156,7 @@ export class StorefrontController {
   @Anonymous()
   @Get('reset-password')
   async resetPasswordPage(@Query('token') token: string | undefined, @Res() reply: FastifyReply) {
-    this.html(reply, 200, this.theme.renderAuth(this.themeContext(), {
+    this.html(reply, 200, this.theme.renderAuth(await this.themeContext(), {
       mode: 'reset-password', next: '/', token: token ?? '',
     }));
   }
@@ -994,7 +1172,7 @@ export class StorefrontController {
       void reply.status(303).header('location', '/login').send();
     } catch (err) {
       const message = err instanceof PlatformError && err.httpStatus < 500 ? err.message : '設定新密碼失敗，請重新申請一次。';
-      this.html(reply, 400, this.theme.renderAuth(this.themeContext(), {
+      this.html(reply, 400, this.theme.renderAuth(await this.themeContext(), {
         mode: 'reset-password', next: '/', token: body.token ?? '', error: message,
       }));
     }
@@ -1003,13 +1181,13 @@ export class StorefrontController {
   @Anonymous()
   @Get('login')
   async loginPage(@Query('next') next: string | undefined, @Res() reply: FastifyReply) {
-    this.html(reply, 200, this.theme.renderAuth(this.themeContext(), { mode: 'login', next: safeNext(next) }));
+    this.html(reply, 200, this.theme.renderAuth(await this.themeContext(), { mode: 'login', next: safeNext(next) }));
   }
 
   @Anonymous()
   @Get('register')
   async registerPage(@Query('next') next: string | undefined, @Res() reply: FastifyReply) {
-    this.html(reply, 200, this.theme.renderAuth(this.themeContext(), { mode: 'register', next: safeNext(next) }));
+    this.html(reply, 200, this.theme.renderAuth(await this.themeContext(), { mode: 'register', next: safeNext(next) }));
   }
 
   @Anonymous()
@@ -1029,7 +1207,7 @@ export class StorefrontController {
       void reply.status(303).header('location', next).send();
     } catch {
       // 訊息一律中性：區分「沒這個帳號」與「密碼錯」等於送出帳號枚舉管道。
-      this.html(reply, 401, this.theme.renderAuth(this.themeContext(), {
+      this.html(reply, 401, this.theme.renderAuth(await this.themeContext(), {
         mode: 'login', next, error: '電子郵件或密碼不正確。',
       }));
     }
@@ -1066,7 +1244,7 @@ export class StorefrontController {
         : err instanceof PlatformError && err.httpStatus < 500
           ? err.message
           : '註冊失敗，請稍後再試。';
-      this.html(reply, 400, this.theme.renderAuth(this.themeContext(), { mode: 'register', next, error: message }));
+      this.html(reply, 400, this.theme.renderAuth(await this.themeContext(), { mode: 'register', next, error: message }));
     }
   }
 
@@ -1120,7 +1298,7 @@ export class StorefrontController {
       }, { actor: actorOf(req), idempotencyKey: randomUUID(), correlationId: randomUUID(), channel: 'rest' });
       void reply.status(303).header('location', '/cart').send();
     } catch (err) {
-      this.renderError(reply, err, req);
+      await this.renderError(reply, err, req);
     }
   }
 
@@ -1144,11 +1322,11 @@ export class StorefrontController {
     return { ...product, available };
   }
 
-  private renderError(reply: FastifyReply, err: unknown, req?: AuthenticatedRequest) {
+  private async renderError(reply: FastifyReply, err: unknown, req?: AuthenticatedRequest) {
     const status = err instanceof PlatformError ? err.httpStatus : 500;
     const message = err instanceof PlatformError && status < 500 ? err.message : '發生未預期的錯誤';
     if (status >= 500) this.runtime.logger.error({ error: (err as Error).message }, 'storefront error');
-    this.html(reply, status, this.theme.renderError(this.themeContext(req, reply), { status, message }));
+    this.html(reply, status, this.theme.renderError(await this.themeContext(req, reply), { status, message }));
   }
 }
 
