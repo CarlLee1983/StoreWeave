@@ -23,6 +23,7 @@
     "smoke:docker": "bash scripts/smoke-docker.sh",
     "smoke:native": "bash scripts/smoke-native.sh",
     "seed": "tsx scripts/seed.ts",
+    "seed:ops": "tsx scripts/seed-operations.ts",
     "typecheck:admin": "tsc -p apps/admin/tsconfig.json --noEmit",
     "test:admin": "vitest run --project admin"
   },
