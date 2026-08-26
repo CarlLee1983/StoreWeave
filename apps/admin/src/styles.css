@@ -555,12 +555,13 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 }
 
 /* Buttons & Inputs */
+/* 按鈕與輸入框同高：並排時（工具列、送出列、表格列動作）差 1-2px 就看得出來。 */
 .button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 32px;
+  height: 34px;
   border: 1px solid var(--border-default);
   border-radius: 6px;
   padding: 6px 12px;
@@ -605,15 +606,29 @@ button:disabled {
   opacity: 0.45;
 }
 
+/* 表單控制項一律同高：min-height 只保證下限，date/time/select 因為瀏覽器
+   自己的內距會長高一兩 px，同一排欄位就會參差不齊。 */
 input, select, textarea {
-  min-height: 32px;
+  height: 34px;
   border: 1px solid var(--border-default);
   border-radius: 6px;
   padding: 6px 10px;
   background: var(--bg-surface);
   color: var(--text-primary);
   font-size: 12.5px;
+  line-height: 1.2;
   transition: border-color 120ms ease;
+}
+
+textarea {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  line-height: 1.5;
+}
+
+input[type="checkbox"], input[type="radio"] {
+  height: auto;
 }
 
 input:hover, select:hover {

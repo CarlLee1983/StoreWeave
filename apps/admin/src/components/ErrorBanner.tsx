@@ -1,5 +1,6 @@
 import { ApiError } from '../api';
 import { useI18n } from '../i18n';
+import { Icon } from './Icon';
 
 /** 顯示錯誤的橫幅，包含 error code 與 message */
 export function ErrorBanner({ error, onDismiss }: { error: unknown; onDismiss?: () => void }) {
@@ -12,7 +13,7 @@ export function ErrorBanner({ error, onDismiss }: { error: unknown; onDismiss?: 
       <span>{message}</span>
       {onDismiss && (
         <button type="button" className="error-banner__close" onClick={onDismiss} aria-label={t('dismissError')}>
-          ×
+          <Icon name="close" />
         </button>
       )}
     </div>

@@ -483,9 +483,7 @@
   position: relative;
 }
 
-.row-menu__trigger {
-  padding: 4px 6px;
-}
+
 
 .row-menu__popup {
   position: absolute;
@@ -555,9 +553,12 @@
   width: 100%;
 }
 
-.edit-btn {
+/* 表格列裡的動作鈕比一般按鈕小一號，才不會把列高撐起來。 */
+.edit-btn,
+.row-menu__trigger {
+  height: 28px;
   font-size: 12px;
-  padding: 4px 10px;
+  padding: 0 10px;
 }
 
 /* 庫存格本身就是調整入口，維持單一列高。 */
@@ -1666,6 +1667,8 @@ td .empty-state {
 }
 
 .date-field__trigger {
+  /* 與旁邊的日期輸入框同高，兩者是同一個欄位的兩半。 */
+  height: 34px;
   padding: 0 10px;
 }
 
@@ -1802,3 +1805,22 @@ input[type="datetime-local"] {
 }
 
 
+
+/* 錯誤條的關閉鈕：與其他 icon 按鈕同一個尺寸與觸控範圍。 */
+.error-banner__close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: inherit;
+}
+
+.error-banner__close:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.error-banner__close .icon {
+  width: 14px;
+  height: 14px;
+}
