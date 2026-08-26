@@ -136,7 +136,6 @@ export function ProductsPage() {
         <div className="toolbar__search-group">
           <Icon name="search" />
           <input
-            className="products-search-input"
             placeholder={t('searchProducts')}
             value={q}
             onChange={(e) => handleQueryChange(e.target.value)}

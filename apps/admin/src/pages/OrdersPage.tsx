@@ -5,6 +5,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
 import { Icon } from '../components/Icon';
+import { EmptyState } from '../components/EmptyState';
 import { RowMenu, type RowMenuItem } from '../components/RowMenu';
 import { ReasonDialog } from '../components/ReasonDialog';
 
@@ -93,7 +94,7 @@ export function OrdersPage() {
 
       <section className="account-panel" aria-label="退款作業隊列">
         <div className="section-heading"><h2>退款作業隊列</h2><p>待處理與失敗的退款可在此追蹤；失敗項目可安全重試。</p></div>
-        {refundQueue.length === 0 ? <p className="muted">目前沒有退款紀錄。</p> : (
+        {refundQueue.length === 0 ? <EmptyState icon="refresh" title="目前沒有退款紀錄" hint="失敗的退款會留在這裡，可以安全重試。" /> : (
           <div className="table-wrap"><table className="data-table data-table--fixed"><thead><tr><th style={{ width: '26%' }}>訂單</th><th style={{ width: '14%' }}>狀態</th><th style={{ width: '14%' }} className="col-numeric">金額</th><th style={{ width: '32%' }}>失敗原因</th><th style={{ width: '14%' }} className="col-actions">操作</th></tr></thead>
             <tbody>{refundQueue.map((refund) => <tr key={refund.id}>
               <td><span className="cell-truncate mono" title={refund.orderId}>{refund.orderId}</span></td>
@@ -108,7 +109,7 @@ export function OrdersPage() {
 
       <section className="account-panel" aria-label="退貨作業隊列">
         <div className="section-heading"><h2>退貨作業隊列</h2><p>換貨第一版採退款後重新下單；收件入庫只適用可回補的商品。</p></div>
-        {rmaQueue.length === 0 ? <p className="muted">目前沒有退貨案件。</p> : (
+        {rmaQueue.length === 0 ? <EmptyState icon="box" title="目前沒有退貨案件" hint="顧客申請退貨後，案件會出現在這裡等待處理。" /> : (
           <div className="table-wrap"><table className="data-table data-table--fixed"><thead><tr><th style={{ width: '22%' }}>訂單</th><th style={{ width: '24%' }}>品項</th><th style={{ width: '14%' }}>狀態</th><th style={{ width: '18%' }}>原因</th><th style={{ width: '22%' }} className="col-actions">操作</th></tr></thead>
             <tbody>{rmaQueue.map((rma) => <tr key={rma.id}>
               <td><span className="cell-truncate mono" title={rma.orderId}>{rma.orderId}</span></td>
@@ -152,7 +153,13 @@ export function OrdersPage() {
             </tr>
           </thead>
           <tbody>
-            {orders.map((order) => (
+            {orders.length === 0 ? (
+              <tr>
+                <td colSpan={6}>
+                  <EmptyState icon="receipt" title="目前沒有訂單" hint="前台完成結帳後，訂單會即時出現在這裡。" />
+                </td>
+              </tr>
+            ) : orders.map((order) => (
               <OrderRow
                 key={order.id}
                 order={order}

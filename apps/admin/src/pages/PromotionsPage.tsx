@@ -5,6 +5,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
 import { Icon } from '../components/Icon';
+import { EmptyState } from '../components/EmptyState';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { RowMenu, type RowMenuItem } from '../components/RowMenu';
 
@@ -185,17 +186,17 @@ export function PromotionsPage() {
       {loading ? (
         <Loading />
       ) : promotions.length === 0 ? (
-        <p>{t('noPromotions')}</p>
+        <EmptyState icon="sparkles" title={t('noPromotions')} hint="建立滿額折或整單折扣，設定期間與優先序後即可上線。" />
       ) : (
         <div className="table-wrap">
           <table className="data-table data-table--fixed">
             <thead>
               <tr>
-                <th style={{ width: '20%' }}>{t('promotionName')}</th>
-                <th style={{ width: '15%' }}>{t('ruleType')}</th>
-                <th style={{ width: '21%' }}>{t('period')}</th>
+                <th style={{ width: '26%' }}>{t('promotionName')}</th>
+                <th style={{ width: '14%' }}>{t('ruleType')}</th>
+                <th style={{ width: '18%' }}>{t('period')}</th>
                 <th style={{ width: '8%' }} className="col-numeric">{t('priority')}</th>
-                <th style={{ width: '10%' }}>{t('stackable')}</th>
+                <th style={{ width: '8%' }}>{t('stackableShort')}</th>
                 <th style={{ width: '12%' }}>{t('status')}</th>
                 <th style={{ width: '14%' }} className="col-actions">操作</th>
               </tr>

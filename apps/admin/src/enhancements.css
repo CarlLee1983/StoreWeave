@@ -379,9 +379,15 @@
   color: var(--text-muted);
 }
 
-.products-search-input {
+/* 放進搜尋群組的 input 一律填滿並讓出圖示的位置：只靠頁面各自加 class，
+   漏掉的那一頁就會變成窄輸入框加一個被推到右緣的下拉。 */
+.toolbar__search-group input {
   width: 100%;
   padding-left: 32px;
+}
+
+.toolbar select {
+  min-width: 130px;
 }
 
 .products-status-filter {
@@ -1054,6 +1060,12 @@
   table-layout: fixed;
 }
 
+/* 表頭同樣受欄寬約束：過長的標題原本會直接壓到隔壁欄的文字上。 */
+.data-table--fixed th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* 金額與數量靠右讀得比較快，操作欄跟著右緣收齊。 */
 .data-table .col-numeric {
   text-align: right;
@@ -1210,6 +1222,13 @@
 }
 
 /* ── 會員詳細 ───────────────────────────────────────── */
+/* 展開區本身已經由內部卡片收邊，外層就不要再畫一圈：雙層邊框看起來像失手。 */
+.order-detail:has(> .detail-cards) {
+  padding: 12px 0;
+  border: 0;
+  background: transparent;
+}
+
 .detail-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -1230,6 +1249,11 @@
 
 .detail-card--wide {
   grid-column: 1 / -1;
+}
+
+.detail-card .muted {
+  margin: 0;
+  font-size: 12px;
 }
 
 .detail-card__header {
@@ -1468,4 +1492,91 @@
   gap: 4px;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+/* ── 表單欄位 ───────────────────────────────────────────
+   .inline-form 裡的 <label>文字<input/></label> 一直沒有版型，label 文字
+   與輸入框直接相鄰擠成一團，checkbox 更是方塊與文字各據一行。 */
+.inline-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.inline-form label:has(> input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.inline-form label > input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent-brand);
+}
+
+/* 表單面板的標題與送出列 */
+.form-panel h2,
+.form-panel h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.form-panel > .inline-form + .button,
+.form-panel > .inline-form + button {
+  margin-top: 12px;
+}
+
+/* ── 空狀態 ───────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 36px 24px;
+  text-align: center;
+}
+
+.empty-state__icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 2px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-surface-raised);
+  color: var(--text-muted);
+}
+
+.empty-state__icon .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.empty-state__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.empty-state__hint {
+  margin: 0;
+  max-width: 42ch;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* 表格內的空狀態：整列讓給它，不要在表頭下面留一片空白。 */
+td .empty-state {
+  padding: 28px 16px;
 }

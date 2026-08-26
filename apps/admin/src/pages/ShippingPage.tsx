@@ -4,6 +4,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
 import { Icon } from '../components/Icon';
+import { EmptyState } from '../components/EmptyState';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 
 type MethodForm = {
@@ -166,7 +167,7 @@ function CreateMethodDrawer({ onClose, onCreated }: { onClose: () => void; onCre
 function ShippingMethodList({ methods, onEdit }: { methods: ShippingMethod[]; onEdit: (method: ShippingMethod) => void }) {
   return <section className="account-panel" aria-label="配送方式清單">
     <div className="section-heading"><h2>配送方式</h2><p>停用會保留既有訂單的配送快照；此 API 沒有刪除端點。</p></div>
-    {methods.length === 0 ? <p className="muted">目前沒有配送方式。</p> : <div className="table-wrap"><table className="data-table data-table--fixed"><thead><tr>
+    {methods.length === 0 ? <EmptyState icon="truck" title="目前沒有配送方式" hint="建立配送方式之後，前台結帳才有得選。" /> : <div className="table-wrap"><table className="data-table data-table--fixed"><thead><tr>
       <th style={{ width: '12%' }}>代碼</th>
       <th style={{ width: '18%' }}>名稱</th>
       <th style={{ width: '18%' }}>Provider / Type</th>

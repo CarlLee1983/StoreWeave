@@ -5,6 +5,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
 import { Icon } from '../components/Icon';
+import { EmptyState } from '../components/EmptyState';
 
 export function CustomersPage() {
   const { t } = useI18n();
@@ -58,7 +59,7 @@ export function CustomersPage() {
       {loading ? (
         <Loading />
       ) : customers.length === 0 ? (
-        <p>{t('noCustomers')}</p>
+        <EmptyState icon="user" title={t('noCustomers')} hint="顧客在前台完成註冊後就會出現在這裡。" />
       ) : (
         <div className="table-wrap"><table className="data-table data-table--fixed">
           <thead>
@@ -188,7 +189,7 @@ function CustomerRow({ customer, onChanged }: { customer: AdminCustomer; onChang
 
                   <section className="detail-card detail-card--wide">
                     <div className="detail-card__header"><h4>{t('orderHistory')}</h4></div>
-                    {detail.orders.length === 0 ? <p className="muted">{t('noOrders')}</p> : (
+                    {detail.orders.length === 0 ? <EmptyState icon="receipt" title={t('noOrders')} /> : (
                       <table className="data-table data-table--nested data-table--fixed">
                         <thead>
                           <tr>

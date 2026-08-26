@@ -5,6 +5,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
 import { Icon } from '../components/Icon';
+import { EmptyState } from '../components/EmptyState';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 
 /**
@@ -94,7 +95,7 @@ export function CouponsPage() {
       {loading ? (
         <Loading />
       ) : coupons.length === 0 ? (
-        <p>{t('noCoupons')}</p>
+        <EmptyState icon="ticket" title={t('noCoupons')} hint="建立折扣碼之後，這裡會列出它的使用狀況與有效期間。" />
       ) : (
         <div className="table-wrap">
           <table className="data-table data-table--fixed">
