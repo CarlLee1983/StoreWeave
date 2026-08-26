@@ -66,7 +66,11 @@ service: commerce-api/worker  行程是否在跑
 - **機器用靜態 token**。`commerce.yaml` 的 `auth.tokens` 那組 bearer token 維持原樣，
   給 MCP 客戶端與 ERP 這類非瀏覽器呼叫端使用。它們不套用 CSRF 檢查，
   但也因此**沒有到期、不能個別撤銷**——`COMMERCE_ADMIN_TOKEN` 等於一把萬能鑰匙，
-  正式環境務必換成隨機值並限制知悉範圍，`commerce doctor` 會擋掉預設值。
+  正式環境務必換成隨機值並限制知悉範圍。
+
+  **沒有任何自動檢查會擋下你**：`commerce doctor` 只確認 secret「有沒有設」
+  （`packages/platform/kernel/src/health.ts` 的 `secret present`），不看它的值，
+  所以帶著 `dev-admin-token-change-me-please` 上線是通得過的。換掉它是人的責任。
 
 尚未實作的部分：密碼重設、後台的帳號停用介面、登入失敗鎖定、二階段驗證。
 需要停用某個帳號時，目前只能直接改資料庫的 `platform_users.status`。
@@ -92,7 +96,7 @@ bearer token；監控應以安全的憑證或內網呼叫它。它與 `commerce 
 
 | 指標 | 來源 | 門檻建議 |
 | --- | --- | --- |
-| Outbox 積壓 | `/health/dependencies` 的 `outbox` | pending > 1000 或 dead > 0 就告警 |
+| Outbox 積壓 | `/health/dependencies` 的 `outbox` | pending > 500 轉 warn、dead > 0 直接 fail（門檻寫在 `health.ts`） |
 | 工作佇列 dead | 同上的 `jobs` | dead > 0 就告警 |
 | Worker 心跳 | 同上的 `worker` | 超過 60 秒為 warn、300 秒為 fail |
 | 待套用 migration | `/health/ready` | 部署後應為 0 |
@@ -108,24 +112,23 @@ bearer token；監控應以安全的憑證或內網呼叫它。它與 `commerce 
 ## Audit Log
 
 敏感操作會寫進 `platform_audit_log`，與業務寫入在**同一個交易** ——
-不會出現「做了但沒紀錄」。目前有記錄的動作：
+不會出現「做了但沒紀錄」。
 
-```
-catalog.product.created     catalog.product.updated
-inventory.stock.adjusted
-order.placed  order.paid  order.cancelled
-erp.delivery.resent
-jobs.retried  user.created
-```
+動作名稱由每支 command 自己宣告，權威清單就是程式碼：
+`grep -rn "audit: {" packages/commerce/*/src/commands.ts` 撈得到全部。
+目前橫跨 catalog、inventory、order、cart、coupon、promotion、loyalty、customer、
+shipping、refund、rma、invoice、notification 與 content 十四個模組，四十餘個動作。
+這裡不再抄一份——抄過的那一份停在九個動作，落後了三輪。
 
 每筆包含 actor id 與類型、extension id（若由 Extension 觸發）、資源類型與 id、
 correlation id，以及經過遮蔽的請求摘要。
 
 ## Idempotency
 
-所有寫入操作都支援 `Idempotency-Key` header；`commerce.inventory.adjustStock`、
-`commerce.order.placeOrder`、`commerce.order.payOrder`、`commerce.order.cancelOrder`
-是**必填**。
+所有寫入操作都支援 `Idempotency-Key` header，其中三十餘支是**必填**——
+凡是會產生錢、庫存或外部效果的 command 都在內。同樣不在這裡列清單，
+`grep -rn "idempotency: 'required'" packages/commerce/*/src/commands.ts` 是權威來源；
+`GET /api/v1/meta/commands` 也會回報每一支的 idempotency 要求。
 
 - 相同 key + 相同內容 → 回傳第一次的結果，不重複執行
 - 相同 key + 不同內容 → `422 IDEMPOTENCY_MISMATCH`

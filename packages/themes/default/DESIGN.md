@@ -1,6 +1,8 @@
 # Default Theme 顧客前台設計規格
 
-**狀態：** 所有目前有 Theme DTO 支援的顧客頁面已實作：共用 shell、同源字型交付、商品瀏覽、購物車、既有的建立訂單確認、登入／帳戶與訂單紀錄。建立訂單頁不新增付款或物流 UI；本文件不是 Admin 的設計規格，也不變更既有 API。
+**狀態：** 顧客前台的頁面已全部實作：共用 shell、商品瀏覽與型錄、購物車與結帳、付款與物流呈現、
+登入／帳戶與訂單紀錄，以及品牌內容四頁與聯絡我們。字型走 Google Fonts CDN（ADR 0026），
+不是同源交付——本文件早期寫的是後者，以 ADR 為準。本文件不是 Admin 的設計規格。
 
 ## 1. 目的與完成條件
 
@@ -40,7 +42,9 @@ HTML、標準表單、可存取的狀態提示
 - Theme 擁有內容層級、版面、文案、色彩、字體與可近用的操作回饋。
 - 若新體驗需要新資料，先擴充 versioned Theme DTO 與 Controller；不可在 Theme 中猜測欄位，或由頁面呼叫其他內部資料來源。
 
-目前商品介面只保證 id、sku、name、nullable description、priceCents、currency 與 available。available 是可售數量或 null，不是布林值：null 不顯示庫存數量但仍可購買，正數顯示可售件數，零或負數才是售完。沒有商品媒體、slug、分類、標籤、變體選項、評分或配送承諾。因此正式商品卡不可把原型室內照、虛構材質或分類名稱偽裝成真實商品資訊。
+目前商品介面只保證 id、sku、name、nullable description、priceCents、currency 與 available。available 是可售數量或 null，不是布林值：null 不顯示庫存數量但仍可購買，正數顯示可售件數，零或負數才是售完。DTO 裡**沒有** slug、分類、標籤、變體選項、評分或配送承諾，Theme 不得虛構它們。
+
+商品照片是例外，而且是刻意的例外：它由 Theme 自己以 SKU 為 key 的**封閉對照表**提供（`src/artwork.ts`），不在 DTO 裡。這個分界的重點不是「有沒有圖」，而是**商家資料永遠不會變成公開檔案路徑**——對照表查不到的 SKU 就沒有圖，不會退回用商品名稱或 SKU 去拼一個路徑。要改成真正的商品媒體（商家上傳、可排序、有 alt text），得先把媒體識別與可公開存取規則納入 ThemeProductView。
 
 ## 3. 視覺系統
 
@@ -58,6 +62,17 @@ HTML、標準表單、可存取的狀態提示
 | 主要行動 | action-primary | Theme accentColor，預設 #8C3E28 | 白字或深色字須通過對比檢查 |
 | 成功／可用 | state-success | #36684A | 仍以文字說明可用意義 |
 | 警示 | state-warning | #8A5A12 | 庫存、到期與金額變化提醒 |
+| 錯誤 | state-danger | #A83232 | 邊框與圖示；文字用 state-danger-ink |
+| 錯誤文字 | state-danger-ink | #7F1D1D | 送出失敗等訊息的文字色 |
+| 錯誤底色 | state-danger-surface | #FFF4F3 | 錯誤訊息塊的底，不單獨承載意義 |
+| 焦點 | state-focus | #17673C | 鍵盤焦點外框，不可移除 |
+| 次要底色 | surface-muted / surface-tint | #EEE7DE / #F4ECE2 | 區塊分層，不承載低對比文字 |
+| 最弱文字 | ink-faint | #968B81 | 僅用於輔助標記，不傳達必要資訊 |
+| 反白文字 | ink-inverse | #FFF | 深色底上的文字 |
+| 強邊框 | line-strong | #B8ABA0 | 需要明確分界時 |
+| 主色衍生 | accent-hover | 由 accentColor 推導 | 不另外硬編顏色，隨品牌主色變動 |
+
+值的權威來源是 `src/layout.ts` 的 `:root`；這張表若與它不一致，以程式碼為準。
 | 錯誤 | state-danger | #A83232 | 表單錯誤、無法提交與失效品項 |
 
 版面採單欄優先：主要內容最大寬度 72rem，正文留白使用 1rem、1.5rem、2.5rem、4rem 節奏。購物車與結帳在寬螢幕可用內容／摘要兩欄；在窄螢幕摘要回到內容之後，主要提交按鈕仍完整可見。按鈕與輸入框需有 0.5rem 以上圓角、明確 focus ring，且不以顏色作為唯一狀態訊號。
@@ -118,7 +133,7 @@ quantity（正整數）
 
 available 為 null 時保留可提交表單且不顯示庫存數量；大於零時顯示可售件數，數量輸入的前端 max 不超過該數量；零或負數時才停用提交並顯示「已售完」。前端數量限制只是輔助，伺服器仍是最終驗證者。伺服器回傳的 notice 或 error 必須出現在表單前方，使用可被輔助技術辨識的狀態區，而不是只改按鈕顏色。
 
-商品媒體是未來的擴充接縫。要加入真實商品圖片時，先把媒體識別、alt text、排序與可公開存取規則納入 ThemeProductView；完成資料遷移與來源審核後，商品卡才可以使用圖片。原型中的 Unsplash 圖片不屬於這個介面。現有的 `/storefront-assets/` 僅提供版本隨附、檔名封閉的 Theme 編輯資產，不能成為商家上傳檔或任意檔案的公開路徑。
+`/storefront-assets/` 只提供版本隨附、檔名封閉的 Theme 資產——商品照片與品牌內容的編輯照片都走它。它不能成為商家上傳檔或任意檔案的公開路徑；文章指名照片時存的也只是一個 key，不是路徑（ADR 0034）。
 
 ## 5. 購物車、結帳與訂單的真實性
 
@@ -139,16 +154,28 @@ available 為 null 時保留可提交表單且不顯示庫存數量；大於零�
 
 這些約束使設計未來可接入真實下單，而不是只把按鈕做成看似可點擊的 mock。任何新的運費、地址、物流、付款方法或商品變體需求，都必須先定義 request/response 契約與失敗狀態，再設計 UI。
 
+品牌內容適用同一條規則的另一面：版型可以由 Theme 決定，**內容不行**。文章、消息與問答都來自
+content 模組的 DTO，Theme 不內建任何具名品牌文字；`src/` 底下再出現一份品牌內容常數，
+就是 ADR 0033 被推翻的訊號。
+
+新增品牌版型時對應的樣式 class 群在 `src/layout.ts`：`.news-page` / `.news-list` / `.news-row`、
+`.faq-page` / `.faq-group` / `.faq-list` / `.faq-item`、`.contact-page` / `.contact-form` /
+`.contact-done` / `.contact-hp`、以及跨版型共用的 `.article-block`。**每一個輸出的 class 都要有樣式**——
+首頁曾經有六組只剩 CSS 沒有 render 的區塊，文件照著它們描述了不存在的畫面。
+
 ## 6. 共用元件與內容規則
 
 | 模組元件 | 輸入 | 輸出與限制 |
 | --- | --- | --- |
-| Storefront shell | ThemeContext 與頁面已提供的登入／購物車摘要資料 | 品牌、商品入口、帳戶入口、購物車入口；不依賴 client-side menu |
+| Storefront shell | ThemeContext（含 `publishedContentKinds`）與頁面已提供的登入／購物車摘要資料 | 品牌、商品入口、帳戶入口、購物車入口；不依賴 client-side menu。品牌內容的入口**只在該類內容有已發布文章時**出現——Theme 不自己判斷哪一頁有內容，由 Storefront 告知（ADR 0033） |
 | Product summary | ThemeProductView、showSku | 名稱、價格、描述、可售性、連結；不假設媒體或分類 |
 | Quantity form | product id、available、session 存在時的 CSRF | 標準 POST 表單、label、錯誤與送出結果 |
 | Cart summary | Cart view | 商品小計、調整明細、總額與門檻／移除 notice；金額順序固定 |
 | Checkout summary | Cart 或 checkout view、customer email | 訂單品項、通知 email、總額、提交與回購物車連結 |
 | Feedback region | notice、error、success | 具角色或 live region 的文字訊息，說明原因與下一步 |
+| Brand article | ThemeArticleView | 標題、欄目、摘要與段落區塊；帶 `heading` 的區塊才輸出小標。`imageKey` 查不到對應照片時走無圖版型，不讓缺圖弄壞整頁 |
+| Article list | ThemeArticleListView | 生活誌是照片卡格線、最新消息是日期式清單、常見問題依 `section` 分組；三者共用同一份資料形狀，差別只在版型 |
+| Contact form | ThemeContactView、session 存在時的 CSRF | 標準 POST 表單、錯誤回填、送出結果頁；含視覺上完全移出畫面的 honeypot 欄位（`.contact-hp`），它必須看不見也 tab 不到，否則真人會被當成機器人靜靜丟掉 |
 
 CTA 命名採具體動詞：加入購物車、更新數量、套用優惠碼、前往結帳、建立訂單。不要用「立即擁有」、「限時搶購」等無法由資料證明的促銷語。空狀態也需提供下一步，例如「購物車目前沒有商品，返回商品列表」。
 
@@ -168,17 +195,20 @@ storefront-prototype 只用於選擇首頁的敘事、型錄或拼貼層級。�
 轉入正式 Theme 前，要逐項替換：
 
 1. 將原型版型對應至真實 Theme renderer 與 ThemeProductView。
-2. 移除遠端字型 CSS，改由應用程式靜態資產提供 WOFF2。
-3. 移除所有 demo 商品、價格與圖片；只渲染 controller 提供的資料。
+2. 移除原型自己的字型引用，改用 layout 的那一份（ADR 0026 決定走 Google Fonts CDN，含它的隱私取捨）。
+3. 移除所有 demo 商品與價格；只渲染 controller 提供的資料。照片走 `src/artwork.ts` 的封閉對照表，不是原型的圖。
 4. 將每個購買動作改為現有 SSR POST 表單；session 存在時保留 CSRF，匿名 guest cart 則保留同源寫入保護、server notice 與 redirect。
 5. 對商品、購物車、結帳與訂單執行既有 integration tests，再做 360px 與桌面瀏覽器檢查。
 
 ## 9. 實作與驗證順序
 
-1. 已完成 Foundation：建立共用 shell、token、同源 Noto WOFF2 與靜態資產發布邊界，且不改變 Theme 公開介面。
+1. 已完成 Foundation：建立共用 shell、token 與靜態資產發布邊界，且不改變 Theme 公開介面。
 2. 已完成 Catalog：完成商品列表與詳情，僅使用現有 Product view 欄位與 POST /cart/items。
 3. 已完成 Purchase presentation：購物車與建立訂單確認頁採內容／摘要兩欄，在窄螢幕改為可讀的逐項內容；保留登入、依 session 狀態輸出的 CSRF、cartId 與冪等行為。
 4. 已完成 Account presentation：登入、重設密碼、訂單、優惠券、購物金與個人資料使用相同 shell、狀態與字體系統。
-5. 下一個後端契約切片：付款方式、付款 provider redirect／webhook、地址使用規則、配送選項／費用與追蹤狀態；先定義 request/response 與失敗狀態，再在 Theme 加入 UI。
+5. 已完成 Payment / Fulfilment：付款方式與 provider redirect、地址與超商取貨門市、運費與出貨追蹤、發票與退貨。
+6. 已完成 Brand content（Spec 0007、ADR 0033／0034）：品牌故事、生活誌、最新消息、常見問題與聯絡我們。
+   內容來自 Core 的 content 模組，Theme 只有版型；哪些入口出現在導覽列由 `ThemeContext.publishedContentKinds` 決定，
+   Theme 不自己猜哪一頁有內容。
 
 這條順序保持每個模組的介面小而清楚：視覺調整不滲入交易規則；若資料契約真的需要擴張，便在 Platform 與 Theme 的接縫上明確演進，而不是把一次性原型變成永久依賴。

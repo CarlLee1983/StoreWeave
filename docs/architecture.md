@@ -32,12 +32,16 @@ packages/platform/
   extension-sdk/        Extension 的唯一公開介面（見 extension-development.md）
   kernel/               組裝：Runtime、ExtensionHost、Worker、健康檢查、Theme 契約
                         以及平台自身的維運模組（platform.jobs.* 死信佇列，見 ADR 0011）
+  identity/             帳號、session 與密碼重設（後台操作者與顧客共用，見 ADR 0012、0014）
   bundle/               這個 Commerce Release 編進了哪些模組、Extension 與 Theme
 
 packages/commerce/      第一個產品（Commerce Core）：cart / catalog / content / coupon /
                         customer / inventory / invoice / loyalty / notification /
                         order / promotion / refund / rma / shipping
-packages/extensions/    mock-payment / demo-erp / mcp
+packages/extensions/    金流（mock-payment / ecpay）、物流（ecpay-logistics）、
+                        發票（mock-invoice / ecpay-invoice）、通知（mock-notification）、
+                        ERP（demo-erp）與 mcp。哪些真的編進這份 release，
+                        以 packages/platform/bundle/src/modules.ts 為準（ADR 0002）
 packages/themes/default 預設 Storefront Theme（純 SSR 表單，不載入 JavaScript）
 tools/cli/              commerce CLI
 deployments/            example-store、example-store-two、systemd unit、設定 JSON Schema
@@ -102,8 +106,12 @@ Worker 每一輪確保「當下這個切片」已排入。沒有自我續排的�
 
 ## 模組邊界
 
-- 每個平台模組各自擁有自己的資料表與 migration，前綴即模組名：`catalog_*`、`inventory_*`、
-  `order_*`、`content_*`⋯⋯以此類推。
+- 每個模組各自擁有自己的資料表與 migration。**Commerce 模組的前綴即模組名**——
+  `cart_*`、`catalog_*`、`content_*`、`coupon_*`、`customer_*`、`inventory_*`、`invoice_*`、
+  `loyalty_*`、`notification_*`、`order_*`、`promotion_*`、`refund_*`、`rma_*`、`shipping_*`。
+  **平台模組則一律用 `platform_`**，不用自己的名字：`identity` 建的是 `platform_users`、
+  `platform_sessions`，不是 `identity_*`。理由是平台的表對領域中立（ADR 0010），
+  它們屬於「這座平台」而不是某個模組的私有狀態。
 - 模組之間**只能**呼叫對方匯出的 service：`order` 扣庫存呼叫 `inventoryService.adjust(ctx, ...)`，
   取得商品呼叫 `catalogService.requireActiveProduct(tx, id)`。這兩個函式接受呼叫端的交易，
   因此跨模組操作仍在同一個交易內。

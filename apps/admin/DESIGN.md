@@ -173,7 +173,7 @@ Status indicators must never rely on plain dots or emojis. They incorporate expl
 ### 5.1 App Shell Blueprint
 ```
 +-----------------------------------------------------------------------------------------------+
-| StoreWeave Admin         | [Search Q ⌘K]                 [🌐 Locale] [🌓 Theme] [API Token]   |
+| StoreWeave Admin         | [Search Q ⌘K]                    [Locale] [Theme] [API Token]     |
 +--------------------------+--------------------------------------------------------------------+
 | [COMMERCE]               | Page Header: Order Management                     [+ Create Order] |
 | - Orders           [128] | Subtitle: Real-time transaction stream & ERP delivery pipeline     |
@@ -185,6 +185,10 @@ Status indicators must never rely on plain dots or emojis. They incorporate expl
 |                          | Data Table: [ Order ID ] [ Customer ] [ Amount ] [ Status ] [ ... ]|
 | [v0.1.0 ● Online]        +--------------------------------------------------------------------+
 ```
+
+這張圖只是**版型示意**，側欄舉的四頁不是完整清單。頁面的唯一權威是
+`apps/admin/src/routes.tsx` 的 `ENTRIES`——路由、側欄標籤、圖示、頁首標題與主要動作
+全部從那一份長出來。這裡不再抄一份會漂掉的頁面清單。
 
 ### 5.2 Component Guidelines
 
@@ -202,16 +206,29 @@ Status indicators must never rely on plain dots or emojis. They incorporate expl
    * Header height: `34px`, row height: `44px`.
    * Monospace alignment for IDs, amounts, and timestamps.
    * Row hover feedback with subtle background contrast transition (`100ms`).
-4. **Slide-Over Drawer (Payload Inspector)**:
-   * Width: `520px`, slide in from right with subtle backdrop blur.
-   * Formatted raw JSON viewer with one-click clipboard copy feedback and "Replay Event" action button.
+4. **Slide-Over Drawer**:
+   * 兩種寬度：payload 檢視用 `520px`；帶表單的編輯抽屜用 `min(620px, 100vw)`
+     （`.product-edit-drawer`，商品與品牌內容共用）——表單欄位在 520px 下會擠。
+   * Slide in from right with subtle backdrop blur.
+   * 一律掛 `useEscapeKey`。
+   * Payload 檢視提供格式化 JSON、一鍵複製與「Replay Event」動作。
+
+5. **長文編輯表單**：
+   * 抽屜內的欄位排在 `.form-grid`（兩欄）。**內文這類長文欄位要跨兩欄**：
+     加 `.form-field--full`（`.form-grid > .form-field--full { grid-column: 1 / -1 }`）。
+   * 欄位說明（`.field-hint`）放進 `<label>` 內，不要當成 `.form-grid` 的直接子元素——
+     那會讓它自己佔掉一個格子。
+   * `textarea` 用 `min-height`，不自訂固定高度；其餘控制項維持 34px。
 
 ---
 
 ## 6. Internationalization (i18n) Standards
 
 1. **Namespace Structure**:
-   * Separate translation keys into logical domains: `nav.*`, `orders.*`, `pipeline.*`, `metrics.*`, `status.*`, `table.*`, `actions.*`, `drawer.*`.
+   * 目前 `apps/admin/src/i18n.tsx` 是一份**扁平**字典，不是巢狀 namespace；上面的
+     `nav.*` 這種寫法是原始設計意圖，實際的 key 是 `brandContentTitle`、`createArticle`
+     這類扁平名稱。新增頁面時照既有慣例以頁面名為前綴，並且**三個語系（zh-TW / en-US / ja-JP）
+     一次補齊**——少一個 TypeScript 就會擋下來，那是刻意的。
 2. **Flexible Container Widths**:
    * Never hardcode fixed pixel widths on action buttons, column headers, or badges. Use `min-width` and standard padding to prevent text wrapping in longer languages.
 3. **Text Truncation**:

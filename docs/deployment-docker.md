@@ -42,7 +42,13 @@ COMMERCE_ADMIN_TOKEN=$(openssl rand -hex 32)
 COMMERCE_MCP_TOKEN=$(openssl rand -hex 32)
 DEMO_ERP_API_KEY=...
 COMMERCE_PUBLIC_URL=https://shop.example.com
+# 對外 port，預設 3000
+COMMERCE_PORT=3000
 ```
+
+Theme 隨附的編輯照片由映像內建、前台以 `/storefront-assets/` 提供，不需要另外設定。
+要換成別的目錄才需要 `COMMERCE_THEME_ASSETS_DIR`——它的解析順序與相依寫在
+[deployment-native.md 的目錄佈局](deployment-native.md#目錄佈局)。
 
 `commerce.yaml` 用 `${VAR}` 或 `${VAR:-預設值}` 參照它們。缺少必要變數會在啟動時
 列出名稱並直接失敗，不會用空字串跑下去。
@@ -78,7 +84,7 @@ pnpm smoke:docker
 ```
 
 會建置映像、啟動完整環境、在容器內跑 `commerce doctor` 與 `commerce extension:list`，
-再從主機打 35 項端到端檢查（三條垂直流程 + MCP + 契約自省），最後收乾淨。
+再從主機跑 `scripts/smoke.sh` 的全部端到端檢查（三條垂直流程 + MCP + 契約自省），最後收乾淨。
 
 ## 正式環境注意事項
 

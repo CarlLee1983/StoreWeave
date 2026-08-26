@@ -2,7 +2,7 @@
 
 ## Order
 
-A customer's immutable-priced purchase request. An Order is `pending` until a payment request is made, `payment_processing` while the provider is being contacted, `paid` after payment is confirmed, `cancelled` after an explicit cancellation, or `expired` when its payment reservation reaches its deadline.
+A customer's immutable-priced purchase request. An Order is `pending` until a payment request is made, `payment_processing` while the provider is being contacted, `awaiting_payment` once a deferred method has handed the customer a code to pay later (ADR 0030), `paid` after payment is confirmed, `cancelled` after an explicit cancellation, or `expired` when its payment reservation reaches its deadline.
 
 ## Inventory reservation
 
@@ -25,6 +25,8 @@ A temporary claim on sellable stock made for every Order line. It increases `res
 具名商店發布的品牌立場、選品觀點與編輯文章。它用來說明商店的世界觀與閱讀脈絡，不是商品材質、庫存、服務承諾或法律條款的來源；這些事實仍由各自的交易與商品資料決定。
 
 品牌內容是 Core 的資料，由店家在後台維護，Theme 只負責呈現（ADR 0033）。品牌故事、生活誌、最新消息與常見問題是**同一種東西的四種版型**——一段具名、可發布、有順序的編輯文字——在模型上以 `kind` 區分，不是四個型別。
+
+一篇內容有 `draft` 與 `published` 兩態，未發布的一律不從前台的查詢出得去。`section` 是標題上方的分組字樣（生活誌的欄目、FAQ 的分類），`position` 決定同一種內容的顯示順序，相同時才看發布時間。
 
 文章的段落是**區塊**而不是純文字：一個區塊可以帶自己的標題，品牌故事的章節就是這樣表達的；其餘內容的區塊沒有標題。
 

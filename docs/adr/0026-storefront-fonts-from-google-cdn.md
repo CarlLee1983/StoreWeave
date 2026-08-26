@@ -45,7 +45,8 @@ Storefront 的字型改由 `fonts.googleapis.com` 提供，並移除整套 Theme
   `<link rel="preconnect">` 已經加上，用來省掉其中一段來回。
 - 專案目前**沒有設定 CSP**。之後若要加，`style-src` 必須包含 `fonts.googleapis.com`、
   `font-src` 必須包含 `fonts.gstatic.com`。
-- Release artifact 不再包含任何 Theme 靜態資產，離線／內網部署的 Storefront 會退到系統字型。
+- ~~Release artifact 不再包含任何 Theme 靜態資產，離線／內網部署的 Storefront 會退到系統字型。~~
+  ADR 0034 之後這句只對字型成立：release 仍帶編輯照片，`/storefront-assets/` 照常服務。
 
 ## Falsified if
 

@@ -11,9 +11,9 @@ Interface Adapter   REST · Storefront(SSR) · Admin(React) · MCP · CLI
                               |  全部走同一組 handler
 Application         Command Bus · Query Bus  -- 授權 / Zod 驗證 / Idempotency / Audit
                               |
-Domain              catalog · inventory · order          <- Commerce Core
+Domain              catalog · inventory · order · cart · promotion ⋯     <- Commerce Core
                               |  版本化 Domain Event
-Integration         Transactional Outbox -> Worker -> Extension（ERP / 金流 / MCP）
+Integration         Transactional Outbox -> Worker -> Extension（金流 / 物流 / 發票 / 通知 / ERP / MCP）
                               |
 Infrastructure      PostgreSQL（唯一必要依賴；Redis 選配）
 ```
@@ -62,7 +62,12 @@ pnpm "dev:worker"
 | [docs/ecpay-and-shipping.md](docs/ecpay-and-shipping.md) | 綠界付款、泛用回呼與台灣配送方式設定 |
 | [packages/themes/default/DESIGN.md](packages/themes/default/DESIGN.md) | 顧客前台體驗、字型交付與可下單呈現規格 |
 | [docs/operations.md](docs/operations.md) | `commerce` CLI、健康端點、備份還原 |
-| [docs/adr/](docs/adr/) | 架構決策紀錄（11 篇） |
+| [docs/adr/](docs/adr/) | 架構決策紀錄；`README.md` 是它自己的索引 |
+| [docs/specs/](docs/specs/) | 功能規格與交付順序 |
+| [docs/tickets/](docs/tickets/) | 工單與已知、刻意沒做的取捨 |
+| [docs/frontend-page-plan.md](docs/frontend-page-plan.md) | 顧客前台的頁面資訊架構 |
+| [docs/runbooks/](docs/runbooks/) | 上線與維運的逐步程序 |
+| [docs/research/](docs/research/) | 對外部 API 的查證紀錄 |
 
 ## 三條垂直流程
 
@@ -79,10 +84,12 @@ pnpm "dev:worker"
 
 | 指令 | 內容 |
 | --- | --- |
+| `pnpm typecheck` | 全 workspace 型別檢查 |
+| `pnpm typecheck:admin` | 管理後台的型別檢查（另一份 tsconfig） |
 | `pnpm test` | 單元 + 架構測試（不需要 Docker） |
 | `pnpm test:admin` | 管理後台的 React 元件測試（jsdom） |
 | `pnpm test:integration` | PostgreSQL 整合測試（Testcontainers，需要 Docker） |
-| `pnpm test:all` | 以上兩者 |
+| `pnpm test:all` | 以上三組測試 |
 | `pnpm smoke:docker` | Docker Compose 端到端 smoke test |
 | `pnpm smoke:native` | 在乾淨的 Debian 容器安裝 tarball 並跑端到端 smoke test |
 
@@ -95,4 +102,5 @@ pnpm "dev:worker"
 - 公開契約一律是 DTO + Zod schema，ORM entity 不外流。
 
 `tests/architecture/boundaries.test.ts` 會逐項檢查以上規則，
-`.github/workflows/ci.yml` 則在每次 push 與 PR 上跑完型別檢查、四組測試與兩條部署路徑的 smoke test。
+`.github/workflows/ci.yml` 則在每次 push 與 PR 上跑兩份型別檢查、上表的三組測試，
+以及兩條部署路徑的 smoke test。
