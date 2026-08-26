@@ -16,6 +16,14 @@ A temporary claim on sellable stock made for every Order line. It increases `res
 
 一個會下單的人。Customer 擁有生日、會員等級、等級積分與購物金餘額。Customer 與後台操作者共用同一套帳號與 session 機制，但兩者的資料分屬不同模組：帳號只知道「這是一個帳號」，不知道他是顧客還是店員。結帳必須是已登入的 Customer。
 
+## 顧客前台（Storefront）
+
+顧客與匿名訪客瀏覽商品、管理購物車並完成下單的商店介面。它以建立品牌信任與促成商品探索、結帳為目的，和營運後台（Admin）是不同的產品體驗。
+
+## 品牌內容（Brand Content）
+
+具名商店發布的品牌立場、選品觀點與編輯文章。它用來說明商店的世界觀與閱讀脈絡，不是商品材質、庫存、服務承諾或法律條款的來源；這些事實仍由各自的交易與商品資料決定。
+
 ## Cart
 
 一份可變的、尚未定價凍結的購買意圖。Cart 可以屬於一個匿名訪客，也可以屬於一個 Customer；訪客登入後，其 Cart 併入該 Customer 的 Cart。Cart **不預留庫存**——放進 Cart 不保證買得到。Cart 轉成 Order 的那一刻，價格才凍結。

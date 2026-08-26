@@ -45,6 +45,8 @@ function accountNav(ctx: ThemeContext): string {
 export function layout({ title, body, ctx }: LayoutOptions): string {
   const accent = escapeHtml(ctx.options.accentColor ?? '#8C3E28');
   const tagline = escapeHtml(ctx.options.tagline ?? '');
+  const supportEmail = ctx.supportEmail ? escapeHtml(ctx.supportEmail) : '';
+  const isWovenDay = ctx.storeId === 'example-store';
   return `<!doctype html>
 <html lang="${escapeHtml(ctx.locale)}">
 <head>
@@ -63,22 +65,16 @@ export function layout({ title, body, ctx }: LayoutOptions): string {
 </head>
 <body>
 <a class="skip-link" href="#main-content">跳至主要內容</a>
-<div class="announcement-bar">
-  <div class="announcement-bar__inner">
-    <span>全站消費滿額享免運 ｜ 新會員加入現領專屬購物金 ｜ 7 日安心鑑賞保障</span>
-  </div>
-</div>
 <header class="site-header">
   <div class="site-header__inner">
     <div class="brand-lockup">
-      <a class="brand" href="/"><span class="brand__mark" aria-hidden="true">織</span><span>${escapeHtml(ctx.storeName)}</span></a>
+      <a class="brand" href="/">${escapeHtml(ctx.storeName)}</a>
       ${tagline ? `<p class="tagline">${tagline}</p>` : ''}
     </div>
     <nav class="site-nav" aria-label="主要導覽">
       <a href="/">首頁</a>
-      <a href="/catalog">選物目錄</a>
-      <a href="/story">品牌工藝</a>
-      <a href="/journal">生活風格誌</a>
+      <a href="/catalog">商品型錄</a>
+      ${isWovenDay ? '<a href="/story">品牌故事</a><a href="/journal">生活誌</a>' : ''}
       <a href="/cart">購物車</a>
     </nav>
     <nav class="account" aria-label="帳戶操作">${accountNav(ctx)}</nav>
@@ -89,40 +85,41 @@ export function layout({ title, body, ctx }: LayoutOptions): string {
   <div class="site-footer__inner">
     <div class="footer-brand-col">
       <div class="brand-lockup">
-        <a class="brand" href="/"><span class="brand__mark" aria-hidden="true">織</span><span>${escapeHtml(ctx.storeName)}</span></a>
+        <a class="brand" href="/">${escapeHtml(ctx.storeName)}</a>
         ${tagline ? `<p class="tagline">${tagline}</p>` : ''}
       </div>
-      <p class="footer-desc">日日相伴的器物與織物，為生活採集溫潤本質。以天然材質與職人工藝，打造長久陪伴的日常之美。</p>
+      <p class="footer-desc">從正在販售的商品開始，找到適合你的選擇。</p>
     </div>
     <div class="footer-nav-col">
-      <p class="footer-heading">選物全系列</p>
+      <p class="footer-heading">商品</p>
       <nav class="footer-links">
-        <a href="/catalog">所有選品</a>
-        <a href="/catalog?q=器皿">日常器皿</a>
-        <a href="/catalog?q=布">手織布品</a>
-        <a href="/catalog?q=木">木作道具</a>
-        <a href="/catalog?q=香氛">居家香氛</a>
+        <a href="/catalog">瀏覽商品</a>
+        <a href="/cart">購物車</a>
       </nav>
     </div>
     <div class="footer-nav-col">
-      <p class="footer-heading">品牌與專題</p>
+      <p class="footer-heading">帳戶</p>
       <nav class="footer-links">
-        <a href="/story">品牌工藝宣言</a>
-        <a href="/journal">生活風格誌</a>
         <a href="/account/rewards">會員購物金</a>
         <a href="/account/orders">訂單查詢</a>
       </nav>
     </div>
-    <div class="footer-nav-col">
-      <p class="footer-heading">聯絡與諮詢</p>
-      <p class="footer-contact">客服時間：週一至週五 10:00 - 18:00</p>
-      ${ctx.supportEmail ? `<p><a class="footer-email" href="mailto:${escapeHtml(ctx.supportEmail)}">${escapeHtml(ctx.supportEmail)}</a></p>` : ''}
-    </div>
+    ${isWovenDay ? `<div class="footer-nav-col">
+      <p class="footer-heading">織日選物</p>
+      <nav class="footer-links">
+        <a href="/story">品牌故事</a>
+        <a href="/journal">生活誌</a>
+      </nav>
+    </div>` : ''}
+    ${supportEmail ? `<div class="footer-nav-col">
+      <p class="footer-heading">聯絡</p>
+      <p><a class="footer-email" href="mailto:${supportEmail}">${supportEmail}</a></p>
+    </div>` : ''}
   </div>
   <div class="site-footer__bottom">
     <div class="site-footer__bottom-inner">
       <span>&copy; ${new Date().getFullYear()} ${escapeHtml(ctx.storeName)} · All rights reserved.</span>
-      <span class="footer-note">Crafted with StoreWeave Architecture</span>
+      <span class="footer-note">Storefront</span>
     </div>
   </div>
 </footer>
@@ -1172,6 +1169,100 @@ th { color: var(--ink-muted); font-size: .75rem; font-weight: 700; letter-spacin
 .error-page .error h1 { margin: .25rem 0 .8rem; }
 .error-page .secondary-action { margin-top: 1rem; }
 
+/* 資料契約尚未提供商品媒體；以不指涉商品的原創圖形維持首頁與型錄的視覺節奏。 */
+.storefront-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(17rem, .8fr);
+  align-items: center;
+  min-height: clamp(24rem, 48vw, 34rem);
+  overflow: hidden;
+  border: 1px solid var(--line-subtle);
+  border-radius: 1.25rem;
+  background: var(--surface-raised);
+}
+.storefront-hero__copy { display: grid; gap: 1.25rem; padding: clamp(2rem, 6vw, 5rem); }
+.storefront-hero__copy .eyebrow { margin: 0; color: var(--accent); }
+.storefront-hero__copy h1 { max-width: 12ch; font-size: clamp(2.8rem, 6vw, 5.25rem); }
+.storefront-hero__copy > p:not(.eyebrow) { max-width: 28rem; margin: 0; color: var(--ink-muted); font-size: 1.05rem; }
+.storefront-hero__copy .cta { justify-self: start; }
+.storefront-hero__art { align-self: stretch; min-height: 15rem; color: var(--accent); background: var(--surface-tint); }
+.storefront-artwork { display: block; width: 100%; height: 100%; }
+.storefront-product-image { display: block; width: 100%; height: 100%; background-color: var(--surface-muted); background-repeat: no-repeat; background-size: 300% 300%; }
+.storefront-editorial-image { display: block; width: 100%; height: 100%; object-fit: cover; }
+.storefront-hero__art > .storefront-editorial-image { object-position: 58% center; }
+
+.catalog-page > .storefront-hero { margin-bottom: clamp(3.5rem, 7vw, 7rem); }
+.brand-manifesto { display: grid; grid-template-columns: minmax(16rem, .75fr) minmax(0, 1.25fr); gap: clamp(2rem, 6vw, 5rem); margin: 0 0 clamp(4rem, 9vw, 8rem); padding: clamp(2rem, 5vw, 4.5rem) 0; border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-subtle); }
+.brand-manifesto__copy { display: grid; align-content: start; justify-items: start; gap: 1.25rem; }
+.brand-manifesto__copy .eyebrow, .brand-story-page .eyebrow, .journal-page .eyebrow, .article-header .eyebrow { margin: 0; color: var(--accent); }
+.brand-manifesto__copy h2 { margin: 0; font-size: clamp(2rem, 4vw, 3.5rem); line-height: 1.1; }
+.brand-manifesto__copy > p:not(.eyebrow) { margin: 0; color: var(--ink-muted); line-height: 1.85; }
+.brand-manifesto__chapters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin: 0; padding: 1px; list-style: none; background: var(--line-subtle); }
+.brand-manifesto__chapters li { display: grid; align-content: start; padding: 1.4rem; background: var(--surface-raised); }
+.brand-manifesto__chapters span { color: var(--accent); font-size: .75rem; font-weight: 700; letter-spacing: .12em; }
+.brand-manifesto__chapters h3 { margin: 2.5rem 0 .65rem; font-size: 1.2rem; }
+.brand-manifesto__chapters p { margin: 0; color: var(--ink-muted); font-size: .88rem; line-height: 1.7; }
+.storefront-journal { margin-top: clamp(4rem, 9vw, 8rem); }
+.journal-card__cover-wrap > .storefront-editorial-image { transition: transform .45s ease; }
+.journal-card__cover-wrap:hover > .storefront-editorial-image { transform: scale(1.03); }
+.journal-grid--three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.brand-story-page { display: grid; gap: clamp(4rem, 9vw, 8rem); }
+.brand-story-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, .85fr); align-items: center; overflow: hidden; min-height: clamp(28rem, 55vw, 42rem); border: 1px solid var(--line-subtle); border-radius: 1.25rem; background: var(--surface-raised); }
+.brand-story-hero > div:first-child { display: grid; justify-items: start; gap: 1.25rem; padding: clamp(2rem, 6vw, 5rem); }
+.brand-story-hero h1 { max-width: 10ch; font-size: clamp(3rem, 6.5vw, 5.5rem); }
+.brand-story-hero p:not(.eyebrow) { max-width: 31rem; margin: 0; color: var(--ink-muted); font-size: 1.05rem; line-height: 1.85; }
+.brand-story-hero__art { align-self: stretch; min-height: 18rem; color: var(--accent); background: var(--surface-tint); }
+.brand-story-hero__art > .storefront-editorial-image { object-position: 55% center; }
+.brand-story-chapters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+.brand-story-chapters article { border-top: 1px solid var(--line-strong); padding-top: 1.25rem; }
+.brand-story-chapters h2 { margin: 2rem 0 .8rem; font-size: clamp(1.55rem, 2.6vw, 2rem); }
+.brand-story-chapters p:not(.eyebrow) { margin: 0; color: var(--ink-muted); line-height: 1.85; }
+.brand-story-closing { display: grid; justify-items: center; gap: 1.2rem; padding: clamp(3rem, 8vw, 7rem) 1.5rem; text-align: center; background: var(--surface-tint); }
+.brand-story-closing .eyebrow { margin: 0; color: var(--accent); }
+.brand-story-closing h2 { max-width: 16ch; margin: 0; font-size: clamp(2.1rem, 4vw, 3.8rem); }
+.journal-page { display: grid; gap: clamp(2rem, 5vw, 4rem); }
+.article-header > p:not(.eyebrow) { max-width: 38rem; margin: 0; color: var(--ink-muted); font-size: 1.05rem; line-height: 1.8; }
+.article-hero-art { overflow: hidden; border: 1px solid var(--line-subtle); border-radius: 1.25rem; aspect-ratio: 16 / 8; color: var(--accent); background: var(--surface-tint); }
+.article-hero-art > .storefront-editorial-image { object-position: center 55%; }
+.article-return { margin: 0; }
+.catalog-page > .catalog-section + .storefront-discovery { margin-top: clamp(4rem, 9vw, 8rem); }
+.storefront-discovery {
+  display: grid;
+  grid-template-columns: minmax(16rem, .85fr) minmax(0, 1fr);
+  align-items: stretch;
+  overflow: hidden;
+  border-top: 1px solid var(--line-strong);
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--surface-raised);
+}
+.storefront-discovery__art { min-height: 20rem; color: var(--accent); background: var(--surface-tint); }
+.storefront-discovery__art > .storefront-editorial-image { object-position: 45% center; }
+.storefront-discovery__copy { display: grid; align-content: center; justify-items: start; gap: 1.2rem; padding: clamp(2rem, 6vw, 5rem); }
+.storefront-discovery__copy .eyebrow, .storefront-journey .eyebrow { margin: 0; color: var(--accent); }
+.storefront-discovery__copy h2, .storefront-journey h2 { max-width: 13ch; margin: 0; font-size: clamp(2rem, 4vw, 3.6rem); }
+.storefront-discovery__copy > p:not(.eyebrow) { max-width: 31rem; margin: 0; color: var(--ink-muted); line-height: 1.8; }
+.storefront-journey { display: grid; grid-template-columns: minmax(15rem, .7fr) minmax(0, 1.5fr); gap: 2rem; align-items: start; margin-top: clamp(4rem, 9vw, 8rem); }
+.storefront-journey__heading { display: grid; gap: 1rem; }
+.storefront-journey__steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin: 0; padding: 1px; list-style: none; background: var(--line-subtle); }
+.storefront-journey__steps li { min-height: 14rem; padding: 1.5rem; background: var(--surface-raised); }
+.storefront-journey__steps span { color: var(--accent); font-size: .75rem; font-weight: 700; letter-spacing: .12em; }
+.storefront-journey__steps h3 { margin: 2.8rem 0 .65rem; font-size: 1.25rem; }
+.storefront-journey__steps p { margin: 0; color: var(--ink-muted); font-size: .9rem; line-height: 1.7; }
+
+.product-card__art { aspect-ratio: 4 / 3; color: var(--accent); border-bottom: 1px solid var(--line-subtle); background: var(--surface-muted); }
+.product-card__art .storefront-artwork { height: 100%; }
+.product-card__art .storefront-product-image { transition: transform .45s cubic-bezier(.16, 1, .3, 1); }
+.product-card:hover .storefront-product-image { transform: scale(1.035); }
+.product-card__link { min-height: 14rem; }
+.product-card h2 { font-size: clamp(1.3rem, 2.2vw, 1.7rem); }
+.product-card__description { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+
+.product-artwork { aspect-ratio: 4 / 3; overflow: hidden; border: 1px solid var(--line-subtle); border-radius: 1.1rem; color: var(--accent); background: var(--surface-muted); }
+.product-artwork .storefront-artwork { height: 100%; }
+.product-purchase { position: sticky; top: 6.5rem; }
+.product-purchase__note { margin: 1.3rem 0 0; border-top: 1px solid var(--line-subtle); padding-top: 1.1rem; color: var(--ink-muted); font-size: .84rem; }
+
 @media (max-width: 900px) {
   .site-header__inner { grid-template-columns: 1fr auto; padding: 1rem 0; }
   .site-nav { grid-row: 2; grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; }
@@ -1181,8 +1272,17 @@ th { color: var(--ink-muted); font-size: .75rem; font-weight: 700; letter-spacin
   .philosophy-section { grid-template-columns: 1fr; }
   .journal-grid { grid-template-columns: 1fr; }
   .member-banner { grid-template-columns: 1fr; }
+  .storefront-hero { grid-template-columns: 1fr; }
+  .storefront-hero__art { min-height: 18rem; }
+  .brand-manifesto, .brand-story-hero { grid-template-columns: 1fr; }
+  .brand-manifesto__chapters, .brand-story-chapters { grid-template-columns: repeat(3, 1fr); }
+  .brand-story-hero__art { min-height: 20rem; }
+  .journal-grid--three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .storefront-discovery, .storefront-journey { grid-template-columns: 1fr; }
+  .storefront-discovery__art { min-height: 16rem; }
+  .storefront-journey__steps { grid-template-columns: repeat(3, 1fr); }
   .product-detail { grid-template-columns: 1fr; gap: 1.5rem; }
-  .product-purchase { max-width: 34rem; }
+  .product-purchase { position: static; max-width: 34rem; }
   .cart-layout, .checkout-layout, .order-layout { grid-template-columns: 1fr; }
   .cart-sidebar, .checkout-sidebar, .order-total-card { position: static; }
   .cart-sidebar, .checkout-sidebar { max-width: 34rem; }
@@ -1197,6 +1297,14 @@ th { color: var(--ink-muted); font-size: .75rem; font-weight: 700; letter-spacin
   .site-footer__inner { grid-template-columns: 1fr; gap: 2rem; }
   .site-footer__bottom-inner { flex-direction: column; gap: .5rem; text-align: center; }
   .catalog-hero { min-height: 22rem; padding: 1.5rem; }
+  .storefront-hero__copy { padding: 2rem 1.5rem; }
+  .storefront-hero__copy h1 { font-size: clamp(2.65rem, 13vw, 4rem); }
+  .storefront-discovery__copy { padding: 2.5rem 1.5rem; }
+  .brand-manifesto__chapters, .brand-story-chapters, .journal-grid--three { grid-template-columns: 1fr; }
+  .brand-manifesto__chapters h3 { margin-top: 1.75rem; }
+  .storefront-journey__steps { grid-template-columns: 1fr; }
+  .storefront-journey__steps li { min-height: auto; padding: 1.4rem; }
+  .storefront-journey__steps h3 { margin-top: 1.7rem; }
   .catalog-grid { grid-template-columns: 1fr; }
   .catalog-search { grid-template-columns: 1fr; align-items: stretch; }
   .product-card__link { min-height: 13rem; }

@@ -71,6 +71,14 @@ if (existsSync(adminDist)) {
   cpSync(adminDist, join(outDir, 'admin'), { recursive: true });
 }
 
+// Default Theme editorial media is a release-owned asset set. It is copied
+// separately from the bundled JS so the storefront can serve it with ordinary
+// HTTP caching rather than encoding image bytes into each SSR response.
+const defaultThemeAssets = join(root, 'packages/themes/default/assets');
+if (existsSync(defaultThemeAssets)) {
+  cpSync(defaultThemeAssets, join(outDir, 'theme-assets'), { recursive: true });
+}
+
 writeFileSync(join(outDir, 'VERSION'), `${version}\n`, 'utf8');
 writeFileSync(
   join(outDir, 'build-info.json'),

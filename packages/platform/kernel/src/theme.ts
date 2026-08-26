@@ -309,8 +309,14 @@ export interface StorefrontTheme {
   renderCatalog?(ctx: ThemeContext, data: ThemeCatalogView): string;
   /** 品牌工藝故事獨立專頁。 */
   renderStory?(ctx: ThemeContext): string;
+  /** 是否為目前商店發布品牌故事；未實作時，renderStory 即代表已發布。 */
+  isStoryPublished?(ctx: ThemeContext): boolean;
   /** 品牌生活風格誌清單頁。 */
   renderJournalList?(ctx: ThemeContext, data: { articles: any[] }): string;
+  /** 是否為目前商店發布生活誌；未實作時，renderJournalList 即代表已發布。 */
+  isJournalPublished?(ctx: ThemeContext): boolean;
   /** 品牌生活風格誌專題文章閱讀頁。 */
   renderJournalArticle?(ctx: ThemeContext, data: { article: any }): string;
+  /** 是否為目前商店發布指定文章；未實作時，renderJournalArticle 即代表已發布。 */
+  isJournalArticlePublished?(ctx: ThemeContext, slug: string): boolean;
 }

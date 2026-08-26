@@ -39,6 +39,10 @@ mkdir -p "$STAGE"/{app,bin,config,systemd,scripts}
 
 cp -R dist/app/. "$STAGE/app/"
 [ -d dist/admin ] && cp -R dist/admin "$STAGE/admin"
+# The bundled API resolves theme media beside the release root. Keep this
+# explicit rather than relying on source-tree fallbacks that do not exist on a
+# production host.
+cp -R dist/theme-assets "$STAGE/theme-assets"
 cp dist/VERSION dist/build-info.json "$STAGE/"
 
 # 固定版本的 Node runtime，只留執行所需的部分

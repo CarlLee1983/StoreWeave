@@ -4,7 +4,7 @@ import { defaultTheme } from '../src/index';
 
 const context = (overrides: Partial<ThemeContext> = {}): ThemeContext => ({
   storeName: '織日選物',
-  storeId: 'woven-day',
+  storeId: 'example-store',
   currency: 'TWD',
   locale: 'zh-TW',
   publicUrl: 'https://woven-day.example.test',
@@ -84,6 +84,86 @@ describe('Default Theme 的商品瀏覽切片', () => {
     expect(html).not.toContain('/theme/default/');
     // 第三方 script 的立場沒有變：字型是樣式表，頁面仍然不載入任何外部 JavaScript。
     expect(html).not.toContain('<script');
+  });
+
+  it('只輸出 Theme 可證明的商品事實，且主導覽不連向沒有內容來源的頁面', () => {
+    const ctx = context({ storeName: '另一間商店', storeId: 'another-store' });
+    const home = defaultTheme.renderHome(ctx, { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
+    const catalog = defaultTheme.renderCatalog!(ctx, { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
+    const detail = defaultTheme.renderProduct(ctx, { product });
+
+    for (const html of [home, catalog, detail]) {
+      expect(html).not.toContain('images.unsplash.com');
+      expect(html).not.toContain('織日選物');
+      expect(html).not.toContain('href="/story"');
+      expect(html).not.toContain('href="/journal"');
+      expect(html).not.toContain('<span class="brand__mark"');
+      expect(html).not.toContain('客服時間：');
+      expect(html).not.toContain('/storefront-assets/');
+    }
+    expect(home).toContain('class="storefront-hero"');
+    expect(home).toContain('正在販售的商品');
+    expect(home).toContain('目前有 1 件商品可瀏覽。');
+    expect(home).toContain('class="storefront-discovery"');
+    expect(home).toContain('class="storefront-journey"');
+    expect(home).toContain('依商品可售狀態選擇數量。');
+    expect(catalog).not.toContain('<nav class="catalog-category-tabs"');
+    expect(catalog).toContain('依商品名稱、SKU 或價格範圍找到正在販售的商品。');
+    expect(detail).toContain('class="product-artwork"');
+    expect(detail).toContain('aria-hidden="true" focusable="false"');
+    expect(detail).not.toContain('工藝與使用指南');
+    expect(detail).not.toContain('配送方式');
+
+    const soldOutHome = defaultTheme.renderHome(ctx, {
+      products: [{ ...product, available: 0 }], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1,
+    });
+    expect(soldOutHome).toContain('目前有 1 件商品可瀏覽。');
+    expect(soldOutHome).not.toContain('目前有 1 件商品正在販售。');
+  });
+
+  it('將織日選物的具名品牌內容發布為首頁、品牌故事與生活誌', () => {
+    const ctx = context();
+    const home = defaultTheme.renderHome(ctx, { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
+    const story = defaultTheme.renderStory!(ctx);
+    const journal = defaultTheme.renderJournalList!(ctx, { articles: [] });
+    const article = defaultTheme.renderJournalArticle!(ctx, { article: { slug: 'room-for-the-table' } });
+
+    expect(home).toContain('Woven Day · 織日選物');
+    expect(home).toContain('<nav class="site-nav" aria-label="主要導覽">\n      <a href="/">首頁</a>\n      <a href="/catalog">商品型錄</a>\n      <a href="/story">品牌故事</a><a href="/journal">生活誌</a>');
+    expect(home).toContain('href="/story"');
+    expect(home).toContain('href="/journal"');
+    expect(home).toContain('為生活留下的筆記');
+    expect(home).toContain('src="/storefront-assets/woven-day-hero.png"');
+    expect(home).toContain('alt="陽光下的木桌、陶杯、亞麻布與枝葉靜物。"');
+    expect(home).toContain('loading="eager"');
+    expect(story).toContain('class="brand-story-page"');
+    expect(story).toContain('src="/storefront-assets/woven-day-story.png"');
+    expect(journal).toContain('class="journal-grid journal-grid--three"');
+    expect(journal).toContain('src="/storefront-assets/woven-day-journal.png"');
+    expect(article).toContain('為桌面留一塊空白');
+    expect(article).toContain('src="/storefront-assets/woven-day-story.png"');
+    expect(defaultTheme.renderJournalArticle!(ctx, { article: { slug: 'objects-and-time' } }))
+      .toContain('src="/storefront-assets/woven-day-hero.png"');
+    expect(defaultTheme.renderJournalArticle!(ctx, { article: { slug: 'a-quieter-home' } }))
+      .toContain('src="/storefront-assets/woven-day-journal.png"');
+    expect(article).not.toContain('images.unsplash.com');
+    expect(defaultTheme.isStoryPublished!(ctx)).toBe(true);
+    expect(defaultTheme.isJournalArticlePublished!(ctx, 'room-for-the-table')).toBe(true);
+    expect(defaultTheme.isJournalArticlePublished!(ctx, 'not-a-real-article')).toBe(false);
+    expect(defaultTheme.renderJournalArticle!(ctx, { article: { slug: 'not-a-real-article' } })).toContain('找不到這篇文章。');
+    expect(defaultTheme.isStoryPublished!({ ...ctx, storeId: 'another-store' })).toBe(false);
+  });
+
+  it('為織日選物已知 SKU 輸出對應的商品攝影格位', () => {
+    const productPhoto = { ...product, sku: 'WD-POT-01' };
+    const home = defaultTheme.renderHome(context(), { products: [productPhoto], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
+    const detail = defaultTheme.renderProduct(context(), { product: productPhoto });
+
+    for (const html of [home, detail]) {
+      expect(html).toContain('class="storefront-product-image');
+      expect(html).toContain("background-image:url('/storefront-assets/woven-day-products-pottery.png')");
+      expect(html).toContain('background-position:0% 0%');
+    }
   });
 
   it('保留商品詳情的真實加車表單、session CSRF 與庫存上限', () => {

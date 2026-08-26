@@ -8,6 +8,8 @@ export interface ReleaseInfo {
   version: string;
   configPath: string;
   adminDir?: string;
+  /** Theme-owned public assets packaged with this release, never merchant product media. */
+  themeAssetsDir?: string;
 }
 
 export type { Runtime, StorefrontTheme };

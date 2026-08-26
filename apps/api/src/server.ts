@@ -7,6 +7,7 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import type { FastifyReply } from 'fastify';
 import type { Runtime, StorefrontTheme } from '@storeweave/kernel';
 import { AppModule } from './app.module';
+import { resolveThemeAssetsDir } from './theme-assets';
 import type { ReleaseInfo } from './tokens';
 
 export interface ServerOptions {
@@ -131,6 +132,11 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
     }
   });
 
+  // `@fastify/static` adds `reply.sendFile` when requested. Both the admin SPA
+  // and theme assets can be present in one release, but Fastify only permits a
+  // decorator to be registered once.
+  let replyHasSendFile = false;
+
   if (runtime.config.admin.enabled && release.adminDir && existsSync(release.adminDir)) {
     const adminDir = resolve(release.adminDir);
     const prefix = runtime.config.admin.basePath.endsWith('/')
@@ -139,6 +145,7 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
     // serve:false 只借用 reply.sendFile：靜態檔在請求當下解析，
     // 不在啟動時把目錄快照成路由表（否則重新 build 後的 hash 檔名會全數 404）。
     app.useStaticAssets({ root: adminDir, prefix, serve: false, decorateReply: true });
+    replyHasSendFile = true;
 
     const indexPath = join(adminDir, 'index.html');
     if (existsSync(indexPath)) {
@@ -161,6 +168,34 @@ export async function createServer(options: ServerOptions): Promise<NestFastifyA
         return sendIndex(request, reply);
       });
     }
+  }
+
+  // Resolve again at the delivery boundary. A long-lived development watcher
+  // can retain an older release descriptor while the source artwork changes.
+  const themeAssetsDir = release.themeAssetsDir && existsSync(join(release.themeAssetsDir, 'woven-day-hero.png'))
+    ? release.themeAssetsDir
+    : resolveThemeAssetsDir();
+  if (themeAssetsDir && existsSync(themeAssetsDir)) {
+    const prefix = '/storefront-assets/';
+    // Theme artwork has a deliberately narrow, separate public path. It is not
+    // a general filesystem endpoint and it must not be confused with merchant
+    // product media, whose delivery rules belong to a future catalog contract.
+    app.useStaticAssets({ root: themeAssetsDir, prefix, serve: false, decorateReply: !replyHasSendFile });
+    replyHasSendFile = true;
+    const fastify = adapter.getInstance();
+    fastify.get(`${prefix}*`, (request, reply) => {
+      const relative = (request.params as Record<string, unknown>)['*'];
+      if (typeof relative !== 'string' || !relative || relative.includes('\0')) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } });
+      }
+      const resolved = resolve(themeAssetsDir, relative);
+      const withinThemeAssetsDir = resolved === themeAssetsDir || resolved.startsWith(themeAssetsDir + sep);
+      if (relative && withinThemeAssetsDir && statSync(resolved, { throwIfNoEntry: false })?.isFile()) {
+        const assetReply = reply as FastifyReply & { sendFile(path: string): FastifyReply };
+        return assetReply.sendFile(relative);
+      }
+      return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } });
+    });
   }
 
 

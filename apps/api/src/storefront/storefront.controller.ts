@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { Body, Controller, Get, Inject, Param, Post, Query, Req, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { PlatformError, SYSTEM_ACTOR, type Actor } from '@storeweave/contracts';
@@ -10,7 +12,17 @@ import { Anonymous, ExternalCallback, Public, actorOf, anonymousActor, type Auth
 import { clearSessionCookies, sessionTokenOf } from '../http/session-cookies';
 import { cartNoticeOf, clearCartNoticeCookie, existingGuestToken, guestTokenFor } from '../http/cart-cookie';
 import { startSession } from '../http/session-start';
-import { RUNTIME, THEME, type Runtime } from '../tokens';
+import { RELEASE, RUNTIME, THEME, type ReleaseInfo, type Runtime } from '../tokens';
+
+const WOVEN_DAY_ARTWORK = new Set([
+  'woven-day-hero.png',
+  'woven-day-story.png',
+  'woven-day-journal.png',
+  'woven-day-products-pottery.png',
+  'woven-day-products-textiles.png',
+  'woven-day-products-wood.png',
+  'woven-day-products-living.png',
+]);
 
 /** 重設連結的時效。夠久到收得到信，短到外洩的信件不會長期有效。 */
 const RESET_TTL_MS = 60 * 60 * 1000;
@@ -104,7 +116,32 @@ export class StorefrontController {
   constructor(
     @Inject(RUNTIME) private readonly runtime: Runtime,
     @Inject(THEME) private readonly theme: StorefrontTheme,
+    @Inject(RELEASE) private readonly release: ReleaseInfo,
   ) {}
+
+  /**
+   * SSR pages may refer to theme-owned editorial media before a development
+   * watcher has rebuilt its release descriptor. Keep this narrow fallback in
+   * the storefront boundary; it never exposes merchant-uploaded product media.
+   */
+  @Get('storefront-assets/:file')
+  themeArtwork(@Param('file') file: string, @Res() reply: FastifyReply) {
+    if (!WOVEN_DAY_ARTWORK.has(file)) {
+      return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } });
+    }
+
+    const sourceAssetsDir = resolve(process.cwd(), 'packages', 'themes', 'default', 'assets');
+    const assetRoot = [this.release.themeAssetsDir, sourceAssetsDir]
+      .find((directory): directory is string =>
+        typeof directory === 'string' && existsSync(join(directory, 'woven-day-hero.png')),
+      );
+    const path = assetRoot && join(assetRoot, file);
+    if (!path || !existsSync(path)) {
+      return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } });
+    }
+
+    return reply.type('image/png').header('cache-control', 'public, max-age=0').send(readFileSync(path));
+  }
 
   /**
    * 一次性提示：讀到就清掉。合併發生在轉址之前，訊息沒有別的地方可以放。
@@ -220,9 +257,9 @@ export class StorefrontController {
   @Get('story')
   story(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     try {
-      const content = this.theme.renderStory
-        ? this.theme.renderStory(this.themeContext(req, reply))
-        : this.theme.renderHome(this.themeContext(req, reply), { products: [], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: CATALOG_PAGE_SIZE, total: 0 });
+      const ctx = this.themeContext(req, reply);
+      if (!this.theme.renderStory || this.theme.isStoryPublished?.(ctx) === false) throw PlatformError.notFound('Page', 'story');
+      const content = this.theme.renderStory(ctx);
       this.html(reply, 200, content);
     } catch (err) {
       this.renderError(reply, err, req);
@@ -232,9 +269,9 @@ export class StorefrontController {
   @Get('journal')
   journal(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     try {
-      const content = this.theme.renderJournalList
-        ? this.theme.renderJournalList(this.themeContext(req, reply), { articles: [] })
-        : this.theme.renderHome(this.themeContext(req, reply), { products: [], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: CATALOG_PAGE_SIZE, total: 0 });
+      const ctx = this.themeContext(req, reply);
+      if (!this.theme.renderJournalList || this.theme.isJournalPublished?.(ctx) === false) throw PlatformError.notFound('Page', 'journal');
+      const content = this.theme.renderJournalList(ctx, { articles: [] });
       this.html(reply, 200, content);
     } catch (err) {
       this.renderError(reply, err, req);
@@ -244,9 +281,9 @@ export class StorefrontController {
   @Get('journal/:slug')
   journalArticle(@Req() req: AuthenticatedRequest, @Param('slug') slug: string, @Res() reply: FastifyReply) {
     try {
-      const content = this.theme.renderJournalArticle
-        ? this.theme.renderJournalArticle(this.themeContext(req, reply), { article: { slug } })
-        : this.theme.renderHome(this.themeContext(req, reply), { products: [], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: CATALOG_PAGE_SIZE, total: 0 });
+      const ctx = this.themeContext(req, reply);
+      if (!this.theme.renderJournalArticle || this.theme.isJournalArticlePublished?.(ctx, slug) === false) throw PlatformError.notFound('Journal article', slug);
+      const content = this.theme.renderJournalArticle(ctx, { article: { slug } });
       this.html(reply, 200, content);
     } catch (err) {
       this.renderError(reply, err, req);
