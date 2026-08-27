@@ -29,15 +29,19 @@ docker compose up -d
 # MCP 端點      http://localhost:3000/mcp
 ```
 
-本機開發（需要 Node.js 22 以上、pnpm 11 以上，以及自備一個 PostgreSQL）：
+本機開發（需要 Node.js 22 以上、pnpm 12 以上，以及自備一個 PostgreSQL）：
 
-pnpm 的版本釘在 `package.json` 的 `packageManager`（目前 `pnpm@11.22.0`），
+pnpm 的版本釘在 `package.json` 的 `packageManager`（目前 `pnpm@12.0.0`），
 CI 與 Docker 建置都以它為準。用 Corepack（`corepack enable pnpm`）就不必自己裝：
-它會依那一行取用對應的版本。獨立安裝的 pnpm 則要自己是 11 以上。
+它會依那一行取用對應的版本。獨立安裝的 pnpm 則要自己是 12 以上——pnpm 12 起
+`pnpm-lock.yaml` 會把這個釘選版本記成 `packageManagerDependencies`，舊版
+pnpm 讀到會判定 lockfile 過期，CI 的 `--frozen-lockfile` 直接失敗。
 
 **pnpm 10 以下跑不起來**：設定從 `.npmrc` 搬到了 `pnpm-workspace.yaml`
 （`nodeLinker` / `shamefullyHoist`），舊版讀不到那些鍵，症狀是 `fastify`
-這類靠提升才看得到的傳遞相依整批解析不到。
+這類靠提升才看得到的傳遞相依整批解析不到。pnpm 12 起這類鍵不再靜靜忽略：
+釘選版本與執行版本相符時，`pnpm-workspace.yaml` 裡任何不認得的設定會直接以
+`ERR_PNPM_UNRECOGNIZED_WORKSPACE_SETTINGS` 中止安裝。
 
 ```bash
 pnpm install
