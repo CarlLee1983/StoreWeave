@@ -1,4 +1,5 @@
 // API 型別與 fetch wrapper。所有請求集中在這裡，畫面元件不直接呼叫 fetch。
+import type { AdminOrder, AdminOrderAdjustment, AdminOrderLine } from '@storeweave/order/http';
 
 export type Coupon = {
   id: string;
@@ -45,54 +46,9 @@ export type Stock = {
   updatedAt: string;
 };
 
-export type OrderLine = {
-  id: string;
-  productId: string;
-  sku: string;
-  name: string;
-  unitPriceCents: number;
-  quantity: number;
-  lineTotalCents: number;
-  discountCents: number;
-};
-
-export type OrderAdjustment = {
-  source: 'promotion';
-  sourceId: string;
-  name: string;
-  /** 折扣為負數。 */
-  amountCents: number;
-};
-
-export type Order = {
-  id: string;
-  number: string;
-  status: 'pending' | 'payment_processing' | 'paid' | 'cancelled' | 'expired';
-  currency: string;
-  customerEmail: string;
-  subtotalCents: number;
-  discountCents: number;
-  shippingCents: number;
-  taxCents: number;
-  totalCents: number;
-  lines: OrderLine[];
-  adjustments: OrderAdjustment[];
-  /** 結帳時凍結的配送選項；後台只能讀取，不能改寫歷史目的地。 */
-  delivery?: {
-    shippingMethodId: string;
-    shippingMethodCode: string;
-    shippingMethodName: string;
-    provider: string;
-    type: string;
-    destinationKind: 'taiwan_home' | 'pickup_store';
-    destination: Record<string, unknown>;
-    createdAt: string;
-  } | null;
-  placedAt: string;
-  paidAt: string | null;
-  cancelledAt: string | null;
-  expiresAt: string | null;
-};
+export type OrderLine = AdminOrderLine;
+export type OrderAdjustment = AdminOrderAdjustment;
+export type Order = AdminOrder;
 
 export type ShippingMethod = {
   id: string;
@@ -655,7 +611,7 @@ export const api = {
       idempotent: true,
     });
   },
-  listOrders(params: { status?: string; limit?: number; offset?: number }) {
+  listOrders(params: { status?: Order['status']; limit?: number; offset?: number }) {
     return request<Paged<Order>>(`/api/v1/orders${toQuery(params)}`);
   },
   getOrder(id: string) {

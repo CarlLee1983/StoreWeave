@@ -35,6 +35,7 @@ const order: Order = {
     },
   ],
   adjustments: [{ source: 'promotion', sourceId: 'promo-1', name: '滿千折百', amountCents: -10_000 }],
+  delivery: null,
   placedAt: '2026-08-22T00:00:00.000Z',
   paidAt: null,
   cancelledAt: null,
@@ -120,6 +121,33 @@ describe('退貨佇列的操作密度', () => {
 });
 
 describe('OrdersPage', () => {
+  it('顯示等待付款的購物金折抵，將它算進待處理並可篩選', async () => {
+    const awaitingPaymentOrder: Order = {
+      ...order,
+      id: '77777777-7777-4777-8777-777777777777',
+      number: 'SW-1002',
+      status: 'awaiting_payment',
+      adjustments: [{ source: 'reward', sourceId: 'reward-1', name: '購物金折抵', amountCents: -10_000 }],
+      placedAt: '2026-08-23T00:00:00.000Z',
+      expiresAt: '2026-08-24T00:00:00.000Z',
+    };
+    vi.mocked(api.listOrders).mockResolvedValue({ items: [awaitingPaymentOrder], total: 1 });
+    const user = userEvent.setup();
+    render(<I18nProvider><OrdersPage /></I18nProvider>);
+
+    const orderRow = (await screen.findByText('SW-1002')).closest('tr')!;
+    expect(within(orderRow).getByText('等待付款')).toBeInTheDocument();
+    expect(screen.getByText('待處理訂單').parentElement).toHaveTextContent('1');
+
+    await user.click(screen.getByText('SW-1002'));
+    expect(screen.getByText('購物金折抵')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '要求付款' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '取消訂單' })).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole('combobox'), 'awaiting_payment');
+    await waitFor(() => expect(api.listOrders).toHaveBeenLastCalledWith({ status: 'awaiting_payment', limit: 50 }));
+  });
+
   it('顯示全域退款隊列與安全重試入口', async () => {
     vi.mocked(api.listRefunds).mockResolvedValue({
       items: [{ id: 'refund-1', orderId: order.id, amountCents: 140_000, currency: 'TWD', status: 'failed', reason: 'internal', failureMessage: 'provider declined', requestedAt: order.placedAt, completedAt: order.placedAt }], total: 1,

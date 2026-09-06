@@ -14,7 +14,11 @@
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": []
+    "types": [],
+    "baseUrl": "../..",
+    "paths": {
+      "@storeweave/order/http": ["packages/commerce/order/src/http.ts"]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

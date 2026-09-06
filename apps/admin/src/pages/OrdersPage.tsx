@@ -9,9 +9,19 @@ import { EmptyState } from '../components/EmptyState';
 import { RowMenu, type RowMenuItem } from '../components/RowMenu';
 import { ReasonDialog } from '../components/ReasonDialog';
 
+const ORDER_STATUS_OPTIONS = {
+  pending: 'pending',
+  payment_processing: 'payment_processing',
+  awaiting_payment: 'awaiting_payment',
+  paid: 'paid',
+  cancelled: 'cancelled',
+  expired: 'expired',
+} satisfies Record<Order['status'], Order['status']>;
+const orderStatusOptions = Object.values(ORDER_STATUS_OPTIONS);
+
 export function OrdersPage() {
   const { t, formatMoney } = useI18n();
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState<Order['status'] | ''>('');
   const [orders, setOrders] = useState<Order[]>([]);
   const [refundQueue, setRefundQueue] = useState<Refund[]>([]);
   const [rmaQueue, setRmaQueue] = useState<Rma[]>([]);
@@ -72,7 +82,7 @@ export function OrdersPage() {
     } catch (err) { setError(err); }
   };
   const paid = orders.filter((order) => order.status === 'paid');
-  const pending = orders.filter((order) => order.status === 'pending' || order.status === 'payment_processing');
+  const pending = orders.filter((order) => order.status === 'pending' || order.status === 'payment_processing' || order.status === 'awaiting_payment');
   const gmv = paid.reduce((total, order) => total + order.totalCents, 0);
 
   return (
@@ -87,8 +97,8 @@ export function OrdersPage() {
       </div>
 
       <div className="toolbar">
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">{t('allStatuses')}</option><option value="pending">{t('pending')}</option><option value="payment_processing">{t('payment_processing')}</option><option value="paid">{t('paid')}</option><option value="cancelled">{t('cancelled')}</option><option value="expired">{t('expired')}</option>
+        <select value={status} onChange={(e) => setStatus(orderStatusOptions.find((option) => option === e.target.value) ?? '')}>
+          <option value="">{t('allStatuses')}</option>{orderStatusOptions.map((value) => <option key={value} value={value}>{t(value)}</option>)}
         </select>
       </div>
 
@@ -361,7 +371,7 @@ function OrderRow({
                 <dd className="mono">{formatMoney(order.totalCents, order.currency)}</dd>
               </dl>
 
-              {(order.status === 'pending' || order.status === 'payment_processing') && (
+              {order.status === 'pending' && (
                 <div className="inline-form">
                   <button id="order-actions" className="button button--primary" type="button" disabled={submitting} onClick={handlePay}>
                     {t('requestPayment')}

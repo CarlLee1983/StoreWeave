@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { shippingDestinationInput } from '@storeweave/shipping';
+import { orderAdjustmentSources, orderStatuses } from './contract';
 
-export const orderStatus = z.enum(['pending', 'payment_processing', 'awaiting_payment', 'paid', 'cancelled', 'expired']);
-export type OrderStatus = z.infer<typeof orderStatus>;
+export const orderStatus = z.enum(orderStatuses);
+export type { OrderStatus } from './contract';
 
 export const paymentAttemptStatus = z.enum(['created', 'submitted', 'awaiting_payment', 'succeeded', 'failed', 'expired']);
 export type PaymentAttemptStatus = z.infer<typeof paymentAttemptStatus>;
@@ -74,15 +75,17 @@ export const orderLineDto = z.object({
   lineTotalCents: z.number().int().nonnegative(),
   discountCents: z.number().int().nonnegative(),
 });
+export type OrderLineDto = z.infer<typeof orderLineDto>;
 
 export const orderAdjustmentDto = z.object({
   /** 折扣來自活動或購物金折抵。 */
-  source: z.enum(['promotion', 'reward']),
+  source: z.enum(orderAdjustmentSources),
   sourceId: z.string(),
   name: z.string(),
   /** 折扣為負數。訂單總額 = 小計 + 所有 Adjustment。 */
   amountCents: z.number().int(),
 });
+export type OrderAdjustmentDto = z.infer<typeof orderAdjustmentDto>;
 
 /** Immutable checkout-time delivery choice. The shipping method's current fee is not read here. */
 export const orderDeliveryDto = z.object({
