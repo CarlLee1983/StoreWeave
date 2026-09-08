@@ -1,0 +1,10 @@
+{
+  "name": "storeweave-base-b00-queue-poc",
+  "private": true,
+  "type": "module",
+  "description": "Isolated B00 queue comparison; not a production workspace package",
+  "dependencies": {
+    "pg-boss": "12.30.0",
+    "pg-boss-previous": "npm:pg-boss@12.29.0"
+  }
+}

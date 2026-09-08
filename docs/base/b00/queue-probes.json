@@ -1,0 +1,354 @@
+{
+  "node": "v22.17.1",
+  "postgres": "17.11",
+  "image": "postgres:17-alpine",
+  "pgBoss": "12.30.0",
+  "previousPgBoss": "12.29.0",
+  "dependencies": [
+    {
+      "path": "node_modules/cron-parser",
+      "version": "5.10.0",
+      "license": "MIT",
+      "integrity": "sha512-izNAxJyRWUP8ljBoDSub5WyrVOUlT4SLGShswE7eoRBpp6QUsSycYxLBMJlbshgPBMcPT/nrfgjNY2918ayv2A=="
+    },
+    {
+      "path": "node_modules/luxon",
+      "version": "3.7.2",
+      "license": "MIT",
+      "integrity": "sha512-vtEhXh/gNjI9Yg1u4jX/0YVPMvxzHuGgCm6tC5kZyb08yjGWGnqAjGJvcXbqQR2P3MyMEFnRbpcdFS6PBcLqew=="
+    },
+    {
+      "path": "node_modules/non-error",
+      "version": "0.1.0",
+      "license": "MIT",
+      "integrity": "sha512-TMB1uHiGsHRGv1uYclfhivcnf0/PdFp2pNqRxXjncaAsjYMoisaQJI+SSZCqRq+VliwRTC8tsMQfmrWjDMhkPQ=="
+    },
+    {
+      "path": "node_modules/pg",
+      "version": "8.23.0",
+      "license": "MIT",
+      "integrity": "sha512-Ip2EQCngowJLGOfCwkFhPXU7/ljlhn6Rxlmy4XYfL2Y+vyRM59+8uR2xqRWKdYmbXmxCFOAmKxBuSUCdF34qLg=="
+    },
+    {
+      "path": "node_modules/pg-boss",
+      "version": "12.30.0",
+      "license": "MIT",
+      "integrity": "sha512-ke4Rr/uMJGwqt7DwKoWS9aa6XFlK43C0fMw1Ma0CoJrVxWSjE7ZwFLwz60dGQODESDA2+yq/B474pOH4n3d3CQ=="
+    },
+    {
+      "path": "node_modules/pg-boss-previous",
+      "version": "12.29.0",
+      "license": "MIT",
+      "integrity": "sha512-KokbfJf8uzKejAYm8vtAU9UNZR2PHBmucxsxrljJWTu2TG34a4GW6syAN9U9xeR8Tf3c5JWxmdiG1zOoUTCkxA=="
+    },
+    {
+      "path": "node_modules/pg-cloudflare",
+      "version": "1.4.0",
+      "license": "MIT",
+      "integrity": "sha512-Vo7z/6rrQYxpNRylp4Tlob2elzbh+N/MOQbxFVWCxS7oEx6jF53GTJFxK2WWpKuBRkmiin4Mt+xofFDjx09R0A=="
+    },
+    {
+      "path": "node_modules/pg-connection-string",
+      "version": "2.14.0",
+      "license": "MIT",
+      "integrity": "sha512-XwWDGcLRGCXAR8F/AM5bG7Q+A3Wm2s6QeEjlOKZLlH3UYcguiqCWKyWXVag5TLTIjR7oOJUY8kcADaZgWPyLeg=="
+    },
+    {
+      "path": "node_modules/pg-int8",
+      "version": "1.0.1",
+      "license": "ISC",
+      "integrity": "sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw=="
+    },
+    {
+      "path": "node_modules/pg-pool",
+      "version": "3.14.0",
+      "license": "MIT",
+      "integrity": "sha512-gKtPkFdQPU3DksooVLi9LsjZxrsBUZIpa+7aVx+LV5pNh0KzP4Zleud2po+ConrxbuXGBJ6Hfer6hdgpIBpBaw=="
+    },
+    {
+      "path": "node_modules/pg-protocol",
+      "version": "1.16.0",
+      "license": "MIT",
+      "integrity": "sha512-sILXutLVjCLjcDuOmvhX5e2Z4cS5qG/6Bu3VkpFwdf/633ElGLpEh9bgmuI5I4sqKqkifQiGyiCcx1HdtrK7tg=="
+    },
+    {
+      "path": "node_modules/pg-types",
+      "version": "2.2.0",
+      "license": "MIT",
+      "integrity": "sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA=="
+    },
+    {
+      "path": "node_modules/pgpass",
+      "version": "1.0.5",
+      "license": "MIT",
+      "integrity": "sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug=="
+    },
+    {
+      "path": "node_modules/postgres-array",
+      "version": "2.0.0",
+      "license": "MIT",
+      "integrity": "sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA=="
+    },
+    {
+      "path": "node_modules/postgres-bytea",
+      "version": "1.0.1",
+      "license": "MIT",
+      "integrity": "sha512-5+5HqXnsZPE65IJZSMkZtURARZelel2oXUEO8rH83VS/hxH5vv1uHquPg5wZs8yMAfdv971IU+kcPUczi7NVBQ=="
+    },
+    {
+      "path": "node_modules/postgres-date",
+      "version": "1.0.7",
+      "license": "MIT",
+      "integrity": "sha512-suDmjLVQg78nMK2UZ454hAG+OAW+HQPZ6n++TNDUX+L0+uUlLywnoxJKDou51Zm+zTCjrCl0Nq6J9C5hP9vK/Q=="
+    },
+    {
+      "path": "node_modules/postgres-interval",
+      "version": "1.2.0",
+      "license": "MIT",
+      "integrity": "sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ=="
+    },
+    {
+      "path": "node_modules/serialize-error",
+      "version": "13.0.1",
+      "license": "MIT",
+      "integrity": "sha512-bBZaRwLH9PN5HbLCjPId4dP5bNGEtumcErgOX952IsvOhVPrm3/AeK1y0UHA/QaPG701eg0yEnOKsCOC6X/kaA=="
+    },
+    {
+      "path": "node_modules/split2",
+      "version": "4.2.0",
+      "license": "ISC",
+      "integrity": "sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg=="
+    },
+    {
+      "path": "node_modules/tagged-tag",
+      "version": "1.0.0",
+      "license": "MIT",
+      "integrity": "sha512-yEFYrVhod+hdNyx7g5Bnkkb0G6si8HJurOoOEgC8B/O0uXLHlaey/65KRv6cuWBNhBgHKAROVpc7QyYqE5gFng=="
+    },
+    {
+      "path": "node_modules/type-fest",
+      "version": "5.9.0",
+      "license": "(MIT OR CC0-1.0)",
+      "integrity": "sha512-yANm3Jr3GiJ1qgJlxGAVxTOIcEOk1rhQHamlXtnrCK7EHP4HeM9OGxtMg/W7HFdrVzw/ZWJKGVIJusVH85sLtw=="
+    },
+    {
+      "path": "node_modules/xtend",
+      "version": "4.0.2",
+      "license": "MIT",
+      "integrity": "sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ=="
+    }
+  ],
+  "probes": [
+    {
+      "candidate": "current",
+      "case": "transaction",
+      "observed": {
+        "rollbackRemovedDomainAndJob": true,
+        "committedJobVisible": true
+      },
+      "unmetTargets": []
+    },
+    {
+      "candidate": "current",
+      "case": "dedupe",
+      "observed": {
+        "rows": 1,
+        "returnedIds": 4,
+        "durableIdentityReturnedOnConflict": false,
+        "completedRowStillDedupes": true
+      },
+      "unmetTargets": [
+        "Return existing durable identity on conflict",
+        "Define retention/dedupe horizon"
+      ]
+    },
+    {
+      "candidate": "current",
+      "case": "running replacement",
+      "observed": {
+        "sameIdentity": true,
+        "overlapsOldAttempt": true,
+        "differentOwnerGuard": true
+      },
+      "unmetTargets": [
+        "Defer replacement until old attempt is fenced/drained",
+        "Use occurrence generation rather than worker id alone"
+      ]
+    },
+    {
+      "candidate": "current",
+      "case": "crash lease",
+      "observed": {
+        "processKilledAfterClaim": true,
+        "reclaimed": true,
+        "attempts": 2,
+        "maxAttempts": 1,
+        "staleSameOwnerCompletionAccepted": true
+      },
+      "unmetTargets": [
+        "Per-attempt fencing and heartbeat",
+        "Bound crash-only retries by maxAttempts"
+      ]
+    },
+    {
+      "candidate": "current",
+      "case": "DLQ retry",
+      "observed": {
+        "preservedId": true,
+        "resetAttempts": true,
+        "repeatedRetryRejected": true,
+        "completed": true
+      },
+      "unmetTargets": []
+    },
+    {
+      "candidate": "current",
+      "case": "schedule timezone",
+      "observed": {
+        "scheduledFor": [
+          "2026-03-07T00:00:00.000Z",
+          "2026-03-10T00:00:00.000Z"
+        ],
+        "missedDaysSkipped": 2
+      },
+      "unmetTargets": [
+        "Cron and IANA timezone/DST",
+        "Explicit misfire policies, pause and overlap control"
+      ]
+    },
+    {
+      "candidate": "current",
+      "case": "schema upgrade",
+      "observed": {
+        "from": "platform/0001_init",
+        "to": "platform/0002_worker_heartbeat",
+        "preservedStates": [
+          "pending",
+          "running",
+          "dead"
+        ],
+        "repeatNoop": true
+      },
+      "unmetTargets": [
+        "No historical queue schema change to prove a queue data conversion",
+        "Checksums/order/unknown-history validation belongs to B02"
+      ]
+    },
+    {
+      "candidate": "pg-boss",
+      "case": "schema upgrade",
+      "observed": {
+        "from": 39,
+        "to": 40,
+        "preservedStates": [
+          "active",
+          "completed",
+          "created",
+          "failed",
+          "retry"
+        ],
+        "retryAndDlqRowsPreserved": true,
+        "partitionedQueue": true,
+        "bamCommands": 4,
+        "driftOk": true,
+        "repeatStartPreservedRows": true,
+        "rollbackTo39AndReupgrade": true,
+        "oldBinaryCompletedAfterRollback": true,
+        "postUpgradeCompleted": true,
+        "upgradedDlqRedrivenAndCompleted": true
+      },
+      "unmetTargets": []
+    },
+    {
+      "candidate": "pg-boss",
+      "case": "transaction",
+      "observed": {
+        "actualDrizzleAdapter": true,
+        "rollbackRemovedDomainAndJob": true,
+        "committedJobVisible": true
+      },
+      "unmetTargets": []
+    },
+    {
+      "candidate": "pg-boss",
+      "case": "dedupe",
+      "observed": {
+        "rowsBeforeCompletion": 1,
+        "nullConflictResults": 3,
+        "preActiveUpsertReturnsIdentity": true,
+        "completedRowStillDedupes": false
+      },
+      "unmetTargets": [
+        "Return existing durable identity on conflict",
+        "Define retention/dedupe horizon"
+      ]
+    },
+    {
+      "candidate": "pg-boss",
+      "case": "running replacement",
+      "observed": {
+        "update": {
+          "jobs": [],
+          "updated": 0
+        },
+        "upsert": {
+          "jobs": [],
+          "updated": 0,
+          "inserted": 0
+        },
+        "originalPayloadPreserved": true
+      },
+      "unmetTargets": [
+        "Active replacement requires application-level deferred occurrence contract"
+      ]
+    },
+    {
+      "candidate": "pg-boss",
+      "case": "crash lease",
+      "observed": {
+        "processKilledAfterClaim": true,
+        "reclaimed": true,
+        "retryCount": 1,
+        "staleCompletionAcceptedWithoutToken": true,
+        "touchKeepsLeaseAlive": true,
+        "missingHeartbeatExhausts": true,
+        "repeatedTimeoutsExhaust": true
+      },
+      "unmetTargets": [
+        "Per-attempt fencing at StoreWeave interface"
+      ]
+    },
+    {
+      "candidate": "pg-boss",
+      "case": "DLQ retry",
+      "observed": {
+        "redrivePreservedId": false,
+        "directRetryPreservedId": true,
+        "directRetryIncreasesLimit": true,
+        "directRetryCount": 1,
+        "sourceIdPreservedInDLQ": true,
+        "repeatedRedriveNoop": true,
+        "completed": true
+      },
+      "unmetTargets": [
+        "Preserve public job identity and strict dead-only retry/reset semantics in adapter"
+      ]
+    },
+    {
+      "candidate": "pg-boss",
+      "case": "schedule timezone",
+      "observed": {
+        "taipeiMidnight": true,
+        "taipeiFiveMinutesLate": false,
+        "springGapAtThree": false,
+        "fallFirst": true,
+        "fallSecond": true,
+        "sameMinuteDoubleCronProducedOneForward": true,
+        "forwardedJobClaimed": true
+      },
+      "unmetTargets": [
+        "Explicit misfire/pause/overlap contract"
+      ]
+    }
+  ]
+}
