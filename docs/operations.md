@@ -17,7 +17,8 @@
 | `commerce status` | 顯示兩個服務的狀態與管理方式 |
 | `commerce doctor [--json]` | 完整安裝健檢，有 fail 時以非零狀態結束 |
 | `commerce migrate [--status]` | 套用或檢視 migration（含 expand/migrate/contract 階段） |
-| `commerce backup [--out FILE]` | `pg_dump --format=custom`，權限 0600 |
+| `commerce migrate --status --json` | 輸出 applied／pending／releaseCurrent；不執行 domain SQL、extension setup 或 release 啟用 |
+| `commerce backup [--out FILE]` | 私有暫存 dump 驗證後原子發布，權限 0600；拒絕覆寫既有檔案 |
 | `commerce restore FILE --yes` | `pg_restore --clean --if-exists`（會覆寫現有資料） |
 | `commerce upgrade --release TARBALL` | 解壓新版 → 用新版跑 migration → 切換 symlink → 重啟 |
 | `commerce rollback [--to VERSION]` | 切回上一版或指定版本並重啟 |
@@ -74,6 +75,26 @@ service: commerce-api/worker  行程是否在跑
 
 尚未實作的部分：密碼重設、後台的帳號停用介面、登入失敗鎖定、二階段驗證。
 需要停用某個帳號時，目前只能直接改資料庫的 `platform_users.status`。
+
+## CORS
+
+預設不啟用。要讓瀏覽器中的另一個網站讀取 API，明確列出它的 origin；空清單不註冊 CORS 或自動 `OPTIONS *` 路由：
+
+```yaml
+http:
+  cors:
+    allowedOrigins:
+      - https://console.example
+    credentials: false
+```
+
+只能填 `http`／`https` origin（可帶唯一的結尾 `/`）；不能有帳密、路徑、query、fragment、萬用字元或重複的正規化 origin。大小寫 host 與預設 port 會正規化。`credentials: true` 必須至少有一個 origin；它不會從 `http.publicUrl` 推導。
+
+這只讓瀏覽器讀取 allowlist 的回應，不是登入或 CSRF 豁免：session cookie、same-origin／CSRF、Bearer token 與既有權限仍照常生效。預檢固定只公告 `GET, HEAD, POST, PUT, PATCH, DELETE` 及 `Authorization, Content-Type, Idempotency-Key, X-CSRF-Token, X-Correlation-Id`，並 expose `Retry-After`。
+
+allowlist 的正常預檢回 `204` 與精確的 `Access-Control-Allow-Origin`；不在 allowlist 的正常預檢仍是 `204`，但沒有 ACAO。缺少 `Origin` 或 `Access-Control-Request-Method` 是 Fastify 的嚴格預檢，回 `400 text/plain` 與 `Invalid Preflight Request`。不支援的 method／header 或不存在的 path 也可能回 `204`，但只公告固定清單，瀏覽器會拒絕；不要把它當成授權成功。一般跨站請求仍會跑原 handler，只是不給 ACAO。
+
+生成的 `base.schema.json`／`commerce.schema.json` 保留 `format: uri`，但 JSON Schema 無法完整表示上述 origin-only 限制；部署時以 runtime 設定驗證為準。
 
 ## 健康端點
 

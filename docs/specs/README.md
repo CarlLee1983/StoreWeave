@@ -1,5 +1,11 @@
 # 規格
 
+**完整基底目標（2026-09-06）**：[Spec 0009](0009-complete-modular-base.md) 與
+[Base 執行計畫](../base-implementation-plan.md)。B00 研究與 B01 模組契約均已完成驗證及獨立 Sol 審查，B02 已解鎖；未 commit／push／發布 GitHub，並保留以下既有規格。
+狀態核對：Spec0008 Ticket81–90 已於2026-09-07完成本機驗收與Sol終審；Base B00–B01 已完成，B02–B17 尚未完成。
+
+GitHub 派工入口：[Spec 0008 總單 #17](https://github.com/CarlLee1983/StoreWeave/issues/17)，內含完整規格與本批工單連結。
+
 由 2026-08-22 的 grilling 產出，共 36 個決策點。詞彙定義見根目錄 `CONTEXT.md`，
 架構決策見 `docs/adr/`（本批相關者為 0013、0014、0015，並補充了 0009）。
 
@@ -12,12 +18,18 @@
 | [0005](0005-points-tiers-and-analytics.md) | 購物金、會員等級與行銷分析 | 0001–0004 | ready-for-agent |
 | [0006](0006-commerce-operations-closure.md) | 購物營運閉環：付款、履約、售後與探索 | 0001–0005 | ready-for-agent |
 | [0007](0007-brand-content-and-contact.md) | 品牌內容與聯絡我們 | 0001–0006 | ready-for-agent |
+| [0008](0008-admin-foundations-and-contracts.md) | 後台共用元件、資料狀態與 HTTP 契約收斂 | 既有後台 | done（本機驗收；未提交） |
+| [0009](0009-complete-modular-base.md) | 完整應用基礎服務、模組契約與建站基底 | 既有 platform；Admin 部分銜接 0008 | in-progress；B00–B01 done，B02 已解鎖 |
 
 0001 與 0002 沒有相依，可並行；兩條線在 0003 會合。加價購接在 0004 之後，
 是定價引擎輸出「可加購清單」的延伸，不獨立成規格。
 
 0006 接在既有購物核心之後；其 Ticket 57–67 先補可上線的付款與物流閉環，再處理售後、
 電子發票與商品探索。它不重做已完成的 Cart、付款嘗試與 shipping domain model。
+
+0008 來自 2026-09-06 的架構審視，對應 Ticket 81–90；Ticket 81 實作已存在，驗收待重新核對。
+採 shadcn/ui 與 TanStack Query 漸進收斂後台；Ticket 91 另收納 ForgeFlowv2 discovery，
+等待來源與使用場景，不阻擋本輪後台改善。各票指定 Terra／high 並列出相依、驗收與審查模型。
 
 ## 測試接縫
 

@@ -36,6 +36,9 @@
 | [0032](0032-product-status-transitions-are-not-enforced.md) | 商品狀態的合法轉換只在後台具名，command 不強制 | accepted |
 | [0033](0033-brand-content-is-a-core-module.md) | 品牌內容是 Core 的 content 模組，Theme 只負責呈現 | accepted |
 | [0034](0034-editorial-media-stays-theme-owned.md) | 編輯照片仍由 Theme 擁有，Core 只存一個封閉的圖片 key | accepted |
+| [0035](0035-retain-postgres-queue-for-modular-base.md) | 完整 Base 沿用 PostgreSQL Queue，補齊可靠性契約 | proposed（B00） |
+| [0036](0036-validate-module-composition-before-runtime.md) | 啟動前驗證模組組裝，分開初始化與操作相依 | accepted（B01） |
+| [0037](0037-release-selection-and-history.md) | Release 統一選取模組，歷史驗證與啟用分開 | accepted（B02） |
 
 寫法：每篇結尾用 `## Falsified if` 這個標題起一段，段落裡以反引號標出這個決策所依賴的檔案；
 那些檔案就是這個決策的邊界清單，條件本身要寫成某個東西可以檢查的形式。

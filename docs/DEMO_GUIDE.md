@@ -20,7 +20,7 @@ export COMMERCE_CONFIG=deployments/example-store/commerce.yaml
 
 ### 步驟 B: 一鍵注入 Demo 數據
 ```bash
-pnpm seed
+pnpm seed -- --demo
 ```
 
 ### 步驟 C: 啟動 API 與 Worker

@@ -106,6 +106,11 @@ Worker 每一輪確保「當下這個切片」已排入。沒有自我續排的�
 
 ## 模組邊界
 
+模組組裝在建立 Database 前驗證 `name`、package version、Base range、相依、能力 binding 與資料／migration ownership。
+靜態相依決定固定註冊順序；constructor 注入的操作與非同步 subscriber links 分別驗證，不混為初始化 cycle。
+Core subscriber 預設只能執行自身 command，外部 command 必須精確宣告 owner／name／version，且 owner 有已驗證的相依或 binding。
+契約與適用邊界見 [ADR 0036](adr/0036-validate-module-composition-before-runtime.md)；這些檢查不把 trusted Node 程式變成 SQL sandbox。
+
 - 每個模組各自擁有自己的資料表與 migration。**Commerce 模組的前綴即模組名**——
   `cart_*`、`catalog_*`、`content_*`、`coupon_*`、`customer_*`、`inventory_*`、`invoice_*`、
   `loyalty_*`、`notification_*`、`order_*`、`promotion_*`、`refund_*`、`rma_*`、`shipping_*`。
@@ -131,3 +136,7 @@ Worker 每一輪確保「當下這個切片」已排入。沒有自我續排的�
 
 `/api/v1/meta/commands`、`/meta/queries`、`/meta/events`、`/meta/permissions`
 會輸出目前這個 Release 的完整契約（含 JSON Schema），可直接當整合文件用。
+
+## Admin 資料流
+
+Admin 在 `main.tsx` 建立唯一且存活於 App 的 `QueryClient`。`query.ts` 集中 query keys，頁面透過 `api.ts` 的唯一 HTTP transport 呼叫 REST；`routes.tsx` 是 16 個 routes、導覽、頁首 metadata 與 actions 的唯一來源。Query 和 mutation 都不自動 retry，cache 與未知結果的 operation recovery 都只在記憶體；登入、登出或 token／帳號切換時，App 先取消並清除舊 query cache 與 operation recovery。未知 command 只能以原本不可變的 request 與 idempotency key 重試；只有明確成功或拒絕才結束該次操作，之後使用者另發起的合法新操作才取得新 key。

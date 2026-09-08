@@ -37,12 +37,27 @@ manifest: {
   subscribedEvents: ['commerce.order.paid.v2'],
   registeredCommands: ['ext.demo-erp.resendOrder'],
   registeredQueries:  ['ext.demo-erp.listDeliveries'],
+  registeredJobs: ['ext.demo-erp.push-order'],
   registeredProviders: [{ kind: 'erp', id: 'demo-erp', isDefault: true }],
 }
 ```
 
 Manifest 是**宣告**，`setup()` 是**實作**，兩者必須完全一致。掛載時 `ExtensionHost`
 會逐項比對，宣告了沒註冊、或註冊了沒宣告，都會在啟動時直接失敗，不會等到執行期。
+`registeredJobs` 省略時視為空清單；有背景工作的 extension 必須列出完整 job types。
+建置工具只讀這份宣告，不執行 setup。既有 extension 升級時應補上宣告，job type 不改名。
+
+## 初始化與清理
+
+Runtime 建構只驗證組裝與宣告。正式啟用先鎖定並核對 migration history、保留資料與待處理工作，再完成所需 migration，才呼叫設定中啟用的 `setup()`。全部掛載成功並重新核對工作／release 狀態後，才寫入 effective history。Setup 失敗會清理資源並保留已提交的 migration 前綴；修復後以新 runtime 重試。
+
+Compatibility registry 與 effective history 在同一交易提交。Registry 保留最後見過的 extension 顯示資料；active／disabled 狀態以 effective history 為準，不能從 registry row 存在就推斷 extension 正在執行。
+
+CLI `migrate --status`、`migrate baseline`、backup／restore 不執行 setup。一般 API／worker 啟動要求目前 release 已透過 `migrate` 啟用；API 明確設定 autoMigrate 時可自行套用。此流程要求操作者先停止舊 writers 並清空阻擋切換的工作，advisory lock 不會攔截其他 producer。
+
+`setup()` 回傳的 `ExtensionRegistration` 可提供 `close?: () => void | Promise<void>`，釋放自己建立的 client、timer 或連線。若 setup 在回傳前拋錯，extension 必須自行清理；不要在尚未交還 cleanup handle 前啟動無法撤回的背景工作。
+
+回傳後的掛載失敗由 host 呼叫 close；正常關閉依掛載順序反向清理，每個 registration 最多一次。某個 close 拋錯不阻止其他資源清理。close 應停止接收新工作並等待已開始的工作；程序超過 `shutdown.timeoutMs` 會退出，平台不會把尚未完成的工作當作成功。此生命週期介面不提供 job cancellation 或跨 release fencing。
 
 ## ExtensionContext：Extension 唯一的執行環境
 
@@ -117,6 +132,7 @@ export const giftWrapExtension = defineExtension<Config>({
     subscribedEvents: ['commerce.order.paid.v2'],
     registeredCommands: [requestWrapCommand.name],
     registeredQueries: [listWrapsQuery.name],
+    registeredJobs: ['ext.gift-wrap.prepare'],
     registeredProviders: [],
   },
 

@@ -1,5 +1,9 @@
 # StoreWeave
 
+目標定位與完整基底規劃見 [Spec 0009](docs/specs/0009-complete-modular-base.md)；
+能力盤點、套件策略與派工順序見 [Base 執行計畫](docs/base-implementation-plan.md)。
+以下介紹目前已實作的 Commerce 產品，不代表通用基底目標已完成。
+
 單站獨立部署的電商平台。每個客戶獨立建置、獨立部署、使用獨立資料庫，
 但共用同一套 Commerce Core：**品牌差異用 Theme，特殊需求用 Extension，Core 永遠不改**。
 
@@ -49,7 +53,7 @@ export DATABASE_URL=postgres://commerce:devpw@127.0.0.1:5432/commerce
 export COMMERCE_ADMIN_TOKEN=dev-admin-token COMMERCE_MCP_TOKEN=dev-mcp-token DEMO_ERP_API_KEY=dev-erp-key
 export COMMERCE_CONFIG=deployments/example-store/commerce.yaml
 pnpm commerce migrate
-pnpm seed            # 一鍵注入 24 款選品、促銷券、會員等級與示範帳號
+pnpm seed -- --demo  # 明確選擇示範資料：注入 24 款選品、促銷券、會員等級與示範帳號
 pnpm "dev:api"       # 另開一個終端機
 pnpm "dev:worker"
 ```
@@ -60,6 +64,7 @@ pnpm "dev:worker"
 | --- | --- |
 | [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | **全功能 Demo 演示指南（示範帳號、前台體驗、折扣碼測試與後台操作）** |
 | [docs/architecture.md](docs/architecture.md) | 模組邊界、Command/Query/Event 流向、目錄結構 |
+| [apps/admin/DESIGN.md](apps/admin/DESIGN.md) | 管理後台設計系統與資料／互動邊界 |
 | [docs/extension-development.md](docs/extension-development.md) | Extension SDK 十項契約與完整開發範例 |
 | [docs/deployment-docker.md](docs/deployment-docker.md) | Docker 安裝與維運 |
 | [docs/deployment-native.md](docs/deployment-native.md) | 原生 Ubuntu / Debian 安裝、升級與回退 |
@@ -92,6 +97,7 @@ pnpm "dev:worker"
 | `pnpm typecheck:admin` | 管理後台的型別檢查（另一份 tsconfig） |
 | `pnpm test` | 單元 + 架構測試（不需要 Docker） |
 | `pnpm test:admin` | 管理後台的 React 元件測試（jsdom） |
+| `pnpm build:admin` | 管理後台 Vite production build |
 | `pnpm test:integration` | PostgreSQL 整合測試（Testcontainers，需要 Docker） |
 | `pnpm test:all` | 以上三組測試 |
 | `pnpm smoke:docker` | Docker Compose 端到端 smoke test |
