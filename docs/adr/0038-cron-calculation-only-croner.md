@@ -1,6 +1,6 @@
 # 0038. cron 時間運算用 croner，而且只用它的運算函式
 
-- 狀態：proposed；B05 實作與獨立審查通過後轉 accepted。
+- 狀態：accepted（B05 實作完成，2026-09-09）
 - 日期：2026-09-08
 
 ## 背景
@@ -47,14 +47,16 @@ Chatham 的 +12:45／+13:45、Tehran 廢除 DST 之後與 Kathmandu 的 +05:45�
 - `previousRun()` 與 `previousRuns()` 語意不同：前者是該 Cron 實例的 runtime 狀態，
   對從未執行過的 job 回 `null`；只有後者是純運算。B05 探針實際踩到這一點，程式碼只能用後者。
 - ADR 0016 的兩項已知限制由 B05 解除，但 0016 記的「不要有可以斷的鏈」這個理由**繼續有效**，
-  並且是本決策要求 croner 不持 timer 的原因。B05 實作落地並驗收後，0016 轉為被本篇部分修訂。
+  並且是本決策要求 croner 不持 timer 的原因。0016 已標記為排程機制部分被本篇修訂。
+- 時間運算與資料庫狀態分屬兩個檔案：`schedule-spec.ts` 是純函式（單元測試涵蓋 DST 與列舉），
+  `recurring.ts` 負責 watermark、暫停與列鎖（真 PG 整合測試涵蓋）。croner 只被前者 import。
 - 時區資料來自 runtime ICU。部署到裁減 ICU（small-icu）的 Node 會靜默算錯時區，
   這是新增的部署前提，屬 B15 的營運檢查範圍。
 
 ## Falsified if
 
-`packages/platform/kernel/src/recurring.ts`（或取代它的 scheduler 模組）出現 croner 的
-`schedule`／`trigger`／`stop`／`pause` 呼叫或 `name` 選項，代表排程開始持有 in-process timer 或全域註冊表；
+`packages/platform/kernel/src/schedule-spec.ts` 或 `packages/platform/kernel/src/recurring.ts`
+出現 croner 的 `schedule`／`trigger`／`stop`／`pause` 呼叫或 `name` 選項，代表排程開始持有 in-process timer 或全域註冊表；
 或 `packages/platform/kernel/src/worker.ts` 不再是 occurrence 的唯一執行入口；
 或 cron 運算改由另一個套件、或改回 `packages/platform/kernel/src/module.ts` 的 `everyMs` 切片為唯一機制
 ——任一成立，本篇的選型理由與約束都要重新檢視。

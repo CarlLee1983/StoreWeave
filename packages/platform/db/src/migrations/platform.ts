@@ -206,5 +206,27 @@ CREATE INDEX IF NOT EXISTS platform_jobs_dead_idx
   ON public.platform_jobs (updated_at DESC, id) WHERE status = 'dead';
       `,
     ),
+    sqlMigration(
+      '0008_job_schedules',
+      'expand',
+      `
+CREATE TABLE IF NOT EXISTS public.platform_job_schedules (
+  type                text PRIMARY KEY,
+  fingerprint         text NOT NULL,
+  paused              boolean NOT NULL DEFAULT false,
+  paused_at           timestamptz,
+  last_occurrence_at  timestamptz,
+  last_enqueued_at    timestamptz,
+  -- 跳過的原因分開記。混成一個計數器就沒有人能從它推斷「這個排程正在出事」：
+  -- 健康的多 worker 叢集本來就會一直去重，而 overlap 連續跳過才是要告警的那一種。
+  skipped_catchup     bigint NOT NULL DEFAULT 0,
+  skipped_paused      bigint NOT NULL DEFAULT 0,
+  skipped_overlap     bigint NOT NULL DEFAULT 0,
+  consecutive_overlap_skips integer NOT NULL DEFAULT 0,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now()
+);
+      `,
+    ),
   ],
 };

@@ -7,6 +7,7 @@ import { asSubscriberSnapshot, type OutboxStore } from '@storeweave/outbox';
 import { defineModule, type PlatformModule } from './module';
 import { EVENT_DELIVERY_JOB } from './event-delivery';
 import { repairAndRedriveOutbox } from './outbox-recovery';
+import type { RecurringScheduler } from './recurring';
 
 /**
  * 平台自身的維運介面。這裡只碰 platform_* 資料表，對領域一無所知，
@@ -126,7 +127,61 @@ export const redriveOutboxFailureCommand = defineCommand({
 export interface OpsModuleDependencies {
   readonly events: EventBus;
   readonly outbox: OutboxStore;
+  /**
+   * 排程器要等資料庫連線建立後才存在，而模組組裝發生在那之前（Release 選取需要模組清單）。
+   * 用 thunk 取代直接注入，讓這個順序留在 runtime 裡，而不是逼 ops 模組提早知道連線。
+   */
+  readonly scheduler: () => RecurringScheduler;
 }
+
+export const scheduleDto = z.object({
+  type: z.string(),
+  kind: z.enum(['interval', 'cron']),
+  expression: z.string(),
+  timezone: z.string().nullable(),
+  catchUp: z.number(),
+  overlap: z.enum(['queue', 'skip']),
+  paused: z.boolean(),
+  pausedAt: z.string().nullable(),
+  lastOccurrenceAt: z.string().nullable(),
+  lastEnqueuedAt: z.string().nullable(),
+  skippedCatchup: z.number(),
+  skippedPaused: z.number(),
+  skippedOverlap: z.number(),
+  consecutiveOverlapSkips: z.number(),
+  nextOccurrenceAt: z.string().nullable(),
+});
+
+export const listSchedulesQuery = defineQuery({
+  name: 'platform.jobs.listSchedules',
+  summary: '列出這個 Release 宣告的週期性工作及其排程狀態',
+  input: z.object({}).strict(),
+  output: z.object({ items: z.array(scheduleDto) }),
+  permission: 'jobs:read',
+});
+
+export const scheduleTypeInput = z.object({ type: z.string().min(1) }).strict();
+export const scheduleStateOutput = z.object({ type: z.string(), paused: z.boolean() });
+
+export const pauseScheduleCommand = defineCommand({
+  name: 'platform.jobs.pauseSchedule',
+  summary: '暫停一個週期性工作；暫停期間的 occurrence 是跳過而不是累積',
+  input: scheduleTypeInput,
+  output: scheduleStateOutput,
+  permission: 'jobs:write',
+  idempotency: 'required',
+  audit: { action: 'jobs.schedule.paused', resourceType: 'schedule', resourceId: (i) => i.type },
+});
+
+export const resumeScheduleCommand = defineCommand({
+  name: 'platform.jobs.resumeSchedule',
+  summary: '恢復一個被暫停的週期性工作，從當下這一次繼續',
+  input: scheduleTypeInput,
+  output: scheduleStateOutput,
+  permission: 'jobs:write',
+  idempotency: 'required',
+  audit: { action: 'jobs.schedule.resumed', resourceType: 'schedule', resourceId: (i) => i.type },
+});
 
 export function createOpsModule(jobs: JobQueue, dependencies: OpsModuleDependencies): PlatformModule {
   return defineModule({
@@ -158,6 +213,20 @@ export function createOpsModule(jobs: JobQueue, dependencies: OpsModuleDependenc
         },
       },
       {
+        descriptor: pauseScheduleCommand,
+        handler: async (input: z.infer<typeof scheduleTypeInput>, ctx: CommandContext) => {
+          await dependencies.scheduler().setPaused(ctx.tx, input.type, true);
+          return { type: input.type, paused: true };
+        },
+      },
+      {
+        descriptor: resumeScheduleCommand,
+        handler: async (input: z.infer<typeof scheduleTypeInput>, ctx: CommandContext) => {
+          await dependencies.scheduler().setPaused(ctx.tx, input.type, false);
+          return { type: input.type, paused: false };
+        },
+      },
+      {
         descriptor: redriveOutboxFailureCommand,
         handler: async (input: z.infer<typeof redriveOutboxFailureInput>, ctx: CommandContext) => {
           const { events, outbox } = dependencies;
@@ -167,6 +236,21 @@ export function createOpsModule(jobs: JobQueue, dependencies: OpsModuleDependenc
       },
     ],
     queries: [
+      {
+        descriptor: listSchedulesQuery,
+        handler: async (_input: unknown, ctx: QueryContext) => {
+          const items = await dependencies.scheduler().list(ctx.db);
+          return {
+            items: items.map((item) => ({
+              ...item,
+              pausedAt: item.pausedAt?.toISOString() ?? null,
+              lastOccurrenceAt: item.lastOccurrenceAt?.toISOString() ?? null,
+              lastEnqueuedAt: item.lastEnqueuedAt?.toISOString() ?? null,
+              nextOccurrenceAt: item.nextOccurrenceAt?.toISOString() ?? null,
+            })),
+          };
+        },
+      },
       {
         descriptor: listDeadJobsQuery,
         handler: async (input: z.infer<typeof listDeadJobsInput>, ctx: QueryContext) => {

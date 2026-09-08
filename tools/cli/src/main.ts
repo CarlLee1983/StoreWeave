@@ -14,6 +14,22 @@ import { resumeRestoreCutover } from './resume-restore';
 import { parsePgUrl } from './pg-tool';
 import { withTransitionLock } from './transition-lock';
 import { randomUUID } from 'node:crypto';
+
+interface ScheduleListItem {
+  type: string;
+  kind: 'interval' | 'cron';
+  expression: string;
+  timezone: string | null;
+  catchUp: number;
+  overlap: string;
+  paused: boolean;
+  lastOccurrenceAt: string | null;
+  nextOccurrenceAt: string | null;
+  skippedCatchup: number;
+  skippedPaused: number;
+  skippedOverlap: number;
+  consecutiveOverlapSkips: number;
+}
 import { baselineMigrations, catalogDigest, readSnapshotDatabase } from '@storeweave/db';
 import 'reflect-metadata';
 import { execFileSync } from 'node:child_process';
@@ -373,6 +389,58 @@ program
       line(dim('  用這組帳密登入管理後台；靜態 API token 仍可供機器對機器使用。'));
     });
   });
+
+program
+  .command('schedule:list')
+  .description('列出週期性工作的排程與狀態')
+  .option('--json', '以 JSON 輸出')
+  .action(async (options: { json?: boolean }) => {
+    await withRuntime(async (runtime) => {
+      await runtime.activateRelease('require-current');
+      const { items } = await runtime.queries.execute<{ items: ScheduleListItem[] }>(
+        'platform.jobs.listSchedules', {}, { actor: runtime.actorForRole('system') },
+      );
+      if (options.json) {
+        line(JSON.stringify({ items }, null, 2));
+        return;
+      }
+      heading(`週期性工作（${items.length}）`);
+      for (const item of items) {
+        const when = item.kind === 'cron' ? `${item.expression} ${item.timezone}` : `every ${item.expression}ms`;
+        line(`  ${bold(item.type)} ${dim(when)}${item.paused ? ' ' + bold('[paused]') : ''}`);
+        line(`      ${dim('last      ')} ${item.lastOccurrenceAt ?? '(none)'}`);
+        line(`      ${dim('next      ')} ${item.nextOccurrenceAt ?? '(none)'}`);
+        line(`      ${dim('policy    ')} catchUp=${item.catchUp} overlap=${item.overlap}`);
+        line(`      ${dim('skipped   ')} catchup=${item.skippedCatchup} paused=${item.skippedPaused} overlap=${item.skippedOverlap}`
+          + (item.consecutiveOverlapSkips > 0 ? ` ${bold(`(overlap 連續 ${item.consecutiveOverlapSkips} 次)`)}` : ''));
+      }
+    });
+  });
+
+for (const [verb, commandName, description] of [
+  ['pause', 'platform.jobs.pauseSchedule', '暫停一個週期性工作'],
+  ['resume', 'platform.jobs.resumeSchedule', '恢復一個被暫停的週期性工作'],
+] as const) {
+  program
+    .command(`schedule:${verb} <type>`)
+    .description(description)
+    .option('--idempotency-key <key>', '重試同一次操作時帶上同一個鍵，避免 audit 出現重複紀錄')
+    .action(async (type: string, options: { idempotencyKey?: string }) => {
+      await withRuntime(async (runtime) => {
+        await runtime.activateRelease('require-current');
+        // 固定鍵在這裡是錯的：暫停／恢復是可以來回切換的意圖，「暫停→恢復→再暫停」的
+        // 第三步會讀到第一步的快取回應而不執行。所以預設每次呼叫是新的意圖；
+        // 真的要重試同一次操作（例如上一次連線中斷、不確定有沒有生效）就自己帶鍵。
+        const idempotencyKey = options.idempotencyKey ?? `cli-schedule-${verb}-${type}-${randomUUID()}`;
+        const result = await runtime.commands.execute<{ type: string; paused: boolean }>(
+          commandName, { type },
+          { actor: runtime.actorForRole('system'), idempotencyKey },
+        );
+        heading(result.paused ? '已暫停' : '已恢復');
+        line(`  ${bold(result.type)}`);
+      });
+    });
+}
 
 program
   .command('extension:list')

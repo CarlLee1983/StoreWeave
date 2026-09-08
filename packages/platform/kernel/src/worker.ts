@@ -25,6 +25,8 @@ export interface WorkerOptions {
 
 export interface WorkerTickResult {
   recurringScheduled: number;
+  recurringSkipped: number;
+  recurringDeduped: number;
   relayed: number;
   deliveriesEnqueued: number;
   jobsProcessed: number;
@@ -345,14 +347,16 @@ export class Worker {
     const recurring = await this.runtime.recurring.ensureScheduled();
     const relay = await this.relayOutbox();
     const jobs = await this.runJobs();
-    return { recurringScheduled: recurring.enqueued, relayed: relay.relayed, deliveriesEnqueued: relay.enqueued, jobsProcessed: jobs.processed, jobsFailed: jobs.failed };
+    return { recurringScheduled: recurring.enqueued, recurringSkipped: recurring.skipped, recurringDeduped: recurring.deduped, relayed: relay.relayed, deliveriesEnqueued: relay.enqueued, jobsProcessed: jobs.processed, jobsFailed: jobs.failed };
   }
 
   async drain(maxRounds = 50): Promise<WorkerTickResult> {
-    const total: WorkerTickResult = { recurringScheduled: 0, relayed: 0, deliveriesEnqueued: 0, jobsProcessed: 0, jobsFailed: 0 };
+    const total: WorkerTickResult = { recurringScheduled: 0, recurringSkipped: 0, recurringDeduped: 0, relayed: 0, deliveriesEnqueued: 0, jobsProcessed: 0, jobsFailed: 0 };
     for (let i = 0; i < maxRounds; i += 1) {
       const result = await this.tick();
       total.recurringScheduled += result.recurringScheduled;
+      total.recurringSkipped += result.recurringSkipped;
+      total.recurringDeduped += result.recurringDeduped;
       total.relayed += result.relayed;
       total.deliveriesEnqueued += result.deliveriesEnqueued;
       total.jobsProcessed += result.jobsProcessed;
