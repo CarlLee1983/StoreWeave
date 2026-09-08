@@ -47,6 +47,19 @@ describe('訪客購物車的 cookie', () => {
     expect(fetched.json().data.items[0].quantity).toBe(2);
   });
 
+  it('composed cart routes reject unknown body fields before projection', async () => {
+    const product = await sellable('CART-COMPOSED-STRICT');
+    const added = await inject({ method: 'POST', url: '/api/v1/cart/items', payload: { productId: product.id, quantity: 1 } });
+    const cookies = { [CART_COOKIE]: added.cookies.find((c) => c.name === CART_COOKIE)!.value };
+
+    const rejected = await inject({ method: 'PATCH', url: `/api/v1/cart/items/${product.id}`, cookies,
+      payload: { quantity: 2, unknown: true } });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json()).toMatchObject({ success: false, error: { code: 'VALIDATION_ERROR' } });
+    expect(rejected.json().error.message).toContain('unknown');
+    expect((await inject({ url: '/api/v1/cart', cookies })).json().data.items[0].quantity).toBe(1);
+  });
+
   it('沒帶 cookie 的人看到的是一台空車，而不是別人的車', async () => {
     const product = await sellable('CART-COOKIE-2');
     const added = await inject({ method: 'POST', url: '/api/v1/cart/items', payload: { productId: product.id, quantity: 1 } });

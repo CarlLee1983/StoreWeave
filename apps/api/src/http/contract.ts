@@ -145,6 +145,7 @@ type DescribedRawRoute = {
   readonly rateLimit: RateLimitBucket | null;
   readonly auth: string; readonly owner: null; readonly kind: 'raw'; readonly request: 'none'; readonly permission: null;
   readonly idempotency: 'none'; readonly input: JsonSchema7Type; readonly output: JsonSchema7Type;
+  readonly guardError: JsonTransportError | null;
 };
 type DescribedDirectRoute = {
   readonly method: string; readonly path: string; readonly status: number; readonly auth: string; readonly owner: null;
@@ -202,6 +203,7 @@ type DescribedStorefrontRoute = {
   readonly responses: readonly StorefrontResponse[]; readonly cookieEffects: readonly StorefrontCookieEffect[];
 };
 type JsonTransportError = { readonly statuses: readonly number[]; readonly contentType: 'application/json'; readonly output: JsonSchema7Type };
+
 type DescribedStorefrontAssetRoute = {
   readonly method: string; readonly path: string; readonly status: 200; readonly auth: 'session-or-anonymous';
   readonly rateLimit: RateLimitBucket | null;
@@ -270,9 +272,10 @@ export const HttpContract = (contract: HttpRouteContract) => applyDecorators(
   RouteConfig({ storeweaveContract: contract }),
 );
 
-const errorSchema = () => zodToJsonSchema(httpErrorSchema as never, { target: 'jsonSchema7' });
+const catalogSchema = (schema: unknown) => zodToJsonSchema(schema as never, { target: 'jsonSchema7', $refStrategy: 'none' });
+const errorSchema = () => catalogSchema(httpErrorSchema);
 const responseSchema = (output: unknown): JsonSchema7Type => ({ type: 'object', required: ['success', 'data'], properties: {
-  success: { type: 'boolean', const: true }, data: zodToJsonSchema(output as never, { target: 'jsonSchema7' }),
+  success: { type: 'boolean', const: true }, data: catalogSchema(output),
 } });
 
 function extensionTargets(runtime: Runtime, kind: 'command' | 'query'): DescribedExtensionTarget[] {
@@ -294,7 +297,7 @@ function extensionTargets(runtime: Runtime, kind: 'command' | 'query'): Describe
       extensionId: extension.id, target: { kind, name }, owner: registration.owner,
       permission: registration.descriptor.permission,
       idempotency: 'idempotency' in registration.descriptor ? registration.descriptor.idempotency : 'none',
-      input: zodToJsonSchema(registration.descriptor.input as never, { target: 'jsonSchema7' }),
+      input: catalogSchema(registration.descriptor.input),
       output: responseSchema(registration.descriptor.output),
     };
   }));
@@ -311,7 +314,7 @@ function mcpTools(runtime: Runtime): DescribedMcpTool[] {
       name: definition.name, description: definition.description, owner, target: definition.target,
       targetOwner: target.owner, permission: target.descriptor.permission,
       idempotencyKey: definition.target.kind === 'command' ? 'tool-argument' : 'none',
-      input: zodToJsonSchema(definition.input as never, { target: 'jsonSchema7' }),
+      input: catalogSchema(definition.input),
     };
   });
 }
@@ -333,11 +336,11 @@ function providerCallbackTargets(runtime: Runtime): DescribedProviderCallbackTar
 }
 
 const jsonRpcId = z.union([z.string(), z.number(), z.null()]);
-const mcpJsonRpcOutput = zodToJsonSchema(z.union([
+const mcpJsonRpcOutput = catalogSchema(z.union([
   z.object({ jsonrpc: z.literal('2.0'), id: jsonRpcId, result: z.object({}).passthrough() }).strict(),
   z.object({ jsonrpc: z.literal('2.0'), id: jsonRpcId,
     error: z.object({ code: z.number(), message: z.string(), data: z.unknown().optional() }).strict() }).strict(),
-]) as never, { target: 'jsonSchema7' });
+]));
 
 const mcpDirectOutput: JsonSchema7Type = {
   type: 'object', required: ['success', 'data'], additionalProperties: false, properties: {
@@ -422,6 +425,7 @@ export function describeHttpRoutes(runtime: Runtime, controllers: readonly Type[
       method: verb, path, status: contract.statuses[0], statuses: contract.statuses, auth,
       owner: null, kind: contract.kind, request: contract.request, permission: null, idempotency: 'none', rateLimit: contract.rateLimit ?? null,
       input: { type: 'object', properties: {}, additionalProperties: false }, output: contract.output,
+      guardError: auth === 'bearer-or-session' ? { statuses: [401], contentType: 'application/json', output: errorSchema() } : null,
     }];
     if (contract.kind === 'provider-callback') return [{
       method: verb, path, status: null, auth, kind: contract.kind, request: contract.request, providerKinds: contract.providerKinds,
@@ -443,7 +447,7 @@ export function describeHttpRoutes(runtime: Runtime, controllers: readonly Type[
       auth, kind: contract.kind, transport: contract.transport, request: contract.request, rateLimit: contract.rateLimit ?? null,
       contentType: 'application/json', protocolVersion: MCP_PROTOCOL_VERSION, methods: MCP_METHOD_LIST, tools: mcpTools(runtime),
       input: contract.transport === 'jsonrpc'
-        ? zodToJsonSchema(jsonRpcRequest as never, { target: 'jsonSchema7' })
+        ? catalogSchema(jsonRpcRequest)
         : { type: 'object', properties: {}, additionalProperties: false },
       error: errorSchema(),
       output: contract.transport === 'jsonrpc' ? mcpJsonRpcOutput : mcpDirectOutput,
@@ -466,7 +470,7 @@ export function describeHttpRoutes(runtime: Runtime, controllers: readonly Type[
       ((bodyFields || serverDefaulted.length) && contract.request !== 'body') ||
       (bodyFields !== undefined && serverDefaulted.some(field => !bodyFields.includes(field))) ||
       serverDefaulted.some(field => injected.includes(field))) throw new Error(`Invalid HTTP body mapping: ${contract.target.name}`);
-    let input: JsonSchema7Type = zodToJsonSchema(descriptor.input as never, { target: 'jsonSchema7' });
+    let input: JsonSchema7Type = catalogSchema(descriptor.input);
     if ('properties' in input) {
       const properties = input.properties;
       const pathFields = Object.values(contract.params ?? {});
@@ -501,7 +505,7 @@ export function describeHttpRoutes(runtime: Runtime, controllers: readonly Type[
       input,
       error: errorSchema(),
       output: { type: 'object', required: ['success', 'data'], properties: {
-        success: { const: true }, data: contract.kind === 'composed' && contract.output !== 'target' ? contract.output : zodToJsonSchema(descriptor.output as never, { target: 'jsonSchema7' }),
+        success: { const: true }, data: contract.kind === 'composed' && contract.output !== 'target' ? contract.output : catalogSchema(descriptor.output),
       } },
     } as DescribedBusRoute | DescribedComposedRoute];
   }));
@@ -578,6 +582,10 @@ export function busHttpInput(contract: BusHttpContract | ComposedHttpContract, i
   let value = input;
   if (contract.kind === 'composed' && contract.bodyFields) {
     const body = input as Record<string, unknown> | undefined;
+    if (body && typeof body === 'object' && !Array.isArray(body)) {
+      const unknown = Object.keys(body).filter(field => !contract.bodyFields!.includes(field));
+      if (unknown.length) throw PlatformError.validation(`Unknown HTTP body field: ${unknown[0]}`);
+    }
     value = Object.fromEntries(contract.bodyFields.map(field => [field, body?.[field]]));
   }
   if (contract.nullAsMissing && value && typeof value === 'object' && !Array.isArray(value)) {

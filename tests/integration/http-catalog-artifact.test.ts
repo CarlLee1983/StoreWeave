@@ -214,6 +214,7 @@ describe('startup HTTP catalog artifact', () => {
         const duplicate = join(root, `${name}.duplicate.json`);
         writeStartupHttpCatalog({ output: duplicate, runtime: base.runtime, carrier });
         const bytes = readFileSync(output, 'utf8');
+        expect(bytes).not.toContain('"$ref"');
         expect(readFileSync(duplicate, 'utf8')).toBe(bytes);
         expect(activate).not.toHaveBeenCalled();
         expect(query).not.toHaveBeenCalled();
@@ -272,6 +273,7 @@ describe('startup HTTP catalog artifact', () => {
         writeStartupHttpCatalog({ output, runtime: commerce.runtime, carrier });
         writeStartupHttpCatalog({ output: join(root, `${name}.duplicate.json`), runtime: commerce.runtime, carrier });
         const bytes = readFileSync(output, 'utf8');
+        expect(bytes).not.toContain('"$ref"');
         expect(bytes).not.toContain(secret);
         expect(bytes).not.toContain(commerce.runtime.config.database.url);
         expect(bytes).not.toContain(adminDir);

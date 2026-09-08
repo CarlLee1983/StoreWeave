@@ -231,12 +231,20 @@ describe('REST 介面', () => {
     expect('required' in checkout.input && checkout.input.required).not.toContain('cartId');
   });
 
+  it('documents authenticated raw route guard errors', async () => {
+    const routes = describeHttpRoutes(h.runtime, [HealthController]);
+    expect(routes.find(route => route.path === '/health/dependencies')).toMatchObject({
+      guardError: { statuses: [401], contentType: 'application/json' },
+    });
+    expect((await inject({ url: '/health/dependencies' })).statusCode).toBe(401);
+  });
+
   it('composes body projection before legacy null handling', () => {
     const contract: ComposedHttpContract = {
       kind: 'composed', request: 'body', target: { kind: 'command', name: 'commerce.order.cancelOrder' },
       bodyFields: ['reason'], nullAsMissing: ['reason'], output: 'target',
     };
-    expect(busHttpInput(contract, { reason: null, ignored: true })).toEqual({ reason: undefined });
+    expect(busHttpInput(contract, { reason: null })).toEqual({ reason: undefined });
   });
 
   it('rejects a hidden server default in a projected body contract', () => {

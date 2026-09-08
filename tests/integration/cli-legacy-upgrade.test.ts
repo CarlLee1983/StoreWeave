@@ -96,7 +96,7 @@ it.each(['paired', 'raw'] as const)('real B02 CLI recovers B01 through %s snapsh
     expect(realpathSync(join(home, 'current'))).toBe(realpathSync(source));
     const catalog = ['--from-legacy-b01', '--catalog', 'legacy-commerce-0.1.0-pre-b02', '--evidence', 'owned CLI fixture'];
     writeFileSync(join(root, 'crash'), '');
-    await expect(run('--release', archive, ...catalog, ...common)).rejects.toMatchObject({ signal: 'SIGKILL' });
+    await expectSigkill(run('--release', archive, ...catalog, ...common));
     rmSync(join(root, 'crash'));
     const operations = join(home, '.transitions');
     const safety = readdirSync(operations).map(id => join(operations, id)).find(path => {
@@ -126,7 +126,7 @@ it.each(['paired', 'raw'] as const)('real B02 CLI recovers B01 through %s snapsh
       const args = ['--safety', safety, '--checksum', checksum, '--yes', ...common];
       await expect(invoke('rollback', ...args)).rejects.toMatchObject({ stderr: expect.stringContaining('requires --to-legacy-b01') });
       writeFileSync(join(root, 'rollback-crash'), '');
-      await expect(invoke('rollback', '--to-legacy-b01', ...args)).rejects.toMatchObject({ signal: 'SIGKILL' });
+      await expectSigkill(invoke('rollback', '--to-legacy-b01', ...args));
       rmSync(join(root, 'rollback-crash'));
       const restoreFile = readdirSync(operations).map(id => join(operations, id, 'journal.json')).find(path => {
         try { return JSON.parse(readFileSync(path, 'utf8')).kind === 'legacy-b01-safety-restore'; } catch { return false; }
@@ -165,7 +165,7 @@ it.each(['paired', 'raw'] as const)('real B02 CLI recovers B01 through %s snapsh
     rmSync(join(root, 'fail-migrate'));
     for (const point of ['before', 'after']) {
       writeFileSync(join(root, 'current-crash'), point);
-      await expect(run('--from-legacy-b01', '--resume', journalFile, ...common)).rejects.toMatchObject({ signal: 'SIGKILL' });
+      await expectSigkill(run('--from-legacy-b01', '--resume', journalFile, ...common));
       expect((await readLegacyBridgeJournal(journalFile, operations)).journal.phase).toBe('migrated');
       expect(realpathSync(join(home, 'current'))).toBe(realpathSync(point === 'before' ? source : join(home, 'releases', '0.2.0')));
     }
@@ -190,7 +190,7 @@ it.each(['paired', 'raw'] as const)('real B02 CLI recovers B01 through %s snapsh
     expect(unchangedOid.stdout.trim()).toBe(pair.manifest.evidence.database.oid);
 
     writeFileSync(join(root, 'rollback-crash'), '');
-    await expect(invoke('rollback', '--to-legacy-b01', ...rollback)).rejects.toMatchObject({ signal: 'SIGKILL' });
+    await expectSigkill(invoke('rollback', '--to-legacy-b01', ...rollback));
     rmSync(join(root, 'rollback-crash'));
     const restoreFile = readdirSync(operations).map(id => join(operations, id, 'journal.json')).find(path => {
       try { const journal = JSON.parse(readFileSync(path, 'utf8')); return journal.kind === 'legacy-b01-restore' && journal.phase === 'cutover-intent'; } catch { return false; }
@@ -232,4 +232,15 @@ async function expectLegacyApi(source: string, env: NodeJS.ProcessEnv, port: num
     }
 
 
+}
+
+async function expectSigkill(command: Promise<unknown>) {
+  try {
+    await command;
+  } catch (error) {
+    const result = error as { code?: number | null; signal?: string | null; killed?: boolean; stderr?: string };
+    if (result.signal === 'SIGKILL') return;
+    throw new Error(`Expected SIGKILL; received signal=${result.signal ?? 'null'}, code=${result.code ?? 'null'}, killed=${result.killed ?? false}, stderr=${JSON.stringify(result.stderr ?? '')}`);
+  }
+  throw new Error('Expected SIGKILL, but CLI exited successfully');
 }

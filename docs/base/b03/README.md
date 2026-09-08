@@ -1,9 +1,8 @@
 # B03 模組 HTTP 與安全 transport
 
-狀態：2026-09-08 `in_progress`。B03 的 transport、catalog artifact、CORS 與 Vitest
-serial test configuration 已實作並完成各自的獨立 scoped review；final3 full checks 已通過，**Base／Commerce
-native 與 Docker smoke、CORS probe、preservation evidence 與最後 B03 independent review 尚未完成**。這不是 B03
-結案，也不啟動 B04。
+狀態：2026-09-08 `done`。B03 的 transport、catalog artifact、CORS 與 Vitest serial test configuration
+已完成 final5 full integration、Base／Commerce native 與 Docker packaged-runtime smoke、enabled-CORS packaged probe、
+protected-release preservation check 與 independent source review。B04 尚未啟動。
 
 範圍以 [B03 派工卡](../b00/next-work-cards.md#b03--模組-http-與安全-transport)及
 [Spec 0009 F02](../../specs/0009-complete-modular-base.md) 為準；逐項現況見
@@ -40,6 +39,8 @@ native 與 Docker smoke、CORS probe、preservation evidence 與最後 B03 indep
   [CORS 維運文件](../../operations.md#cors)。
 - [Vitest config](../../../vitest.config.ts) 將 `fileParallelism: false` 放在 root，維持 integration 180s timeout；
   這降低已知 parallel resource contention，不宣稱已證明所有 timeout 根因。
+- composed body projection 在共用 `busHttpInput` 先拒絕未知欄位，不能在 descriptor strict validation 前靜默丟棄。
+  catalog schema 使用無 local `$ref` 的產物，並記錄 authenticated raw route 的 401 guard error。
 
 ## Artifact output usage
 
@@ -47,7 +48,7 @@ native 與 Docker smoke、CORS probe、preservation evidence 與最後 B03 indep
 activation 與 startup catalog validation 後才會寫出。重啟請改用 fresh path，或 unset 此變數；服務不會移除或覆寫
 使用者 artifact。
 
-## 本輪可用證據與尚未通過的 gate
+## Final evidence
 
 | 類別 | 現有證據 | 現在的結論 |
 | --- | --- | --- |
@@ -57,15 +58,20 @@ activation 與 startup catalog validation 後才會寫出。重啟請改用 fres
 | CORS focused checks | `config:schema && typecheck`、3 unit files／12 tests、受影響 integration `base-http`／`http-and-mcp`／artifact 3 files／96 tests 均 exit 0 | 通過；早先 4 files／124 tests 早於最後 parser correction，非最新聲明 |
 | final3 integration | `/tmp/storeweave-b03-final3-integration.log`：79 files／655 tests，589.18s，gate exit 0 | 通過 |
 | final3 admin | `pnpm typecheck:admin` exit 0，`/tmp/storeweave-b03-final3-admin-typecheck.log`；`pnpm test:admin` 26 files／314 tests，67.84s，exit 0，`/tmp/storeweave-b03-final3-admin.log` | 通過 |
-| smokes／probe／preservation／最後 review | Base native smoke 已開始，尚無結果；其餘 gate 未開始或未有結果 | pending |
+| final5 typecheck／unit／focused integration | `pnpm typecheck` exit 0；`pnpm test` 58 files／732 tests，78.67s；cart／HTTP-MCP／artifact 3 files／98 tests exit 0 | 通過 |
+| final5 integration | `/tmp/storeweave-b03-final5-integration.log`：79 files／657 tests，721.94s，exit 0；B02 CLI isolated rerun 2／2，108.17s | 通過 |
+| Base／Commerce smokes | `/tmp/storeweave-b03-final5-smoke-{native,docker}-{base,commerce}.log` 各 exit 0；Base 10 checks、Commerce 61 native／62 Docker checks | 通過；都是 fresh local builds，不是 deployment claim |
+| CORS packaged-image probe | `/tmp/storeweave-b03-final5-cors-packaged-base.log`：fresh Base image with allowlist fixture; allowed GET／preflight、denied preflight（無 ACAO）、invalid preflight 400 | 通過 |
+| whole-B03 Sol review | final independent reviewer `CLOSED—PASS`；P1 composed-body strictness、raw guard error、nested-schema `$ref` 已修正 | 通過 |
 
 基線是 `/var/folders/mp/2hbmdcp15qjfn3fhgctttgl40000gn/T/storeweave-base-b03-baseline-sh09hveu`
 （804 original files，另有 metadata），指標為 `/tmp/storeweave-base-b03-baseline-path`；HEAD
-`1f4470d810a84fc43d97c1990c32c5e71608dd7f` 未變。這不是 Git repository，且工作樹原有大量修改，不能用 HEAD diff
-界定 B03。最初 52-path review manifest／diff 的 SHA-256 分別為
+`1f4470d810a84fc43d97c1990c32c5e71608dd7f`；目前 HEAD 是
+`bb6fd93d58568d46634964b778bf68f3ccba4a3d`，不能以 baseline 的 HEAD 說明 current source。最初 52-path review manifest／diff 的 SHA-256 分別為
 `dda65207fe64820f08d7e497ec755092c359821a68ba4e4fc91074dbc7e39490`／
 `d3103d5d80e2e1b115f4ab09635923cf85ecd19d128eeb3fa9cd6c7fe21dda4b`；它固定在
-Vitest／CORS 前，不能涵蓋 final delta。final file-list/hash/diff evidence 與 post-gate preservation verification 仍 pending。
+Vitest／CORS 前，不能涵蓋 final delta。final5 `git diff --check` 通過；受保護 release 2461-file
+hash map 再比對為 0 changed。工作樹另有使用者的 plan／work-card 修改，未納入 B03 source claim。
 
 受保護 release 2461 hash map 位於 `/tmp/storeweave90-preserved-release-hashes.json`，至 CORS 後反覆驗證未變；
 final3 preflight 也沒有新增 root release。B03 未做 persistent DB migration、API URL replacement 或外部寫入；B02
@@ -92,10 +98,8 @@ activation 除 getter 外未變。artifact 的 no-overwrite 是 publication safe
   653 tests）；isolated legacy 2/2 95.4s、paired 1/1 82s。這是歷史 failure，不推翻 final3 的 79 files／655 tests
   pass。
 
-## 下一個 gate（由 gate owner 更新）
+## Closure
 
-依 [acceptance matrix](acceptance.md#待完成的最終-gates)，只可把實際 final3 logs、final file list、baseline/current
-hashes、diff、保留 hash postcheck、Base／Commerce local isolated packaged-runtime smokes、retained-image own-fixture
-CORS probe 與 final independent review 的結果
-填入。未取得全部成功證據前，狀態維持 `in_progress`；若 full integration 再 timeout，記錄 failing command／test，
-不以 focused pass 取代。
+`cli-legacy-upgrade` 的單次紅燈在 crash hook 前退出，未證實產品 regression；不加入 retry 或放寬 SIGKILL
+斷言。測試現在會在該 assertion 失敗時保留 `signal`、`code`、`killed` 與 `stderr`，而 final5 full gate 已通過。
+B03 沒有 merchant DB migration、API URL replacement、release publication、commit、push 或 deploy。
