@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { sql } from 'drizzle-orm';
 import { SESSION_COOKIE, createServer } from '@storeweave/api';
@@ -123,6 +123,17 @@ describe('會員中心的購物金', () => {
 });
 
 describe('購物車頁的折抵', () => {
+  it('訪客送出折抵會先回登入頁，不執行購物車命令', async () => {
+    const execute = vi.spyOn(h.runtime.commands, 'execute');
+    try {
+      const response = await inject({ method: 'POST', url: '/cart/rewards',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' }, payload: 'amount=50' });
+      expect(response.statusCode).toBe(303);
+      expect(response.headers.location).toBe(`/login?next=${encodeURIComponent('/cart')}`);
+      expect(execute).not.toHaveBeenCalled();
+    } finally { execute.mockRestore(); }
+  });
+
   it('會員在購物車頁看得到折抵欄位，送出後金額改變', async () => {
     const me = await signIn('redeem');
     await grant(me.customerId, 6_000);

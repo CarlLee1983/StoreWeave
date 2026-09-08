@@ -16,6 +16,69 @@ export interface MigrationSet {
   readonly migrations: readonly Migration[];
 }
 
+/** SQL-free evidence retained when the owning runtime code is no longer selected. */
+export interface MigrationPin {
+  readonly id: string;
+  readonly phase: Migration['phase'];
+  readonly order: number;
+  readonly checksum: string;
+}
+
+export interface WorkCatalog {
+  readonly jobTypes: readonly string[];
+  readonly subscriberIds: readonly string[];
+  readonly emittedEventNames: readonly string[];
+  readonly subscribedEventNames: readonly string[];
+}
+
+export interface ModulePin {
+  readonly kind: 'module';
+  readonly id: string;
+  readonly version: string;
+  /** Owned PostgreSQL tables (including partitioned tables) and sequences. */
+  readonly dataRelations: readonly string[];
+  readonly migrationOwner: string | null;
+  /** IDs are local to migrationOwner; the SQL ledger uses owner/id. */
+  readonly migrations: readonly MigrationPin[];
+  readonly work: WorkCatalog;
+}
+
+export interface ExtensionPin {
+  readonly kind: 'extension';
+  readonly id: string;
+  readonly version: string;
+  readonly migrations: readonly [];
+  readonly work: WorkCatalog;
+}
+
+export type ReleaseOwnerPin = ModulePin | ExtensionPin;
+
+/** Compatibility metadata committed with the effective release; contains no runtime objects. */
+export interface ExtensionRegistryEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly version: string;
+  readonly platformVersion: string;
+  readonly permissions: readonly string[];
+}
+
+export interface ReleaseSelection {
+  readonly releaseId: string;
+  readonly releaseVersion: string;
+  readonly baseVersion: string;
+  readonly buildManifestChecksum: string;
+  readonly activeOwners: readonly ReleaseOwnerPin[];
+}
+
+export interface EffectiveReleaseManifest {
+  readonly schemaVersion: 1;
+  readonly releaseId: string;
+  readonly releaseVersion: string;
+  readonly baseVersion: string;
+  readonly buildManifestChecksum: string;
+  readonly owners: readonly { readonly state: 'active' | 'disabled'; readonly owner: ReleaseOwnerPin }[];
+}
+
 export function sqlMigration(id: string, phase: Migration['phase'], up: string): Migration {
   return { id, phase, up };
 }

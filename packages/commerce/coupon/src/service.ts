@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { PlatformError, type DrizzleDb, type Tx } from '@storeweave/contracts';
-import { PromotionRepository } from '@storeweave/promotion';
+import { couponPromotionService } from '@storeweave/promotion';
 import { generateCouponCode } from './code';
 import { CouponRepository } from './repository';
 import type { CouponRow } from './schema';
 
 const repository = new CouponRepository();
-const promotions = new PromotionRepository();
 
 /**
  * 券為什麼不能用。分得這麼細不是為了好看：顧客看到「無效」只會再打一次，
@@ -55,6 +54,39 @@ export function couponError(reason: CouponRejection): PlatformError {
  * 因此試算成功不保證結帳成功。這個落差是刻意的，UI 要誠實呈現。
  */
 export const couponService = {
+  async lockEligibleForCheckout(
+    tx: Tx,
+    input: { code: string; customerId: string; now: Date },
+  ): Promise<{ id: string; promotionId: string }> {
+    const found = await repository.findByCode(tx, input.code);
+    const coupon = found ? await repository.lockById(tx, found.id) : null;
+    if (!coupon) throw couponError('not_found');
+    const basic = this.check(coupon, input);
+    if (!basic.ok) throw couponError(basic.reason);
+    const eligible = await this.checkAgainstLedger(tx, coupon, input);
+    if (!eligible.ok) throw couponError(eligible.reason);
+    return { id: coupon.id, promotionId: coupon.promotionId };
+  },
+
+  /** Locks and ledger writes stay in the order transaction, including limited-code contention. */
+  async redeemForOrder(tx: Tx, input: {
+    couponId: string; orderId: string; customerId: string; discountCents: number; orderTotalCents: number; now: Date;
+  }): Promise<void> {
+    if (input.discountCents <= 0) return;
+    const coupon = await repository.lockById(tx, input.couponId);
+    if (!coupon) throw couponError('not_found');
+    const basic = this.check(coupon, input);
+    if (!basic.ok) throw couponError(basic.reason);
+    const consumed = await this.consume(tx, coupon, input);
+    if (!consumed.ok) throw couponError(consumed.reason);
+    await repository.recordRedemption(tx, {
+      couponId: coupon.id, promotionId: coupon.promotionId, orderId: input.orderId,
+      customerId: input.customerId, code: coupon.code, partnerCode: coupon.partnerCode,
+      discountCents: input.discountCents, orderTotalCents: input.orderTotalCents, redeemedAt: input.now,
+    });
+    if (coupon.customerId) await repository.update(tx, coupon.id, { status: 'used', updatedAt: input.now });
+  },
+
   messageFor(reason: CouponRejection): string {
     return MESSAGES[reason];
   },
@@ -87,7 +119,7 @@ export const couponService = {
     coupon: CouponRow,
     input: { customerId: string | null; now: Date },
   ): Promise<CouponResolution> {
-    const promotion = await promotions.findById(db, coupon.promotionId);
+    const promotion = await couponPromotionService.findForCoupon(db, coupon.promotionId);
     // 券指向的活動被停用或已經過期，那張券就是不能用的——不是「還沒到期」。
     if (!promotion || promotion.status !== 'active') {
       return { ok: false, reason: 'void', message: MESSAGES.void };
@@ -212,5 +244,3 @@ export async function reverseCouponForOrder(
   }
   return { couponId: redemption.couponId, discountCents: redemption.discountCents };
 }
-
-export { CouponRepository };

@@ -1,3 +1,4 @@
+import packageJson from '../package.json';
 import { defineModule } from '@storeweave/kernel';
 import {
   createPromotionCommand,
@@ -18,6 +19,13 @@ export interface PromotionModuleDeps {
 export function createPromotionModule(deps: PromotionModuleDeps) {
   return defineModule({
   name: 'promotion',
+  version: packageJson.version,
+  baseVersionRange: '^1.0.0',
+  dependencies: { required: [
+    { name: 'platform', versionRange: '^0.1.0' },
+    { name: 'catalog', versionRange: '^0.1.0' },
+  ] },
+  data: { owns: ['promotion_promotions'] },
   migrations: promotionMigrations,
   permissions: [
     { key: 'promotion:read', description: '讀取促銷活動', owner: 'promotion' },

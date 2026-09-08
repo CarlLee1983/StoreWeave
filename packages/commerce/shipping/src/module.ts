@@ -1,4 +1,5 @@
-import { defineModule } from '@storeweave/kernel';
+import packageJson from '../package.json';
+import { type BoundModuleCapability, defineModule } from '@storeweave/kernel';
 import type { ProviderRegistry } from '@storeweave/extension-sdk';
 import {
   advanceShipmentStageCommand, advanceShipmentStageHandler, createShipmentCommand, createShipmentHandler,
@@ -21,9 +22,29 @@ import {
 import type { ShipmentOrderLookup, ShipmentRefundGuard } from './service';
 
 /** Shipping is assembled with a narrow order read port, not direct order-table access. */
-export function createShippingModule(orders: ShipmentOrderLookup, providers: ProviderRegistry, refunds?: ShipmentRefundGuard) {
+export function createShippingModule(ordersBinding: BoundModuleCapability<ShipmentOrderLookup>, providers: ProviderRegistry, refundsBinding?: BoundModuleCapability<ShipmentRefundGuard>) {
+  const orders = ordersBinding.value;
+  const refunds = refundsBinding?.value;
+
   return defineModule({
   name: 'shipping',
+  version: packageJson.version,
+  baseVersionRange: '^1.0.0',
+  dependencies: { required: [
+    { name: 'platform', versionRange: '^0.1.0' },
+    { name: 'cart', versionRange: '^0.1.0' },
+    { name: 'customer', versionRange: '^0.1.0' },
+  ] },
+  capabilities: {
+    required: [
+      { from: 'order', capability: 'commerce.order.shipment-lookup', versionRange: '^0.1.0' },
+    ],
+    optional: [
+      { from: 'refund', capability: 'commerce.refund.shipment-guard', versionRange: '^0.1.0' },
+    ],
+    bound: [ordersBinding, ...(refundsBinding ? [refundsBinding] : [])],
+    provides: ['commerce.shipping.shipment-lookup', 'commerce.shipping.return-lookup'] },
+  data: { owns: ['shipping_methods', 'shipping_shipments', 'shipping_pickup_selections'] },
   migrations: shippingMigrations,
   events: shippingEvents,
   permissions: [

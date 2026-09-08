@@ -6,7 +6,9 @@
     "packages/**/src/**/*.ts",
     "tools/**/src/**/*.ts",
     "packages/**/test/**/*.ts",
-    "tests/**/*.ts"
+    "tests/**/*.ts",
+    "scripts/seed.ts",
+    "scripts/seeds/**/*.ts"
   ],
   "exclude": ["node_modules", "dist", "release", "apps/admin"]
 }

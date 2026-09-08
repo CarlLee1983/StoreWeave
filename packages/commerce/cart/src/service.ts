@@ -10,6 +10,27 @@ import type { CartRow } from './schema';
 
 const repository = new CartRepository();
 
+/** Transaction-aware checkout facts; callers never receive a cart table or repository. */
+export const cartService = {
+  async lockForCheckout(tx: Tx, cartId: string) {
+    const cart = await repository.lockById(tx, cartId);
+    return cart && {
+      id: cart.id, customerId: cart.customerId, orderId: cart.orderId, status: cart.status,
+      couponCode: cart.couponCode, rewardRedeemCents: cart.rewardRedeemCents,
+    };
+  },
+  async checkoutItems(tx: Tx, cartId: string): Promise<{ productId: string; quantity: number }[]> {
+    return (await repository.items(tx, cartId)).map(({ productId, quantity }) => ({ productId, quantity }));
+  },
+  async markCheckedOut(tx: Tx, cartId: string, orderId: string, now: Date): Promise<void> {
+    await repository.markCheckedOut(tx, cartId, orderId, now);
+  },
+  async lockOpenForCustomer(tx: Tx, cartId: string, customerId: string): Promise<{ id: string } | null> {
+    const cart = await repository.lockById(tx, cartId);
+    return cart && cart.customerId === customerId && cart.status === 'open' ? { id: cart.id } : null;
+  },
+};
+
 /**
  * 這件商品現在買得到嗎。
  *

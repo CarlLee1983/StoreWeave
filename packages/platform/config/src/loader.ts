@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
 import { PlatformError } from '@storeweave/contracts';
-import { commerceConfigSchema, type CommerceConfig } from './schema';
+import { z } from 'zod';
+import { baseConfigSchema, commerceConfigSchema, type BaseConfig, type CommerceConfig } from './schema';
 import { createSecretProvider, type SecretProvider } from './secrets';
 
 const INTERPOLATION = /\$\{([A-Z0-9_]+)(?::-([^}]*))?\}/g;
@@ -32,32 +33,63 @@ function interpolateValues(value: unknown, lookup: (name: string) => string | un
   return value;
 }
 
-export interface LoadedConfig {
-  config: CommerceConfig;
+export interface ReleaseConfigDefinition<C extends BaseConfig> {
+  readonly schema: z.ZodType<C, z.ZodTypeDef, unknown>;
+  readonly envNames: readonly string[];
+  readonly defaultPaths: readonly string[];
+  readonly defaultSecretFile: string;
+}
+
+export const commerceConfigDefinition: ReleaseConfigDefinition<CommerceConfig> = {
+  schema: commerceConfigSchema,
+  envNames: ['STOREWEAVE_CONFIG', 'COMMERCE_CONFIG'],
+  defaultPaths: ['/etc/commerce/commerce.yaml', './commerce.yaml'],
+  defaultSecretFile: commerceConfigSchema.shape.secrets.parse({}).file,
+};
+
+export const baseConfigDefinition: ReleaseConfigDefinition<BaseConfig> = {
+  schema: baseConfigSchema,
+  envNames: ['STOREWEAVE_CONFIG'],
+  defaultPaths: ['/etc/storeweave/storeweave.yaml', './storeweave.yaml'],
+  defaultSecretFile: baseConfigSchema.shape.secrets.parse({}).file,
+};
+
+export interface LoadedConfig<C extends BaseConfig = CommerceConfig> {
+  config: C;
   secrets: SecretProvider;
   sourcePath: string;
 }
 
-export function resolveConfigPath(explicit?: string): string {
-  const candidates = [explicit, process.env.COMMERCE_CONFIG, '/etc/commerce/commerce.yaml', './commerce.yaml']
-    .filter(Boolean) as string[];
+export function resolveConfigPath(
+  explicit?: string,
+  definition: Pick<ReleaseConfigDefinition<BaseConfig>, 'envNames' | 'defaultPaths'> = commerceConfigDefinition,
+): string {
+  const selected = explicit ?? definition.envNames.map(name => process.env[name]).find(value => Boolean(value));
+  const candidates = selected ? [selected] : definition.defaultPaths;
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;
   }
-  throw PlatformError.validation(`No commerce.yaml found. Looked at: ${candidates.join(', ')}`);
+  throw PlatformError.validation(`No configuration file found. Looked at: ${candidates.join(', ')}`);
 }
 
 export function loadConfig(explicitPath?: string): LoadedConfig {
-  const sourcePath = resolveConfigPath(explicitPath);
-  const parsedYaml = parseYaml(readFileSync(sourcePath, 'utf8')) as Record<string, any> | null;
-  if (!parsedYaml || typeof parsedYaml !== 'object') {
-    throw PlatformError.validation(`commerce.yaml at ${sourcePath} is empty or not a mapping`);
-  }
+  return loadReleaseConfig(commerceConfigDefinition, explicitPath);
+}
 
-  const secrets = createSecretProvider({
-    provider: (parsedYaml.secrets?.provider ?? 'env') as 'env' | 'file',
-    file: (parsedYaml.secrets?.file ?? '/etc/commerce/commerce.env') as string,
-  });
+export function loadReleaseConfig<C extends BaseConfig>(
+  definition: ReleaseConfigDefinition<C>, explicitPath?: string,
+): LoadedConfig<C> {
+  const sourcePath = resolveConfigPath(explicitPath, definition);
+  const parsedYaml: unknown = parseYaml(readFileSync(sourcePath, 'utf8'));
+  const mapping = z.record(z.unknown()).safeParse(parsedYaml);
+  if (!mapping.success) {
+    throw PlatformError.validation(`Configuration at ${sourcePath} is empty or not a mapping`);
+  }
+  const secretOptions = baseConfigSchema.shape.secrets.removeDefault().extend({
+    file: z.string().default(definition.defaultSecretFile),
+  }).safeParse(mapping.data.secrets === undefined ? {} : mapping.data.secrets);
+  if (!secretOptions.success) throw PlatformError.validation(`Invalid secrets configuration (${sourcePath})`);
+  const secrets = createSecretProvider(secretOptions.data);
 
   const missing: string[] = [];
   const interpolated = interpolateValues(parsedYaml, (name) => secrets.get(name), missing);
@@ -67,10 +99,10 @@ export function loadConfig(explicitPath?: string): LoadedConfig {
     );
   }
 
-  const parsed = commerceConfigSchema.safeParse(interpolated);
+  const parsed = definition.schema.safeParse(interpolated);
   if (!parsed.success) {
     throw PlatformError.validation(
-      `Invalid commerce.yaml (${sourcePath}):\n${parsed.error.issues.map((i) => ` - ${i.path.join('.') || '<root>'}: ${i.message}`).join('\n')}`,
+      `Invalid configuration (${sourcePath}):\n${parsed.error.issues.map((i) => ` - ${i.path.join('.') || '<root>'}: ${i.message}`).join('\n')}`,
     );
   }
   return { config: parsed.data, secrets, sourcePath };

@@ -4,6 +4,7 @@ import { createTestExtensionContext, type PaymentProvider, type ShippingProvider
 import { createCheckMacValue, createEcpayPaymentProvider, ecpayPaymentConfig } from '@storeweave/ext-ecpay';
 import type { Runtime } from '@storeweave/kernel';
 import { CallbackController } from '../../apps/api/src/controllers/callback.controller';
+import { describeHttpRoutes } from '../../apps/api/src/http/contract';
 
 type ReplyState = {
   statusCode?: number;
@@ -57,9 +58,9 @@ function shippingProvider(overrides: Partial<ShippingProvider> = {}): ShippingPr
   } as ShippingProvider;
 }
 
-function controllerFor(provider: PaymentProvider, options: { get?: () => PaymentProvider; execute?: ReturnType<typeof vi.fn> } = {}) {
+function controllerFor(provider: PaymentProvider, options: { get?: () => PaymentProvider; list?: () => Array<{ kind: string; id: string; owner: string; isDefault: boolean }>; execute?: ReturnType<typeof vi.fn> } = {}) {
   const runtime = {
-    providers: { get: vi.fn(options.get ?? (() => provider)) },
+    providers: { get: vi.fn(options.get ?? (() => provider)), list: vi.fn(options.list ?? (() => [])) },
     commands: { execute: options.execute ?? vi.fn(async () => ({})) },
     logger: { warn: vi.fn() },
   };
@@ -102,6 +103,54 @@ function signedEcpayCallback(fields: Record<string, string>): Uint8Array {
 }
 
 describe('CallbackController', () => {
+  it('catalogs one physical wildcard with only selected callback-capable providers', () => {
+    const payment = paymentProvider();
+    const shipping = shippingProvider();
+    const noAcknowledgement = shippingProvider({ id: 'carrier-without-ack', acknowledgeCallback: undefined });
+    const byId = new Map<string, PaymentProvider | ShippingProvider>([
+      [payment.id, payment], [shipping.id, shipping], [noAcknowledgement.id, noAcknowledgement],
+    ]);
+    const { controller, runtime } = controllerFor(payment, {
+      list: () => [
+        { kind: 'payment', id: payment.id, owner: 'payments-extension', isDefault: true },
+        { kind: 'shipping', id: shipping.id, owner: 'shipping-extension', isDefault: true },
+        { kind: 'shipping', id: noAcknowledgement.id, owner: 'shipping-extension', isDefault: false },
+        { kind: 'erp', id: 'erp-a', owner: 'erp-extension', isDefault: true },
+      ],
+      get: ((kind: string, id: string) => {
+        const provider = byId.get(id);
+        if (!provider || provider.kind !== kind) throw new Error('not found');
+        return provider;
+      }) as () => PaymentProvider,
+    });
+
+    const routes = describeHttpRoutes(runtime as unknown as Runtime, [CallbackController]);
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0]).toMatchObject({
+      method: 'POST', path: '/callbacks/:kind/:providerId', kind: 'provider-callback', request: 'raw',
+      auth: 'provider', providerKinds: ['payment', 'shipping'], rateLimit: 'callback',
+      targets: [
+        { kind: 'payment', providerId: 'gateway-a', owner: 'payments-extension' },
+        { kind: 'shipping', providerId: 'carrier-a', owner: 'shipping-extension' },
+      ],
+      acknowledgements: {
+        accepted: { status: 'provider-defined', defaultStatus: 200, headers: 'provider-defined', contentType: 'provider-defined', body: 'provider-defined' },
+        rejected: { status: 'provider-defined', defaultStatus: 500, headers: 'provider-defined', contentType: 'provider-defined', body: 'provider-defined' },
+      },
+      notFound: { status: 404, contentType: 'text/plain; charset=utf-8', body: 'Not found' },
+      rateLimited: { status: 429, retryAfter: true, contentType: 'application/json' },
+    });
+    expect(routes[0]).toHaveProperty('status', null);
+    expect(payment.parseCallback).not.toHaveBeenCalled();
+    expect(payment.acknowledgeCallback).not.toHaveBeenCalled();
+    expect(shipping.parseCallback).not.toHaveBeenCalled();
+    expect(shipping.acknowledgeCallback).not.toHaveBeenCalled();
+
+    (runtime.providers.list as ReturnType<typeof vi.fn>).mockReturnValue([]);
+    expect(describeHttpRoutes(runtime as unknown as Runtime, [CallbackController])[0]).toMatchObject({ targets: [] });
+  });
+
   it('accepts a signed ECPay callback through the real provider and gives a replay the same opaque idempotency key', async () => {
     const { provider, merchantTradeNo } = await startedEcpayProvider();
     const execute = vi.fn(async () => ({}));
@@ -214,6 +263,8 @@ describe('CallbackController', () => {
 
     expect(runtime.commands.execute).not.toHaveBeenCalled();
     expect(provider.acknowledgeCallback).toHaveBeenCalledExactlyOnceWith({ accepted: false });
+    expect(runtime.logger.warn).toHaveBeenCalledWith({ kind: 'payment', providerId: 'gateway-a', errorType: 'Error' }, 'external callback rejected');
+    expect(JSON.stringify((runtime.logger.warn as ReturnType<typeof vi.fn>).mock.calls)).not.toContain('invalid signature');
     expect(state).toEqual({
       statusCode: 400,
       headers: { 'x-provider-ack': 'rejected' },

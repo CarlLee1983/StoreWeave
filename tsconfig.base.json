@@ -57,7 +57,11 @@
       "@storeweave/ext-mock-notification": ["packages/extensions/mock-notification/src/index.ts"],
       "@storeweave/ext-demo-erp": ["packages/extensions/demo-erp/src/index.ts"],
       "@storeweave/ext-mcp": ["packages/extensions/mcp/src/index.ts"],
-      "@storeweave/theme-default": ["packages/themes/default/src/index.ts"]
+      "@storeweave/theme-default": ["packages/themes/default/src/index.ts"],
+      "@storeweave/selected-release": ["packages/platform/bundle/src/releases/commerce.ts"],
+      "@storeweave/selected-http": ["apps/api/src/releases/commerce.ts"],
+      "@storeweave/selected-seed": ["scripts/seeds/commerce.ts"],
+      "@storeweave/bootstrap-release": ["packages/platform/bundle/src/bootstrap-release.ts"]
     }
   }
 }

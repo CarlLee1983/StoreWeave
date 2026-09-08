@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { PlatformError, type Actor, type DrizzleDb } from '@storeweave/contracts';
-import { permissionsForRole } from '@storeweave/authorization';
+import { COMMERCE_ROLES, roleFor, type ReleaseRoleCatalog } from '@storeweave/authorization';
 import { DUMMY_HASH, hashPassword, verifyPassword } from './password';
 import { UserRepository, toUserDto, type UserDto } from './repository';
 
@@ -20,12 +20,14 @@ export interface ResolvedSession {
  * 密碼長度下限依角色而異：後台帳號改得了設定、看得到所有訂單，門檻高一點；
  * 前台會員以長度優先、不強制大小寫與符號（複雜度規則只會逼出可預測的變形）。
  */
-export function minPasswordLengthFor(role: string): number {
-  return role === CUSTOMER_ROLE ? 8 : 12;
+export function minPasswordLengthFor(role: string, roles: ReleaseRoleCatalog = COMMERCE_ROLES): number {
+  const account = roleFor(roles, role)?.account;
+  if (!account) throw PlatformError.validation(`Unknown account role "${role}"`);
+  return account.minPasswordLength;
 }
 
-function assertPasswordLength(password: string, role: string): void {
-  const min = minPasswordLengthFor(role);
+function assertPasswordLength(password: string, role: string, roles: ReleaseRoleCatalog): void {
+  const min = minPasswordLengthFor(role, roles);
   if (password.length < min) {
     throw new PlatformError('VALIDATION_ERROR', `Password must be at least ${min} characters`);
   }
@@ -58,10 +60,15 @@ export class AuthService {
   private readonly users = new UserRepository();
 
   /** TTL 依帳號角色而異：顧客的 session 活得比後台操作者久。 */
-  constructor(private readonly sessionTtl: { operatorMs: number; customerMs: number }) {}
+  constructor(
+    private readonly sessionTtl: { operatorMs: number; customerMs: number },
+    private readonly roles: ReleaseRoleCatalog,
+  ) {}
 
   private ttlFor(role: string): number {
-    return role === CUSTOMER_ROLE ? this.sessionTtl.customerMs : this.sessionTtl.operatorMs;
+    const account = roleFor(this.roles, role)?.account;
+    if (!account) throw new PlatformError('UNAUTHENTICATED', FAILED);
+    return account.sessionTtl === 'customer' ? this.sessionTtl.customerMs : this.sessionTtl.operatorMs;
   }
 
   async authenticate(
@@ -73,7 +80,7 @@ export class AuthService {
     const hash = user?.password_hash ?? (await DUMMY_HASH);
     const passwordOk = await verifyPassword(input.password, hash);
 
-    if (!user || !passwordOk || user.status !== 'active') {
+    if (!user || !passwordOk || user.status !== 'active' || !roleFor(this.roles, user.role)?.account) {
       throw new PlatformError('UNAUTHENTICATED', FAILED);
     }
 
@@ -101,6 +108,8 @@ export class AuthService {
     `);
     const row = res.rows[0];
     if (!row || row.status !== 'active') return null;
+    const role = roleFor(this.roles, row.role);
+    if (!role?.account) return null;
 
     const user = toUserDto({
       id: row.user_id, email: row.email, password_hash: '', display_name: row.display_name,
@@ -111,9 +120,9 @@ export class AuthService {
       actor: {
         // id 一律是帳號 id：顧客與後台操作者共用同一套帳號，分辨誰是誰的是 type。
         id: `user:${row.user_id}`,
-        type: row.role === CUSTOMER_ROLE ? 'customer' : 'user',
+        type: role.account.actorType,
         displayName: row.display_name,
-        permissions: permissionsForRole(row.role),
+        permissions: role.permissions,
       },
     };
   }
@@ -138,6 +147,8 @@ export class AuthService {
   ): Promise<{ token: string; user: UserDto } | null> {
     const user = await this.users.findByEmail(db, input.email);
     if (!user || user.status !== 'active') return null;
+    const account = roleFor(this.roles, user.role)?.account;
+    if (!account) return null;
 
     // 先作廢舊的：不然「我又點了一次忘記密碼」會讓上一封信裡的連結繼續有效。
     await db.execute(sql`
@@ -147,7 +158,7 @@ export class AuthService {
     const token = randomBytes(32).toString('base64url');
     // 後台帳號改得了設定、看得到所有訂單。它的重設連結是一條接管後台的路徑，
     // 時效因此壓到四分之一——同一條流程，不同的暴露窗口。
-    const ttlMs = user.role === CUSTOMER_ROLE ? input.ttlMs : Math.min(input.ttlMs, 15 * 60_000);
+    const ttlMs = account.sessionTtl === 'customer' ? input.ttlMs : Math.min(input.ttlMs, 15 * 60_000);
     await db.execute(sql`
       INSERT INTO platform_password_resets (id, user_id, token_hash, expires_at)
       VALUES (${randomUUID()}, ${user.id}, ${hashToken(token)}, ${new Date(Date.now() + ttlMs).toISOString()})
@@ -163,9 +174,9 @@ export class AuthService {
       WHERE r.token_hash = ${hashToken(input.token)} AND r.used_at IS NULL AND r.expires_at > now()
     `);
     const row = res.rows[0];
-    if (!row) throw new PlatformError('VALIDATION_ERROR', 'This reset link is invalid or has expired');
+    if (!row || !roleFor(this.roles, row.role)?.account) throw new PlatformError('VALIDATION_ERROR', 'This reset link is invalid or has expired');
 
-    assertPasswordLength(input.newPassword, row.role);
+    assertPasswordLength(input.newPassword, row.role, this.roles);
 
     await db.execute(sql`
       UPDATE platform_users SET password_hash = ${await hashPassword(input.newPassword)} WHERE id = ${row.user_id}
@@ -184,11 +195,11 @@ export class AuthService {
     input: { userId: string; currentPassword: string; newPassword: string; keepToken?: string },
   ): Promise<void> {
     const user = await this.users.findById(db, input.userId);
-    if (!user) throw new PlatformError('UNAUTHENTICATED', FAILED);
+    if (!user || !roleFor(this.roles, user.role)?.account) throw new PlatformError('UNAUTHENTICATED', FAILED);
     if (!(await verifyPassword(input.currentPassword, user.password_hash))) {
       throw new PlatformError('UNAUTHENTICATED', FAILED);
     }
-    assertPasswordLength(input.newPassword, user.role);
+    assertPasswordLength(input.newPassword, user.role, this.roles);
 
     await db.execute(sql`
       UPDATE platform_users SET password_hash = ${await hashPassword(input.newPassword)} WHERE id = ${user.id}

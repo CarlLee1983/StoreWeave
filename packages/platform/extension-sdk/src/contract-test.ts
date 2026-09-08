@@ -108,6 +108,13 @@ export async function runExtensionContractChecks(
   );
 
   const registeredProviders = (registration.providers ?? []).map((p) => `${p.kind}:${p.id}`).sort();
+  const registeredJobs = (registration.jobs ?? []).map(job => job.type).sort();
+  const declaredJobs = [...manifest.registeredJobs ?? []].sort();
+  push(
+    'registered jobs match the manifest',
+    JSON.stringify(registeredJobs) === JSON.stringify(declaredJobs),
+    `declared=${declaredJobs.join(',')} actual=${registeredJobs.join(',')}`,
+  );
   const declaredProviders = manifest.registeredProviders.map((p) => `${p.kind}:${p.id}`).sort();
   push(
     'registered providers match the manifest',

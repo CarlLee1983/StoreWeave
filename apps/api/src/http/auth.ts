@@ -1,8 +1,9 @@
+import { roleFor } from '@storeweave/authorization';
 import { timingSafeEqual } from 'node:crypto';
 import { CanActivate, ExecutionContext, Inject, Injectable, SetMetadata } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PlatformError, type Actor } from '@storeweave/contracts';
-import { permissionsForRole } from '@storeweave/authorization';
+import { HTTP_ADAPTER, type ReleaseHttpAdapter } from '../release-adapter';
 import { csrfTokenFor } from '@storeweave/identity';
 import { sessionTokenOf } from './session-cookies';
 import { RUNTIME, type Runtime } from '../tokens';
@@ -63,6 +64,7 @@ export class ApiTokenGuard implements CanActivate {
     @Inject(RUNTIME) private readonly runtime: Runtime,
     // esbuild 不產生 design:paramtypes，因此所有依賴都必須明確 @Inject
     @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(HTTP_ADAPTER) private readonly http: Pick<ReleaseHttpAdapter, 'anonymousRole'>,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -84,7 +86,7 @@ export class ApiTokenGuard implements CanActivate {
       // 之後受害者填的地址與下的單全部進攻擊者的帳戶。SameSite 擋不住它——
       // 那次請求本來就不需要帶 cookie，回應的 Set-Cookie 照樣會被存下來。
       this.assertSameOrigin(request);
-      request.actor = anonymousActor();
+      request.actor = anonymousActor(this.runtime, this.http.anonymousRole);
       return true;
     }
 
@@ -97,11 +99,13 @@ export class ApiTokenGuard implements CanActivate {
         const expected = this.runtime.secrets.get(token.secretRef);
         if (!expected) continue;
         if (safeEquals(presented, expected)) {
+          const role = roleFor(this.runtime.roles, token.role);
+          if (!role?.tokenAllowed) throw new PlatformError('UNAUTHENTICATED', 'Invalid API token');
           request.actor = {
             id: `token:${token.name}`,
             type: 'service',
             displayName: token.name,
-            permissions: permissionsForRole(token.role),
+            permissions: role.permissions,
           };
           return true;
         }
@@ -125,7 +129,7 @@ export class ApiTokenGuard implements CanActivate {
       // 訪客也會寫東西（購物車）。沒有 session 就沒有 CSRF token 可以比對，
       // 因此改用瀏覽器自己加的 Origin / Sec-Fetch-Site——與 @Anonymous() 同一套（ADR 0018）。
       this.assertSameOrigin(request);
-      request.actor = anonymousActor();
+      request.actor = anonymousActor(this.runtime, this.http.anonymousRole);
       return true;
     }
 
@@ -186,12 +190,9 @@ export class ApiTokenGuard implements CanActivate {
 }
 
 /** 未登入訪客的身分。權限只夠瀏覽與下單。 */
-export function anonymousActor(): Actor {
-  return {
-    id: 'storefront',
-    type: 'service',
-    displayName: 'storefront',
-    permissions: permissionsForRole(STOREFRONT_ROLE),
+export function anonymousActor(runtime: Runtime, role: string | null): Actor {
+  return role ? runtime.actorForRole(role, role) : {
+    id: 'anonymous', type: 'service', displayName: 'anonymous', permissions: [],
   };
 }
 

@@ -1,7 +1,15 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Put, Req } from '@nestjs/common';
 import { BusController } from './base';
-import { ok } from '../http/envelope';
+import { HttpContract, type BusHttpContract } from '../http/contract';
 import type { AuthenticatedRequest } from '../http/auth';
+
+const routes = {
+  settings: { kind: 'bus', target: { kind: 'query', name: 'commerce.loyalty.getRewardSettings' }, request: 'none' },
+  updateSettings: { kind: 'bus', target: { kind: 'command', name: 'commerce.loyalty.updateRewardSettings' }, request: 'body' },
+  tiers: { kind: 'bus', target: { kind: 'query', name: 'commerce.loyalty.listTiers' }, request: 'none' },
+  saveTier: { kind: 'bus', target: { kind: 'command', name: 'commerce.loyalty.saveTier' }, request: 'body' },
+  removeTier: { kind: 'bus', target: { kind: 'command', name: 'commerce.loyalty.removeTier' }, request: 'none', params: { name: 'name' } },
+} as const satisfies Record<string, BusHttpContract>;
 
 /**
  * 等級門檻與購物金規則是店家維護的商業資料，不是程式常數。
@@ -10,30 +18,35 @@ import type { AuthenticatedRequest } from '../http/auth';
 @Controller('api/v1/loyalty')
 export class LoyaltyController extends BusController {
   @Get('settings')
+  @HttpContract(routes.settings)
   async settings(@Req() req: AuthenticatedRequest) {
-    return ok(await this.query(req, 'commerce.loyalty.getRewardSettings', {}));
+    return this.rest(req, routes.settings, {});
   }
 
   @Patch('settings')
+  @HttpContract(routes.updateSettings)
   async updateSettings(@Req() req: AuthenticatedRequest, @Body() body: unknown) {
-    return ok(await this.command(req, 'commerce.loyalty.updateRewardSettings', body));
+    return this.rest(req, routes.updateSettings, body);
   }
 
   @Get('tiers')
+  @HttpContract(routes.tiers)
   async tiers(@Req() req: AuthenticatedRequest) {
-    return ok(await this.query(req, 'commerce.loyalty.listTiers', {}));
+    return this.rest(req, routes.tiers, {});
   }
 
   /** 名稱是等級的識別：同名是修改，不是再開一級，所以這裡是 PUT 而不是 POST。 */
   @Put('tiers')
   @HttpCode(200)
+  @HttpContract(routes.saveTier)
   async saveTier(@Req() req: AuthenticatedRequest, @Body() body: unknown) {
-    return ok(await this.command(req, 'commerce.loyalty.saveTier', body));
+    return this.rest(req, routes.saveTier, body);
   }
 
   @Delete('tiers/:name')
   @HttpCode(200)
-  async removeTier(@Req() req: AuthenticatedRequest, @Param('name') name: string) {
-    return ok(await this.command(req, 'commerce.loyalty.removeTier', { name }));
+  @HttpContract(routes.removeTier)
+  async removeTier(@Req() req: AuthenticatedRequest, @Param() params: Record<string, string>) {
+    return this.rest(req, routes.removeTier, {}, params);
   }
 }

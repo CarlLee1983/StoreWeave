@@ -1,8 +1,26 @@
+import packageJson from '../package.json';
 import { PermanentJobError } from '@storeweave/contracts';
-import { defineModule } from '@storeweave/kernel';
+import { type BoundModuleCapability, defineModule } from '@storeweave/kernel';
 import type { PaymentProvider, ProviderRegistry } from '@storeweave/extension-sdk';
 import { createRecordRefundResultHandler,createRequestFullRefundHandler,createRetryRefundHandler,recordRefundResultCommand,requestFullRefundCommand,retryRefundCommand,type RefundOrderLookup,type RefundShipmentLookup } from './commands';
 import { refundEvents } from './events';
 import { refundMigrations } from './migrations';
 import { getRefundHandler,getRefundQuery,listRefundsHandler,listRefundsQuery } from './queries';
-export function createRefundModule(orders:RefundOrderLookup,shipments:RefundShipmentLookup,providers:ProviderRegistry){return defineModule({name:'refund',migrations:refundMigrations,events:refundEvents,permissions:[{key:'refund:read',description:'讀取退款紀錄與隊列',owner:'refund'},{key:'refund:write',description:'請求與重試退款',owner:'refund'},{key:'refund:provider-write',description:'記錄驗證後的退款 provider 結果',owner:'refund'}],commands:[{descriptor:requestFullRefundCommand,handler:createRequestFullRefundHandler(orders,shipments)},{descriptor:retryRefundCommand,handler:createRetryRefundHandler(orders,shipments)},{descriptor:recordRefundResultCommand,handler:createRecordRefundResultHandler(orders)}],queries:[{descriptor:getRefundQuery,handler:getRefundHandler},{descriptor:listRefundsQuery,handler:listRefundsHandler}],subscribers:[{eventName:'commerce.refund.requested.v1',handler:async(event,ctx)=>{const p=event.payload as {refundId:string;paymentProvider:string;paymentProviderRef:string;amountCents:number;currency:string;providerRequestRef:string};const provider=providers.get<PaymentProvider>('payment',p.paymentProvider);const result=await provider.refund({providerRef:p.paymentProviderRef,amountCents:p.amountCents,currency:p.currency,reference:p.providerRequestRef});if(result.status==='unsupported')throw new PermanentJobError(result.message);await ctx.executeCommand?.('commerce.refund.recordRefundResult',result.status==='succeeded'?{id:p.refundId,paymentProvider:p.paymentProvider,providerRequestRef:p.providerRequestRef,status:'succeeded',providerRefundRef:result.providerRefundRef}:{id:p.refundId,paymentProvider:p.paymentProvider,providerRequestRef:p.providerRequestRef,status:'failed',failureMessage:result.message},`refund:provider-result:${p.refundId}:${p.providerRequestRef}`);}}]});}
+export function createRefundModule(ordersBinding: BoundModuleCapability<RefundOrderLookup>,shipmentsBinding: BoundModuleCapability<RefundShipmentLookup>,providers:ProviderRegistry){
+  const orders = ordersBinding.value;
+  const shipments = shipmentsBinding.value;
+return defineModule({name:'refund',
+  version: packageJson.version,
+  baseVersionRange: '^1.0.0',
+  dependencies: { required: [
+    { name: 'platform', versionRange: '^0.1.0' },
+    { name: 'customer', versionRange: '^0.1.0' },
+  ] },
+  capabilities: {
+    required: [
+      { from: 'order', capability: 'commerce.order.refund-operations', versionRange: '^0.1.0' },
+      { from: 'shipping', capability: 'commerce.shipping.shipment-lookup', versionRange: '^0.1.0' },
+    ],
+    bound: [ordersBinding, shipmentsBinding],
+    provides: ['commerce.refund.shipment-guard'] },
+  data: { owns: ['refund_refunds'] },migrations:refundMigrations,events:refundEvents,permissions:[{key:'refund:read',description:'讀取退款紀錄與隊列',owner:'refund'},{key:'refund:write',description:'請求與重試退款',owner:'refund'},{key:'refund:provider-write',description:'記錄驗證後的退款 provider 結果',owner:'refund'}],commands:[{descriptor:requestFullRefundCommand,handler:createRequestFullRefundHandler(orders,shipments)},{descriptor:retryRefundCommand,handler:createRetryRefundHandler(orders,shipments)},{descriptor:recordRefundResultCommand,handler:createRecordRefundResultHandler(orders)}],queries:[{descriptor:getRefundQuery,handler:getRefundHandler},{descriptor:listRefundsQuery,handler:listRefundsHandler}],subscribers:[{eventName:'commerce.refund.requested.v1',handler:async(event,ctx)=>{const p=event.payload as {refundId:string;paymentProvider:string;paymentProviderRef:string;amountCents:number;currency:string;providerRequestRef:string};const provider=providers.get<PaymentProvider>('payment',p.paymentProvider);const result=await provider.refund({providerRef:p.paymentProviderRef,amountCents:p.amountCents,currency:p.currency,reference:p.providerRequestRef});if(result.status==='unsupported')throw new PermanentJobError(result.message);await ctx.executeCommand?.('commerce.refund.recordRefundResult',result.status==='succeeded'?{id:p.refundId,paymentProvider:p.paymentProvider,providerRequestRef:p.providerRequestRef,status:'succeeded',providerRefundRef:result.providerRefundRef}:{id:p.refundId,paymentProvider:p.paymentProvider,providerRequestRef:p.providerRequestRef,status:'failed',failureMessage:result.message},`refund:provider-result:${p.refundId}:${p.providerRequestRef}`);}}]});}

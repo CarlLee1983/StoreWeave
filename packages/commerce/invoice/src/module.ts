@@ -1,4 +1,5 @@
-import { defineModule, type PlatformModule } from '@storeweave/kernel';
+import packageJson from '../package.json';
+import { type BoundModuleCapability, defineModule, type PlatformModule } from '@storeweave/kernel';
 import type { ProviderRegistry } from '@storeweave/extension-sdk';
 import { orderPaidV2 } from '@storeweave/order';
 import { refundSucceededV1 } from '@storeweave/refund';
@@ -7,8 +8,20 @@ import { invoiceMigrations } from './migrations';
 import { createIssueInvoiceJob, createVoidInvoiceJob } from './jobs';
 import { getInvoiceHandler, getInvoiceIssueLinesHandler, getInvoiceIssueLinesQuery, getInvoiceIssueSnapshotHandler, getInvoiceIssueSnapshotQuery, getInvoiceQuery, listInvoicesHandler, listInvoicesQuery } from './queries';
 
-export function createInvoiceModule(orders: InvoiceOrderLookup, providers: ProviderRegistry): PlatformModule {
-  return defineModule({ name: 'invoice', migrations: invoiceMigrations,
+export function createInvoiceModule(ordersBinding: BoundModuleCapability<InvoiceOrderLookup>, providers: ProviderRegistry): PlatformModule {
+  const orders = ordersBinding.value;
+
+  return defineModule({ name: 'invoice',
+  version: packageJson.version,
+  baseVersionRange: '^1.0.0',
+  dependencies: { required: [{ name: 'platform', versionRange: '^0.1.0' }] },
+  capabilities: {
+    required: [
+      { from: 'order', capability: 'commerce.order.invoice-lookup', versionRange: '^0.1.0' },
+    ],
+    bound: [ordersBinding],
+  },
+  data: { owns: ['invoice_invoices'] }, migrations: invoiceMigrations,
     permissions: [
       { key: 'invoice:read', description: '讀取電子發票生命週期紀錄', owner: 'invoice' },
       { key: 'invoice:write', description: '營運人員重送失敗的電子發票作業', owner: 'invoice' },

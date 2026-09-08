@@ -1,5 +1,16 @@
 import { z } from 'zod';
 
+export const MCP_PROTOCOL_VERSION = '2025-06-18';
+export const MCP_METHODS = {
+  initialize: 'initialize',
+  initialized: 'notifications/initialized',
+  ping: 'ping',
+  listTools: 'tools/list',
+  callTool: 'tools/call',
+} as const;
+export const MCP_METHOD_LIST = Object.values(MCP_METHODS);
+export type McpMethod = typeof MCP_METHODS[keyof typeof MCP_METHODS];
+
 export const jsonRpcRequest = z.object({
   jsonrpc: z.literal('2.0'),
   id: z.union([z.string(), z.number(), z.null()]).optional(),

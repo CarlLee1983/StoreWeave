@@ -36,6 +36,7 @@ export async function readiness(runtime: Runtime): Promise<DependencyHealth> {
 
   if (ping.ok) {
     const status = await runtime.migrationStatus();
+    if (status.releaseCurrent === false) checks.push({ name: 'release activation', status: 'fail', detail: 'run the release CLI migrate command' });
     checks.push({
       name: 'migrations',
       status: status.pending.length === 0 ? 'pass' : 'fail',
@@ -123,6 +124,7 @@ export async function doctor(runtime: Runtime, options: { releaseVersion: string
 
   if (ping.ok) {
     const status = await runtime.migrationStatus();
+    if (status.releaseCurrent === false) checks.push({ name: 'release activation', status: 'fail', detail: 'run the release CLI migrate command' });
     checks.push({
       name: 'migration status',
       status: status.pending.length === 0 ? 'pass' : 'warn',

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext } from '@storeweave/contracts';
 import type { NotificationProvider, ProviderRegistry } from '@storeweave/extension-sdk';
 import { customerService } from '@storeweave/customer';
-import { PromotionRepository } from '@storeweave/promotion';
+import { couponPromotionService } from '@storeweave/promotion';
 import { birthdayMonthDaysFor, storeDateParts } from './birthday';
 import {
   couponDto,
@@ -21,7 +21,6 @@ import { CouponRepository, toCouponDto } from './repository';
 import { issueCouponTo } from './service';
 
 const repository = new CouponRepository();
-const promotions = new PromotionRepository();
 
 export interface CouponModuleDeps {
   providers: ProviderRegistry;
@@ -85,7 +84,7 @@ export const createCouponHandler = async (
  * 但 REST、MCP 與自動發券都繞得過去。UI 的過濾不是不變式。
  */
 async function assertCouponOnlyPromotion(ctx: CommandContext, promotionId: string): Promise<void> {
-  const promotion = await promotions.findById(ctx.tx, promotionId);
+  const promotion = await couponPromotionService.findForCoupon(ctx.tx, promotionId);
   if (!promotion) throw PlatformError.notFound('Promotion', promotionId);
   if (!promotion.requiresCoupon) {
     throw PlatformError.validation('Coupons may only point at promotions that require a coupon');
@@ -205,7 +204,7 @@ async function issueAutoCouponsFor(
   ctx: CommandContext,
   input: z.infer<typeof issueAutoCouponsInput>,
 ): Promise<string[]> {
-  const active = await promotions.listAutoIssueAt(ctx.tx, input.trigger, ctx.now);
+  const active = await couponPromotionService.autoIssueAt(ctx.tx, input.trigger, ctx.now);
   const codes: string[] = [];
 
   for (const promotion of active) {

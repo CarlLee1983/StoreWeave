@@ -1,39 +1,45 @@
 import 'reflect-metadata';
-import { bootstrap } from '@storeweave/bundle';
-import { Worker } from '@storeweave/kernel';
+import { bootstrapRelease } from '@storeweave/bootstrap-release';
+import { release } from '@storeweave/selected-release';
+import { Worker, closeInReverse, installShutdown, withCleanupDeadline } from '@storeweave/kernel';
+
+const RELEASE_NAME = release.id === 'commerce' ? 'commerce' : 'storeweave';
 
 async function main(): Promise<void> {
-  const { runtime } = await bootstrap({ loggerName: 'commerce-worker' });
+  const { runtime } = await bootstrapRelease(release, { loggerName: `${RELEASE_NAME}-worker` });
   const logger = runtime.logger;
 
   if (!runtime.config.worker.enabled) {
-    logger.warn('worker is disabled in commerce.yaml; exiting');
+    logger.warn(`worker is disabled in ${RELEASE_NAME}.yaml; exiting`);
     await runtime.close();
     return;
   }
 
-  const worker = new Worker(runtime);
-  worker.start();
-  logger.info(
-    {
-      workerId: worker.id,
-      jobTypes: runtime.jobRegistry.types(),
-      subscriptions: runtime.events.listSubscriptions().map((s) => `${s.subscriberId}<-${s.eventName}`),
-    },
-    'commerce worker running',
-  );
+  let worker: Worker | undefined;
+  const close = () => closeInReverse([() => runtime.close(), () => worker?.stop()]);
+  try {
+    await runtime.activateRelease('require-current');
+    worker = new Worker(runtime);
+    worker.start();
+    logger.info(
+      {
+        workerId: worker.id,
+        jobTypes: runtime.jobRegistry.types(),
+        subscriptions: runtime.events.listSubscriptions().map((s) => `${s.subscriberId}<-${s.eventName}`),
+      },
+      `${RELEASE_NAME} worker running`,
+    );
 
-  const shutdown = async (signal: string) => {
-    logger.info({ signal }, 'shutting down worker');
-    await worker.stop();
-    await runtime.close();
-    process.exit(0);
-  };
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  process.on('SIGINT', () => void shutdown('SIGINT'));
+    installShutdown(runtime.config.shutdown.timeoutMs, close, logger);
+  } catch (error) {
+    try { await withCleanupDeadline(runtime.config.shutdown.timeoutMs, close); }
+    catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Worker startup and cleanup failed'); }
+    throw error;
+  }
+
 }
 
 main().catch((err) => {
-  console.error(`[commerce-worker] failed to start: ${(err as Error).message}`);
+  console.error(`[${RELEASE_NAME}-worker] failed to start: ${(err as Error).message}`);
   process.exit(1);
 });

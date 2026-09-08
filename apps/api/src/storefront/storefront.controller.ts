@@ -1,6 +1,7 @@
+import type { CommerceConfig } from '@storeweave/config';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { Body, Controller, Get, Inject, Param, Post, Query, Req, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { PlatformError, SYSTEM_ACTOR, type Actor } from '@storeweave/contracts';
@@ -12,17 +13,12 @@ import { Anonymous, ExternalCallback, Public, actorOf, anonymousActor, type Auth
 import { clearSessionCookies, sessionTokenOf } from '../http/session-cookies';
 import { cartNoticeOf, clearCartNoticeCookie, existingGuestToken, guestTokenFor } from '../http/cart-cookie';
 import { startSession } from '../http/session-start';
+import { HttpContract } from '../http/contract';
+import { resolveThemeAssetsDir } from '../theme-assets';
 import { RELEASE, RUNTIME, THEME, type ReleaseInfo, type Runtime } from '../tokens';
+import { storefrontAssetContract, storefrontContracts, WOVEN_DAY_ARTWORK } from './storefront.contract';
 
-const WOVEN_DAY_ARTWORK = new Set([
-  'woven-day-hero.png',
-  'woven-day-story.png',
-  'woven-day-journal.png',
-  'woven-day-products-pottery.png',
-  'woven-day-products-textiles.png',
-  'woven-day-products-wood.png',
-  'woven-day-products-living.png',
-]);
+const WOVEN_DAY_ARTWORK_SET = new Set<string>(WOVEN_DAY_ARTWORK);
 
 /** 重設連結的時效。夠久到收得到信，短到外洩的信件不會長期有效。 */
 const RESET_TTL_MS = 60 * 60 * 1000;
@@ -136,7 +132,7 @@ interface ProductDtoShape {
 @Controller()
 export class StorefrontController {
   constructor(
-    @Inject(RUNTIME) private readonly runtime: Runtime,
+    @Inject(RUNTIME) private readonly runtime: Runtime<CommerceConfig>,
     @Inject(THEME) private readonly theme: StorefrontTheme,
     @Inject(RELEASE) private readonly release: ReleaseInfo,
   ) {}
@@ -149,17 +145,14 @@ export class StorefrontController {
    * watcher has rebuilt its release descriptor. Keep this narrow fallback in
    * the storefront boundary; it never exposes merchant-uploaded product media.
    */
+  @HttpContract(storefrontAssetContract)
   @Get('storefront-assets/:file')
   themeArtwork(@Param('file') file: string, @Res() reply: FastifyReply) {
-    if (!WOVEN_DAY_ARTWORK.has(file)) {
+    if (!WOVEN_DAY_ARTWORK_SET.has(file)) {
       return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } });
     }
 
-    const sourceAssetsDir = resolve(process.cwd(), 'packages', 'themes', 'default', 'assets');
-    const assetRoot = [this.release.themeAssetsDir, sourceAssetsDir]
-      .find((directory): directory is string =>
-        typeof directory === 'string' && existsSync(join(directory, 'woven-day-hero.png')),
-      );
+    const assetRoot = resolveThemeAssetsDir({ configuredDir: this.release.themeAssetsDir });
     const path = assetRoot && join(assetRoot, file);
     if (!path || !existsSync(path)) {
       return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } });
@@ -187,7 +180,7 @@ export class StorefrontController {
   private async publishedContentKinds(): Promise<readonly ThemeArticleView['kind'][]> {
     try {
       const result = await this.runtime.queries.execute<{ kinds: ThemeArticleView['kind'][] }>(
-        'commerce.content.getPublishedKinds', {}, { actor: anonymousActor(), channel: 'rest' },
+        'commerce.content.getPublishedKinds', {}, { actor: anonymousActor(this.runtime, 'storefront'), channel: 'rest' },
       );
       return result.kinds;
     } catch (err) {
@@ -223,6 +216,7 @@ export class StorefrontController {
     void reply.status(status).header('content-type', 'text/html; charset=utf-8').send(body);
   }
 
+  @HttpContract(storefrontContracts.home)
   @Get()
   async home(
     @Req() req: AuthenticatedRequest,
@@ -266,6 +260,7 @@ export class StorefrontController {
     }
   }
 
+  @HttpContract(storefrontContracts.catalog)
   @Get('catalog')
   async catalog(
     @Req() req: AuthenticatedRequest,
@@ -317,14 +312,14 @@ export class StorefrontController {
     // Published brand content is public by definition, so it is read as the
     // anonymous visitor: a signed-in operator must not see a different storefront.
     const result = await this.runtime.queries.execute<{ items: ArticleDtoShape[] }>(
-      'commerce.content.listPublishedArticles', { kind, limit }, { actor: anonymousActor(), channel: 'rest' },
+      'commerce.content.listPublishedArticles', { kind, limit }, { actor: anonymousActor(this.runtime, 'storefront'), channel: 'rest' },
     );
     return result.items.map(toArticleView);
   }
 
   private async publishedArticle(kind: ArticleDtoShape['kind'], slug: string) {
     const article = await this.runtime.queries.execute<ArticleDtoShape>(
-      'commerce.content.getPublishedArticle', { kind, slug }, { actor: anonymousActor(), channel: 'rest' },
+      'commerce.content.getPublishedArticle', { kind, slug }, { actor: anonymousActor(this.runtime, 'storefront'), channel: 'rest' },
     );
     return toArticleView(article);
   }
@@ -359,6 +354,7 @@ export class StorefrontController {
     }
   }
 
+  @HttpContract(storefrontContracts.story)
   @Get('story')
   async story(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     try {
@@ -372,31 +368,37 @@ export class StorefrontController {
     }
   }
 
+  @HttpContract(storefrontContracts.journal)
   @Get('journal')
   async journal(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     await this.renderArticleList(req, reply, 'journal', 'renderJournalList');
   }
 
+  @HttpContract(storefrontContracts.journalArticle)
   @Get('journal/:slug')
   async journalArticle(@Req() req: AuthenticatedRequest, @Param('slug') slug: string, @Res() reply: FastifyReply) {
     await this.renderArticlePage(req, reply, 'journal', slug, 'renderJournalArticle');
   }
 
+  @HttpContract(storefrontContracts.news)
   @Get('news')
   async news(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     await this.renderArticleList(req, reply, 'news', 'renderNewsList');
   }
 
+  @HttpContract(storefrontContracts.newsArticle)
   @Get('news/:slug')
   async newsArticle(@Req() req: AuthenticatedRequest, @Param('slug') slug: string, @Res() reply: FastifyReply) {
     await this.renderArticlePage(req, reply, 'news', slug, 'renderNewsArticle');
   }
 
+  @HttpContract(storefrontContracts.faq)
   @Get('faq')
   async faq(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     await this.renderArticleList(req, reply, 'faq', 'renderFaq');
   }
 
+  @HttpContract(storefrontContracts.contactPage)
   @Get('contact')
   async contactPage(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     if (!this.theme.renderContact) return this.renderError(reply, PlatformError.notFound('Page', 'contact'), req);
@@ -405,6 +407,7 @@ export class StorefrontController {
     }));
   }
 
+  @HttpContract(storefrontContracts.submitContact)
   @Post('contact')
   async submitContact(@Req() req: AuthenticatedRequest, @Body() body: unknown, @Res() reply: FastifyReply) {
     const render = this.theme.renderContact;
@@ -468,6 +471,7 @@ export class StorefrontController {
     }
   }
 
+  @HttpContract(storefrontContracts.product)
   @Get('p/:id')
   async product(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Res() reply: FastifyReply) {
     const actor = actorOf(req);
@@ -482,6 +486,7 @@ export class StorefrontController {
     }
   }
 
+  @HttpContract(storefrontContracts.accountOrders)
   @Get('account/orders')
   async accountOrders(
     @Req() req: AuthenticatedRequest,
@@ -520,6 +525,7 @@ export class StorefrontController {
     }
   }
 
+  @HttpContract(storefrontContracts.profilePage)
   @Get('account/profile')
   async profilePage(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     const actor = actorOf(req);
@@ -530,6 +536,7 @@ export class StorefrontController {
     await this.renderProfile(req, reply, {});
   }
 
+  @HttpContract(storefrontContracts.saveProfile)
   @Post('account/profile')
   async saveProfile(@Req() req: AuthenticatedRequest, @Body() body: Record<string, string>, @Res() reply: FastifyReply) {
     const actor = actorOf(req);
@@ -582,6 +589,7 @@ export class StorefrontController {
     }));
   }
 
+  @HttpContract(storefrontContracts.order)
   @Get('orders/:number')
   async order(@Req() req: AuthenticatedRequest, @Param('number') number: string, @Res() reply: FastifyReply) {
     const actor = actorOf(req);
@@ -668,6 +676,7 @@ export class StorefrontController {
     }
   }
 
+  @HttpContract(storefrontContracts.createRma)
   @Post('orders/:number/rmas')
   async createRma(
     @Req() req: AuthenticatedRequest,
@@ -697,6 +706,7 @@ export class StorefrontController {
     }
   }
 
+  @HttpContract(storefrontContracts.retryPayment)
   @Post('orders/:number/pay')
   async retryPayment(
     @Req() req: AuthenticatedRequest,
@@ -736,6 +746,7 @@ export class StorefrontController {
     }
   }
 
+  @HttpContract(storefrontContracts.cancelOrder)
   @Post('orders/:number/cancel')
   async cancelOrder(
     @Req() req: AuthenticatedRequest,
@@ -766,6 +777,7 @@ export class StorefrontController {
     }
   }
 
+  @HttpContract(storefrontContracts.cart)
   @Get('cart')
   async cart(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     try {
@@ -775,6 +787,7 @@ export class StorefrontController {
     }
   }
 
+  @HttpContract(storefrontContracts.addToCart)
   @Post('cart/items')
   async addToCart(
     @Req() req: AuthenticatedRequest,
@@ -788,6 +801,7 @@ export class StorefrontController {
   }
 
   /** 數量設成 0 就是移除——前台的數量欄位本來就會走到 0，讓它自然表達「不要了」。 */
+  @HttpContract(storefrontContracts.setCartItemQuantity)
   @Post('cart/items/:productId')
   async setCartItemQuantity(
     @Req() req: AuthenticatedRequest,
@@ -802,12 +816,14 @@ export class StorefrontController {
   }
 
   /** 清空購物車。Spec 0003 User Story 5，也是顧客卡住時唯一的自救手段。 */
+  @HttpContract(storefrontContracts.clearCart)
   @Post('cart/clear')
   async clearCart(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     await this.cartCommand(req, reply, 'commerce.cart.clearCart', {});
   }
 
   /** 折扣碼：套用或移除。這條路由與 REST 端點同樣受節流保護（掃碼機器人）。 */
+  @HttpContract(storefrontContracts.cartCoupon)
   @Post('cart/coupon')
   async cartCoupon(
     @Req() req: AuthenticatedRequest,
@@ -835,6 +851,7 @@ export class StorefrontController {
   }
 
   /** 購物金的來源說法在這裡翻成中文：Theme 不該認得 `order-accrual` 這種字串。 */
+  @HttpContract(storefrontContracts.accountRewards)
   @Get('account/rewards')
   async accountRewards(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     const actor = actorOf(req);
@@ -871,6 +888,7 @@ export class StorefrontController {
     }
   }
 
+  @HttpContract(storefrontContracts.accountCoupons)
   @Get('account/coupons')
   async accountCoupons(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     const actor = actorOf(req);
@@ -892,6 +910,7 @@ export class StorefrontController {
    * 折抵多少購物金。輸入以「元」為單位——顧客看到的金額就是元，
    * 讓他在唯一一個會打字的地方改用「分」是自找的客訴。
    */
+  @HttpContract(storefrontContracts.cartRewards)
   @Post('cart/rewards')
   async cartRewards(
     @Req() req: AuthenticatedRequest,
@@ -911,6 +930,7 @@ export class StorefrontController {
   }
 
   /** 確認頁。內容不能在這裡改，否則「確認的東西」與「結出來的單」會是兩份。 */
+  @HttpContract(storefrontContracts.checkoutPage)
   @Get('checkout')
   async checkoutPage(
     @Query('shippingMethodId') requestedShippingMethodId: string | undefined,
@@ -1003,6 +1023,7 @@ export class StorefrontController {
     }
   }
 
+  @HttpContract(storefrontContracts.startPickupSelection)
   @Post('checkout/pickup/start')
   async startPickupSelection(@Req() req: AuthenticatedRequest, @Body() body: Record<string, string>, @Res() reply: FastifyReply) {
     const actor = actorOf(req);
@@ -1020,6 +1041,7 @@ export class StorefrontController {
     }
   }
 
+  @HttpContract(storefrontContracts.pickupStorePicker)
   @Get('checkout/pickup/select')
   async pickupStorePicker(@Query('token') token: string, @Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     const actor = actorOf(req);
@@ -1048,6 +1070,7 @@ export class StorefrontController {
 
   /** The picker may return without a session cookie; the opaque capability is the sole authority. */
   @ExternalCallback()
+  @HttpContract(storefrontContracts.completePickupSelection)
   @Post('checkout/pickup/callback')
   async completePickupSelection(@Body() body: Record<string, string>, @Res() reply: FastifyReply) {
     try {
@@ -1067,6 +1090,7 @@ export class StorefrontController {
    * 會問到一台新的空車。這是 Spec 0003 點名要修的缺陷——原本每次現產一個
    * 隨機值，等於完全沒有保護。
    */
+  @HttpContract(storefrontContracts.checkout)
   @Post('checkout')
   async checkout(@Req() req: AuthenticatedRequest, @Body() body: Record<string, string>, @Res() reply: FastifyReply) {
     const actor = actorOf(req);
@@ -1116,12 +1140,14 @@ export class StorefrontController {
   }
 
   @Anonymous()
+  @HttpContract(storefrontContracts.forgotPasswordPage)
   @Get('forgot-password')
   async forgotPasswordPage(@Res() reply: FastifyReply) {
     this.html(reply, 200, this.theme.renderAuth(await this.themeContext(), { mode: 'forgot-password', next: '/' }));
   }
 
   @Anonymous()
+  @HttpContract(storefrontContracts.forgotPassword)
   @Post('forgot-password')
   async forgotPassword(@Body() body: Record<string, string>, @Res() reply: FastifyReply) {
     // 回應一律中性：區分「寄了」與「沒這個帳號」等於送出帳號枚舉管道。
@@ -1154,6 +1180,7 @@ export class StorefrontController {
   }
 
   @Anonymous()
+  @HttpContract(storefrontContracts.resetPasswordPage)
   @Get('reset-password')
   async resetPasswordPage(@Query('token') token: string | undefined, @Res() reply: FastifyReply) {
     this.html(reply, 200, this.theme.renderAuth(await this.themeContext(), {
@@ -1162,6 +1189,7 @@ export class StorefrontController {
   }
 
   @Anonymous()
+  @HttpContract(storefrontContracts.resetPassword)
   @Post('reset-password')
   async resetPassword(@Body() body: Record<string, string>, @Res() reply: FastifyReply) {
     try {
@@ -1179,18 +1207,21 @@ export class StorefrontController {
   }
 
   @Anonymous()
+  @HttpContract(storefrontContracts.loginPage)
   @Get('login')
   async loginPage(@Query('next') next: string | undefined, @Res() reply: FastifyReply) {
     this.html(reply, 200, this.theme.renderAuth(await this.themeContext(), { mode: 'login', next: safeNext(next) }));
   }
 
   @Anonymous()
+  @HttpContract(storefrontContracts.registerPage)
   @Get('register')
   async registerPage(@Query('next') next: string | undefined, @Res() reply: FastifyReply) {
     this.html(reply, 200, this.theme.renderAuth(await this.themeContext(), { mode: 'register', next: safeNext(next) }));
   }
 
   @Anonymous()
+  @HttpContract(storefrontContracts.login)
   @Post('login')
   async login(
     @Req() req: AuthenticatedRequest,
@@ -1214,6 +1245,7 @@ export class StorefrontController {
   }
 
   @Anonymous()
+  @HttpContract(storefrontContracts.register)
   @Post('register')
   async register(
     @Req() req: AuthenticatedRequest,
@@ -1226,7 +1258,7 @@ export class StorefrontController {
         email: body.email,
         password: body.password,
         displayName: body.displayName || undefined,
-      }, { actor: anonymousActor(), channel: 'rest' });
+      }, { actor: anonymousActor(this.runtime, 'storefront'), channel: 'rest' });
 
       // 註冊完直接登入：讓人再打一次同一組密碼沒有任何意義。
       const session = await this.runtime.auth.authenticate(this.runtime.database.db, {
@@ -1250,6 +1282,7 @@ export class StorefrontController {
 
   // 強制匿名：HTML 表單送不出 CSRF header，而被強制登出是干擾而不是資料外洩。
   @Anonymous()
+  @HttpContract(storefrontContracts.logout)
   @Post('logout')
   async logout(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
     const token = sessionTokenOf(req, this.runtime.config.http.publicUrl);

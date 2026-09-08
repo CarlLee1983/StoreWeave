@@ -5,9 +5,13 @@ export * from './job-registry';
 export * from './mcp-registry';
 export * from './logger';
 export * from './module';
+export * from './module-graph';
 export * from './ops-module';
 export * from './recurring';
 export * from './runtime';
 export * from './worker';
 export * from './health';
 export * from './theme';
+
+export * from './lifecycle';
+export * from './release-pins';

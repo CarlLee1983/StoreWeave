@@ -1,11 +1,39 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { RequestMethod } from '@nestjs/common';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
+import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
-import { createHarness, createProduct, stockUp, storefrontCheckoutForm, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createCustomer, createHarness, createProduct, placeOrder, stockUp, storefrontCheckoutForm, type TestHarness } from './helpers';
+import { busHttpInput, describeHttpRoutes, HTTP_CONTRACT, type ComposedHttpContract, type HttpRouteCatalogCarrier, type StorefrontHttpContract } from '../../apps/api/src/http/contract';
+import { httpAdapter as commerceHttpAdapter } from '../../apps/api/src/releases/commerce';
+import { createReleaseServer } from '../../apps/api/src/release-server';
+import { IS_EXTERNAL_CALLBACK } from '../../apps/api/src/http/auth';
+import { InventoryController } from '../../apps/api/src/controllers/inventory.controller';
+import { HealthController } from '../../apps/api/src/controllers/health.controller';
+import { CatalogController } from '../../apps/api/src/controllers/catalog.controller';
+import { SystemController } from '../../apps/api/src/controllers/system.controller';
+import { AnalyticsController } from '../../apps/api/src/controllers/analytics.controller';
+import { RefundController } from '../../apps/api/src/controllers/refund.controller';
+import { InvoiceController } from '../../apps/api/src/controllers/invoice.controller';
+import { NotificationController } from '../../apps/api/src/controllers/notification.controller';
+import { ShippingController } from '../../apps/api/src/controllers/shipping.controller';
+import { OrderController } from '../../apps/api/src/controllers/order.controller';
+import { PromotionController } from '../../apps/api/src/controllers/promotion.controller';
+import { CouponController } from '../../apps/api/src/controllers/coupon.controller';
+import { RmaController } from '../../apps/api/src/controllers/rma.controller';
+import { LoyaltyController } from '../../apps/api/src/controllers/loyalty.controller';
+import { ContentArticleController, ContentContactController } from '../../apps/api/src/controllers/content.controller';
+import { CustomerController } from '../../apps/api/src/controllers/customer.controller';
+import { CartController } from '../../apps/api/src/controllers/cart.controller';
+import { ExtensionsController } from '../../apps/api/src/controllers/extensions.controller';
+import { McpController } from '../../apps/api/src/mcp/mcp.controller';
+import { StorefrontController } from '../../apps/api/src/storefront/storefront.controller';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 
 const ADMIN_TOKEN = 'test-admin-token-abcdefghijklmnop';
 const MCP_TOKEN = 'test-mcp-token-abcdefghijklmnop';
+const RESTRICTED_MCP_TOKEN = 'test-restricted-mcp-token-abcdefghijklmnop';
 
 let h: TestHarness;
 let app: NestFastifyApplication;
@@ -16,10 +44,11 @@ beforeAll(async () => {
   (h.runtime.config.auth.tokens as unknown[]).push(
     { name: 'admin', role: 'admin', secretRef: 'ADMIN_TOKEN' },
     { name: 'mcp', role: 'mcp', secretRef: 'MCP_TOKEN' },
+    { name: 'mcp-restricted', role: 'readonly', secretRef: 'RESTRICTED_MCP_TOKEN' },
   );
   (h.runtime as { secrets: any }).secrets = {
-    get: (n: string) => ({ ADMIN_TOKEN, MCP_TOKEN, DEMO_ERP_API_KEY: 'test-key' } as Record<string, string>)[n],
-    has: (n: string) => Boolean(({ ADMIN_TOKEN, MCP_TOKEN, DEMO_ERP_API_KEY: 'k' } as Record<string, string>)[n]),
+    get: (n: string) => ({ ADMIN_TOKEN, MCP_TOKEN, RESTRICTED_MCP_TOKEN, DEMO_ERP_API_KEY: 'test-key' } as Record<string, string>)[n],
+    has: (n: string) => Boolean(({ ADMIN_TOKEN, MCP_TOKEN, RESTRICTED_MCP_TOKEN, DEMO_ERP_API_KEY: 'k' } as Record<string, string>)[n]),
     listNames: () => [],
   };
   app = await createServer({
@@ -41,6 +70,394 @@ function inject(options: Parameters<NestFastifyApplication['inject']>[0]) {
 const auth = (token = ADMIN_TOKEN) => ({ authorization: `Bearer ${token}` });
 
 describe('REST 介面', () => {
+  it('retains exact selected Commerce route identities with MCP on and off', async () => {
+    const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
+    expect(commerceHttpAdapter.controllers(h.runtime.config)).toHaveLength(24);
+    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(148);
+    expect(catalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
+
+    const enabled = h.runtime.config.mcp.enabled;
+    h.runtime.config.mcp.enabled = false;
+    const withoutMcp = await createReleaseServer({ runtime: h.runtime, theme: defaultTheme,
+      httpAdapter: commerceHttpAdapter, release: { version: 'test', configPath: '<test>' } });
+    try {
+      const withoutMcpCatalog = withoutMcp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
+      expect(commerceHttpAdapter.controllers(h.runtime.config)).toHaveLength(23);
+      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(146);
+      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
+      expect(withoutMcpCatalog.storeweaveHttpCatalog?.some(route => route.path === '/mcp')).toBe(false);
+    } finally {
+      h.runtime.config.mcp.enabled = enabled;
+      await withoutMcp.close();
+    }
+  });
+
+  it('adds exactly one documented CORS preflight route for Commerce', async () => {
+    const cors = h.runtime.config.http.cors;
+    const savedOrigins = [...cors.allowedOrigins];
+    const savedCredentials = cors.credentials;
+    let corsApp: NestFastifyApplication | undefined;
+    try {
+      cors.allowedOrigins.splice(0, cors.allowedOrigins.length, 'https://console.example');
+      cors.credentials = true;
+      corsApp = await createReleaseServer({ runtime: h.runtime, theme: defaultTheme,
+        httpAdapter: commerceHttpAdapter, release: { version: 'test', configPath: '<test>' } });
+      const catalog = (corsApp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier).storeweaveHttpCatalog!;
+      expect(catalog).toHaveLength(150);
+      expect(catalog.filter(route => route.kind === 'cors-preflight')).toEqual([expect.objectContaining({
+        method: 'OPTIONS', path: '*', automaticRoute: true, auth: 'unauthenticated', request: 'headers', rateLimit: null,
+        policy: expect.objectContaining({ allowedOrigins: ['https://console.example'], credentials: true }),
+      })]);
+      const crossSiteAnonymousWrite = await corsApp.inject({ method: 'POST', url: '/cart/items', headers: {
+        origin: 'https://console.example', 'content-type': 'application/x-www-form-urlencoded',
+      }, payload: 'productId=00000000-0000-4000-8000-000000000000&quantity=1' });
+      expect(crossSiteAnonymousWrite).toMatchObject({ statusCode: 403, headers: {
+        'access-control-allow-origin': 'https://console.example', 'access-control-allow-credentials': 'true',
+      } });
+    } finally {
+      cors.allowedOrigins.splice(0, cors.allowedOrigins.length, ...savedOrigins);
+      cors.credentials = savedCredentials;
+      await corsApp?.close();
+    }
+  });
+
+  it('publishes the exact POST-only limiter buckets from the mounted contracts', () => {
+    const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
+    const routes = catalog.storeweaveHttpCatalog!;
+    expect(routes.every(route => Object.hasOwn(route, 'rateLimit') &&
+      (route.rateLimit === null || route.rateLimit === 'auth' || route.rateLimit === 'coupon' || route.rateLimit === 'cart' || route.rateLimit === 'callback'))).toBe(true);
+    const limited = routes
+      .filter(route => route.rateLimit !== null)
+      .map(route => `${route.rateLimit} ${route.method} ${route.path}`)
+      .sort();
+    expect(limited).toEqual([
+      'auth POST /api/v1/auth/login',
+      'auth POST /api/v1/customers/register',
+      'auth POST /forgot-password',
+      'auth POST /login',
+      'auth POST /register',
+      'auth POST /reset-password',
+      'callback POST /callbacks/:kind/:providerId',
+      'cart POST /api/v1/cart/checkout',
+      'cart POST /api/v1/cart/items',
+      'cart POST /api/v1/cart/rewards',
+      'cart POST /cart/clear',
+      'cart POST /cart/items',
+      'cart POST /cart/items/:productId',
+      'cart POST /cart/rewards',
+      'cart POST /checkout',
+      'cart POST /orders/:number/cancel',
+      'cart POST /orders/:number/pay',
+      'coupon POST /api/v1/cart/coupon',
+      'coupon POST /cart/coupon',
+    ]);
+  });
+
+  it('maps customer path ids for reads and mutations without accepting unknown body fields', async () => {
+    const customer = await createCustomer(h.runtime, { email: 'http-mapped-customer@example.com' });
+    const base = `/api/v1/customers/${customer.customerId}`;
+    const get = await inject({ url: base, headers: auth() });
+    expect(get.statusCode).toBe(200);
+    expect(get.json().data.id).toBe(customer.customerId);
+    const status = await inject({ method: 'POST', url: `${base}/status`, payload: { status: 'active' },
+      headers: { ...auth(), 'idempotency-key': 'http-customer-status' } });
+    expect(status.statusCode).toBe(201);
+    expect(status.json().data.status).toBe('active');
+    const invalid = await inject({ method: 'POST', url: `${base}/rewards`,
+      payload: { amountCents: 100, reason: 'test', unknown: true },
+      headers: { ...auth(), 'idempotency-key': 'http-customer-reward-unknown' } });
+    expect(invalid.statusCode).toBe(400);
+    expect(JSON.stringify(invalid.json().error.details)).toContain('unknown');
+  });
+
+  it('describes all migrated routes and rejects invalid query/date inputs', async () => {
+    const routes = describeHttpRoutes(h.runtime, [InventoryController, CatalogController, SystemController, AnalyticsController,
+      RefundController, InvoiceController, NotificationController, ShippingController,
+      OrderController, PromotionController, CouponController, RmaController, LoyaltyController,
+      ContentContactController, ContentArticleController, CustomerController, CartController]);
+    expect(routes).toHaveLength(89);
+    for (const route of routes) {
+      expect(app.getHttpAdapter().getInstance().hasRoute({ method: route.method, url: route.path })).toBe(true);
+    }
+    for (const url of ['/api/v1/products?limits=1', '/api/v1/system/jobs/dead?limits=1',
+      '/api/v1/analytics/sales-summary?from=not-a-date', '/api/v1/analytics/promotions?to=not-a-date',
+      '/api/v1/analytics/partners?partnerCodes=wrong']) {
+      const response = await inject({ url, headers: auth() });
+      expect(response.statusCode, url).toBe(400);
+      expect(response.json().error.code).toBe('VALIDATION_ERROR');
+    }
+    const summary = await inject({ url: '/api/v1/analytics/sales-summary?from=2026-01-01&to=2026-01-31', headers: auth() });
+    expect(summary.statusCode).toBe(200);
+    expect(summary.json().data.from).toBe('2026-01-01T00:00:00.000Z');
+    expect(summary.json().data.to).toBe('2026-01-31T00:00:00.000Z');
+  });
+
+  it('documents composed registration/theme outputs and keeps trusted fields server-owned', async () => {
+    const routes = describeHttpRoutes(h.runtime, [ContentArticleController, CustomerController]);
+    const registration = routes.find(route => route.kind === 'composed' && route.path === '/api/v1/customers/register');
+    if (!registration || registration.kind !== 'composed') throw new Error('Missing registration contract');
+    expect(registration).toMatchObject({ auth: 'anonymous', status: 201, kind: 'composed' });
+    expect(registration.output).toMatchObject({ properties: { data: { required: ['id', 'email', 'displayName', 'cartNotice'] } } });
+    const keys = routes.find(route => route.kind === 'composed' && route.path === '/api/v1/content/articles/image-keys');
+    if (!keys || keys.kind !== 'composed') throw new Error('Missing image-keys contract');
+    expect(keys.input).toMatchObject({ type: 'object', properties: {}, additionalProperties: false });
+    expect(keys.injected).toEqual(['limit']);
+    expect((await inject({ url: keys.path })).statusCode).toBe(401);
+    expect((await inject({ url: keys.path, headers: auth(MCP_TOKEN) })).statusCode).toBe(403);
+    const response = await inject({ url: keys.path, headers: auth() });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ success: true, data: { keys: defaultTheme.editorialImageKeys ?? [] } });
+    const contract: ComposedHttpContract = { kind: 'composed', request: 'none', target: keys.target,
+      injected: ['limit'], output: { type: 'object' } };
+    expect(busHttpInput(contract, { limit: 999 }, {}, { limit: 1 })).toEqual({ limit: 1 });
+    expect(() => busHttpInput(contract, { limit: 999 })).toThrow('Missing HTTP server value');
+    expect(() => busHttpInput(contract, {}, {}, { limit: 1, extra: true })).toThrow('Undeclared HTTP server value');
+  });
+
+  it('documents cart-owned fields and server-derived checkout replay keys', () => {
+    const routes = describeHttpRoutes(h.runtime, [CartController]);
+    const add = routes.find(route => route.kind === 'composed' && route.path === '/api/v1/cart/items' && route.method === 'POST');
+    if (!add || add.kind !== 'composed') throw new Error('Missing cart add contract');
+    expect(add.input).toHaveProperty('properties.productId');
+    expect(add.input).not.toHaveProperty('properties.guestToken');
+    expect(add.injected).toEqual(['guestToken']);
+    const remove = routes.find(route => route.path.endsWith('/:productId') && route.method === 'DELETE')!;
+    if (remove.kind !== 'bus' && remove.kind !== 'composed') throw new Error('Missing cart remove contract');
+    expect(remove.input).toMatchObject({ required: ['productId'], properties: { productId: { format: 'uuid' } } });
+    const checkout = routes.find(route => route.path === '/api/v1/cart/checkout')!;
+    if (checkout.kind !== 'bus' && checkout.kind !== 'composed') throw new Error('Missing cart checkout contract');
+    expect(checkout).toMatchObject({ serverDefaulted: ['cartId'], idempotencyKey: 'server-derived', auth: 'session-or-anonymous' });
+    expect(checkout.input).toHaveProperty('properties.cartId');
+    expect('required' in checkout.input && checkout.input.required).not.toContain('cartId');
+  });
+
+  it('composes body projection before legacy null handling', () => {
+    const contract: ComposedHttpContract = {
+      kind: 'composed', request: 'body', target: { kind: 'command', name: 'commerce.order.cancelOrder' },
+      bodyFields: ['reason'], nullAsMissing: ['reason'], output: 'target',
+    };
+    expect(busHttpInput(contract, { reason: null, ignored: true })).toEqual({ reason: undefined });
+  });
+
+  it('rejects a hidden server default in a projected body contract', () => {
+    const controller = class InvalidBodyContract {};
+    Reflect.defineMetadata(PATH_METADATA, 'invalid-contract', controller);
+    const handler = () => undefined;
+    Reflect.defineMetadata(METHOD_METADATA, RequestMethod.POST, handler);
+    Reflect.defineMetadata(PATH_METADATA, '', handler);
+    Reflect.defineMetadata(HTTP_CONTRACT, {
+      kind: 'composed', request: 'body', target: { kind: 'command', name: 'commerce.order.checkoutCart' },
+      bodyFields: ['shippingMethodId'], serverDefaulted: ['cartId'], output: 'target',
+    } satisfies ComposedHttpContract, handler);
+    Object.defineProperty(controller.prototype, 'handle', { value: handler });
+    expect(() => describeHttpRoutes(h.runtime, [controller])).toThrow('Invalid HTTP body mapping');
+  });
+
+  it('preserves the content REST lifecycle and explicit 200 mutation responses', async () => {
+    const base = '/api/v1/content/articles';
+    expect((await inject({ url: base })).statusCode).toBe(401);
+    expect((await inject({ url: `${base}?limits=2`, headers: auth() })).statusCode).toBe(400);
+    const created = await inject({ method: 'POST', url: base,
+      headers: { ...auth(), 'idempotency-key': 'http-content-create' },
+      payload: { kind: 'news', slug: 'http-content-lifecycle', title: 'HTTP Content' } });
+    expect(created.statusCode).toBe(200);
+    const id = created.json().data.id;
+    const updated = await inject({ method: 'POST', url: `${base}/${id}`,
+      headers: { ...auth(), 'idempotency-key': 'http-content-update' }, payload: { title: 'Updated Content' } });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().data.title).toBe('Updated Content');
+    for (const [action, status] of [['publish', 'published'], ['unpublish', 'draft']] as const) {
+      const response = await inject({ method: 'POST', url: `${base}/${id}/${action}`,
+        headers: { ...auth(), 'idempotency-key': `http-content-${action}` } });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data.status).toBe(status);
+    }
+    expect((await inject({ url: `${base}/${id}`, headers: auth() })).json().data.id).toBe(id);
+    const removed = await inject({ method: 'DELETE', url: `${base}/${id}`,
+      headers: { ...auth(), 'idempotency-key': 'http-content-delete' } });
+    expect(removed.statusCode).toBe(200);
+    expect((await inject({ url: `${base}/${id}`, headers: auth() })).statusCode).toBe(404);
+  });
+
+  it('reads and handles contact messages through the mapped path id', async () => {
+    const message = await h.runtime.commands.execute<{ id: string }>('commerce.content.submitContactMessage', {
+      name: 'HTTP Visitor', email: 'http-visitor@example.com', subject: 'HTTP Inbox', message: 'A test message',
+    }, { actor: ADMIN_ACTOR, idempotencyKey: 'http-contact-message' });
+    const base = '/api/v1/content/contact-messages';
+    const list = await inject({ url: `${base}?status=new`, headers: auth() });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().data.items.some((item: { id: string }) => item.id === message.id)).toBe(true);
+    expect((await inject({ url: `${base}/${message.id}`, headers: auth() })).json().data.subject).toBe('HTTP Inbox');
+    const handled = await inject({ method: 'POST', url: `${base}/${message.id}/handled`,
+      headers: { ...auth(), 'idempotency-key': 'http-contact-handled' } });
+    expect(handled.statusCode).toBe(200);
+    expect(handled.json().data.status).toBe('handled');
+  });
+
+  it('keeps the descriptor cancellation default for a legacy null reason', async () => {
+    const product = await createProduct(h.runtime, { sku: 'HTTP-CANCEL-DEFAULT' });
+    await stockUp(h.runtime, product.id, 1);
+    const order = await placeOrder(h.runtime, product.id);
+    const response = await inject({ method: 'POST', url: `/api/v1/orders/${order.id}/cancel`,
+      headers: { ...auth(), 'idempotency-key': 'http-cancel-null-reason' }, payload: { reason: null } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.status).toBe('cancelled');
+    const records = await h.runtime.database.pool.query<{ payload: { reason: string } }>(
+      "SELECT payload FROM platform_outbox WHERE event_name = 'commerce.order.cancelled.v1' AND payload->>'orderId' = $1", [order.id]);
+    expect(records.rows[0]?.payload.reason).toBe('customer request');
+  });
+
+  it('preserves operations query conversions and rejects unknown write fields', async () => {
+    expect((await inject({ url: '/api/v1/system/jobs/dead?limit=', headers: auth() })).statusCode).toBe(200);
+    for (const path of ['/api/v1/invoices', '/api/v1/notification-deliveries']) {
+      expect((await inject({ url: `${path}?limit=`, headers: auth() })).statusCode).toBe(400);
+      expect((await inject({ url: `${path}?offset=`, headers: auth() })).statusCode).toBe(200);
+    }
+    const methods = await inject({ url: '/api/v1/shipping/methods?enabled=true', headers: auth() });
+    expect(methods.statusCode).toBe(200);
+    expect(methods.json().data.items.length).toBeGreaterThan(0);
+    expect(methods.json().data.items.every((method: { enabled: boolean }) => method.enabled)).toBe(true);
+    expect((await inject({ url: '/api/v1/shipping/methods?enabled=other', headers: auth() })).statusCode).toBe(400);
+    for (const [url, payload] of [
+      ['/api/v1/refunds/orders/00000000-0000-4000-8000-000000000000', { reason: 'refund', unknown: true }],
+      ['/api/v1/shipping/shipments/00000000-0000-4000-8000-000000000000/stage', { status: 'shipped', unknown: true }],
+    ] as const) {
+      const response = await inject({ method: 'POST', url, payload,
+        headers: { ...auth(), 'idempotency-key': 'operations-unknown-field' } });
+      expect(response.statusCode).toBe(400);
+      expect(JSON.stringify(response.json().error.details)).toContain('unknown');
+    }
+  });
+
+  it('documents raw health routes without changing their wire format', async () => {
+    expect(describeHttpRoutes(h.runtime, [HealthController])).toMatchObject([
+      { kind: 'raw', path: '/health/live', auth: 'anonymous', statuses: [200] },
+      { kind: 'raw', path: '/health/ready', auth: 'anonymous', statuses: [200, 503] },
+      { kind: 'raw', path: '/health/dependencies', auth: 'bearer-or-session', statuses: [200, 503] },
+    ]);
+    const live = await inject({ url: '/health/live' });
+    expect(live.json()).toMatchObject({ status: 'ok' });
+    expect(live.json()).not.toHaveProperty('success');
+  });
+
+  it('Inventory transport documents the mounted Nest routes and descriptor output', () => {
+    const routes = describeHttpRoutes(h.runtime, [InventoryController]);
+    expect(routes.map(route => [route.method, route.path, route.status])).toEqual([
+      ['POST', '/api/v1/inventory/adjust', 200], ['GET', '/api/v1/inventory', 200],
+      ['GET', '/api/v1/inventory/:productId', 200],
+    ]);
+    for (const route of routes) {
+      expect(app.getHttpAdapter().getInstance().hasRoute({ method: route.method, url: route.path })).toBe(true);
+      expect(route.auth).toBe('bearer-or-session');
+    }
+    const stock = routes[2]!;
+    const list = routes[1]!;
+    if ((stock.kind !== 'bus' && stock.kind !== 'composed') || (list.kind !== 'bus' && list.kind !== 'composed')) {
+      throw new Error('Unexpected non-Bus Inventory route');
+    }
+    expect(stock.output).toMatchObject({ properties: { data: { properties: {
+      updatedAt: { type: 'string', format: 'date-time' },
+    } } } });
+    expect(list.queryEncoding).toEqual({ productIds: 'csv' });
+    expect(() => describeHttpRoutes(h.runtime, [InventoryController, InventoryController])).toThrow('Duplicate HTTP route');
+  });
+
+  it('Inventory uses the declared CSV/path mapping, ISO output, and strict query boundary', async () => {
+    const product = await createProduct(h.runtime, { sku: 'HTTP-CONTRACT-STOCK' });
+    await stockUp(h.runtime, product.id, 4);
+    const list = await inject({ url: `/api/v1/inventory?productIds=${product.id}&limit=1`, headers: auth() });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().data.items).toHaveLength(1);
+    expect(list.json().data.items[0].productId).toBe(product.id);
+    const get = await inject({ url: `/api/v1/inventory/${product.id}`, headers: auth() });
+    expect(get.statusCode).toBe(200);
+    expect(get.json().data.onHand).toBe(4);
+    expect(new Date(get.json().data.updatedAt).toISOString()).toBe(get.json().data.updatedAt);
+    for (const query of ['limits=1', 'productIds=bad-uuid', 'productIds=a&productIds=b', 'limit=0']) {
+      const invalid = await inject({ url: `/api/v1/inventory?${query}`, headers: auth() });
+      expect(invalid.statusCode).toBe(400);
+      expect(invalid.json().error.code).toBe('VALIDATION_ERROR');
+    }
+  });
+
+  it('documents the three physical extension routes with only selected descriptor targets', async () => {
+    const routes = describeHttpRoutes(h.runtime, [ExtensionsController]);
+    expect(routes.map(route => [route.method, route.path, route.kind])).toEqual([
+      ['GET', '/api/v1/extensions', 'direct'],
+      ['POST', '/api/v1/extensions/:id/commands/:command', 'extension-command'],
+      ['GET', '/api/v1/extensions/:id/queries/:query', 'extension-query'],
+    ]);
+    for (const route of routes) {
+      expect(app.getHttpAdapter().getInstance().hasRoute({ method: route.method, url: route.path })).toBe(true);
+    }
+    const list = routes.find(route => route.kind === 'direct' && route.path === '/api/v1/extensions');
+    const command = routes.find(route => route.kind === 'extension-command');
+    const query = routes.find(route => route.kind === 'extension-query');
+    if (!list || !command || !query || list.kind !== 'direct' || command.kind !== 'extension-command' || query.kind !== 'extension-query') {
+      throw new Error('Missing extension wildcard contracts');
+    }
+    expect(list.output).toMatchObject({ properties: { data: { properties: { items: { items: {
+      required: ['id', 'name', 'version', 'platformVersion', 'permissions', 'subscribedEvents', 'commands', 'queries', 'providers', 'mcpTools'],
+    } } } } } });
+    expect((await inject({ url: list.path, headers: auth() })).json()).toMatchObject({ success: true, data: {
+      items: expect.arrayContaining([expect.objectContaining({
+        id: 'demo-erp', name: 'Demo ERP Integration', version: '1.0.0', platformVersion: '^1.0.0',
+        commands: ['ext.demo-erp.resendOrder'], queries: ['ext.demo-erp.listDeliveries', 'ext.demo-erp.inspectDeliveryPayload'],
+      })]),
+    } });
+    expect(command.request).toBe('body');
+    expect(query).toMatchObject({ request: 'query', queryExtras: 'drop-and-log-keys' });
+    expect(command.targets.map(target => target.target.name)).toEqual(['ext.demo-erp.resendOrder']);
+    expect(query.targets.map(target => target.target.name)).toEqual([
+      'ext.demo-erp.listDeliveries', 'ext.demo-erp.inspectDeliveryPayload',
+    ]);
+    const registration = h.runtime.commands.get('ext.demo-erp.resendOrder');
+    expect(command.targets[0]).toMatchObject({
+      extensionId: 'demo-erp', target: { kind: 'command', name: registration.descriptor.name },
+      owner: registration.owner, permission: registration.descriptor.permission, idempotency: registration.descriptor.idempotency,
+      input: zodToJsonSchema(registration.descriptor.input as never, { target: 'jsonSchema7' }),
+      output: { properties: { data: zodToJsonSchema(registration.descriptor.output as never, { target: 'jsonSchema7' }) } },
+    });
+    expect(query.targets.every(target => target.owner === 'demo-erp' && target.target.kind === 'query')).toBe(true);
+  });
+
+  it('rejects malformed extension descriptor registrations while cataloging', () => {
+    const extension = h.runtime.extensions.find('demo-erp')!;
+    const list = vi.spyOn(h.runtime.extensions, 'list');
+    const command = extension.commands[0]!;
+    const query = extension.queries[0]!;
+    try {
+      list.mockReturnValue([{ ...extension, commands: ['ext.demo-erp.missing'], queries: [] }]);
+      expect(() => describeHttpRoutes(h.runtime, [ExtensionsController])).toThrow('Missing extension command registration');
+
+      list.mockReturnValue([{ ...extension, commands: ['ext.other.resendOrder'], queries: [] }]);
+      expect(() => describeHttpRoutes(h.runtime, [ExtensionsController])).toThrow('Invalid extension command namespace');
+
+      list.mockReturnValue([{ ...extension, commands: [query], queries: [] }]);
+      expect(() => describeHttpRoutes(h.runtime, [ExtensionsController])).toThrow('Invalid extension command kind');
+
+      list.mockReturnValue([{ ...extension, commands: [command], queries: [] }]);
+      const actual = h.runtime.commands.get(command);
+      const get = vi.spyOn(h.runtime.commands, 'get').mockImplementation(name =>
+        name === command ? { ...actual, owner: 'other-extension' } : actual,
+      );
+      try {
+        expect(() => describeHttpRoutes(h.runtime, [ExtensionsController])).toThrow('Invalid extension command owner');
+      } finally { get.mockRestore(); }
+    } finally { list.mockRestore(); }
+  });
+
+  it('returns NOT_FOUND for correctly prefixed but unregistered extension Bus targets', async () => {
+    for (const request of [
+      { method: 'POST' as const, url: '/api/v1/extensions/demo-erp/commands/ext.demo-erp.missing', payload: {} },
+      { method: 'GET' as const, url: '/api/v1/extensions/demo-erp/queries/ext.demo-erp.missing' },
+    ]) {
+      const response = await inject({ ...request, headers: auth() });
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toMatchObject({ success: false, error: { code: 'NOT_FOUND' } });
+    }
+  });
+
   it('沒有 token 會回 401，錯誤信封一致', async () => {
     const res = await inject({ method: 'GET', url: '/api/v1/products' });
     expect(res.statusCode).toBe(401);
@@ -117,6 +534,9 @@ describe('REST 介面', () => {
   });
 
   it('Extension 的通用橋接只接受屬於該 Extension 的名稱', async () => {
+    expect((await inject({ method: 'GET', url: '/api/v1/extensions/demo-erp/queries/ext.demo-erp.listDeliveries' })).statusCode).toBe(401);
+    expect((await inject({ method: 'GET', url: '/api/v1/extensions/missing/queries/ext.missing.list', headers: auth() })).statusCode).toBe(404);
+    expect((await inject({ method: 'GET', url: '/api/v1/extensions/demo-erp/queries/ext.demo-erp.listDeliveries', headers: auth(MCP_TOKEN) })).statusCode).toBe(403);
     const good = await inject({
       method: 'GET', url: '/api/v1/extensions/demo-erp/queries/ext.demo-erp.listDeliveries?limit=10', headers: auth(),
     });
@@ -151,11 +571,13 @@ describe('REST 介面', () => {
     const warn = vi.spyOn(h.runtime.logger, 'warn');
     try {
       const res = await inject({
-        method: 'GET', url: '/api/v1/extensions/demo-erp/queries/ext.demo-erp.listDeliveries?limits=10', headers: auth(),
+        method: 'GET', url: '/api/v1/extensions/demo-erp/queries/ext.demo-erp.listDeliveries?limits=private-query-value', headers: auth(),
       });
 
       expect(res.statusCode).toBe(200);
-      expect(warn.mock.calls.some(([fields]) => JSON.stringify(fields).includes('limits'))).toBe(true);
+      const fields = warn.mock.calls.find(([fields]) => JSON.stringify(fields).includes('limits'))?.[0];
+      expect(fields).toMatchObject({ query: 'ext.demo-erp.listDeliveries', dropped: ['limits'] });
+      expect(JSON.stringify(fields)).not.toContain('private-query-value');
     } finally {
       warn.mockRestore();
     }
@@ -184,6 +606,120 @@ describe('REST 介面', () => {
 });
 
 describe('Storefront SSR', () => {
+  it('catalogs all mounted storefront identities without inventing REST or Bus responses', () => {
+    const routes = describeHttpRoutes(h.runtime, [StorefrontController]);
+    expect(routes).toHaveLength(41);
+    for (const route of routes) {
+      expect(app.getHttpAdapter().getInstance().hasRoute({ method: route.method, url: route.path }), `${route.method} ${route.path}`).toBe(true);
+    }
+    const pages = routes.filter((route): route is Extract<typeof route, { kind: 'storefront' }> => route.kind === 'storefront');
+    const asset = routes.find((route): route is Extract<typeof route, { kind: 'storefront-asset' }> => route.kind === 'storefront-asset');
+    expect(pages).toHaveLength(40);
+    expect(asset).toMatchObject({ method: 'GET', path: '/storefront-assets/:file', auth: 'session-or-anonymous',
+      allowedFiles: expect.arrayContaining(['woven-day-hero.png']), success: { contentType: 'image/png', cacheControl: 'public, max-age=0' },
+      notFound: { status: 404, contentType: 'application/json' }, guardError: { statuses: [401] } });
+    expect(pages.filter(route => route.request === 'none')).toHaveLength(17);
+    expect(pages.filter(route => route.request === 'query')).toHaveLength(8);
+    expect(pages.filter(route => route.request === 'form')).toHaveLength(15);
+    expect(pages.filter(route => route.auth === 'session-or-anonymous')).toHaveLength(30);
+    expect(pages.filter(route => route.auth === 'anonymous')).toHaveLength(9);
+    expect(pages.filter(route => route.auth === 'opaque-capability')).toHaveLength(1);
+    expect(pages.filter(route => route.responses.every(response => response.kind === 'html'))).toHaveLength(17);
+    expect(pages.filter(route => route.responses.some(response => response.kind === 'html') && route.responses.some(response => response.kind === 'redirect'))).toHaveLength(22);
+    expect(pages.filter(route => route.responses.every(response => response.kind === 'redirect'))).toHaveLength(1);
+    const root = pages.find(route => route.path === '/')!;
+    const pay = pages.find(route => route.path === '/orders/:number/pay')!;
+    const login = pages.find(route => route.path === '/login')!;
+    const pickup = pages.find(route => route.path === '/checkout/pickup/callback')!;
+    const rewards = pages.find(route => route.path === '/cart/rewards')!;
+    const logout = pages.find(route => route.path === '/logout')!;
+    expect(root).toMatchObject({ request: 'query', csrf: 'none', guardError: { statuses: [401], contentType: 'application/json' },
+      responses: [{ kind: 'html', status: 200 }, { kind: 'html', status: 'platform-error' }] });
+    expect(pay).toMatchObject({ request: 'form', params: { number: 'number' }, audience: 'customer', csrf: 'session-csrf-or-same-origin', parserError: { statuses: [400, 413] } });
+    expect(login).toMatchObject({ request: 'query', auth: 'anonymous', csrf: 'none', cookieEffects: [] });
+    expect(pickup).toMatchObject({ request: 'form', auth: 'opaque-capability', csrf: 'none', guardError: null, parserError: { statuses: [400, 413] } });
+    expect(rewards).toMatchObject({ audience: 'customer', responses: [
+      { kind: 'html', status: 'platform-error' },
+      { kind: 'redirect', status: 303, location: { kind: 'fixed', value: '/cart' } },
+      { kind: 'redirect', status: 303, location: { kind: 'fixed', value: '/login?next=%2Fcart' } },
+    ] });
+    expect(logout).toMatchObject({ request: 'none', auth: 'anonymous', csrf: 'same-origin', cookieEffects: ['session-clear'], responses: [{ kind: 'redirect', status: 303, location: { kind: 'fixed', value: '/' } }] });
+    expect(pages.every(route => !('target' in route))).toBe(true);
+
+    const controller = class InvalidOpaqueStorefrontContract {};
+    Reflect.defineMetadata(PATH_METADATA, 'invalid-opaque-storefront', controller);
+    const handler = () => undefined;
+    Reflect.defineMetadata(METHOD_METADATA, RequestMethod.POST, handler);
+    Reflect.defineMetadata(PATH_METADATA, '', handler);
+    Reflect.defineMetadata(HTTP_CONTRACT, {
+      kind: 'storefront', request: 'form', auth: 'opaque-capability', input: { type: 'object', properties: {}, additionalProperties: true },
+      responses: [{ kind: 'redirect', status: 303, location: { kind: 'fixed', value: '/' } }],
+    } satisfies StorefrontHttpContract, handler);
+    Object.defineProperty(controller.prototype, 'handle', { value: handler });
+    expect(() => describeHttpRoutes(h.runtime, [controller])).toThrow('Invalid storefront opaque capability');
+    Reflect.defineMetadata(IS_EXTERNAL_CALLBACK, true, handler);
+    expect(describeHttpRoutes(h.runtime, [controller])[0]).toMatchObject({ auth: 'opaque-capability', guardError: null });
+
+    const missingPathField = class MissingStorefrontPathField {};
+    Reflect.defineMetadata(PATH_METADATA, 'missing-storefront-path-field/:id', missingPathField);
+    const missingHandler = () => undefined;
+    Reflect.defineMetadata(METHOD_METADATA, RequestMethod.POST, missingHandler);
+    Reflect.defineMetadata(PATH_METADATA, '', missingHandler);
+    Reflect.defineMetadata(HTTP_CONTRACT, {
+      kind: 'storefront', request: 'form', input: { type: 'object', properties: {}, additionalProperties: true }, params: { id: 'id' },
+      responses: [{ kind: 'redirect', status: 303, location: { kind: 'fixed', value: '/' } }],
+    } satisfies StorefrontHttpContract, missingHandler);
+    Object.defineProperty(missingPathField.prototype, 'handle', { value: missingHandler });
+    expect(() => describeHttpRoutes(h.runtime, [missingPathField])).toThrow('Invalid storefront parameter mapping');
+  });
+
+  it('keeps public GET guard and Theme errors on their separate transports', async () => {
+    const invalidBearer = await inject({ url: '/', headers: { authorization: 'Bearer not-a-real-token' } });
+    expect(invalidBearer.statusCode).toBe(401);
+    expect(invalidBearer.headers['content-type']).toContain('application/json');
+    expect(invalidBearer.json()).toMatchObject({ success: false, error: { code: 'UNAUTHENTICATED' } });
+
+    const invalidPage = await inject({ url: '/?page=0' });
+    expect(invalidPage.statusCode).toBe(400);
+    expect(invalidPage.headers['content-type']).toContain('text/html');
+    expect(invalidPage.body).toContain('400');
+  });
+
+  it('normalizes auth redirects, rejects cross-origin forms before commands, and clears a storefront session', async () => {
+    const login = await inject({ url: '/login?next=https%3A%2F%2Fevil.example%2Fsteal' });
+    expect(login.statusCode).toBe(200);
+    expect(login.headers['content-type']).toContain('text/html');
+    expect(login.body).toContain('name="next" value="/"');
+    expect(login.body).not.toContain('evil.example');
+
+    const execute = vi.spyOn(h.runtime.commands, 'execute');
+    try {
+      const crossOrigin = await inject({ method: 'POST', url: '/cart/items', headers: {
+        origin: 'https://evil.example', 'content-type': 'application/x-www-form-urlencoded',
+      }, payload: 'productId=00000000-0000-4000-8000-000000000000&quantity=1' });
+      expect(crossOrigin.statusCode).toBe(403);
+      expect(crossOrigin.headers['content-type']).toContain('application/json');
+      expect(crossOrigin.json()).toMatchObject({ success: false, error: { code: 'FORBIDDEN' } });
+      expect(execute).not.toHaveBeenCalled();
+    } finally { execute.mockRestore(); }
+
+    const registered = await inject({ method: 'POST', url: '/register', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `email=logout-${Date.now()}%40example.test&password=a-good-password&next=%2F` });
+    const session = registered.cookies.find(cookie => cookie.name === 'commerce_session')!.value;
+    const logout = await inject({ method: 'POST', url: '/logout', cookies: { commerce_session: session } });
+    expect(logout.statusCode).toBe(303);
+    expect(logout.headers.location).toBe('/');
+    expect(logout.cookies.find(cookie => cookie.name === 'commerce_session')?.value).toBe('');
+  });
+
+  it('renders pickup callback command errors as Theme HTML without CSRF capability validation', async () => {
+    const response = await inject({ method: 'POST', url: '/checkout/pickup/callback', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'token=not-a-pickup-token&providerStoreId=STORE-1' });
+    expect(response.statusCode).toBe(400);
+    expect(response.headers['content-type']).toContain('text/html');
+    expect(response.body).toContain('400');
+  });
+
   it('首頁輸出 Theme 產生的 HTML', async () => {
     const product = await createProduct(h.runtime, { sku: 'SSR-1', name: 'SSR 商品' });
     await stockUp(h.runtime, product.id, 3);
@@ -339,8 +875,102 @@ describe('MCP 介面', () => {
   const rpc = (body: unknown, token = MCP_TOKEN) =>
     inject({ method: 'POST', url: '/mcp', headers: { authorization: `Bearer ${token}` }, payload: body as never });
 
+  it('catalogs exactly the mounted direct and JSON-RPC routes from selected tool registrations', () => {
+    const routes = describeHttpRoutes(h.runtime, [McpController]);
+    expect(routes.map(route => [route.method, route.path, route.kind, route.kind === 'mcp' ? route.transport : null])).toEqual([
+      ['GET', '/mcp', 'mcp', 'direct'],
+      ['POST', '/mcp', 'mcp', 'jsonrpc'],
+    ]);
+    for (const route of routes) {
+      expect(route.auth).toBe('bearer-or-session');
+      expect(app.getHttpAdapter().getInstance().hasRoute({ method: route.method, url: route.path })).toBe(true);
+      if (route.kind !== 'mcp') throw new Error('Missing MCP contract');
+      expect(route.contentType).toBe('application/json');
+      expect(route.protocolVersion).toBe('2025-06-18');
+      expect(route.methods).toEqual(['initialize', 'notifications/initialized', 'ping', 'tools/list', 'tools/call']);
+      expect(route.error).toHaveProperty('properties.error');
+      expect(route.output).toHaveProperty(route.transport === 'jsonrpc' ? 'anyOf' : 'properties');
+    }
+    const post = routes.find(route => route.method === 'POST');
+    if (!post || post.kind !== 'mcp') throw new Error('Missing MCP JSON-RPC contract');
+    const registration = h.runtime.mcpTools.get('adjust_inventory');
+    const target = h.runtime.commands.get(registration.definition.target.name);
+    const tool = post.tools.find(tool => tool.name === registration.definition.name);
+    expect(tool).toMatchObject({
+      name: registration.definition.name, description: registration.definition.description, owner: registration.owner,
+      target: registration.definition.target, targetOwner: target.owner, permission: target.descriptor.permission,
+      idempotencyKey: 'tool-argument', input: zodToJsonSchema(registration.definition.input as never, { target: 'jsonSchema7' }),
+    });
+    expect(registration.owner).not.toBe(target.owner);
+    expect(tool).not.toHaveProperty('output');
+    expect(post.tools.find(tool => tool.name === 'search_products')).toMatchObject({ idempotencyKey: 'none' });
+    expect((post.output as { anyOf?: Array<{ required?: string[] }> }).anyOf?.some(variant => variant.required?.includes('result'))).toBe(true);
+    const get = routes.find(route => route.method === 'GET');
+    if (!get || get.kind !== 'mcp') throw new Error('Missing MCP direct contract');
+    expect(get.output).toMatchObject({ properties: { data: { properties: { tools: { items: { properties: { target: {
+      required: ['kind', 'name'],
+    } } } } } } } });
+  });
+
+  it('requires bearer-or-session, retains session CSRF, and returns JSON from both credential paths', async () => {
+    const body = { jsonrpc: '2.0', id: 10, method: 'ping' };
+    const missingAuth = await inject({ method: 'POST', url: '/mcp', payload: body });
+    expect(missingAuth.statusCode).toBe(401);
+    expect(missingAuth.headers['content-type']).toContain('application/json');
+    expect(missingAuth.json()).toMatchObject({ success: false, error: { code: 'UNAUTHENTICATED' } });
+    expect(missingAuth.json()).not.toHaveProperty('jsonrpc');
+    expect(missingAuth.json()).not.toHaveProperty('result');
+
+    const email = 'mcp-session@example.com';
+    const password = 'mcp session password';
+    await h.runtime.commands.execute('platform.identity.createUser', { email, password, displayName: 'MCP session', role: 'admin' }, {
+      actor: ADMIN_ACTOR, idempotencyKey: 'mcp-session-user',
+    });
+    const login = await inject({ method: 'POST', url: '/api/v1/auth/login', payload: { email, password } });
+    const session = login.cookies.find(cookie => cookie.name === 'commerce_session')!.value;
+    const csrf = login.cookies.find(cookie => cookie.name === 'commerce_csrf')!.value;
+    const csrfRejected = await inject({ method: 'POST', url: '/mcp', cookies: { commerce_session: session }, payload: body });
+    expect(csrfRejected.statusCode).toBe(403);
+    expect(csrfRejected.headers['content-type']).toContain('application/json');
+    expect(csrfRejected.json()).toMatchObject({ success: false, error: { code: 'FORBIDDEN' } });
+    expect(csrfRejected.json()).not.toHaveProperty('jsonrpc');
+    expect(csrfRejected.json()).not.toHaveProperty('result');
+    const sessionResponse = await inject({ method: 'POST', url: '/mcp', cookies: { commerce_session: session, commerce_csrf: csrf },
+      headers: { 'x-csrf-token': csrf }, payload: body });
+    expect(sessionResponse.statusCode).toBe(200);
+    expect(sessionResponse.headers['content-type']).toContain('application/json');
+    expect(sessionResponse.json().result).toEqual({});
+    const bearerResponse = await rpc(body);
+    expect(bearerResponse.statusCode).toBe(200);
+    expect(bearerResponse.headers['content-type']).toContain('application/json');
+  });
+
+  it('keeps both routes and reports empty tools when MCP selection is empty', async () => {
+    const list = vi.spyOn(h.runtime.mcpTools, 'list').mockReturnValue([]);
+    try {
+      const routes = describeHttpRoutes(h.runtime, [McpController]);
+      expect(routes).toHaveLength(2);
+      expect(routes.every(route => route.kind === 'mcp' && route.tools.length === 0)).toBe(true);
+      expect((await inject({ url: '/mcp', headers: auth() })).json().data.tools).toEqual([]);
+      expect((await rpc({ jsonrpc: '2.0', id: 11, method: 'tools/list' })).json().result.tools).toEqual([]);
+    } finally { list.mockRestore(); }
+  });
+
+  it('rejects a selected MCP tool whose matching Bus target is absent while cataloging', () => {
+    const selected = h.runtime.mcpTools.get('search_products');
+    const list = vi.spyOn(h.runtime.mcpTools, 'list').mockReturnValue([{
+      ...selected,
+      definition: { ...selected.definition, target: { kind: 'query', name: 'commerce.catalog.missing' } },
+    }]);
+    try {
+      expect(() => describeHttpRoutes(h.runtime, [McpController]))
+        .toThrow('Missing MCP query target: commerce.catalog.missing');
+    } finally { list.mockRestore(); }
+  });
+
   it('tools/list 只公開設定啟用的工具', async () => {
     const res = await rpc({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+    expect(res.statusCode).toBe(200);
     const names = res.json().result.tools.map((t: any) => t.name).sort();
     expect(names).toEqual(['adjust_inventory', 'get_order', 'get_sales_summary', 'search_products']);
     expect(res.json().result.tools[0].inputSchema).toHaveProperty('type');
@@ -348,7 +978,26 @@ describe('MCP 介面', () => {
 
   it('未知方法回 JSON-RPC error', async () => {
     const res = await rpc({ jsonrpc: '2.0', id: 2, method: 'nope' });
+    expect(res.statusCode).toBe(200);
     expect(res.json().error.code).toBe(-32601);
+  });
+
+  it('keeps invalid requests and notifications in the JSON-RPC response contract', async () => {
+    const invalid = await rpc({ jsonrpc: '1.0', id: 12, method: 'ping' });
+    expect(invalid.statusCode).toBe(200);
+    expect(invalid.json()).toMatchObject({ jsonrpc: '2.0', id: null, error: { code: -32600 } });
+    const notification = await rpc({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    expect(notification.statusCode).toBe(200);
+    expect(notification.json()).toEqual({ jsonrpc: '2.0', id: null, result: {} });
+  });
+
+  it('keeps unexpected tool failures as HTTP 200 JSON-RPC internal errors', async () => {
+    const get = vi.spyOn(h.runtime.mcpTools, 'get').mockImplementation(() => { throw new Error('unexpected MCP failure'); });
+    try {
+      const response = await rpc({ jsonrpc: '2.0', id: 13, method: 'tools/call', params: { name: 'search_products', arguments: {} } });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ jsonrpc: '2.0', id: 13, error: { code: -32603 } });
+    } finally { get.mockRestore(); }
   });
 
   it('MCP 執行的寫入會經過 Command Bus 的權限與 Idempotency 檢查', async () => {
@@ -359,8 +1008,15 @@ describe('MCP 介面', () => {
     const missingKey = await call({ productId: product.id, delta: 5, reason: 'restock' });
     expect(missingKey.json().result.isError).toBe(true);
 
+    const execute = vi.spyOn(h.runtime.commands, 'execute');
     const ok = await call({ productId: product.id, delta: 5, reason: 'restock', idempotencyKey: 'mcp-key-1' });
-    expect(ok.json().result.structuredContent.onHand).toBe(5);
+    try {
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json().result.structuredContent.onHand).toBe(5);
+      expect(execute).toHaveBeenLastCalledWith('commerce.inventory.adjustStock',
+        expect.not.objectContaining({ idempotencyKey: expect.anything() }),
+        expect.objectContaining({ idempotencyKey: 'mcp-key-1', channel: 'mcp' }));
+    } finally { execute.mockRestore(); }
 
     const replay = await call({ productId: product.id, delta: 5, reason: 'restock', idempotencyKey: 'mcp-key-1' });
     expect(replay.json().result.structuredContent.onHand).toBe(5);
@@ -371,8 +1027,18 @@ describe('MCP 介面', () => {
       jsonrpc: '2.0', id: 4, method: 'tools/call',
       params: { name: 'get_order', arguments: { orderNumber: 'NOPE-1' } },
     });
+    expect(res.statusCode).toBe(200);
     expect(res.json().result.isError).toBe(true);
     expect(res.json().result.content[0].text).toContain('NOT_FOUND');
+  });
+
+  it('keeps Bus permission failures inside a JSON-RPC tool result', async () => {
+    const res = await rpc({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: {
+      name: 'get_sales_summary', arguments: {},
+    } }, RESTRICTED_MCP_TOKEN);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().result).toMatchObject({ isError: true });
+    expect(res.json().result.content[0].text).toContain('FORBIDDEN');
   });
 
   it('MCP 讀取工具回傳的是 DTO，不是資料表列', async () => {

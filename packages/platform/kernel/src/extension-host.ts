@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { closeInReverse } from './lifecycle';
 import {
   PlatformError, SYSTEM_ACTOR, extensionActor,
   type Actor, type Logger,
@@ -33,6 +33,7 @@ export interface MountedExtension {
   subscribedEvents: readonly string[];
   commands: readonly string[];
   queries: readonly string[];
+  jobs: readonly string[];
   providers: readonly string[];
   mcpTools: readonly string[];
   context: ExtensionContext<any>;
@@ -61,6 +62,8 @@ export interface ExtensionHostDeps {
  */
 export class ExtensionHost {
   private readonly mounted: MountedExtension[] = [];
+  private readonly pending = new Set<Promise<MountedExtension>>();
+  private closing?: Promise<void>;
 
   constructor(private readonly deps: ExtensionHostDeps) {}
 
@@ -72,7 +75,22 @@ export class ExtensionHost {
     return this.mounted.find((e) => e.id === id);
   }
 
-  async mount(definition: ExtensionDefinition<any>, rawConfig: unknown): Promise<MountedExtension> {
+  mount(definition: ExtensionDefinition<any>, rawConfig: unknown): Promise<MountedExtension> {
+    if (this.closing) return Promise.reject(new Error('Extension host is closing'));
+    const pending = this.mountDefinition(definition, rawConfig);
+    this.pending.add(pending);
+    void pending.then(() => this.pending.delete(pending), () => this.pending.delete(pending));
+    return pending;
+  }
+
+  close(): Promise<void> {
+    return this.closing ??= (async () => {
+      await Promise.allSettled([...this.pending]);
+      await closeInReverse(this.mounted.map(extension => () => extension.registration.close?.()));
+    })();
+  }
+
+  private async mountDefinition(definition: ExtensionDefinition<any>, rawConfig: unknown): Promise<MountedExtension> {
     const manifest = definition.manifest;
     assertPlatformCompatibility(manifest, this.deps.platformVersion);
 
@@ -121,97 +139,92 @@ export class ExtensionHost {
     const setupContext = this.createContext(definition, parsedConfig.data, setupActor);
     const registration = await definition.setup(setupContext);
 
-    this.assertMatchesManifest(manifest.id, manifest, registration);
+    try {
+      this.assertMatchesManifest(manifest.id, manifest, registration);
 
-    for (const provider of registration.providers ?? []) {
-      // The manifest is the declaration checked before setup. Preserve its default
-      // designation when mounting so replacing a payment extension is configuration,
-      // not a change to order or storefront code.
-      const declared = manifest.registeredProviders.find(
-        (candidate) => candidate.kind === provider.kind && candidate.id === provider.id,
-      );
-      this.deps.providers.register({ provider, owner: manifest.id, isDefault: declared?.isDefault });
-    }
+      for (const provider of registration.providers ?? []) {
+        // The manifest is the declaration checked before setup. Preserve its default
+        // designation when mounting so replacing a payment extension is configuration,
+        // not a change to order or storefront code.
+        const declared = manifest.registeredProviders.find(
+          (candidate) => candidate.kind === provider.kind && candidate.id === provider.id,
+        );
+        this.deps.providers.register({ provider, owner: manifest.id, isDefault: declared?.isDefault });
+      }
 
-    const actor: Actor = extensionActor(
-      manifest.id,
-      manifest.permissions,
-      manifest.registeredProviders.map((provider) => `${provider.kind}:${provider.id}`),
-    );
-    const context = this.createContext(definition, parsedConfig.data, actor);
-
-    for (const permission of registration.permissions ?? []) {
-      this.deps.authorization.permissions.register({ ...permission, owner: manifest.id });
-    }
-    for (const policy of registration.policies ?? []) {
-      this.deps.authorization.policies.register({ ...policy, owner: manifest.id });
-    }
-    // 只把 ExtensionContext 交給 handler —— tx / db 不會流進 Extension
-    for (const cmd of registration.commands ?? []) {
-      this.deps.commandBus.register(
-        cmd.descriptor,
-        async (input, commandCtx) =>
-          cmd.handler(input, { ...context, actor: commandCtx.actor, correlationId: commandCtx.correlationId }),
+      const actor: Actor = extensionActor(
         manifest.id,
+        manifest.permissions,
+        manifest.registeredProviders.map((provider) => `${provider.kind}:${provider.id}`),
       );
-    }
-    for (const q of registration.queries ?? []) {
-      this.deps.queryBus.register(
-        q.descriptor,
-        async (input, queryCtx) =>
-          q.handler(input, { ...context, actor: queryCtx.actor, correlationId: queryCtx.correlationId }),
-        manifest.id,
-      );
-    }
-    for (const tool of registration.mcpTools ?? []) {
-      this.deps.mcpTools.register(tool, manifest.id);
-    }
-    for (const job of registration.jobs ?? []) {
-      this.deps.jobRegistry.register(job.type, async (payload, jobCtx) => {
-        await job.handler(payload, { ...context, attempt: jobCtx.attempt, jobId: jobCtx.jobId });
-      }, manifest.id);
-    }
-    for (const sub of registration.events ?? []) {
-      this.deps.eventBus.subscribe({
-        subscriberId: manifest.id,
-        eventName: sub.event,
-        maxAttempts: sub.maxAttempts,
-        handler: async (event) => {
-          await sub.handler(event, context);
-        },
-      });
-    }
+      const context = this.createContext(definition, parsedConfig.data, actor);
 
-    const mounted: MountedExtension = {
-      id: manifest.id,
-      name: manifest.name,
-      version: manifest.version,
-      platformVersion: manifest.platformVersion,
-      enabled: true,
-      permissions: manifest.permissions,
-      subscribedEvents: manifest.subscribedEvents,
-      commands: (registration.commands ?? []).map((c) => c.descriptor.name),
-      queries: (registration.queries ?? []).map((q) => q.descriptor.name),
-      providers: (registration.providers ?? []).map((p) => `${p.kind}:${p.id}`),
-      mcpTools: (registration.mcpTools ?? []).map((t) => t.name),
-      context,
-      definition,
-      registration,
-    };
-    this.mounted.push(mounted);
-    this.deps.logger.info({ extension: manifest.id, version: manifest.version }, 'extension mounted');
-    return mounted;
-  }
+      for (const permission of registration.permissions ?? []) {
+        this.deps.authorization.permissions.register({ ...permission, owner: manifest.id });
+      }
+      for (const policy of registration.policies ?? []) {
+        this.deps.authorization.policies.register({ ...policy, owner: manifest.id });
+      }
+      // 只把 ExtensionContext 交給 handler —— tx / db 不會流進 Extension
+      for (const cmd of registration.commands ?? []) {
+        this.deps.commandBus.register(
+          cmd.descriptor,
+          async (input, commandCtx) =>
+            cmd.handler(input, { ...context, actor: commandCtx.actor, correlationId: commandCtx.correlationId }),
+          manifest.id,
+        );
+      }
+      for (const q of registration.queries ?? []) {
+        this.deps.queryBus.register(
+          q.descriptor,
+          async (input, queryCtx) =>
+            q.handler(input, { ...context, actor: queryCtx.actor, correlationId: queryCtx.correlationId }),
+          manifest.id,
+        );
+      }
+      for (const tool of registration.mcpTools ?? []) {
+        this.deps.mcpTools.register(tool, manifest.id);
+      }
+      for (const job of registration.jobs ?? []) {
+        this.deps.jobRegistry.register(job.type, async (payload, jobCtx) => {
+          await job.handler(payload, { ...context, attempt: jobCtx.attempt, jobId: jobCtx.jobId });
+        }, manifest.id);
+      }
+      for (const sub of registration.events ?? []) {
+        this.deps.eventBus.subscribe({
+          subscriberId: manifest.id,
+          eventName: sub.event,
+          maxAttempts: sub.maxAttempts,
+          handler: async (event) => {
+            await sub.handler(event, context);
+          },
+        });
+      }
 
-  /** 把已掛載的 Extension 寫入 registry 表，供 `commerce extension:list` 與 doctor 使用。 */
-  async persistRegistry(): Promise<void> {
-    for (const ext of this.mounted) {
-      await this.deps.database.db.execute(sql`
-        INSERT INTO platform_extension_registry (id, name, version, platform_version, permissions, updated_at)
-        VALUES (${ext.id}, ${ext.name}, ${ext.version}, ${ext.platformVersion}, ${JSON.stringify(ext.permissions)}::jsonb, now())
-        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, version = EXCLUDED.version,
-          platform_version = EXCLUDED.platform_version, permissions = EXCLUDED.permissions, updated_at = now()
-      `);
+      const mounted: MountedExtension = {
+        id: manifest.id,
+        name: manifest.name,
+        version: manifest.version,
+        platformVersion: manifest.platformVersion,
+        enabled: true,
+        permissions: manifest.permissions,
+        subscribedEvents: manifest.subscribedEvents,
+        commands: (registration.commands ?? []).map((c) => c.descriptor.name),
+        queries: (registration.queries ?? []).map((q) => q.descriptor.name),
+        jobs: (registration.jobs ?? []).map(job => job.type),
+        providers: (registration.providers ?? []).map((p) => `${p.kind}:${p.id}`),
+        mcpTools: (registration.mcpTools ?? []).map((t) => t.name),
+        context,
+        definition,
+        registration,
+      };
+      this.deps.logger.info({ extension: manifest.id, version: manifest.version }, 'extension mounted');
+      this.mounted.push(mounted);
+      return mounted;
+    } catch (error) {
+      try { await registration.close?.(); }
+      catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Extension mount and cleanup failed'); }
+      throw error;
     }
   }
 
@@ -227,6 +240,7 @@ export class ExtensionHost {
     };
     compare('commands', manifest.registeredCommands, (registration.commands ?? []).map((c) => c.descriptor.name));
     compare('queries', manifest.registeredQueries, (registration.queries ?? []).map((q) => q.descriptor.name));
+    compare('jobs', manifest.registeredJobs ?? [], (registration.jobs ?? []).map(job => job.type));
     compare('subscribed events', manifest.subscribedEvents, (registration.events ?? []).map((e) => e.event));
     compare(
       'providers',

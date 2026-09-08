@@ -1,7 +1,27 @@
-import { defineModule } from '@storeweave/kernel';
+import packageJson from '../package.json';
+import { type BoundModuleCapability, defineModule } from '@storeweave/kernel';
 import { refundFailedV1,refundRequestedV1,refundSucceededV1 } from '@storeweave/refund';
 import { approveRmaCommand,approveRmaHandler,createCreateRmaHandler,createRmaCommand,createRequestRmaRefundHandler,receiveRmaCommand,receiveRmaHandler,recordRmaRefundRequestedCommand,recordRmaRefundRequestedHandler,recordRmaRefundResultCommand,recordRmaRefundResultHandler,rejectRmaCommand,rejectRmaHandler,requestRmaInformationCommand,requestRmaInformationHandler,requestRmaRefundCommand,type RmaOrderLookup,type RmaShipmentLookup } from './commands';
 import { rmaEvents } from './events';
 import { rmaMigrations } from './migrations';
 import { getRmaHandler,getRmaQuery,listRmasHandler,listRmasQuery } from './queries';
-export function createRmaModule(orders:RmaOrderLookup,shipments:RmaShipmentLookup){return defineModule({name:'rma',migrations:rmaMigrations,events:rmaEvents,permissions:[{key:'rma:read',description:'讀取退貨案件',owner:'rma'},{key:'rma:create',description:'顧客建立自己的退貨案件',owner:'rma'},{key:'rma:write',description:'處理退貨案件',owner:'rma'},{key:'rma:system-write',description:'同步驗證後的退款結果',owner:'rma'}],commands:[{descriptor:createRmaCommand,handler:createCreateRmaHandler(orders,shipments)},{descriptor:approveRmaCommand,handler:approveRmaHandler},{descriptor:requestRmaInformationCommand,handler:requestRmaInformationHandler},{descriptor:rejectRmaCommand,handler:rejectRmaHandler},{descriptor:receiveRmaCommand,handler:receiveRmaHandler},{descriptor:requestRmaRefundCommand,handler:createRequestRmaRefundHandler(orders)},{descriptor:recordRmaRefundRequestedCommand,handler:recordRmaRefundRequestedHandler},{descriptor:recordRmaRefundResultCommand,handler:recordRmaRefundResultHandler}],queries:[{descriptor:getRmaQuery,handler:getRmaHandler},{descriptor:listRmasQuery,handler:listRmasHandler}],subscribers:[{eventName:refundRequestedV1.name,handler:async(event,ctx)=>{const p=event.payload as {refundId:string;source:string;sourceRef:string|null;attemptNo:number};if(p.source==='rma'&&p.sourceRef)await ctx.executeCommand?.('commerce.rma.recordRefundRequested',{rmaId:p.sourceRef,refundId:p.refundId,attemptNo:p.attemptNo},`rma-refund-requested:${event.id}`);}},{eventName:refundSucceededV1.name,handler:async(event,ctx)=>{const p=event.payload as {refundId:string;source:string;sourceRef:string|null};if(p.source==='rma'&&p.sourceRef)await ctx.executeCommand?.('commerce.rma.recordRefundResult',{rmaId:p.sourceRef,refundId:p.refundId,status:'succeeded'},`rma-refund-succeeded:${event.id}`);}},{eventName:refundFailedV1.name,handler:async(event,ctx)=>{const p=event.payload as {refundId:string;source:string;sourceRef:string|null};if(p.source==='rma'&&p.sourceRef)await ctx.executeCommand?.('commerce.rma.recordRefundResult',{rmaId:p.sourceRef,refundId:p.refundId,status:'failed'},`rma-refund-failed:${event.id}`);}}]});}
+export function createRmaModule(ordersBinding: BoundModuleCapability<RmaOrderLookup>,shipmentsBinding: BoundModuleCapability<RmaShipmentLookup>){
+  const orders = ordersBinding.value;
+  const shipments = shipmentsBinding.value;
+return defineModule({name:'rma',
+  version: packageJson.version,
+  baseVersionRange: '^1.0.0',
+  dependencies: { required: [
+    { name: 'platform', versionRange: '^0.1.0' },
+    { name: 'customer', versionRange: '^0.1.0' },
+    { name: 'inventory', versionRange: '^0.1.0' },
+    { name: 'refund', versionRange: '^0.1.0' },
+  ] },
+  capabilities: {
+    required: [
+      { from: 'order', capability: 'commerce.order.return-operations', versionRange: '^0.1.0' },
+      { from: 'shipping', capability: 'commerce.shipping.return-lookup', versionRange: '^0.1.0' },
+    ],
+    bound: [ordersBinding, shipmentsBinding],
+  },
+  data: { owns: ['rma_cases', 'rma_lines'] },migrations:rmaMigrations,events:rmaEvents,permissions:[{key:'rma:read',description:'讀取退貨案件',owner:'rma'},{key:'rma:create',description:'顧客建立自己的退貨案件',owner:'rma'},{key:'rma:write',description:'處理退貨案件',owner:'rma'},{key:'rma:system-write',description:'同步驗證後的退款結果',owner:'rma'}],commands:[{descriptor:createRmaCommand,handler:createCreateRmaHandler(orders,shipments)},{descriptor:approveRmaCommand,handler:approveRmaHandler},{descriptor:requestRmaInformationCommand,handler:requestRmaInformationHandler},{descriptor:rejectRmaCommand,handler:rejectRmaHandler},{descriptor:receiveRmaCommand,handler:receiveRmaHandler},{descriptor:requestRmaRefundCommand,handler:createRequestRmaRefundHandler(orders)},{descriptor:recordRmaRefundRequestedCommand,handler:recordRmaRefundRequestedHandler},{descriptor:recordRmaRefundResultCommand,handler:recordRmaRefundResultHandler}],queries:[{descriptor:getRmaQuery,handler:getRmaHandler},{descriptor:listRmasQuery,handler:listRmasHandler}],subscribers:[{eventName:refundRequestedV1.name,handler:async(event,ctx)=>{const p=event.payload as {refundId:string;source:string;sourceRef:string|null;attemptNo:number};if(p.source==='rma'&&p.sourceRef)await ctx.executeCommand?.('commerce.rma.recordRefundRequested',{rmaId:p.sourceRef,refundId:p.refundId,attemptNo:p.attemptNo},`rma-refund-requested:${event.id}`);}},{eventName:refundSucceededV1.name,handler:async(event,ctx)=>{const p=event.payload as {refundId:string;source:string;sourceRef:string|null};if(p.source==='rma'&&p.sourceRef)await ctx.executeCommand?.('commerce.rma.recordRefundResult',{rmaId:p.sourceRef,refundId:p.refundId,status:'succeeded'},`rma-refund-succeeded:${event.id}`);}},{eventName:refundFailedV1.name,handler:async(event,ctx)=>{const p=event.payload as {refundId:string;source:string;sourceRef:string|null};if(p.source==='rma'&&p.sourceRef)await ctx.executeCommand?.('commerce.rma.recordRefundResult',{rmaId:p.sourceRef,refundId:p.refundId,status:'failed'},`rma-refund-failed:${event.id}`);}}]});}

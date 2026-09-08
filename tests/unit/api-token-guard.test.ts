@@ -1,3 +1,4 @@
+import { COMMERCE_ROLES, permissionsForRole } from '@storeweave/authorization';
 import { describe, expect, it, vi } from 'vitest';
 import { PlatformError, type Actor } from '@storeweave/contracts';
 import { ApiTokenGuard, CSRF_HEADER, SESSION_COOKIE, type AuthenticatedRequest } from '@storeweave/api';
@@ -18,6 +19,8 @@ function guardWith(options: {
   resolveSession?: (token: string) => Promise<{ actor: Actor } | null>;
 }) {
   const runtime = {
+    roles: COMMERCE_ROLES,
+    actorForRole: (role: string, id?: string) => ({ id: id ?? `role:${role}`, type: 'service', displayName: role, permissions: permissionsForRole(role) }),
     config: {
       auth: { tokens: [{ name: 'admin-console', role: 'admin', secretRef: 'TOKEN' }] },
       // 本機 http：cookie 名字沒有 __Host- 前綴（見 cookie-names.ts）。
@@ -35,7 +38,7 @@ function guardWith(options: {
       return undefined;
     },
   };
-  return new ApiTokenGuard(runtime as never, reflector as never);
+  return new ApiTokenGuard(runtime as never, reflector as never, { anonymousRole: 'storefront' });
 }
 
 function contextFor(request: AuthenticatedRequest) {

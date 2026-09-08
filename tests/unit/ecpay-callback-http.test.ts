@@ -3,13 +3,22 @@ import { createTestExtensionContext } from '@storeweave/extension-sdk';
 import { createCheckMacValue, createEcpayPaymentProvider, ecpayPaymentConfig } from '@storeweave/ext-ecpay';
 import type { Runtime } from '@storeweave/kernel';
 import { defaultTheme } from '@storeweave/theme-default';
-import { createServer } from '../../apps/api/src/server';
+import type { ReleaseHttpAdapter } from '../../apps/api/src/release-adapter';
+import { createReleaseServer } from '../../apps/api/src/release-server';
+import { CallbackController } from '../../apps/api/src/controllers/callback.controller';
+import { describeHttpRoutes } from '../../apps/api/src/http/contract';
 
 const secrets = {
   ECPAY_MERCHANT_ID: 'test-merchant-id',
   ECPAY_HASH_KEY: 'test-hash-key',
   ECPAY_HASH_IV: 'test-hash-iv',
 };
+
+const callbackHttpAdapter = {
+  releaseId: 'callback-test', anonymousRole: null,
+  controllers: () => [CallbackController],
+  startSession: async () => null,
+} satisfies ReleaseHttpAdapter;
 
 async function providerWithStartedTrade() {
   const context = createTestExtensionContext({
@@ -46,15 +55,17 @@ describe('ECPay callback HTTP route', () => {
     const execute = vi.fn(async () => ({}));
     const runtime = {
       config: {
-        http: { trustProxy: false, bodyLimitBytes: 1_048_576 },
+        http: { trustProxy: false, bodyLimitBytes: 1_048_576, cors: { allowedOrigins: [], credentials: false } },
         admin: { enabled: false },
         mcp: { enabled: false },
       },
-      providers: { get: vi.fn(() => provider) },
+      providers: { get: vi.fn(() => provider), list: () => [
+        { kind: 'payment' as const, id: 'ecpay', owner: 'ecpay-extension', isDefault: true },
+      ] },
       commands: { execute },
       logger: { warn: vi.fn() },
     } as unknown as Runtime;
-    const app = await createServer({ runtime, theme: defaultTheme, release: { version: 'test', configPath: '<test>' } });
+    const app = await createReleaseServer({ runtime, theme: defaultTheme, httpAdapter: callbackHttpAdapter, release: { version: 'test', configPath: '<test>' } });
 
     try {
       const response = await app.inject({
@@ -80,6 +91,104 @@ describe('ECPay callback HTTP route', () => {
         expect.objectContaining({ provider: 'ecpay', status: 'confirmed' }),
         expect.objectContaining({ idempotencyKey: expect.stringMatching(/^callback:[a-f0-9]{64}$/) }),
       );
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('keeps provider acknowledgement status, headers, content type, and body outside the REST envelope', async () => {
+    const parseCallback = vi.fn(async () => ({ type: 'payment_confirmed' as const, reference: 'attempt:callback-http', providerRef: 'provider-ref' }));
+    const acknowledgeCallback = vi.fn(({ accepted }: { accepted: boolean }) => accepted
+      ? { statusCode: 202, headers: { 'content-type': 'application/vnd.gateway+text', 'x-provider-ack': 'accepted' }, body: 'provider accepted' }
+      : { statusCode: 503, headers: { 'content-type': 'application/vnd.gateway+text', 'x-provider-ack': 'rejected' }, body: 'provider rejected' });
+    const payment = {
+      id: 'gateway-a', kind: 'payment' as const, paymentMethods: () => [], start: vi.fn(), parseCallback, acknowledgeCallback, refund: vi.fn(),
+    };
+    const shippingWithoutAcknowledgement = { id: 'carrier-a', kind: 'shipping' as const, createShipment: vi.fn(), parseCallback: vi.fn() };
+    const providers = new Map<string, typeof payment | typeof shippingWithoutAcknowledgement>([
+      ['payment:gateway-a', payment], ['shipping:carrier-a', shippingWithoutAcknowledgement],
+    ]);
+    const execute = vi.fn(async () => ({}));
+    const runtime = {
+      config: { http: { trustProxy: false, bodyLimitBytes: 1_048_576, cors: { allowedOrigins: [], credentials: false } }, admin: { enabled: false }, mcp: { enabled: false } },
+      providers: { get: vi.fn((kind: string, id: string) => {
+        const provider = providers.get(`${kind}:${id}`);
+        if (!provider) throw new Error('not found');
+        return provider;
+      }), list: () => [
+        { kind: 'payment' as const, id: 'gateway-a', owner: 'payments-extension', isDefault: true },
+        { kind: 'shipping' as const, id: 'carrier-a', owner: 'shipping-extension', isDefault: true },
+      ] },
+      commands: { execute }, logger: { warn: vi.fn() },
+    } as unknown as Runtime;
+    const app = await createReleaseServer({ runtime, theme: defaultTheme, httpAdapter: callbackHttpAdapter, release: { version: 'test', configPath: '<test>' } });
+
+    try {
+      const routes = describeHttpRoutes(runtime, [CallbackController]);
+      expect(routes).toMatchObject([{ method: 'POST', path: '/callbacks/:kind/:providerId', kind: 'provider-callback', rateLimit: 'callback',
+        targets: [{ kind: 'payment', providerId: 'gateway-a', owner: 'payments-extension' }],
+      }]);
+      expect(app.getHttpAdapter().getInstance().hasRoute({ method: 'POST', url: '/callbacks/:kind/:providerId' })).toBe(true);
+      const accepted = await app.inject({ method: 'POST', url: '/callbacks/payment/gateway-a?provider=kept',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' }, payload: 'signed=original%2Bbytes' });
+      expect(accepted.statusCode).toBe(202);
+      expect(accepted.headers['content-type']).toContain('application/vnd.gateway+text');
+      expect(accepted.headers['x-provider-ack']).toBe('accepted');
+      expect(accepted.body).toBe('provider accepted');
+      expect(accepted.body).not.toContain('success');
+      expect(parseCallback).toHaveBeenCalledWith(expect.objectContaining({
+        body: new TextEncoder().encode('signed=original%2Bbytes'), query: { provider: 'kept' },
+      }));
+
+      parseCallback.mockRejectedValueOnce(new Error('invalid signature'));
+      const rejected = await app.inject({ method: 'POST', url: '/callbacks/payment/gateway-a',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' }, payload: 'signed=bad' });
+      expect(rejected.statusCode).toBe(503);
+      expect(rejected.headers['content-type']).toContain('application/vnd.gateway+text');
+      expect(rejected.headers['x-provider-ack']).toBe('rejected');
+      expect(rejected.body).toBe('provider rejected');
+      expect(execute).toHaveBeenCalledTimes(1);
+
+      for (const url of ['/callbacks/erp/gateway-a', '/callbacks/payment/missing', '/callbacks/shipping/carrier-a']) {
+        const response = await app.inject({ method: 'POST', url, payload: '' });
+        expect(response.statusCode, url).toBe(404);
+        expect(response.headers['content-type'], url).toContain('text/plain');
+        expect(response.body, url).toBe('Not found');
+      }
+      expect(shippingWithoutAcknowledgement.parseCallback).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('returns the existing 429 REST error and Retry-After before the 301st callback reaches its provider', async () => {
+    const parseCallback = vi.fn(async () => ({ type: 'payment_confirmed' as const, reference: 'attempt:rate-limit', providerRef: 'provider-ref' }));
+    const payment = {
+      id: 'gateway-a', kind: 'payment' as const, paymentMethods: () => [], start: vi.fn(), parseCallback,
+      acknowledgeCallback: vi.fn(() => ({ body: 'ok' })), refund: vi.fn(),
+    };
+    const execute = vi.fn(async () => ({}));
+    const runtime = {
+      config: { http: { trustProxy: false, bodyLimitBytes: 1_048_576, cors: { allowedOrigins: [], credentials: false } }, admin: { enabled: false }, mcp: { enabled: false } },
+      providers: { get: vi.fn(() => payment), list: () => [
+        { kind: 'payment' as const, id: 'gateway-a', owner: 'payments-extension', isDefault: true },
+      ] }, commands: { execute }, logger: { warn: vi.fn() },
+    } as unknown as Runtime;
+    const app = await createReleaseServer({ runtime, theme: defaultTheme, httpAdapter: callbackHttpAdapter, release: { version: 'test', configPath: '<test>' } });
+
+    try {
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        expect((await app.inject({ method: 'POST', url: '/callbacks/payment/gateway-a',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' }, payload: 'signed=ok' })).statusCode).toBe(200);
+      }
+      const limited = await app.inject({ method: 'POST', url: '/callbacks/payment/gateway-a',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' }, payload: 'signed=ok' });
+      expect(limited.statusCode).toBe(429);
+      expect(limited.headers['content-type']).toContain('application/json');
+      expect(limited.json()).toMatchObject({ success: false, error: { code: 'RATE_LIMITED' } });
+      expect(Number(limited.headers['retry-after'])).toBeGreaterThan(0);
+      expect(parseCallback).toHaveBeenCalledTimes(300);
+      expect(execute).toHaveBeenCalledTimes(300);
     } finally {
       await app.close();
     }

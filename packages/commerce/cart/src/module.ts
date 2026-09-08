@@ -1,3 +1,4 @@
+import packageJson from '../package.json';
 import { defineModule } from '@storeweave/kernel';
 import { createCartModule, type CartModuleDeps } from './commands';
 import { PURGE_STALE_GUEST_CARTS_JOB, createPurgeStaleGuestCartsJob } from './jobs';
@@ -7,6 +8,18 @@ import { createCartQueries } from './queries';
 export function createCart(deps: CartModuleDeps) {
   return defineModule({
     name: 'cart',
+  version: packageJson.version,
+  baseVersionRange: '^1.0.0',
+  dependencies: { required: [
+    { name: 'platform', versionRange: '^0.1.0' },
+    { name: 'catalog', versionRange: '^0.1.0' },
+    { name: 'coupon', versionRange: '^0.1.0' },
+    { name: 'customer', versionRange: '^0.1.0' },
+    { name: 'inventory', versionRange: '^0.1.0' },
+    { name: 'loyalty', versionRange: '^0.1.0' },
+    { name: 'promotion', versionRange: '^0.1.0' },
+  ] },
+  data: { owns: ['cart_carts', 'cart_items'] },
     migrations: cartMigrations,
     permissions: [
       { key: 'cart:read', description: '讀取購物車', owner: 'cart' },

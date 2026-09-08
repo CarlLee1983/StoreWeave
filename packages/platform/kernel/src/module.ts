@@ -6,12 +6,58 @@ import type { PermissionDefinition, PolicyDefinition } from '@storeweave/authori
 import type { JobHandler } from '@storeweave/jobs';
 import type { RecurringJob } from './recurring';
 
+export interface ModuleDependency {
+  readonly name: string;
+  readonly versionRange: string;
+}
+
+export interface ModuleCapabilityRequirement {
+  readonly from: string;
+  readonly versionRange: string;
+  readonly capability: string;
+}
+
+/** An explicit constructor argument with provenance; no registry or runtime lookup. */
+export interface BoundModuleCapability<T> {
+  readonly from: string;
+  readonly capability: string;
+  readonly value: T;
+}
+
+export function bindModuleCapability<T>(from: string, capability: string, value: T): BoundModuleCapability<T> {
+  return Object.freeze({ from, capability, value });
+}
+
+export interface ModuleCommandRequirement {
+  readonly from: string;
+  readonly name: string;
+  readonly version: number;
+}
+
 /**
  * 平台模組的組裝契約。領域由模組自己決定；Commerce Core 是第一組實作，不是唯一合法集合。
  * 模組之間只透過彼此匯出的 service 函式互動，絕不直接讀寫對方的資料表。
  */
 export interface PlatformModule {
+  /** Stable id, including the persisted event subscriber id. */
   readonly name: string;
+  readonly version: string;
+  /** Base ABI compatibility, independent of the module package version. */
+  readonly baseVersionRange: string;
+  /** Static dependencies determine registration order; optional present modules are checked too. */
+  readonly dependencies?: {
+    readonly required?: readonly ModuleDependency[];
+    readonly optional?: readonly ModuleDependency[];
+  };
+  /** Invocation relationships through explicit service ports, not initialization edges or a locator. */
+  readonly capabilities?: {
+    readonly provides?: readonly string[];
+    readonly required?: readonly ModuleCapabilityRequirement[];
+    readonly optional?: readonly ModuleCapabilityRequirement[];
+    readonly bound?: readonly BoundModuleCapability<unknown>[];
+  };
+  /** Collision-checked ownership declarations. Trusted Node modules are not SQL sandboxes. */
+  readonly data?: { readonly owns: readonly string[] };
   readonly migrations?: MigrationSet;
   readonly permissions?: readonly PermissionDefinition[];
   readonly events?: readonly DomainEventDescriptor[];
@@ -27,7 +73,13 @@ export interface PlatformModule {
    * 不會讓發出事件的那筆交易回滾——「發券失敗不影響註冊成功」是這個機制的結果，
    * 不是額外的處理。訂閱者識別就是模組名稱。
    */
-  readonly subscribers?: readonly { eventName: string; handler: EventHandlerFn; maxAttempts?: number }[];
+  readonly subscribers?: readonly {
+    eventName: string;
+    handler: EventHandlerFn;
+    maxAttempts?: number;
+    /** Exact foreign commands granted to this subscriber; own commands are implicit. */
+    commands?: readonly ModuleCommandRequirement[];
+  }[];
   readonly policies?: readonly PolicyDefinition[];
 }
 

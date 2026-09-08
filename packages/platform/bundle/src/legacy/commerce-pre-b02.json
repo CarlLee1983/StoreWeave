@@ -1,0 +1,970 @@
+{
+  "id": "legacy-commerce-0.1.0-pre-b02",
+  "sourceRelease": "commerce@0.1.0 pre-B02 working tree (1f4470d + B01)",
+  "sourceFiles": {
+    "packages/commerce/cart/package.json": "6c23b1cbcb5db350d3a12feb304acc6cc407b336672560e74b4f7fb8f25aee23",
+    "packages/commerce/cart/src/jobs.ts": "a0b2d862f4f66aeae00facb4b062ec11a8bb067d419cfd3c8a8e05b5913b16aa",
+    "packages/commerce/cart/src/migrations.ts": "04a06ec43205882e1a039f1adda9ad6b5c7c28028628333c4ad553d5506dcee0",
+    "packages/commerce/cart/src/module.ts": "675d0a4913187384e80943d43183288844a9a83cd7fbeb8384641acbb84dfaed",
+    "packages/commerce/catalog/package.json": "281de0cadd9ec2b4d01b4ae8aa829cd71bb7983f0c64ccf4d0495fd75a82968c",
+    "packages/commerce/catalog/src/commands.ts": "975407752ba201166fbf0bccc7956280f6d404ba5e80a460f5a9381a627c6f5b",
+    "packages/commerce/catalog/src/events.ts": "6c55189178ec05e5bccc46caefa87c8b22372bcc8f90aba9b74adf03028b53b2",
+    "packages/commerce/catalog/src/migrations.ts": "cdf4f81f815e157ec72a93e307799ea1336734c3ad7db6bdf748f209294008e7",
+    "packages/commerce/catalog/src/module.ts": "963e20f3b689967a430201668ba22206b291987a625fd74cb2947174cd61f6f2",
+    "packages/commerce/content/package.json": "1dcfe3f86e8fc5d54afe9de641a4d9798b51c3df21905aac7d1be062533413ea",
+    "packages/commerce/content/src/commands.ts": "a014b78de2f12478ff925428c26904c63c8b26e34746e76170a0bdbd8814ee09",
+    "packages/commerce/content/src/events.ts": "a8b32409434cfd680134721dffa515558b6a17472daf00d63070e3d747abe2c0",
+    "packages/commerce/content/src/migrations.ts": "9a8a575a4890f81c10a91a4e77ecb0f7fcf30efb667ce4f997989b054cb689de",
+    "packages/commerce/content/src/module.ts": "7a81923f585c4b21b4b5e9d764df1fc61f15319e80a8c00e5537b108949cca9b",
+    "packages/commerce/coupon/package.json": "b016e678ee75adca6cd51039caaf7593f7ddcaa62d4a9a57f105b45d9fac9864",
+    "packages/commerce/coupon/src/jobs.ts": "74a127a26e97d5c173610888ba93a5cfdf480a0db21073acd14f2b6ea79048d5",
+    "packages/commerce/coupon/src/migrations.ts": "302003314749dbd371195e4d9c9255b64f065bfc5b6b813b0342f6cf4cfecf70",
+    "packages/commerce/coupon/src/module.ts": "7fd43db287d1ba2a7a08014b71d6fba5a1a9b4b169705032f33a7c666ac81774",
+    "packages/commerce/customer/package.json": "d2bb046fae00a084ecddb7f4078ce4ef48e90c7e0742bd99bcf908e3fe09e17f",
+    "packages/commerce/customer/src/commands.ts": "25dcd2695c0a3c5910129d7891c5253db668da7506f1425bcfbe8200ad16beb5",
+    "packages/commerce/customer/src/events.ts": "94188d372fa2bdd57e855ca9640b0ec8ea869be65587135a5b156d6aef995de9",
+    "packages/commerce/customer/src/migrations.ts": "bd7b0cf4bdc8b1312330e382577aad069a39cb0d05f6506db9c1282ed5906917",
+    "packages/commerce/customer/src/module.ts": "37e4fa1f015a4e302d758fac5e555fb3f2ae0d3fa4506e37f16e16f58689e384",
+    "packages/commerce/inventory/package.json": "de5fbcf4619fe4456d534961157f419cf81a254bf0333cfb7f1c45ce0bef5ffa",
+    "packages/commerce/inventory/src/events.ts": "1c1f071f463cbfab386c1eb6d8e053fbb900339cb681b48f20783c6032196627",
+    "packages/commerce/inventory/src/migrations.ts": "e3a7287378c204df439daf2cc78c186477c4c892b7a43852e58827a75be80d65",
+    "packages/commerce/inventory/src/module.ts": "eb79bf31988d48675be81cba87f2e54c7d67637d05f0733cee05bf1939177616",
+    "packages/commerce/inventory/src/service.ts": "dee3fb88140a62ed6e37e5a641660388d2bb5a34cc30d0e14b82e42cb2a09408",
+    "packages/commerce/invoice/package.json": "5fc0ed51984d3d1a6ef0e80062ea2ef495f5fd8f81ffed11720239b09f4763a2",
+    "packages/commerce/invoice/src/commands.ts": "38fc5d99be889907983c1eca85067ea7dab43084f89a83733372812867b47218",
+    "packages/commerce/invoice/src/migrations.ts": "752fdea735e37950f063f777a476acc17e8e3b04052841188dd10ab3aa85bfed",
+    "packages/commerce/invoice/src/module.ts": "792ce34373d1437d688b74f2baf3f66fd406775c53631f8b18fdd81adb5b7850",
+    "packages/commerce/loyalty/package.json": "2d4137c37d0663d5acc29bb5073b582287b3adeb83694231c9d28641b9647e6f",
+    "packages/commerce/loyalty/src/jobs.ts": "fc1a97c3a5555d4dab2629f04bd282a653a44bafe839d1381db8e681973e9e6f",
+    "packages/commerce/loyalty/src/migrations.ts": "9459b98b5cae1e7461e1c4315a7340b3fee06be336bff4c1de5929f90f99da26",
+    "packages/commerce/loyalty/src/module.ts": "b9b150434fa167809280662e21e5b2fd474ce4eeb577ebcb699ad9b8d77b7328",
+    "packages/commerce/notification/package.json": "de480c32789191c5ad6bf3cf9c6105ca354b6553288a32c47514c94d8a0ea5a6",
+    "packages/commerce/notification/src/commands.ts": "2601a817cdd9d13ec3baafbd94013743810c5f4263968de3488af58d95d98e4c",
+    "packages/commerce/notification/src/migrations.ts": "5190dabda2634a8389a53a4508dc8175620d7bce3c44df8ccccb78c176c6c8d4",
+    "packages/commerce/notification/src/module.ts": "4d211d438db662331a5c8222d9da1358de3866f302c4b8452970a2220f5f8415",
+    "packages/commerce/order/package.json": "326c5b3e59ce800ece762cff266eef51e8264197bfe8ada114d44075052abf37",
+    "packages/commerce/order/src/commands.ts": "144545a12996d7c4cd17a523ed025102309f1a49bf0a2db476d1e3bc108cc2b3",
+    "packages/commerce/order/src/events.ts": "52cb22e48934c98317087b2a63cc00fa2a51605138386018623584d14571ce6d",
+    "packages/commerce/order/src/migrations.ts": "8e15e2eb753e0e6100faa1f835b274e34ae01684ad3f5a245b245dd222f8030d",
+    "packages/commerce/order/src/module.ts": "d5b9509941f83b80fc61410e9a58ded0604fc3a458f991cfa3589c3de4240810",
+    "packages/commerce/promotion/package.json": "d659c39a9c2e5ca3cdf13f344c72f00e2cb33ea7e56840e3be571f7a26f4254c",
+    "packages/commerce/promotion/src/migrations.ts": "94a40ca03906c54557ee99aaf0bea6bd618c4d1f64d2bbe26ac93d4813368baf",
+    "packages/commerce/promotion/src/module.ts": "a91644ce0327e61f37b371d6c0d27d025762737cff01bca054a9660bb4984f75",
+    "packages/commerce/refund/package.json": "35ba47cb29c748cbb2b6187f0e5e013e57d0aec1bc8d6716d42af1931e6b4654",
+    "packages/commerce/refund/src/commands.ts": "8c321995b59d639bc724b194267d9aa2e9b36def96a3578170731ea5d1f0383e",
+    "packages/commerce/refund/src/events.ts": "7a41c87e5e01264844d21c0dbf663a485a6723d3061a10e0a85147d249002f31",
+    "packages/commerce/refund/src/migrations.ts": "13b71b6451a1191407fd45dd750b4dc2f31a9565e7d1f23f40b8ac7b2a984910",
+    "packages/commerce/refund/src/module.ts": "9218862b89206c5120c7b214f311f1342fd69f98ca68869186683679d87d8547",
+    "packages/commerce/rma/package.json": "98fcf6053418358c6f22de3205e0f5382b9b80fcd3822f784e2d50c4e1b8e0ae",
+    "packages/commerce/rma/src/commands.ts": "bd65c716b662fc1c7a4b3d99bb8895b8eb90402a7d14795ec3cfbbb3bf746764",
+    "packages/commerce/rma/src/events.ts": "a97695a0871950c11ebce8beb54725926178659f1424b49021e96524ea5678f6",
+    "packages/commerce/rma/src/migrations.ts": "497d8d3993efdefbacb7c57137623225551b96026a75a5d8b96e4fc9c06a8fea",
+    "packages/commerce/rma/src/module.ts": "a943c02e31973ef8c4883adf120c205fa7cd67a2b45eb59a9d8786c0bcd3095d",
+    "packages/commerce/shipping/package.json": "90d32c475c05662da50b4ee43260a3bd7cd181ecc2f3bdfa1c7a8a606b72647e",
+    "packages/commerce/shipping/src/events.ts": "d363ddd19688e30afac8f78b5a6ec6f2e1d406c5d91ef2008d198dc739d89e1b",
+    "packages/commerce/shipping/src/migrations.ts": "5eac4fd0dc5dc34bc95b481e4f95abb5363430c9518907f5291d20d8b155eab4",
+    "packages/commerce/shipping/src/module.ts": "cd2177baa607d9a9bc4f3782d1a53c486ed18d4bc48d51a8c8c86ea34496ec04",
+    "packages/commerce/shipping/src/service.ts": "dcf91c2d7dba362e6ee39eb4aff4b3858f190c4192e39d9eaef075aced66a59b",
+    "packages/extensions/demo-erp/package.json": "113faa904e4dc863bf5cd1a8a36cefe0fd5b75f18511bfe3cdf00d351c7c398c",
+    "packages/extensions/demo-erp/src/config.ts": "46d939e0cafee3ba1ef25d3827f290776771d9896fcd5982c28bc9753d32c8f1",
+    "packages/extensions/demo-erp/src/handlers.ts": "b68ee2eb292c1bff9742b14b0fafb9c64ece0e4e98bf5720990687de0f0919f8",
+    "packages/extensions/demo-erp/src/index.ts": "a4c4c946a83b49a77003f965942544d558c038755f834345eb261b94416961f7",
+    "packages/extensions/ecpay-invoice/package.json": "420928b530ffa98beec8b9b7f796c14a7097d68626b4ef2f11231900015f6fd2",
+    "packages/extensions/ecpay-invoice/src/index.ts": "05b3e01bb49a73afa974d5041fe4a5908381aa8d0cdf74c21911fc70943c2e06",
+    "packages/extensions/ecpay-logistics/package.json": "8ae45fe7b46974e201048f73794b647bcc11574a06f1f0ce156fcdbcf4a81c7f",
+    "packages/extensions/ecpay-logistics/src/config.ts": "c179851d603b9c15eec4336ba799c8593a1f93e0003f96a6ada6bb567a15429f",
+    "packages/extensions/ecpay-logistics/src/handlers.ts": "c3a9d15a7163579f2e13b481fafc845bcf2383aba5c5c372c92a1c3042bb56f7",
+    "packages/extensions/ecpay-logistics/src/index.ts": "64e113cba4d1a63aec91e1ddf3f6925a9c7d789807a0ff86ed4030671938f52d",
+    "packages/extensions/ecpay/package.json": "fa05bc5392062322516f07ced9f3594f85272f5fe7b00b6a4fd3a0ee245a7d44",
+    "packages/extensions/ecpay/src/index.ts": "ed4b3d77c86848275cbf89135172aaae3847cc3361b026dff8e7602456ea7daf",
+    "packages/extensions/mcp/package.json": "1dcfd7ab4a16362474b7a5c39754f754556141ef45ee02003f000cf1d07a50df",
+    "packages/extensions/mcp/src/index.ts": "31ab88d05494a172102a01f9aa435bc7afe8987a96c4b4c3cf709b51c1d56a75",
+    "packages/extensions/mock-invoice/package.json": "74e6b55ee541305a886eba52f5ed48992d8f85f65c7e920a69a5ce3b8e2f3517",
+    "packages/extensions/mock-invoice/src/index.ts": "d0ef140dcf0a4bbdfdaf50390566f1796a02b369259754733e473fadf6937b10",
+    "packages/extensions/mock-notification/package.json": "c7cb5ee34ad7792bbd412bf89e51b8343be39fcf698ae1abd952c84f40ae8182",
+    "packages/extensions/mock-notification/src/index.ts": "5e04d30306fa80c06c128a11cb80f4fe24666804086671777264dfd743bd9b09",
+    "packages/extensions/mock-payment/package.json": "e3e0dc8bc26a23f54e4f00b500d781e164ef333e10b362b0fa679cbab22d9ccd",
+    "packages/extensions/mock-payment/src/index.ts": "b19c95e931aeaea8615c627d4aa59b1c18c50c995260c7a3478c821b84c9b241",
+    "packages/platform/bundle/package.json": "4c4dee5738ccc9b155d224d3a4bc8be5ae7c6263bdf015aff0a26753db7c5c31",
+    "packages/platform/bundle/src/modules.ts": "b958026ca537af504933a6814fac1d51b00a199a541a0a5d939006a1ba9c431b",
+    "packages/platform/contracts/src/index.ts": "289a279ea5dc997e6ab4646756c24ed07339ac32c54fdb59f108cf897f24e193",
+    "packages/platform/db/src/migrations/platform.ts": "bd4e9639babdfe7f9bf9f112f65e40cb55ed2e3bef3d9e8596a97d4ac919c166",
+    "packages/platform/identity/package.json": "f4ecd0709e50cd851044ed64485577fc6e21a0d49263af8e89dd1a7511a41c84",
+    "packages/platform/identity/src/migrations.ts": "8a3ab2faeb113fdbb4c5d7ede6c35d325367eb4672a249651bf3aa6266f814b0",
+    "packages/platform/identity/src/module.ts": "1a5701991c61c293f88adc3eb55ae86ec6527a6ea614a715c7d2fe8baeea6002",
+    "packages/platform/kernel/package.json": "ef52fc49eb72fa0472cd6f194ba62e9e92aedbb161808b5d62a977273c7f867b",
+    "packages/platform/kernel/src/event-delivery.ts": "ac79da81d834bca71491d358182508a0d9cc53adca40c0a8f4165a986daaa337",
+    "packages/platform/kernel/src/ops-module.ts": "ed14fceec87983cd60c3c5fef41839aa57934826d603460344a8b7677a593eb5",
+    "packages/platform/kernel/src/runtime.ts": "3eda789567da5bf45d2ccbe0af08a1fcb5a1d77a7f2f4d847642d4a1b9284c40"
+  },
+  "manifest": {
+    "schemaVersion": 1,
+    "releaseId": "commerce",
+    "releaseVersion": "0.1.0",
+    "baseVersion": "1.0.0",
+    "buildManifestChecksum": "sha256:b953c6a332fa13e62113f348c630e7b8020c66fef5b25911f4c04a663b0d6edc",
+    "owners": [
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "cart",
+          "version": "0.1.0",
+          "dataRelations": [
+            "cart_carts",
+            "cart_items"
+          ],
+          "migrationOwner": "cart",
+          "migrations": [
+            {
+              "id": "0001_init",
+              "phase": "expand",
+              "checksum": "sha256:94f2dcb02d9a2f00b025273fe2792adad0688021a4cd155e45caa4b1e80af1e9",
+              "order": 1
+            },
+            {
+              "id": "0002_merged_status",
+              "phase": "expand",
+              "checksum": "sha256:9461809219bd11a88020afaa66955b581163bf0df5568825817913bb0fd2a805",
+              "order": 2
+            },
+            {
+              "id": "0003_checkout",
+              "phase": "expand",
+              "checksum": "sha256:8de037c9d301b6362b6512e84654ee5949e2b1f89edc4c9c2ffa65ede1f655cd",
+              "order": 3
+            },
+            {
+              "id": "0004_coupon_code",
+              "phase": "expand",
+              "checksum": "sha256:501773d2e8a7735abc43bb90cb8e5f5eb31c43dd3305deb804c55c401a25a5b8",
+              "order": 4
+            },
+            {
+              "id": "0005_reward_redeem",
+              "phase": "expand",
+              "checksum": "sha256:a8a61b3272d1f812b13fa0cc03525af6aa4c1f44bb1294b40ea8aa844612e92a",
+              "order": 5
+            }
+          ],
+          "work": {
+            "jobTypes": [
+              "commerce.cart.purge-stale-guest-carts"
+            ],
+            "subscriberIds": [],
+            "emittedEventNames": [],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "catalog",
+          "version": "0.1.0",
+          "dataRelations": [
+            "catalog_products"
+          ],
+          "migrationOwner": "catalog",
+          "migrations": [
+            {
+              "id": "0001_init",
+              "phase": "expand",
+              "checksum": "sha256:1c085b92b045e376c849ad8f56fb16c8b05ecf8281ba7f9269d840bbe80b936a",
+              "order": 1
+            }
+          ],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [],
+            "emittedEventNames": [
+              "commerce.product.created.v1",
+              "commerce.product.updated.v1"
+            ],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "content",
+          "version": "0.0.0",
+          "dataRelations": [
+            "content_articles",
+            "content_contact_messages"
+          ],
+          "migrationOwner": "content",
+          "migrations": [
+            {
+              "id": "0001_init",
+              "phase": "expand",
+              "checksum": "sha256:96f1e0ba81b8b4a216fa09a94571542beb892365c1f9e7629c0cf7e0b98ce2c5",
+              "order": 1
+            }
+          ],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [],
+            "emittedEventNames": [
+              "commerce.content.article.published.v1",
+              "commerce.content.contact.submitted.v1"
+            ],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "coupon",
+          "version": "0.1.0",
+          "dataRelations": [
+            "coupon_coupons",
+            "coupon_redemptions"
+          ],
+          "migrationOwner": "coupon",
+          "migrations": [
+            {
+              "id": "0001_init",
+              "phase": "expand",
+              "checksum": "sha256:2d7e0c67d609b9003b9edc8dec10a92ccc9501692ea8bcae96d29775da612b7b",
+              "order": 1
+            },
+            {
+              "id": "0002_limits",
+              "phase": "expand",
+              "checksum": "sha256:673324917c9dd390c79356912142aa2a85e739fae26494601dc07e3988a2aa7a",
+              "order": 2
+            },
+            {
+              "id": "0003_issuance",
+              "phase": "expand",
+              "checksum": "sha256:704794a657239017c591b2262af96be105c7464298839524fc91a43aebf7dd44",
+              "order": 3
+            },
+            {
+              "id": "0004_attribution",
+              "phase": "expand",
+              "checksum": "sha256:0047ad853201c1887969b0bc3317ea58e70b1bc037c2afca3059bbf62609ac53",
+              "order": 4
+            },
+            {
+              "id": "0005_reversal",
+              "phase": "expand",
+              "checksum": "sha256:3680172c52454a494b225ada63c88b1e8fcc97ba6935359b74a5b53232967ccb",
+              "order": 5
+            }
+          ],
+          "work": {
+            "jobTypes": [
+              "commerce.coupon.issue-birthday-coupons"
+            ],
+            "subscriberIds": [
+              "coupon"
+            ],
+            "emittedEventNames": [],
+            "subscribedEventNames": [
+              "commerce.customer.registered.v1"
+            ]
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "customer",
+          "version": "0.1.0",
+          "dataRelations": [
+            "customer_customers"
+          ],
+          "migrationOwner": "customer",
+          "migrations": [
+            {
+              "id": "0001_init",
+              "phase": "expand",
+              "checksum": "sha256:c9525807d8be20f0fd937ac42d3c8ff3139d977e8ca91d93444bc532cfbe83ca",
+              "order": 1
+            },
+            {
+              "id": "0002_shipping_address",
+              "phase": "expand",
+              "checksum": "sha256:223cbe9a5f744a44a994b2f50229b49ef43393543b96cf0d0fe8924bf21c2073",
+              "order": 2
+            },
+            {
+              "id": "0003_taiwan_address_fields",
+              "phase": "expand",
+              "checksum": "sha256:3735971a4de16eb5ffd86310962beb0ae000db402661a086b7782060d8974b21",
+              "order": 3
+            }
+          ],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [],
+            "emittedEventNames": [
+              "commerce.customer.registered.v1"
+            ],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "disabled",
+        "owner": {
+          "kind": "extension",
+          "id": "demo-erp",
+          "version": "1.0.0",
+          "migrations": [],
+          "work": {
+            "jobTypes": [
+              "ext.demo-erp.push-order"
+            ],
+            "subscriberIds": [
+              "demo-erp"
+            ],
+            "emittedEventNames": [],
+            "subscribedEventNames": [
+              "commerce.order.paid.v2"
+            ]
+          }
+        }
+      },
+      {
+        "state": "disabled",
+        "owner": {
+          "kind": "extension",
+          "id": "ecpay",
+          "version": "1.0.0",
+          "migrations": [],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [],
+            "emittedEventNames": [],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "disabled",
+        "owner": {
+          "kind": "extension",
+          "id": "ecpay-invoice",
+          "version": "1.0.0",
+          "migrations": [],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [],
+            "emittedEventNames": [],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "disabled",
+        "owner": {
+          "kind": "extension",
+          "id": "ecpay-logistics",
+          "version": "1.0.0",
+          "migrations": [],
+          "work": {
+            "jobTypes": [
+              "ext.ecpay-logistics.create-shipment",
+              "ext.ecpay-logistics.query-shipment-status",
+              "ext.ecpay-logistics.reconcile-shipment-statuses"
+            ],
+            "subscriberIds": [
+              "ecpay-logistics"
+            ],
+            "emittedEventNames": [],
+            "subscribedEventNames": [
+              "commerce.shipment.created.v1"
+            ]
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "inventory",
+          "version": "0.1.0",
+          "dataRelations": [
+            "inventory_movements",
+            "inventory_stock"
+          ],
+          "migrationOwner": "inventory",
+          "migrations": [
+            {
+              "id": "0001_init",
+              "phase": "expand",
+              "checksum": "sha256:ab3498ae5b83584b1528af2554a5e35c9e5a5a4086bd13446324f82345e7b0db",
+              "order": 1
+            }
+          ],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [],
+            "emittedEventNames": [
+              "commerce.inventory.adjusted.v1"
+            ],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "invoice",
+          "version": "0.1.0",
+          "dataRelations": [
+            "invoice_invoices"
+          ],
+          "migrationOwner": "invoice",
+          "migrations": [
+            {
+              "id": "0001_invoices",
+              "phase": "expand",
+              "checksum": "sha256:5022ac11d8a7a051eec62a6b1ff6e275432eae687c6c8941581111e96debff7f",
+              "order": 1
+            }
+          ],
+          "work": {
+            "jobTypes": [
+              "commerce.invoice.issue",
+              "commerce.invoice.void"
+            ],
+            "subscriberIds": [
+              "invoice"
+            ],
+            "emittedEventNames": [],
+            "subscribedEventNames": [
+              "commerce.order.paid.v2",
+              "commerce.refund.succeeded.v1"
+            ]
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "loyalty",
+          "version": "0.1.0",
+          "dataRelations": [
+            "loyalty_customer_tiers",
+            "loyalty_reward_entries",
+            "loyalty_reward_expiry_notices",
+            "loyalty_settings",
+            "loyalty_tier_entries",
+            "loyalty_tiers"
+          ],
+          "migrationOwner": "loyalty",
+          "migrations": [
+            {
+              "id": "0001_init",
+              "phase": "expand",
+              "checksum": "sha256:9195108664612c63ed14569da080144756568d504eb0f57edf0632948e5d6d26",
+              "order": 1
+            },
+            {
+              "id": "0002_tiers",
+              "phase": "expand",
+              "checksum": "sha256:6a6c6ae19b58db7af4b23aa104fc60a911c31d83f5e66d6929eac21217ef48df",
+              "order": 2
+            },
+            {
+              "id": "0003_expiry_notice",
+              "phase": "expand",
+              "checksum": "sha256:a2b6bcc3c1ec70a7205668609d8c75d078c1587b559c9d6641ec855feb4692d9",
+              "order": 3
+            },
+            {
+              "id": "0004_clawback_names_batch",
+              "phase": "expand",
+              "checksum": "sha256:5b793928e0d77433d7eb839422026b15f9717492d3303fe05cfadbbd29ed483c",
+              "order": 4
+            },
+            {
+              "id": "0005_backfill_clawback_batch",
+              "phase": "migrate",
+              "checksum": "sha256:28f8d267fc4659e7147fdb5c2f5ca752d7e805b23a07e3d0782b114cdf725374",
+              "order": 5
+            }
+          ],
+          "work": {
+            "jobTypes": [
+              "commerce.loyalty.notify-expiring-rewards",
+              "commerce.loyalty.recalculate-tiers"
+            ],
+            "subscriberIds": [],
+            "emittedEventNames": [],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "disabled",
+        "owner": {
+          "kind": "extension",
+          "id": "mcp",
+          "version": "1.0.0",
+          "migrations": [],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [],
+            "emittedEventNames": [],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "disabled",
+        "owner": {
+          "kind": "extension",
+          "id": "mock-invoice",
+          "version": "1.0.0",
+          "migrations": [],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [],
+            "emittedEventNames": [],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "disabled",
+        "owner": {
+          "kind": "extension",
+          "id": "mock-notification",
+          "version": "1.0.0",
+          "migrations": [],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [],
+            "emittedEventNames": [],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "disabled",
+        "owner": {
+          "kind": "extension",
+          "id": "mock-payment",
+          "version": "1.0.0",
+          "migrations": [],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [],
+            "emittedEventNames": [],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "notification",
+          "version": "0.1.0",
+          "dataRelations": [
+            "notification_lifecycle_deliveries"
+          ],
+          "migrationOwner": "notification",
+          "migrations": [
+            {
+              "id": "0001_lifecycle_deliveries",
+              "phase": "expand",
+              "checksum": "sha256:04f0647506207d20dd1964767868fe9c3d2dcc9dd5fa7f8dbdefa0acb816b275",
+              "order": 1
+            }
+          ],
+          "work": {
+            "jobTypes": [
+              "commerce.notification.deliver-lifecycle"
+            ],
+            "subscriberIds": [
+              "notification"
+            ],
+            "emittedEventNames": [],
+            "subscribedEventNames": [
+              "commerce.order.paid.v2",
+              "commerce.order.placed.v3",
+              "commerce.shipment.arrived.v1",
+              "commerce.shipment.shipped.v1"
+            ]
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "order",
+          "version": "0.1.0",
+          "dataRelations": [
+            "order_adjustments",
+            "order_deliveries",
+            "order_lines",
+            "order_number_seq",
+            "order_orders",
+            "order_payments"
+          ],
+          "migrationOwner": "order",
+          "migrations": [
+            {
+              "id": "0001_init",
+              "phase": "expand",
+              "checksum": "sha256:2d299ad671c0e970f0234a85d849907de4336f0870f9a308cf8341b0c83a4bfb",
+              "order": 1
+            },
+            {
+              "id": "0002_payment_reservations",
+              "phase": "expand",
+              "checksum": "sha256:c75c26e47febd0074513f9aa1ea35b47344c7bdca15d2e83430dbbc9caf6511a",
+              "order": 2
+            },
+            {
+              "id": "0003_money_columns",
+              "phase": "expand",
+              "checksum": "sha256:f9429804a0c9297b3801a03cf8938982f2c4ec2d374bc7981f4dc4c0e797687c",
+              "order": 3
+            },
+            {
+              "id": "0004_order_adjustments",
+              "phase": "expand",
+              "checksum": "sha256:25f00783031aa6c210158393bdd563bf1994eb0471af5ad88669b5b357620464",
+              "order": 4
+            },
+            {
+              "id": "0005_total_matches_parts",
+              "phase": "expand",
+              "checksum": "sha256:feda2db9b2e5bfefbc02d1fbcfeac43c58e68ab8f413a9729a03ed0cae83407c",
+              "order": 5
+            },
+            {
+              "id": "0006_order_customer",
+              "phase": "expand",
+              "checksum": "sha256:3dc965a80d386fe5b60630d047530448e78a7d920f0ad6023c01a9459f277076",
+              "order": 6
+            },
+            {
+              "id": "0007_payment_attempts_and_awaiting_payment",
+              "phase": "expand",
+              "checksum": "sha256:aca7b74fababc504ae6f22613fa74675d07554d4028d42912a2a9a9202f83a99",
+              "order": 7
+            },
+            {
+              "id": "0008_order_delivery_snapshot",
+              "phase": "expand",
+              "checksum": "sha256:8f067fffbe538aaa7325eb651b53ccbeb79b5f59aa54883fdbffdc390ffc06ed",
+              "order": 8
+            }
+          ],
+          "work": {
+            "jobTypes": [
+              "commerce.order.expire-reservation",
+              "commerce.order.process-payment"
+            ],
+            "subscriberIds": [],
+            "emittedEventNames": [
+              "commerce.order.cancelled.v1",
+              "commerce.order.paid.v2",
+              "commerce.order.paymentInfoIssued.v1",
+              "commerce.order.placed.v3"
+            ],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "platform",
+          "version": "0.1.0",
+          "dataRelations": [
+            "platform_audit_log",
+            "platform_extension_registry",
+            "platform_extension_state",
+            "platform_idempotency",
+            "platform_jobs",
+            "platform_migrations",
+            "platform_outbox",
+            "platform_worker_heartbeat"
+          ],
+          "migrationOwner": "platform",
+          "migrations": [
+            {
+              "id": "0001_init",
+              "phase": "expand",
+              "checksum": "sha256:9941fe1167ebb6ca96a5c8e7a69df86cb0e6c850f1522b8e33d43633d209b9c6",
+              "order": 1
+            },
+            {
+              "id": "0002_worker_heartbeat",
+              "phase": "expand",
+              "checksum": "sha256:b0a59bb41542ed5cd0e1d3f38959217927e47362b1897ed89bbbb217a6abf507",
+              "order": 2
+            }
+          ],
+          "work": {
+            "jobTypes": [
+              "platform.event.deliver"
+            ],
+            "subscriberIds": [],
+            "emittedEventNames": [],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "platform-identity",
+          "version": "0.1.0",
+          "dataRelations": [
+            "platform_password_resets",
+            "platform_sessions",
+            "platform_users"
+          ],
+          "migrationOwner": "identity",
+          "migrations": [
+            {
+              "id": "0001_users_and_sessions",
+              "phase": "expand",
+              "checksum": "sha256:b0c358d7b8418fe435b27088824c54f8961d7a6bb5e45bcb8a3c544049bc24ad",
+              "order": 1
+            },
+            {
+              "id": "0003_password_resets",
+              "phase": "expand",
+              "checksum": "sha256:171641e5744645b4994e6d64f0c90bcd283c2ba4d8ed817edcf40cb5eedfade8",
+              "order": 2
+            }
+          ],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [],
+            "emittedEventNames": [],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "platform-ops",
+          "version": "0.1.0",
+          "dataRelations": [],
+          "migrationOwner": null,
+          "migrations": [],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [],
+            "emittedEventNames": [],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "promotion",
+          "version": "0.1.0",
+          "dataRelations": [
+            "promotion_promotions"
+          ],
+          "migrationOwner": "promotion",
+          "migrations": [
+            {
+              "id": "0001_init",
+              "phase": "expand",
+              "checksum": "sha256:4d274106c21d4b20b37cfe640453183ed983dd65b60aa33bb70bcc7ad3a20763",
+              "order": 1
+            },
+            {
+              "id": "0002_requires_coupon",
+              "phase": "expand",
+              "checksum": "sha256:286866ab91508414f5f24c67e0a705ac03b791a90944c85344f42af6cfd096be",
+              "order": 2
+            },
+            {
+              "id": "0003_auto_issue",
+              "phase": "expand",
+              "checksum": "sha256:3d51495a73570f77bf5aadcab93f54252414493f5a38318998c7f04341d5e4ec",
+              "order": 3
+            },
+            {
+              "id": "0004_tier_scope",
+              "phase": "expand",
+              "checksum": "sha256:ccc108486b6894c1af40ce1a31343cac4cfc0068e459bedc682a7bf2135302d2",
+              "order": 4
+            },
+            {
+              "id": "0005_backfill_requires_coupon",
+              "phase": "expand",
+              "checksum": "sha256:1edebfdef2896d83b222925c62ecddd328d6fbe273ec49c1745d66621e060443",
+              "order": 5
+            }
+          ],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [],
+            "emittedEventNames": [],
+            "subscribedEventNames": []
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "refund",
+          "version": "0.1.0",
+          "dataRelations": [
+            "refund_refunds"
+          ],
+          "migrationOwner": "refund",
+          "migrations": [
+            {
+              "id": "0001_init",
+              "phase": "expand",
+              "checksum": "sha256:82e2afb7bf0f5ecc407c1af5499a25333a167641b05f4a2ce0714b422588009b",
+              "order": 1
+            },
+            {
+              "id": "0002_rma_source",
+              "phase": "expand",
+              "checksum": "sha256:cd20021882de12bc2163ef5fb56ee19336309896b65babe0ec6841d0f9a3a466",
+              "order": 2
+            }
+          ],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [
+              "refund"
+            ],
+            "emittedEventNames": [
+              "commerce.refund.failed.v1",
+              "commerce.refund.requested.v1",
+              "commerce.refund.succeeded.v1"
+            ],
+            "subscribedEventNames": [
+              "commerce.refund.requested.v1"
+            ]
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "rma",
+          "version": "0.0.0",
+          "dataRelations": [
+            "rma_cases",
+            "rma_lines"
+          ],
+          "migrationOwner": "rma",
+          "migrations": [
+            {
+              "id": "0001_init",
+              "phase": "expand",
+              "checksum": "sha256:4aa1fc08985c290221e298ad12d943543ffc4373aec298cddd9de39e44d5e022",
+              "order": 1
+            }
+          ],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [
+              "rma"
+            ],
+            "emittedEventNames": [
+              "commerce.rma.changed.v1",
+              "commerce.rma.requested.v1"
+            ],
+            "subscribedEventNames": [
+              "commerce.refund.failed.v1",
+              "commerce.refund.requested.v1",
+              "commerce.refund.succeeded.v1"
+            ]
+          }
+        }
+      },
+      {
+        "state": "active",
+        "owner": {
+          "kind": "module",
+          "id": "shipping",
+          "version": "0.1.0",
+          "dataRelations": [
+            "shipping_methods",
+            "shipping_pickup_selections",
+            "shipping_shipments"
+          ],
+          "migrationOwner": "shipping",
+          "migrations": [
+            {
+              "id": "0001_init",
+              "phase": "expand",
+              "checksum": "sha256:3e69ffd581d61473937aaaf72527d59998cc3b635e5617fe8782e0967198eca8",
+              "order": 1
+            },
+            {
+              "id": "0002_method_destination_kind",
+              "phase": "expand",
+              "checksum": "sha256:2e30c31aa59241e95bad145e404ba24f30e03af2896e89fd68cd45459b480571",
+              "order": 2
+            },
+            {
+              "id": "0003_carrier_adapter_snapshot",
+              "phase": "expand",
+              "checksum": "sha256:d06189b0bd37d7b64ef4fcc338da2d3c2c7c97cd818c1209da816bba790e576c",
+              "order": 3
+            },
+            {
+              "id": "0004_pickup_selection_capability",
+              "phase": "expand",
+              "checksum": "sha256:a22b67158f153418f0361989b1a0f4f504de1c154fe1307eb9e1e08fd1c41cb2",
+              "order": 4
+            },
+            {
+              "id": "0005_customer_tracking_url",
+              "phase": "expand",
+              "checksum": "sha256:7eadf8e80631e1110cd42bc237ec30afe7c3d58a032af64e1ee3b3efdf310f21",
+              "order": 5
+            },
+            {
+              "id": "0006_verified_callback_evidence",
+              "phase": "expand",
+              "checksum": "sha256:309189fb8de773a3bc1a167e3b5341c446fd4ae503b58103c6396bc4fb930818",
+              "order": 6
+            }
+          ],
+          "work": {
+            "jobTypes": [],
+            "subscriberIds": [],
+            "emittedEventNames": [
+              "commerce.shipment.arrived.v1",
+              "commerce.shipment.completed.v1",
+              "commerce.shipment.created.v1",
+              "commerce.shipment.shipped.v1"
+            ],
+            "subscribedEventNames": []
+          }
+        }
+      }
+    ]
+  }
+}

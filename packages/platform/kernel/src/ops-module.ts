@@ -1,3 +1,4 @@
+import packageJson from '../package.json';
 import { z } from 'zod';
 import { defineCommand, defineQuery, type CommandContext, type QueryContext } from '@storeweave/contracts';
 import type { JobQueue } from '@storeweave/jobs';
@@ -53,6 +54,9 @@ export const retryJobCommand = defineCommand({
 export function createOpsModule(jobs: JobQueue): PlatformModule {
   return defineModule({
     name: OPS_MODULE_NAME,
+    version: packageJson.version,
+    baseVersionRange: '^1.0.0',
+    dependencies: { required: [{ name: 'platform', versionRange: '^0.1.0' }] },
     permissions: [
       { key: 'jobs:read', description: '檢視背景工作與死信佇列', owner: OPS_MODULE_NAME },
       { key: 'jobs:write', description: '重送死信佇列裡的背景工作', owner: OPS_MODULE_NAME },

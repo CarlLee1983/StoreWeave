@@ -16,8 +16,25 @@ export interface LoggerOptions {
 }
 
 /** 建立 pino logger。所有結構化欄位都會先經過 redact，機密不會進 log。 */
-export function createLogger(options: LoggerOptions): Logger {
-  const base = pino({ level: options.level, name: options.name }, destinationFor(options));
+export function createLogger(options: LoggerOptions): Logger & { close(): Promise<void> } {
+  const ownedFile = !options.stream && options.destination === 'file' && options.file
+    ? pino.destination({ dest: options.file, mkdir: true, sync: false }) : undefined;
+  let fileFailure: Error | undefined;
+  let fileOpened = false;
+  const fileClosed = ownedFile ? new Promise<void>(resolve => {
+    ownedFile.once('ready', () => { fileOpened = true; });
+    ownedFile.once('close', resolve);
+    ownedFile.on('error', error => {
+      fileFailure = error;
+      // An unsuccessful open owns no descriptor and SonicBoom never emits close.
+      if (!fileOpened) resolve();
+      else ownedFile.destroy();
+    });
+  }) : Promise.resolve();
+  let base: pino.Logger;
+  try { base = pino({ level: options.level, name: options.name }, ownedFile ?? destinationFor(options)); }
+  catch (error) { ownedFile?.destroy(); throw error; }
+  let closing: Promise<void> | undefined;
 
   const wrap = (instance: pino.Logger): Logger => ({
     debug: (obj, msg) => log(instance, 'debug', obj, msg),
@@ -26,7 +43,16 @@ export function createLogger(options: LoggerOptions): Logger {
     error: (obj, msg) => log(instance, 'error', obj, msg),
     child: (bindings) => wrap(instance.child(redact(bindings) as Record<string, unknown>)),
   });
-  return wrap(base);
+  return {
+    ...wrap(base),
+    close() {
+      return closing ??= (async () => {
+        if (ownedFile && !fileFailure) ownedFile.end();
+        await fileClosed;
+        if (fileFailure) throw fileFailure;
+      })();
+    },
+  };
 }
 
 export interface CapturedLine {
@@ -66,9 +92,6 @@ export function createMemoryLogger(options: { level?: LoggerOptions['level']; na
 
 function destinationFor(options: LoggerOptions): pino.DestinationStream | undefined {
   if (options.stream) return options.stream;
-  if (options.destination === 'file' && options.file) {
-    return pino.destination({ dest: options.file, mkdir: true, sync: false });
-  }
   // 2 是 stderr 的 fd。sync 讓行程結束前寫得出去——CLI 跑完就退出，來不及 flush。
   if (options.destination === 'stderr') return pino.destination({ dest: 2, sync: true });
   return undefined;

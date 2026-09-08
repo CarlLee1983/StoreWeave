@@ -1,9 +1,8 @@
 import { PlatformError, type Actor, type DrizzleDb, type Tx } from '@storeweave/contracts';
-import { UserRepository } from '@storeweave/identity';
+import { accountService } from '@storeweave/identity';
 import { CustomerRepository } from './repository';
 
 const customers = new CustomerRepository();
-const accounts = new UserRepository();
 
 const ACCOUNT_PREFIX = 'user:';
 
@@ -50,7 +49,7 @@ export const customerService = {
   async contactFor(db: DrizzleDb | Tx, customerId: string): Promise<{ email: string; displayName: string } | null> {
     const customer = await customers.findById(db, customerId);
     if (!customer) return null;
-    const account = await accounts.findById(db, customer.accountId);
+    const account = await accountService.contactFor(db, customer.accountId);
     if (!account) return null;
     return { email: account.email, displayName: customer.displayName };
   },
@@ -65,7 +64,7 @@ export const customerService = {
     if (!customer) throw PlatformError.notFound('Customer', accountId);
     if (customer.status !== 'active') throw PlatformError.forbidden('This customer account is disabled');
 
-    const account = await accounts.findById(db, accountId);
+    const account = await accountService.contactFor(db, accountId);
     if (!account) throw PlatformError.notFound('Account', accountId);
 
     return {

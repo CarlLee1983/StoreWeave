@@ -1,3 +1,4 @@
+import packageJson from '../package.json';
 import { defineModule, type PlatformModule } from '@storeweave/kernel';
 import { orderMigrations } from './migrations';
 import { orderEvents } from './events';
@@ -16,6 +17,21 @@ import {
 export function createOrderModule(deps: OrderModuleDeps): PlatformModule {
   return defineModule({
     name: 'order',
+  version: packageJson.version,
+  baseVersionRange: '^1.0.0',
+  dependencies: { required: [
+    { name: 'platform', versionRange: '^0.1.0' },
+    { name: 'catalog', versionRange: '^0.1.0' },
+    { name: 'cart', versionRange: '^0.1.0' },
+    { name: 'coupon', versionRange: '^0.1.0' },
+    { name: 'customer', versionRange: '^0.1.0' },
+    { name: 'inventory', versionRange: '^0.1.0' },
+    { name: 'loyalty', versionRange: '^0.1.0' },
+    { name: 'promotion', versionRange: '^0.1.0' },
+    { name: 'shipping', versionRange: '^0.1.0' },
+  ] },
+  capabilities: { provides: ['commerce.order.shipment-lookup', 'commerce.order.refund-operations', 'commerce.order.return-operations', 'commerce.order.invoice-lookup', 'commerce.order.notification-lookup'] },
+  data: { owns: ['order_number_seq', 'order_orders', 'order_lines', 'order_payments', 'order_adjustments', 'order_deliveries'] },
     migrations: orderMigrations,
     events: orderEvents,
     permissions: [

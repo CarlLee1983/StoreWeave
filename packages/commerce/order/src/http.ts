@@ -1,49 +1,22 @@
-import type { OrderAdjustmentSource, OrderStatus } from './contract';
+import type { OrderAdjustmentDto, OrderDeliveryDto, OrderDto, OrderLineDto } from './dto';
 
 /** Browser-safe staff projection of the JSON emitted by the Order HTTP endpoints. */
-export type AdminOrderStatus = OrderStatus;
-export type AdminOrderAdjustmentSource = OrderAdjustmentSource;
+export type AdminOrderStatus = OrderDto['status'];
+export type AdminOrderAdjustmentSource = OrderAdjustmentDto['source'];
 
-export type AdminOrderLine = {
-  id: string;
-  productId: string;
-  sku: string;
-  name: string;
-  unitPriceCents: number;
-  quantity: number;
-  lineTotalCents: number;
-  discountCents: number;
-};
+export type AdminOrderLine = OrderLineDto;
 
-export type AdminOrderAdjustment = {
-  source: AdminOrderAdjustmentSource;
-  sourceId: string;
-  name: string;
-  amountCents: number;
-};
+export type AdminOrderAdjustment = OrderAdjustmentDto;
 
-export type AdminOrderDelivery = {
-  shippingMethodId: string;
-  shippingMethodCode: string;
-  shippingMethodName: string;
-  provider: string;
-  type: string;
-  destinationKind: 'taiwan_home' | 'pickup_store';
+export type AdminOrderDelivery = Omit<OrderDeliveryDto, 'createdAt' | 'destination'> & {
   destination: Record<string, unknown>;
   createdAt: string;
 };
 
-export type AdminOrder = {
-  id: string;
-  number: string;
-  status: AdminOrderStatus;
-  currency: string;
-  customerEmail: string;
-  subtotalCents: number;
-  discountCents: number;
-  shippingCents: number;
-  taxCents: number;
-  totalCents: number;
+export type AdminOrder = Pick<OrderDto,
+  'id' | 'number' | 'status' | 'currency' | 'customerEmail' |
+  'subtotalCents' | 'discountCents' | 'shippingCents' | 'taxCents' | 'totalCents'
+> & {
   lines: AdminOrderLine[];
   adjustments: AdminOrderAdjustment[];
   delivery: AdminOrderDelivery | null;

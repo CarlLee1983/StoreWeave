@@ -11,6 +11,14 @@ function report(checks: ContractCheck[]) {
 }
 
 describe('Extension Contract Test', () => {
+  it('reports jobs absent from the static manifest', async () => {
+    const extension = AVAILABLE_EXTENSIONS['demo-erp'];
+    const checks = await runExtensionContractChecks({
+      ...extension, manifest: { ...extension.manifest, registeredJobs: [] },
+    }, { secrets: { DEMO_ERP_API_KEY: 'test-key' } });
+    expect(checks.find(check => check.name === 'registered jobs match the manifest')?.ok).toBe(false);
+  });
+
   it.each(Object.keys(AVAILABLE_EXTENSIONS))('%s 符合 Extension SDK 契約', async (id) => {
     const sampleConfig = id === 'ecpay'
       ? {

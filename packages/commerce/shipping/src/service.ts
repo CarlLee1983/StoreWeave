@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PlatformError, type Actor, type CommandContext, type DrizzleDb, type Tx } from '@storeweave/contracts';
 import type { ProviderRegistry } from '@storeweave/extension-sdk';
 import type { ShippingProvider } from '@storeweave/extension-sdk';
-import { CartRepository } from '@storeweave/cart';
+import { cartService } from '@storeweave/cart';
 import { customerService } from '@storeweave/customer';
 import { shipmentArrivedV1, shipmentCompletedV1, shipmentCreatedV1, shipmentShippedV1 } from './events';
 import {
@@ -16,7 +16,6 @@ import type {
 
 const repository = new ShippingRepository();
 const stages: ShipmentStatus[] = ['created', 'shipped', 'arrived', 'completed'];
-const carts = new CartRepository();
 const PICKUP_SELECTION_TTL_MS = 10 * 60 * 1000;
 
 function pickupTokenHash(token: string): string {
@@ -78,8 +77,8 @@ export const shippingService = {
     providers: ProviderRegistry,
   ): Promise<{ token: string; expiresAt: Date }> {
     const buyer = await customerService.requireByActor(ctx.tx, ctx.actor);
-    const cart = await carts.lockById(ctx.tx, input.cartId);
-    if (!cart || cart.customerId !== buyer.customerId || cart.status !== 'open') throw PlatformError.notFound('Cart', input.cartId);
+    const cart = await cartService.lockOpenForCustomer(ctx.tx, input.cartId, buyer.customerId);
+    if (!cart) throw PlatformError.notFound('Cart', input.cartId);
     const method = await repository.findMethodById(ctx.tx, input.shippingMethodId);
     if (!method || !method.enabled || method.destinationKind !== 'pickup_store') {
       throw PlatformError.validation('This shipping method does not support convenience-store pickup');

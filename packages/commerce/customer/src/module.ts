@@ -1,3 +1,4 @@
+import packageJson from '../package.json';
 import { defineModule } from '@storeweave/kernel';
 import {
   registerCustomerCommand,
@@ -15,6 +16,13 @@ import { customerMigrations } from './migrations';
 
 export const customerModule = defineModule({
   name: 'customer',
+  version: packageJson.version,
+  baseVersionRange: '^1.0.0',
+  dependencies: { required: [
+    { name: 'platform', versionRange: '^0.1.0' },
+    { name: 'platform-identity', versionRange: '^0.1.0' },
+  ] },
+  data: { owns: ['customer_customers'] },
   migrations: customerMigrations,
   events: customerEvents,
   permissions: [

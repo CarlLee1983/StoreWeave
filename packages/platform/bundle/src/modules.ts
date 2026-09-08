@@ -1,4 +1,4 @@
-import type { PlatformModule } from '@storeweave/kernel';
+import { bindModuleCapability, type PlatformModule } from '@storeweave/kernel';
 import type { ExtensionDefinition, ProviderRegistry } from '@storeweave/extension-sdk';
 import { catalogModule } from '@storeweave/catalog';
 import { inventoryModule } from '@storeweave/inventory';
@@ -41,7 +41,10 @@ export function coreModules(options: {
     inventoryModule,
     customerModule,
     createCart({ defaultCurrency: options.defaultCurrency }),
-    createShippingModule(orderFulfillmentService, options.providers, refundShipmentGuard),
+    createShippingModule(
+      bindModuleCapability('order', 'commerce.order.shipment-lookup', orderFulfillmentService), options.providers,
+      bindModuleCapability('refund', 'commerce.refund.shipment-guard', refundShipmentGuard),
+    ),
     createPromotionModule({ defaultCurrency: options.defaultCurrency }),
     createCouponModule({
       providers: options.providers,
@@ -55,10 +58,17 @@ export function coreModules(options: {
       defaultCurrency: options.defaultCurrency,
       orderNumberPrefix: options.orderNumberPrefix,
     }),
-    createInvoiceModule(orderInvoiceService, options.providers),
-    createNotificationModule(orderNotificationService, options.providers),
-    createRefundModule(orderRefundService, { hasShipmentForOrder: shippingService.hasShipmentForOrder }, options.providers),
-    createRmaModule(orderReturnService, { hasReturnableShipment: shippingService.hasReturnableShipment }),
+    createInvoiceModule(bindModuleCapability('order', 'commerce.order.invoice-lookup', orderInvoiceService), options.providers),
+    createNotificationModule(bindModuleCapability('order', 'commerce.order.notification-lookup', orderNotificationService), options.providers),
+    createRefundModule(
+      bindModuleCapability('order', 'commerce.order.refund-operations', orderRefundService),
+      bindModuleCapability('shipping', 'commerce.shipping.shipment-lookup', { hasShipmentForOrder: shippingService.hasShipmentForOrder }),
+      options.providers,
+    ),
+    createRmaModule(
+      bindModuleCapability('order', 'commerce.order.return-operations', orderReturnService),
+      bindModuleCapability('shipping', 'commerce.shipping.return-lookup', { hasReturnableShipment: shippingService.hasReturnableShipment }),
+    ),
     createContentModule(),
   ];
 }

@@ -1,4 +1,5 @@
-import { defineModule, type PlatformModule } from '@storeweave/kernel';
+import packageJson from '../package.json';
+import { type BoundModuleCapability, defineModule, type PlatformModule } from '@storeweave/kernel';
 import type { ProviderRegistry } from '@storeweave/extension-sdk';
 import { orderPaidV2, orderPlacedV3 } from '@storeweave/order';
 import { shipmentArrivedV1, shipmentShippedV1 } from '@storeweave/shipping';
@@ -26,9 +27,21 @@ function queue(providers: ProviderRegistry, eventId: string, orderId: string, te
 }
 
 /** Notification owns delivery evidence, not the Order or Shipment facts that trigger it. */
-export function createNotificationModule(orders: NotificationOrderLookup, providers: ProviderRegistry): PlatformModule {
+export function createNotificationModule(ordersBinding: BoundModuleCapability<NotificationOrderLookup>, providers: ProviderRegistry): PlatformModule {
+  const orders = ordersBinding.value;
+
   return defineModule({
     name: 'notification',
+  version: packageJson.version,
+  baseVersionRange: '^1.0.0',
+  dependencies: { required: [{ name: 'platform', versionRange: '^0.1.0' }] },
+  capabilities: {
+    required: [
+      { from: 'order', capability: 'commerce.order.notification-lookup', versionRange: '^0.1.0' },
+    ],
+    bound: [ordersBinding],
+  },
+  data: { owns: ['notification_lifecycle_deliveries'] },
     migrations: notificationMigrations,
     permissions: [
       { key: 'notification:read', description: '讀取通知投遞紀錄', owner: 'notification' },

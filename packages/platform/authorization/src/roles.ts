@@ -15,3 +15,41 @@ export function permissionsForRole(role: string): readonly string[] {
   // 用 hasOwn 而不是索引取值：`BUILT_IN_ROLES['constructor']` 會回傳 Function 而不是 undefined。
   return Object.hasOwn(BUILT_IN_ROLES, role) ? BUILT_IN_ROLES[role]! : [];
 }
+
+/** Release-owned identity and token policy; domain permissions remain plain names. */
+export interface ReleaseRole {
+  readonly permissions: readonly string[];
+  readonly tokenAllowed: boolean;
+  readonly account: false | {
+    readonly actorType: 'user' | 'customer';
+    readonly sessionTtl: 'operator' | 'customer';
+    readonly minPasswordLength: number;
+    readonly adminCreatable: boolean;
+  };
+}
+
+export type ReleaseRoleCatalog = Readonly<Record<string, ReleaseRole>>;
+
+export function roleFor(catalog: ReleaseRoleCatalog, role: string): ReleaseRole | undefined {
+  return Object.hasOwn(catalog, role) ? catalog[role] : undefined;
+}
+
+const operatorAccount = {
+  actorType: 'user', sessionTtl: 'operator', minPasswordLength: 12, adminCreatable: true,
+} as const;
+
+export const BASE_ROLES: ReleaseRoleCatalog = {
+  admin: { permissions: ['*'], tokenAllowed: true, account: operatorAccount },
+  staff: { permissions: ['users:read', 'jobs:read', 'jobs:write'], tokenAllowed: true, account: operatorAccount },
+  readonly: { permissions: ['users:read', 'jobs:read'], tokenAllowed: true, account: operatorAccount },
+};
+
+export const COMMERCE_ROLES: ReleaseRoleCatalog = Object.fromEntries(
+  Object.entries(BUILT_IN_ROLES).map(([name, permissions]) => [name, {
+    permissions,
+    tokenAllowed: ['admin', 'staff', 'readonly', 'mcp'].includes(name),
+    account: name === 'customer'
+      ? { actorType: 'customer', sessionTtl: 'customer', minPasswordLength: 8, adminCreatable: false }
+      : operatorAccount,
+  }]),
+);

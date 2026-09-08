@@ -1,7 +1,11 @@
 import { Controller, Get, Query, Req } from '@nestjs/common';
 import { BusController } from './base';
-import { ok } from '../http/envelope';
+import { HttpContract, type BusHttpContract } from '../http/contract';
 import type { AuthenticatedRequest } from '../http/auth';
+
+const listRoute = { kind: 'bus', target: { kind: 'query', name: 'commerce.notification.listLifecycleDeliveries' },
+  request: 'query', queryEncoding: { limit: 'number', offset: 'number' },
+} as const satisfies BusHttpContract;
 
 /**
  * 唯讀。手動重送通知不在這裡：重送出貨通知只是吵，重送付款連結會讓顧客拿到兩份，
@@ -10,11 +14,8 @@ import type { AuthenticatedRequest } from '../http/auth';
 @Controller('api/v1/notification-deliveries')
 export class NotificationController extends BusController {
   @Get()
+  @HttpContract(listRoute)
   async list(@Req() req: AuthenticatedRequest, @Query() query: Record<string, string>) {
-    return ok(await this.query(req, 'commerce.notification.listLifecycleDeliveries', {
-      orderId: query.orderId, status: query.status,
-      ...(query.limit === undefined ? {} : { limit: Number(query.limit) }),
-      ...(query.offset === undefined ? {} : { offset: Number(query.offset) }),
-    }));
+    return this.rest(req, listRoute, query);
   }
 }

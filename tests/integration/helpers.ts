@@ -1,3 +1,4 @@
+import { COMMERCE_ROLES } from '@storeweave/authorization';
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { commerceConfigSchema, type CommerceConfig, type SecretProvider } from '@storeweave/config';
@@ -140,6 +141,8 @@ export async function createHarness(options: TestRuntimeOptions = {}): Promise<T
   const providers = new ProviderRegistry(logger);
 
   const runtime = await createRuntime({
+    release: { id: 'test', version: '1.0.0', buildManifestChecksum: `sha256:${'0'.repeat(64)}` },
+    roles: COMMERCE_ROLES,
     config,
     secrets,
     logger,

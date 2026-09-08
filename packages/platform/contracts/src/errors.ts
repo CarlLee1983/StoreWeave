@@ -1,19 +1,7 @@
 /**
  * 平台統一錯誤型別。所有對外訊息必須是 user-safe，內部細節放 `details` 只寫進 log。
  */
-export type ErrorCode =
-  | 'VALIDATION_ERROR'
-  | 'NOT_FOUND'
-  | 'CONFLICT'
-  | 'FORBIDDEN'
-  | 'UNAUTHENTICATED'
-  | 'IDEMPOTENCY_MISMATCH'
-  | 'IDEMPOTENCY_IN_PROGRESS'
-  | 'UNSUPPORTED'
-  | 'EXTENSION_ERROR'
-  | 'INTERNAL_ERROR';
-
-const HTTP_STATUS: Record<ErrorCode, number> = {
+export const HTTP_STATUS = {
   VALIDATION_ERROR: 400,
   NOT_FOUND: 404,
   CONFLICT: 409,
@@ -24,7 +12,9 @@ const HTTP_STATUS: Record<ErrorCode, number> = {
   UNSUPPORTED: 501,
   EXTENSION_ERROR: 502,
   INTERNAL_ERROR: 500,
-};
+} as const;
+
+export type ErrorCode = keyof typeof HTTP_STATUS;
 
 export class PlatformError extends Error {
   readonly code: ErrorCode;

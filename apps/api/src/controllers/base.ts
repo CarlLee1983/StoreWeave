@@ -1,6 +1,8 @@
 import { Inject } from '@nestjs/common';
 import { RUNTIME, type Runtime } from '../tokens';
 import { actorOf, correlationIdOf, idempotencyKeyOf, type AuthenticatedRequest } from '../http/auth';
+import { busHttpInput, type BusHttpContract } from '../http/contract';
+import { ok } from '../http/envelope';
 
 /**
  * 所有 HTTP 控制器共用的基底。
@@ -8,6 +10,13 @@ import { actorOf, correlationIdOf, idempotencyKeyOf, type AuthenticatedRequest }
  */
 export abstract class BusController {
   constructor(@Inject(RUNTIME) protected readonly runtime: Runtime) {}
+
+  protected async rest(request: AuthenticatedRequest, contract: BusHttpContract, input: unknown, params?: Record<string, string>) {
+    const mapped = busHttpInput(contract, input, params);
+    return ok(await (contract.target.kind === 'command'
+      ? this.command(request, contract.target.name, mapped)
+      : this.query(request, contract.target.name, mapped)));
+  }
 
   protected command<O>(request: AuthenticatedRequest, name: string, input: unknown): Promise<O> {
     return this.runtime.commands.execute<O>(name, input, {

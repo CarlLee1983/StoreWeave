@@ -3,10 +3,9 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 import { PlatformError, toPublicError } from '@storeweave/contracts';
 import { ok } from '../http/envelope';
 import { actorOf, correlationIdOf, type AuthenticatedRequest } from '../http/auth';
+import { HttpContract } from '../http/contract';
 import { RUNTIME, type Runtime } from '../tokens';
-import { JSON_RPC_ERRORS, jsonRpcRequest, rpcError, rpcResult } from './jsonrpc';
-
-const PROTOCOL_VERSION = '2025-06-18';
+import { JSON_RPC_ERRORS, MCP_METHODS, MCP_PROTOCOL_VERSION, jsonRpcRequest, rpcError, rpcResult } from './jsonrpc';
 
 /**
  * MCP 是一個 Interface Adapter，和 REST、Admin、CLI 完全平行。
@@ -24,9 +23,10 @@ export class McpController {
   constructor(@Inject(RUNTIME) private readonly runtime: Runtime) {}
 
   @Get('mcp')
+  @HttpContract({ kind: 'mcp', transport: 'direct', request: 'none' })
   describe() {
     return ok({
-      protocolVersion: PROTOCOL_VERSION,
+      protocolVersion: MCP_PROTOCOL_VERSION,
       transport: 'http-jsonrpc',
       tools: this.runtime.mcpTools.list().map((t) => ({
         name: t.definition.name,
@@ -38,6 +38,7 @@ export class McpController {
 
   @Post('mcp')
   @HttpCode(200)
+  @HttpContract({ kind: 'mcp', transport: 'jsonrpc', request: 'body' })
   async rpc(@Req() request: AuthenticatedRequest, @Body() body: unknown) {
     const parsed = jsonRpcRequest.safeParse(body);
     if (!parsed.success) {
@@ -47,19 +48,19 @@ export class McpController {
 
     try {
       switch (method) {
-        case 'initialize':
+        case MCP_METHODS.initialize:
           return rpcResult(id, {
-            protocolVersion: PROTOCOL_VERSION,
+            protocolVersion: MCP_PROTOCOL_VERSION,
             capabilities: { tools: { listChanged: false } },
             serverInfo: { name: `${this.runtime.config.store.id}-commerce`, version: this.runtime.platformVersion },
           });
-        case 'notifications/initialized':
+        case MCP_METHODS.initialized:
           return rpcResult(id, {});
-        case 'ping':
+        case MCP_METHODS.ping:
           return rpcResult(id, {});
-        case 'tools/list':
+        case MCP_METHODS.listTools:
           return rpcResult(id, { tools: this.listTools() });
-        case 'tools/call':
+        case MCP_METHODS.callTool:
           return rpcResult(id, await this.callTool(request, params));
         default:
           return rpcError(id, JSON_RPC_ERRORS.METHOD_NOT_FOUND, `Unknown method "${method}"`);

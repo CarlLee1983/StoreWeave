@@ -1,3 +1,4 @@
+import packageJson from '../package.json';
 import { defineModule, type PlatformModule } from '@storeweave/kernel';
 import { defineEvent } from '@storeweave/contracts';
 import { customerRegisteredV1 } from '@storeweave/customer';
@@ -18,6 +19,14 @@ import {
 export function createCouponModule(deps: CouponModuleDeps): PlatformModule {
   return defineModule({
   name: 'coupon',
+  version: packageJson.version,
+  baseVersionRange: '^1.0.0',
+  dependencies: { required: [
+    { name: 'platform', versionRange: '^0.1.0' },
+    { name: 'customer', versionRange: '^0.1.0' },
+    { name: 'promotion', versionRange: '^0.1.0' },
+  ] },
+  data: { owns: ['coupon_coupons', 'coupon_redemptions'] },
   migrations: couponMigrations,
   permissions: [
     { key: 'coupon:read', description: '讀取券', owner: 'coupon' },

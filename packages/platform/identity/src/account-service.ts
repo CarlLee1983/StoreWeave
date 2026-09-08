@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { PlatformError, type Tx } from '@storeweave/contracts';
+import { PlatformError, type DrizzleDb, type Tx } from '@storeweave/contracts';
 import { hashPassword } from './password';
 import { UserRepository, toUserDto, type UserDto } from './repository';
 
@@ -12,6 +12,12 @@ const repository = new UserRepository();
  * 它收 `tx` 而不是自己開交易：顧客註冊要讓帳號與顧客資料同生共死。
  */
 export const accountService = {
+  /** Contact projection for domain modules; password and session fields stay in Identity. */
+  async contactFor(db: DrizzleDb | Tx, accountId: string): Promise<{ email: string } | null> {
+    const account = await repository.findById(db, accountId);
+    return account ? { email: account.email } : null;
+  },
+
   /** 帳號標籤跟著顧客的顯示名稱走：兩邊各存一份、只改一邊，畫面就會永遠對不起來。 */
   async setDisplayName(tx: Tx, accountId: string, displayName: string): Promise<void> {
     await repository.setDisplayName(tx, accountId, displayName);

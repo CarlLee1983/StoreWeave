@@ -38,6 +38,8 @@ export interface ExtensionJobRegistration {
 
 /** Extension `setup()` 的回傳值 —— 全部都是宣告，實際掛載由 Kernel 執行。 */
 export interface ExtensionRegistration {
+  /** Release resources acquired during setup. If setup throws before returning, it owns that cleanup. */
+  close?: () => void | Promise<void>;
   commands?: ExtensionCommandRegistration[];
   queries?: ExtensionQueryRegistration[];
   events?: ExtensionEventRegistration[];

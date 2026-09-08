@@ -3,6 +3,30 @@ import { PlatformError, declaredInputKeys } from '@storeweave/contracts';
 import { BusController } from './base';
 import { ok } from '../http/envelope';
 import type { AuthenticatedRequest } from '../http/auth';
+import { HttpContract, type DirectHttpContract, type ExtensionHttpContract } from '../http/contract';
+import type { JsonSchema7Type } from 'zod-to-json-schema';
+
+const emptyInput = { type: 'object', properties: {}, additionalProperties: false } as const satisfies JsonSchema7Type;
+const response = (data: JsonSchema7Type) => ({
+  type: 'object', required: ['success', 'data'], additionalProperties: false,
+  properties: { success: { type: 'boolean', const: true }, data },
+} satisfies JsonSchema7Type);
+const stringArray = { type: 'array', items: { type: 'string' } } as const satisfies JsonSchema7Type;
+const routes = {
+  list: { kind: 'direct', request: 'none', input: emptyInput, output: response({
+    type: 'object', required: ['items'], additionalProperties: false, properties: { items: { type: 'array', items: {
+      type: 'object', required: ['id', 'name', 'version', 'platformVersion', 'permissions', 'subscribedEvents', 'commands', 'queries', 'providers', 'mcpTools'],
+      additionalProperties: false,
+      properties: {
+        id: { type: 'string' }, name: { type: 'string' }, version: { type: 'string' }, platformVersion: { type: 'string' },
+        permissions: stringArray, subscribedEvents: stringArray, commands: stringArray, queries: stringArray,
+        providers: stringArray, mcpTools: stringArray,
+      },
+    } } },
+  }) },
+  command: { kind: 'extension-command', request: 'body' },
+  query: { kind: 'extension-query', request: 'query', queryExtras: 'drop-and-log-keys' },
+} as const satisfies Record<string, DirectHttpContract | ExtensionHttpContract>;
 
 /**
  * Extension 的通用 HTTP 橋接。
@@ -11,6 +35,7 @@ import type { AuthenticatedRequest } from '../http/auth';
 @Controller('api/v1/extensions')
 export class ExtensionsController extends BusController {
   @Get()
+  @HttpContract(routes.list)
   list() {
     return ok({
       items: this.runtime.extensions.list().map((ext) => ({
@@ -30,6 +55,7 @@ export class ExtensionsController extends BusController {
 
   @Post(':id/commands/:command')
   @HttpCode(200)
+  @HttpContract(routes.command)
   async runCommand(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -41,6 +67,7 @@ export class ExtensionsController extends BusController {
   }
 
   @Get(':id/queries/:query')
+  @HttpContract(routes.query)
   async runQuery(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,

@@ -166,16 +166,19 @@ describe('我的券', () => {
 describe('猜碼的節流', () => {
   it('前台的折扣碼路由與 API 一樣受節流保護', async () => {
     const product = await sellable('SFC-BRUTE');
-    const cookies = await guestCartWith(product.id);
+    const me = await signIn('brute');
+    expect((await inject({ method: 'POST', url: '/cart/items', cookies: me.cookies,
+      headers: { 'x-csrf-token': me.csrf }, payload: { productId: product.id, quantity: '1' } })).statusCode).toBe(303);
 
-    const statuses: number[] = [];
-    for (let i = 0; i < 25; i += 1) {
-      const res = await inject({ method: 'POST', url: '/cart/coupon', cookies, payload: { code: `SFGUESS${i}` } });
-      statuses.push(res.statusCode);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const response = await inject({ method: 'POST', url: '/cart/coupon', remoteAddress: '198.51.100.21', cookies: me.cookies,
+        headers: { 'x-csrf-token': me.csrf }, payload: { code: `SFGUESS${attempt}` } });
+      expect(response.statusCode).toBe(400);
     }
-
-    // 路由字串打錯就會整段失效，因此這條測試驗的是「那一條路由真的在名單上」。
-    expect(statuses).toContain(429);
-    expect(statuses[0]).toBe(400);
+    const limited = await inject({ method: 'POST', url: '/cart/coupon', remoteAddress: '198.51.100.21', cookies: me.cookies,
+      headers: { 'x-csrf-token': me.csrf }, payload: { code: 'SFGUESS20' } });
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toMatchObject({ success: false, error: { code: 'RATE_LIMITED' } });
+    expect(Number(limited.headers['retry-after'])).toBeGreaterThan(0);
   });
 });

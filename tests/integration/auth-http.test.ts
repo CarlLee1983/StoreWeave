@@ -222,16 +222,40 @@ describe('登入 / 登出 / session cookie', () => {
     expect(codes.at(-1)).toBe(429);
   });
 
-  it('每次換一個 email 也會被 IP 層節流（scrypt 放大攻擊面）', async () => {
-    const codes: number[] = [];
-    for (let i = 0; i < 62; i += 1) {
-      const res = await inject({
+  it('每次換一個 email 也在第 61 次被 IP 層節流（scrypt 放大攻擊面）', async () => {
+    for (let i = 0; i < 60; i += 1) {
+      const response = await inject({
         method: 'POST', url: '/api/v1/auth/login', remoteAddress: '10.0.0.3',
-        payload: { email: `random-${i}@example.com`, password: 'wrong-guess' },
+        payload: { email: `random-${i}@example.com`, password: 123 },
       });
-      codes.push(res.statusCode);
+      expect(response.statusCode).toBe(400);
     }
-    expect(codes.at(-1)).toBe(429);
+    const limited = await inject({
+      method: 'POST', url: '/api/v1/auth/login', remoteAddress: '10.0.0.3',
+      payload: { email: 'random-61@example.com', password: 123 },
+    });
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toMatchObject({ success: false, error: { code: 'RATE_LIMITED' } });
+    expect(Number(limited.headers['retry-after'])).toBeGreaterThan(0);
+  });
+
+  it('charges the IP bucket before the exceeded account bucket', async () => {
+    const remoteAddress = '10.0.0.4';
+    const email = 'ip-before-account@example.com';
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const response = await inject({
+        method: 'POST', url: '/api/v1/auth/login', remoteAddress,
+        payload: { email, password: 123 },
+      });
+      expect(response.statusCode).toBe(attempt < 10 ? 400 : 429);
+    }
+    const limited = await inject({
+      method: 'POST', url: '/api/v1/auth/login', remoteAddress,
+      payload: { email: 'new-after-account@example.com', password: 123 },
+    });
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toMatchObject({ success: false, error: { code: 'RATE_LIMITED' } });
+    expect(Number(limited.headers['retry-after'])).toBeGreaterThan(0);
   });
 
   it('GET /api/v1/auth/me 未登入回 401', async () => {
@@ -239,13 +263,25 @@ describe('登入 / 登出 / session cookie', () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it('GET /api/v1/auth/me 帶 session cookie 回目前使用者', async () => {
+  it('auth me 與 change-password 只接受 session cookie', async () => {
     await createOperator('operator7@example.com', 'correct horse battery staple');
+    for (const options of [
+      { method: 'GET' as const, url: '/api/v1/auth/me' },
+      { method: 'POST' as const, url: '/api/v1/auth/change-password', payload: {
+        currentPassword: 'correct horse battery staple', newPassword: 'new correct horse battery staple',
+      } },
+    ]) {
+      const response = await inject({ ...options, headers: { authorization: `Bearer ${ADMIN_TOKEN}` } });
+      expect(response.statusCode).toBe(401);
+      expect(response.json().error.message).toBe('No active session');
+    }
+
     const login = await inject({
       method: 'POST', url: '/api/v1/auth/login',
       payload: { email: 'operator7@example.com', password: 'correct horse battery staple' },
     });
     const sessionToken = cookieValue(login, 'commerce_session')!;
+    const csrfToken = cookieValue(login, 'commerce_csrf')!;
 
     const res = await inject({
       method: 'GET', url: '/api/v1/auth/me',
@@ -253,6 +289,14 @@ describe('登入 / 登出 / session cookie', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().data.email).toBe('operator7@example.com');
+
+    const changed = await inject({
+      method: 'POST', url: '/api/v1/auth/change-password',
+      cookies: { commerce_session: sessionToken, commerce_csrf: csrfToken },
+      headers: { 'x-csrf-token': csrfToken },
+      payload: { currentPassword: 'correct horse battery staple', newPassword: 'new correct horse battery staple' },
+    });
+    expect(changed.statusCode).toBe(200);
   });
 });
 

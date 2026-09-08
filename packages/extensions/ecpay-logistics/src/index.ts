@@ -30,6 +30,7 @@ export const ecpayLogisticsExtension = defineExtension<EcpayLogisticsConfig>({
     subscribedEvents: ['commerce.shipment.created.v1'],
     registeredCommands: [retryShipmentCommand.name],
     registeredQueries: [getShipmentOperationQuery.name, listShipmentOperationsQuery.name],
+    registeredJobs: [CREATE_ECPAY_LOGISTICS_SHIPMENT_JOB, QUERY_ECPAY_LOGISTICS_SHIPMENT_STATUS_JOB, RECONCILE_ECPAY_LOGISTICS_SHIPMENT_STATUSES_JOB],
     registeredProviders: [{ kind: 'shipping', id: ECPAY_LOGISTICS_PROVIDER_ID, isDefault: true }],
     requiredSecrets: [
       ECPAY_LOGISTICS_MERCHANT_ID_SECRET,

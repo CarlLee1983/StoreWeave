@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { PlatformError, defineQuery, type QueryContext } from '@storeweave/contracts';
 import { customerService } from '@storeweave/customer';
-import { PromotionRepository, tryToPromotionDto } from '@storeweave/promotion';
+import { couponPromotionService } from '@storeweave/promotion';
 import { describeRule } from './describe';
 import {
   attributionSummaryInput,
@@ -19,7 +19,6 @@ import { CouponRepository, toCouponDto } from './repository';
 import { couponService, type CouponRejection } from './service';
 
 const repository = new CouponRepository();
-const promotions = new PromotionRepository();
 
 /**
  * 拒絕原因對應到畫面上的狀態。券本身的原因與活動造成的原因分開說：
@@ -117,8 +116,7 @@ export function createListMyCouponsHandler(deps: { currency: string; locale: str
 
     const result = [];
     for (const row of items) {
-      const promotionRow = await promotions.findById(ctx.db, row.promotionId);
-      const promotion = promotionRow ? tryToPromotionDto(promotionRow) : null;
+      const promotion = await couponPromotionService.describeForCoupon(ctx.db, row.promotionId);
       // 規則壞掉的券不該讓整頁壞掉，但也不能假裝它有面額。
       if (!promotion) continue;
 
@@ -166,7 +164,7 @@ export function createPromotionPerformanceHandler(deps: { currency: string }) {
     const rows = await repository.promotionPerformance(ctx.db, input);
     const items = [];
     for (const row of rows) {
-      const promotion = await promotions.findById(ctx.db, row.promotionId);
+      const promotion = await couponPromotionService.findForCoupon(ctx.db, row.promotionId);
       // 活動被刪掉時仍然要看得到數字：錢已經花出去了，報表不該假裝沒發生。
       items.push({ ...row, name: promotion?.name ?? row.promotionId });
     }

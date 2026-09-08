@@ -25,6 +25,7 @@ export const demoErpExtension = defineExtension<DemoErpConfig>({
     subscribedEvents: ['commerce.order.paid.v2'],
     registeredCommands: [resendOrderCommand.name],
     registeredQueries: [listDeliveriesQuery.name, inspectDeliveryPayloadQuery.name],
+    registeredJobs: [PUSH_ORDER_JOB],
     registeredProviders: [{ kind: 'erp', id: 'demo-erp', isDefault: true }],
   },
   setup(ctx) {

@@ -1,3 +1,4 @@
+import packageJson from '../package.json';
 import { defineModule } from '@storeweave/kernel';
 import { catalogMigrations } from './migrations';
 import { catalogEvents } from './events';
@@ -6,6 +7,10 @@ import { getProductHandler, getProductQuery, searchProductsHandler, searchProduc
 
 export const catalogModule = defineModule({
   name: 'catalog',
+  version: packageJson.version,
+  baseVersionRange: '^1.0.0',
+  dependencies: { required: [{ name: 'platform', versionRange: '^0.1.0' }] },
+  data: { owns: ['catalog_products'] },
   migrations: catalogMigrations,
   events: catalogEvents,
   permissions: [

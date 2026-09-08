@@ -8,6 +8,25 @@ const MAX_ACTIVE_PROMOTIONS = 200;
 
 const repository = new PromotionRepository();
 
+/** Coupon owns eligibility rules; Promotion owns reading and projecting promotion data. */
+export const couponPromotionService = {
+  async findForCoupon(db: DrizzleDb | Tx, promotionId: string) {
+    const row = await repository.findById(db, promotionId);
+    return row && {
+      id: row.id, name: row.name, status: row.status, requiresCoupon: row.requiresCoupon,
+      startsAt: row.startsAt, endsAt: row.endsAt,
+    };
+  },
+  async describeForCoupon(db: DrizzleDb | Tx, promotionId: string) {
+    const row = await repository.findById(db, promotionId);
+    return row ? tryToPromotionDto(row) : null;
+  },
+  async autoIssueAt(db: DrizzleDb | Tx, trigger: 'signup' | 'birthday', now: Date) {
+    return (await repository.listAutoIssueAt(db, trigger, now))
+      .map(({ id, autoIssueValidDays }) => ({ id, autoIssueValidDays }));
+  },
+};
+
 export interface QuoteInput {
   lines: PricingLineInput[];
   /**

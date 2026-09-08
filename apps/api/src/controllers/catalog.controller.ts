@@ -1,34 +1,38 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { BusController } from './base';
-import { ok } from '../http/envelope';
+import { HttpContract, type BusHttpContract } from '../http/contract';
 import type { AuthenticatedRequest } from '../http/auth';
+
+const routes = {
+  create: { kind: 'bus', target: { kind: 'command', name: 'commerce.catalog.createProduct' }, request: 'body' },
+  search: { kind: 'bus', target: { kind: 'query', name: 'commerce.catalog.searchProducts' }, request: 'query' },
+  get: { kind: 'bus', target: { kind: 'query', name: 'commerce.catalog.getProduct' }, request: 'none', params: { id: 'id' } },
+  update: { kind: 'bus', target: { kind: 'command', name: 'commerce.catalog.updateProduct' }, request: 'body', params: { id: 'id' } },
+} as const satisfies Record<string, BusHttpContract>;
 
 @Controller('api/v1/products')
 export class CatalogController extends BusController {
   @Post()
+  @HttpContract(routes.create)
   async create(@Req() req: AuthenticatedRequest, @Body() body: unknown) {
-    return ok(await this.command(req, 'commerce.catalog.createProduct', body));
+    return this.rest(req, routes.create, body);
   }
 
   @Get()
+  @HttpContract(routes.search)
   async search(@Req() req: AuthenticatedRequest, @Query() query: Record<string, string>) {
-    return ok(await this.query(req, 'commerce.catalog.searchProducts', {
-      q: query.q,
-      status: query.status,
-      minPriceCents: query.minPriceCents,
-      maxPriceCents: query.maxPriceCents,
-      limit: query.limit,
-      offset: query.offset,
-    }));
+    return this.rest(req, routes.search, query);
   }
 
   @Get(':id')
-  async get(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
-    return ok(await this.query(req, 'commerce.catalog.getProduct', { id }));
+  @HttpContract(routes.get)
+  async get(@Req() req: AuthenticatedRequest, @Param() params: Record<string, string>) {
+    return this.rest(req, routes.get, {}, params);
   }
 
   @Patch(':id')
-  async update(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: Record<string, unknown>) {
-    return ok(await this.command(req, 'commerce.catalog.updateProduct', { ...body, id }));
+  @HttpContract(routes.update)
+  async update(@Req() req: AuthenticatedRequest, @Param() params: Record<string, string>, @Body() body: Record<string, unknown>) {
+    return this.rest(req, routes.update, body, params);
   }
 }

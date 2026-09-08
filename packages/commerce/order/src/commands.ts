@@ -9,8 +9,8 @@ import { inventoryService } from '@storeweave/inventory';
 import { customerService } from '@storeweave/customer';
 import { pricingService } from '@storeweave/promotion';
 import { shippingService, type ShippingDestinationInput } from '@storeweave/shipping';
-import { CartRepository, isPurchasable } from '@storeweave/cart';
-import { CouponRepository, couponError, couponService, reverseCouponForOrder, type CouponRow } from '@storeweave/coupon';
+import { cartService, isPurchasable } from '@storeweave/cart';
+import { couponService, reverseCouponForOrder } from '@storeweave/coupon';
 import { maxRedeemableCents, rewardService, tierService } from '@storeweave/loyalty';
 import {
   cancelOrderInput, checkoutCartInput, orderOutputDto, payOrderInput, placeOrderInput,
@@ -236,9 +236,6 @@ export function createPlaceOrderHandler(deps: OrderModuleDeps) {
     orderOutputForActor(ctx, await createOrderFromLines(deps, input, ctx));
 }
 
-const cartRepository = new CartRepository();
-const couponRepository = new CouponRepository();
-
 export const checkoutCartCommand = defineCommand({
   name: 'commerce.order.checkoutCart',
   summary: '把購物車轉成訂單',
@@ -262,7 +259,7 @@ export const checkoutCartCommand = defineCommand({
 export function createCheckoutCartHandler(deps: OrderModuleDeps) {
   return async (input: z.infer<typeof checkoutCartInput>, ctx: CommandContext): Promise<OrderOutputDto> => {
     const buyer = await customerService.requireByActor(ctx.tx, ctx.actor);
-    const cart = await cartRepository.lockById(ctx.tx, input.cartId);
+    const cart = await cartService.lockForCheckout(ctx.tx, input.cartId);
     // 別人的車、或還沒併進來的訪客車，都不是這個人結得了的。
     if (!cart || cart.customerId !== buyer.customerId) throw PlatformError.notFound('Cart', input.cartId);
 
@@ -282,23 +279,14 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
 
     // 券在這裡鎖住並重驗：試算到結帳之間它可能過期或被停用，
     // 而顧客看到的金額必須是實際會扣的金額。
-    const coupon = cart.couponCode ? await couponRepository.findByCode(ctx.tx, cart.couponCode) : null;
-    const locked = coupon ? await couponRepository.lockById(ctx.tx, coupon.id) : null;
-    if (cart.couponCode && !locked) throw couponError('not_found');
-    if (locked) {
-      const basic = couponService.check(locked, { customerId: buyer.customerId, now: ctx.now });
-      if (!basic.ok) throw couponError(basic.reason);
-      const eligible = await couponService.checkAgainstLedger(ctx.tx, locked, {
-        customerId: buyer.customerId,
-        now: ctx.now,
-      });
-      if (!eligible.ok) throw couponError(eligible.reason);
-    }
+    const locked = cart.couponCode
+      ? await couponService.lockEligibleForCheckout(ctx.tx, { code: cart.couponCode, customerId: buyer.customerId, now: ctx.now })
+      : null;
 
     // 顧客看不到的商品行也結不進訂單：判斷與購物車顯示共用 `isPurchasable`，
     // 兩邊各寫一次，遲早會有一邊多放行一種情況（例如幣別不符的商品）。
     const lines: { productId: string; quantity: number }[] = [];
-    for (const row of await cartRepository.items(ctx.tx, cart.id)) {
+    for (const row of await cartService.checkoutItems(ctx.tx, cart.id)) {
       const product = await catalogService.findById(ctx.tx, row.productId);
       if (isPurchasable(product, deps.defaultCurrency)) {
         lines.push({ productId: row.productId, quantity: row.quantity });
@@ -355,7 +343,7 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
     }
 
     if (locked) await redeemCoupon(ctx, locked, order, buyer.customerId);
-    await cartRepository.markCheckedOut(ctx.tx, cart.id, order.id, ctx.now);
+    await cartService.markCheckedOut(ctx.tx, cart.id, order.id, ctx.now);
     return orderOutputForActor(ctx, order);
   };
 }
@@ -367,7 +355,7 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
  */
 async function redeemCoupon(
   ctx: CommandContext,
-  coupon: CouponRow,
+  coupon: { id: string; promotionId: string },
   order: OrderDto,
   customerId: string,
 ): Promise<void> {
@@ -376,24 +364,10 @@ async function redeemCoupon(
     .reduce((sum, adjustment) => sum - adjustment.amountCents, 0);
   if (discountCents <= 0) return;
 
-  // 額度在這裡才扣。搶輸就整筆結帳失敗——顧客看到的金額與實際成交金額
-  // 因此永遠一致，代價是要重按一次（使用者 2026-08-22 拍板）。
-  const consumed = await couponService.consume(ctx.tx, coupon, { customerId, now: ctx.now });
-  if (!consumed.ok) throw couponError(consumed.reason);
-
-  await couponRepository.recordRedemption(ctx.tx, {
-    couponId: coupon.id,
-    promotionId: coupon.promotionId,
-    orderId: order.id,
-    customerId,
-    code: coupon.code,
-    partnerCode: coupon.partnerCode,
-    discountCents,
-    orderTotalCents: order.totalCents,
-    redeemedAt: ctx.now,
+  await couponService.redeemForOrder(ctx.tx, {
+    couponId: coupon.id, orderId: order.id, customerId,
+    discountCents, orderTotalCents: order.totalCents, now: ctx.now,
   });
-  // 實發券用完就沒了；共用碼還留著給下一個人（額度控制是工單 32）。
-  if (coupon.customerId) await couponRepository.update(ctx.tx, coupon.id, { status: 'used', updatedAt: ctx.now });
 }
 
 /** 折抵上限看的是商品小計，因此要先知道這些行加起來多少。 */

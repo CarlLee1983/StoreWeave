@@ -3,9 +3,22 @@ import type { FastifyReply } from 'fastify';
 import { PlatformError } from '@storeweave/contracts';
 import { BusController } from './base';
 import { ok } from '../http/envelope';
+import { busHttpInput, HttpContract, type HttpRouteContract } from '../http/contract';
 import { Public, actorOf, correlationIdOf, type AuthenticatedRequest } from '../http/auth';
 import { existingGuestToken, guestTokenFor } from '../http/cart-cookie';
 import { RUNTIME, type Runtime } from '../tokens';
+
+const routes = {
+  get: { kind: 'composed', target: { kind: 'query', name: 'commerce.cart.getCart' }, request: 'none', injected: ['guestToken'], output: 'target' },
+  add: { kind: 'composed', target: { kind: 'command', name: 'commerce.cart.addToCart' }, request: 'body', rateLimit: 'cart', injected: ['guestToken'], output: 'target' },
+  setQuantity: { kind: 'composed', target: { kind: 'command', name: 'commerce.cart.setCartItemQuantity' }, request: 'body', params: { productId: 'productId' }, bodyFields: ['quantity'], injected: ['guestToken'], output: 'target' },
+  remove: { kind: 'composed', target: { kind: 'command', name: 'commerce.cart.removeCartItem' }, request: 'none', params: { productId: 'productId' }, injected: ['guestToken'], output: 'target' },
+  checkout: { kind: 'composed', target: { kind: 'command', name: 'commerce.order.checkoutCart' }, request: 'body', rateLimit: 'cart', bodyFields: ['cartId', 'shippingMethodId', 'destination'], serverDefaulted: ['cartId'], idempotencyKey: 'server-derived', output: 'target' },
+  applyCoupon: { kind: 'composed', target: { kind: 'command', name: 'commerce.cart.applyCoupon' }, request: 'body', rateLimit: 'coupon', bodyFields: ['code'], injected: ['guestToken'], output: 'target' },
+  rewards: { kind: 'bus', target: { kind: 'command', name: 'commerce.cart.setRewardRedemption' }, request: 'body', rateLimit: 'cart' },
+  removeCoupon: { kind: 'composed', target: { kind: 'command', name: 'commerce.cart.removeCoupon' }, request: 'none', injected: ['guestToken'], output: 'target' },
+  clear: { kind: 'composed', target: { kind: 'command', name: 'commerce.cart.clearCart' }, request: 'none', injected: ['guestToken'], output: 'target' },
+} as const satisfies Record<string, HttpRouteContract>;
 
 @Public()
 @Controller('api/v1/cart')
@@ -16,47 +29,44 @@ export class CartController extends BusController {
 
   /** 讀取不簽發 token：讀一次就換一台新車，等於把「清空購物車」變成跨站點得到的開關。 */
   @Get()
+  @HttpContract(routes.get)
   async get(@Req() req: AuthenticatedRequest) {
     const guestToken = existingGuestToken(req, this.runtime.config.http.publicUrl);
-    return ok(await this.query(req, 'commerce.cart.getCart', { guestToken }));
+    return ok(await this.query(req, routes.get.target.name, busHttpInput(routes.get, {}, {}, { guestToken })));
   }
 
   @Post('items')
+  @HttpContract(routes.add)
   async add(
     @Req() req: AuthenticatedRequest,
     @Body() body: Record<string, unknown>,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    return ok(await this.command(req, 'commerce.cart.addToCart', {
-      ...body,
-      guestToken: this.guestToken(req, reply),
-    }));
+    return ok(await this.command(req, routes.add.target.name,
+      busHttpInput(routes.add, body, {}, { guestToken: this.guestToken(req, reply) })));
   }
 
   @Patch('items/:productId')
+  @HttpContract(routes.setQuantity)
   async setQuantity(
     @Req() req: AuthenticatedRequest,
-    @Param('productId') productId: string,
+    @Param() params: Record<string, string>,
     @Body() body: Record<string, unknown>,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    return ok(await this.command(req, 'commerce.cart.setCartItemQuantity', {
-      productId,
-      quantity: body.quantity,
-      guestToken: this.guestToken(req, reply),
-    }));
+    return ok(await this.command(req, routes.setQuantity.target.name,
+      busHttpInput(routes.setQuantity, body, params, { guestToken: this.guestToken(req, reply) })));
   }
 
   @Delete('items/:productId')
+  @HttpContract(routes.remove)
   async remove(
     @Req() req: AuthenticatedRequest,
-    @Param('productId') productId: string,
+    @Param() params: Record<string, string>,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    return ok(await this.command(req, 'commerce.cart.removeCartItem', {
-      productId,
-      guestToken: this.guestToken(req, reply),
-    }));
+    return ok(await this.command(req, routes.remove.target.name,
+      busHttpInput(routes.remove, {}, params, { guestToken: this.guestToken(req, reply) })));
   }
 
   /**
@@ -67,47 +77,48 @@ export class CartController extends BusController {
    * 會問到一台新的空車，然後回一個看不懂的錯誤，而不是原本那張訂單。
    */
   @Post('checkout')
+  @HttpContract(routes.checkout)
   async checkout(@Req() req: AuthenticatedRequest, @Body() body: Record<string, unknown>) {
     const cartId = typeof body?.cartId === 'string' ? body.cartId : await this.currentCartId(req);
 
     const actor = actorOf(req);
-    return ok(await this.runtime.commands.execute('commerce.order.checkoutCart',
-      {
-        cartId,
-        shippingMethodId: body.shippingMethodId,
-        destination: body.destination,
-      },
+    return ok(await this.runtime.commands.execute(routes.checkout.target.name,
+      busHttpInput(routes.checkout, body, {}, { cartId }),
       // 鍵綁上身分：冪等鍵是猜得到的（購物車識別碼），而它決定了誰讀得到那份回應。
       { actor, idempotencyKey: `cart:${actor.id}:${cartId}`, correlationId: correlationIdOf(req), channel: 'rest' }));
   }
 
   /** 套用折扣碼。這支端點受節流保護：沒有它，掃碼機器人可以把限量活動吃光。 */
   @Post('coupon')
+  @HttpContract(routes.applyCoupon)
   async applyCoupon(
     @Req() req: AuthenticatedRequest,
     @Body() body: Record<string, unknown>,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    return ok(await this.command(req, 'commerce.cart.applyCoupon', {
-      code: body.code,
-      guestToken: this.guestToken(req, reply),
-    }));
+    return ok(await this.command(req, routes.applyCoupon.target.name,
+      busHttpInput(routes.applyCoupon, body, {}, { guestToken: this.guestToken(req, reply) })));
   }
 
   /** 設定要折抵多少購物金。訪客沒有帳本，因此這支只對會員有意義。 */
   @Post('rewards')
+  @HttpContract(routes.rewards)
   async setRewardRedemption(@Req() req: AuthenticatedRequest, @Body() body: Record<string, unknown>) {
-    return ok(await this.command(req, 'commerce.cart.setRewardRedemption', { amountCents: body.amountCents }));
+    return this.rest(req, routes.rewards, body);
   }
 
   @Delete('coupon')
+  @HttpContract(routes.removeCoupon)
   async removeCoupon(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) reply: FastifyReply) {
-    return ok(await this.command(req, 'commerce.cart.removeCoupon', { guestToken: this.guestToken(req, reply) }));
+    return ok(await this.command(req, routes.removeCoupon.target.name,
+      busHttpInput(routes.removeCoupon, {}, {}, { guestToken: this.guestToken(req, reply) })));
   }
 
   @Delete()
+  @HttpContract(routes.clear)
   async clear(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) reply: FastifyReply) {
-    return ok(await this.command(req, 'commerce.cart.clearCart', { guestToken: this.guestToken(req, reply) }));
+    return ok(await this.command(req, routes.clear.target.name,
+      busHttpInput(routes.clear, {}, {}, { guestToken: this.guestToken(req, reply) })));
   }
 
   /**
@@ -125,7 +136,7 @@ export class CartController extends BusController {
    */
   private async currentCartId(req: AuthenticatedRequest): Promise<string> {
     const guestToken = existingGuestToken(req, this.runtime.config.http.publicUrl);
-    const cart = await this.query<{ id: string; items: unknown[] }>(req, 'commerce.cart.getCart', { guestToken });
+    const cart = await this.query<{ id: string; items: unknown[] }>(req, routes.get.target.name, busHttpInput(routes.get, {}, {}, { guestToken }));
     if (cart.items.length === 0) throw PlatformError.validation('No cart to check out');
     return cart.id;
   }

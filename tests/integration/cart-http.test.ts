@@ -98,6 +98,21 @@ describe('訪客購物車的 cookie', () => {
   });
 });
 
+describe('購物車寫入節流', () => {
+  it('在第 121 次跨站寫入前回既有 429 envelope', async () => {
+    for (let attempt = 0; attempt < 121; attempt += 1) {
+      const response = await inject({ method: 'POST', url: '/api/v1/cart/items', remoteAddress: '198.51.100.120',
+        headers: { origin: 'https://evil.example' }, payload: {} });
+      if (attempt < 120) expect(response.statusCode).toBe(403);
+      else {
+        expect(response.statusCode).toBe(429);
+        expect(response.json()).toMatchObject({ success: false, error: { code: 'RATE_LIMITED' } });
+        expect(Number(response.headers['retry-after'])).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
 describe('登入時合併購物車（工單 27）', () => {
   /** 訪客先放東西，拿回那張 cart cookie。 */
   async function guestCartWith(productId: string, quantity: number): Promise<string> {
@@ -328,17 +343,22 @@ describe('折扣碼端點（工單 31）', () => {
 
   it('猜碼會被節流擋下：這條管道通了，限量活動就會被掃光', async () => {
     const product = await sellable('CART-COUPON-BRUTE');
-    const added = await inject({ method: 'POST', url: '/api/v1/cart/items', payload: { productId: product.id, quantity: 1 } });
-    const cookies = { [CART_COOKIE]: added.cookies.find((c) => c.name === CART_COOKIE)!.value };
+    const registered = await inject({ method: 'POST', url: '/api/v1/customers/register',
+      payload: { email: `cart-coupon-${Date.now()}@example.com`, password: 'a-good-password' } });
+    const session = registered.cookies.find(cookie => cookie.name === SESSION_COOKIE)!.value;
+    const auth = { cookies: { [SESSION_COOKIE]: session }, headers: { 'x-csrf-token': csrfTokenFor(session) } };
+    expect((await inject({ method: 'POST', url: '/api/v1/cart/items', ...auth,
+      payload: { productId: product.id, quantity: 1 } })).statusCode).toBe(201);
 
-    const statuses: number[] = [];
-    for (let i = 0; i < 25; i += 1) {
-      const res = await inject({ method: 'POST', url: '/api/v1/cart/coupon', cookies, payload: { code: `GUESS${i}XYZ` } });
-      statuses.push(res.statusCode);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const response = await inject({ method: 'POST', url: '/api/v1/cart/coupon', remoteAddress: '198.51.100.20', ...auth,
+        payload: { code: `GUESS${attempt}XYZ` } });
+      expect(response.statusCode).toBe(404);
     }
-
-    expect(statuses).toContain(429);
-    // 節流之前的嘗試回的是「找不到」，不是別的錯誤——節流不能掩蓋真正的行為。
-    expect(statuses[0]).toBe(404);
+    const limited = await inject({ method: 'POST', url: '/api/v1/cart/coupon', remoteAddress: '198.51.100.20', ...auth,
+      payload: { code: 'GUESS20XYZ' } });
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toMatchObject({ success: false, error: { code: 'RATE_LIMITED' } });
+    expect(Number(limited.headers['retry-after'])).toBeGreaterThan(0);
   });
 });

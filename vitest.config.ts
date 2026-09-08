@@ -4,6 +4,7 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
+    fileParallelism: false,
     projects: [
       {
         plugins: [tsconfigPaths()],
@@ -22,7 +23,6 @@ export default defineConfig({
           globalSetup: ['tests/integration/global-setup.ts'],
           testTimeout: 180_000,
           hookTimeout: 300_000,
-          fileParallelism: false,
         },
       },
       {

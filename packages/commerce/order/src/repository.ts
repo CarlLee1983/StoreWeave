@@ -6,7 +6,7 @@ import {
 } from './schema';
 import type {
   CustomerOrderDto, CustomerPaymentAttemptDto,
-  OrderDeliveryDto, OrderDto, PaymentAttemptDto,
+  OrderAdjustmentDto, OrderDeliveryDto, OrderDto, PaymentAttemptDto,
 } from './dto';
 
 /**
@@ -43,7 +43,7 @@ export function toOrderDto(
       discountCents: l.discountCents,
     })),
     adjustments: adjustments.map((a) => ({
-      source: a.source as 'promotion' | 'reward',
+      source: a.source as OrderAdjustmentDto['source'],
       sourceId: a.sourceId,
       name: a.name,
       amountCents: a.amountCents,

@@ -295,6 +295,21 @@ describe('結帳流程', () => {
     });
     expect(otherCancel.statusCode).toBe(404);
 
+    const invalidRetry = await inject({
+      method: 'POST',
+      url: `/orders/${number}/pay`,
+      cookies: owner.cookies,
+      headers: { ...owner.headers, 'content-type': 'application/x-www-form-urlencoded' },
+      payload: new URLSearchParams({
+        _csrf: csrfTokenFor(owner.session),
+        paymentProvider: 'mock-payment',
+        paymentMethod: 'not-a-payment-method',
+      }).toString(),
+    });
+    expect(invalidRetry.statusCode).toBe(400);
+    expect(invalidRetry.headers['content-type']).toContain('text/html');
+    expect(invalidRetry.body).toContain('400');
+
     const retry = await inject({
       method: 'POST',
       url: `/orders/${number}/pay`,

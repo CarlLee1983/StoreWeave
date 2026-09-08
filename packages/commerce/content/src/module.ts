@@ -1,9 +1,17 @@
+import packageJson from '../package.json';
 import { defineModule } from '@storeweave/kernel';
 import { createArticleCommand,createArticleHandler,deleteArticleCommand,deleteArticleHandler,markContactMessageHandledCommand,markContactMessageHandledHandler,publishArticleCommand,publishArticleHandler,submitContactMessageCommand,submitContactMessageHandler,unpublishArticleCommand,unpublishArticleHandler,updateArticleCommand,updateArticleHandler } from './commands';
 import { contentEvents } from './events';
 import { contentMigrations } from './migrations';
 import { getArticleHandler,getArticleQuery,getPublishedKindsHandler,getPublishedKindsQuery,getContactMessageHandler,getContactMessageQuery,getPublishedArticleHandler,getPublishedArticleQuery,listArticlesHandler,listArticlesQuery,listContactMessagesHandler,listContactMessagesQuery,listPublishedArticlesHandler,listPublishedArticlesQuery } from './queries';
-export function createContentModule(){return defineModule({name:'content',migrations:contentMigrations,events:contentEvents,permissions:[
+export function createContentModule(){return defineModule({name:'content',
+  version: packageJson.version,
+  baseVersionRange: '^1.0.0',
+  dependencies: { required: [
+    { name: 'platform', versionRange: '^0.1.0' },
+    { name: 'customer', versionRange: '^0.1.0' },
+  ] },
+  data: { owns: ['content_articles', 'content_contact_messages'] },migrations:contentMigrations,events:contentEvents,permissions:[
  {key:'content:read',description:'讀取品牌內容，含草稿',owner:'content'},
  {key:'content:write',description:'建立與發布品牌內容',owner:'content'},
  {key:'content:public-read',description:'讀取已發布的品牌內容',owner:'content'},

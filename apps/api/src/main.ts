@@ -1,53 +1,68 @@
+import { closeInReverse, installShutdown, withCleanupDeadline } from '@storeweave/kernel';
+import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import 'reflect-metadata';
 import { join } from 'node:path';
-import { bootstrap } from '@storeweave/bundle';
-import { createServer } from './server';
+import { bootstrapRelease } from '@storeweave/bootstrap-release';
+import { release } from '@storeweave/selected-release';
+import { createReleaseServer } from './release-server';
+import { httpAdapter } from '@storeweave/selected-http';
 import { resolveThemeAssetsDir } from './theme-assets';
+import { writeStartupHttpCatalog } from './http/catalog-artifact';
+import type { HttpRouteCatalogCarrier } from './http/contract';
 
-const RELEASE_VERSION = process.env.COMMERCE_RELEASE_VERSION ?? '0.1.0';
+const RELEASE_VERSION = process.env.STOREWEAVE_RELEASE_VERSION ?? process.env.COMMERCE_RELEASE_VERSION ?? release.version;
 
-async function main(): Promise<void> {
-  const { runtime, loaded, theme } = await bootstrap({ loggerName: 'commerce-api' });
+const RELEASE_NAME = release.id === 'commerce' ? 'commerce' : 'storeweave';
+
+export async function main(): Promise<void> {
+  if (httpAdapter.releaseId !== release.id) throw new Error('HTTP adapter does not match the selected release');
+  const { runtime, loaded, theme } = await bootstrapRelease(release, { loggerName: `${RELEASE_NAME}-api` });
   const logger = runtime.logger;
 
-  if (runtime.config.database.autoMigrate) {
-    const applied = await runtime.migrate();
-    logger.info({ applied: applied.length }, 'migrations applied at startup');
+  let app: NestFastifyApplication | undefined;
+  const close = () => closeInReverse([() => runtime.close(), () => app?.close()]);
+  try {
+    if (runtime.config.database.autoMigrate) {
+      const applied = await runtime.migrate();
+      logger.info({ applied: applied.length }, 'migrations applied at startup');
+    } else {
+      await runtime.activateRelease('require-current');
+    }
+
+    const adminDir = process.env.COMMERCE_ADMIN_DIR ?? join(__dirname, '..', 'admin');
+    // This is resolved at each API start so tsx watch also picks up new artwork.
+    const themeAssetsDir = theme ? resolveThemeAssetsDir() : undefined;
+    app = await createReleaseServer({
+      httpAdapter,
+      runtime,
+      theme,
+      release: { version: RELEASE_VERSION, configPath: loaded.sourcePath, adminDir, themeAssetsDir },
+    });
+    const catalogOutput = process.env.STOREWEAVE_HTTP_CATALOG_OUTPUT;
+    if (catalogOutput) writeStartupHttpCatalog({ output: catalogOutput, runtime,
+      carrier: app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier });
+
+    const { host, port } = runtime.config.http;
+    await app.listen({ host, port });
+    logger.info(
+      {
+        host, port, store: runtime.config.store.id, theme: theme?.id,
+        extensions: runtime.extensions.list().map((e) => `${e.id}@${e.version}`),
+        mcpTools: runtime.mcpTools.size,
+      },
+      `${RELEASE_NAME} api listening`,
+    );
+
+    installShutdown(runtime.config.shutdown.timeoutMs, close, logger);
+  } catch (error) {
+    try { await withCleanupDeadline(runtime.config.shutdown.timeoutMs, close); }
+    catch (cleanupError) { throw new AggregateError([error, cleanupError], 'API startup and cleanup failed'); }
+    throw error;
   }
 
-  await runtime.extensions.persistRegistry();
-
-  const adminDir = process.env.COMMERCE_ADMIN_DIR ?? join(__dirname, '..', 'admin');
-  // This is resolved at each API start so tsx watch also picks up new artwork.
-  const themeAssetsDir = resolveThemeAssetsDir();
-  const app = await createServer({
-    runtime,
-    theme,
-    release: { version: RELEASE_VERSION, configPath: loaded.sourcePath, adminDir, themeAssetsDir },
-  });
-
-  const { host, port } = runtime.config.http;
-  await app.listen({ host, port });
-  logger.info(
-    {
-      host, port, store: runtime.config.store.id, theme: theme.id,
-      extensions: runtime.extensions.list().map((e) => `${e.id}@${e.version}`),
-      mcpTools: runtime.mcpTools.size,
-    },
-    'commerce api listening',
-  );
-
-  const shutdown = async (signal: string) => {
-    logger.info({ signal }, 'shutting down');
-    await app.close();
-    await runtime.close();
-    process.exit(0);
-  };
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  process.on('SIGINT', () => void shutdown('SIGINT'));
 }
 
-main().catch((err) => {
-  console.error(`[commerce-api] failed to start: ${(err as Error).message}`);
+if (require.main === module) main().catch((err) => {
+  console.error(`[${RELEASE_NAME}-api] failed to start: ${(err as Error).message}`);
   process.exit(1);
 });

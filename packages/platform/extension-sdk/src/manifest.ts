@@ -26,6 +26,7 @@ export const manifestShapeSchema = z.object({
   subscribedEvents: z.array(z.string().regex(EVENT_NAME_PATTERN)).default([]),
   registeredCommands: z.array(z.string()).default([]),
   registeredQueries: z.array(z.string()).default([]),
+  registeredJobs: z.array(z.string().min(1)).default([]),
   registeredProviders: z.array(providerDeclarationSchema).default([]),
   /** 這個 Extension 自己新增的權限鍵（會註冊到 PermissionRegistry）。 */
   declaredPermissions: z.array(z.object({ key: z.string(), description: z.string() })).default([]),
@@ -45,6 +46,8 @@ export interface ExtensionManifest<TConfig = unknown> {
   readonly subscribedEvents: readonly string[];
   readonly registeredCommands: readonly string[];
   readonly registeredQueries: readonly string[];
+  /** Job types are available to release tooling without executing setup(). */
+  readonly registeredJobs?: readonly string[];
   readonly registeredProviders: readonly ProviderDeclaration[];
   readonly declaredPermissions?: readonly { key: string; description: string }[];
   readonly requiredSecrets?: readonly string[];

@@ -4,11 +4,16 @@ import type { FastifyReply } from 'fastify';
 import { SYSTEM_ACTOR } from '@storeweave/contracts';
 import type { PaymentCallbackEvent, PaymentProvider, ShippingCallbackEvent, ShippingProvider } from '@storeweave/extension-sdk';
 import { ExternalCallback, correlationIdOf, type AuthenticatedRequest } from '../http/auth';
+import { HttpContract, type ProviderCallbackHttpContract } from '../http/contract';
 import { RUNTIME, type Runtime } from '../tokens';
 import { Inject } from '@nestjs/common';
 
 type CallbackRequest = AuthenticatedRequest & { rawBody?: Uint8Array };
 type CallbackQuery = Record<string, string | string[] | undefined>;
+
+const callbackRoute = {
+  kind: 'provider-callback', request: 'raw', providerKinds: ['payment', 'shipping'], rateLimit: 'callback',
+} satisfies ProviderCallbackHttpContract;
 
 /**
  * HTTP belongs to the platform, not an extension. A provider receives the original
@@ -21,6 +26,7 @@ export class CallbackController {
   constructor(@Inject(RUNTIME) private readonly runtime: Runtime) {}
 
   @Post(':kind/:providerId')
+  @HttpContract(callbackRoute)
   async handlePayment(
     @Param('kind') kind: string,
     @Param('providerId') providerId: string,

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { PlatformError } from '@storeweave/contracts';
 import { ADMIN_ACTOR, actorWith, createHarness, createProduct, type TestHarness } from './helpers';
@@ -7,6 +7,9 @@ import { ADMIN_ACTOR, actorWith, createHarness, createProduct, type TestHarness 
 let h: TestHarness;
 beforeAll(async () => { h = await createHarness(); }, 300_000);
 afterAll(async () => { await h?.close(); });
+afterEach(async () => {
+  await h.runtime.database.db.execute(sql`UPDATE promotion_promotions SET status = 'disabled' WHERE status = 'active'`);
+});
 
 const create = (input: Record<string, unknown>, actor = ADMIN_ACTOR) =>
   h.runtime.commands.execute<any>('commerce.promotion.createPromotion', input, { actor });
