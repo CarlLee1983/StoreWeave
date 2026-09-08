@@ -31,7 +31,7 @@ Outbox 屬 B04，不在本包。
 | 更新 ADR 0016 | B05 | 0016 標記「排程機制部分由 0038 修訂」，補記兩項限制如何解除、理由如何保留；falsification 改指 `schedule-spec.ts` 並新增「不得自我續排」 | implemented |
 | 可控 clock 的運算測試 | B05 | `packages/platform/kernel/test/schedule-spec.test.ts` 26 passed，全部注入時間點；含單一排程失敗不拖垮整輪 | implemented; 複審 pending |
 | PG 競爭測試 | B05 | `tests/integration/scheduler.test.ts` 22 passed（真 PG，含列鎖阻塞與並行補排） | implemented; 複審 pending |
-| full checks 與 native/Docker gates | A | typecheck PASS；unit 767 passed／1 pre-existing failure；integration 重跑中 | partial |
+| full checks 與 native/Docker gates | A | typecheck PASS；unit 767 passed／1 pre-existing failure；integration 735 passed／0 failed | partial（smoke 屬 A） |
 
 ## 獨立審查（第一輪）
 
@@ -65,16 +65,16 @@ insert 競爭由 `DO NOTHING` 等待對方 xid 後重讀解決、enqueue 與 adv
   `tests/unit/theme-assets-http.test.ts`，**在 B04 基準 `837870c` 上以完全相同的方式失敗**
   （以 detached worktree 實測比對），依賴已建置的靜態資產，與 B05 無關。
   不能因為「本包沒動它」就當成通過——它現在確實是紅的。
-- `pnpm test:integration`：**未完成**。修正前的完整跑是 86 files／731 tests／5 failed，
-  五項全是新 migration `0008` 造成的預期變更（migration 清單、資料表清單、pending 計數），
-  更新後那五個檔案重跑 46 passed。修正後的完整重跑被系統以記憶體不足中止
-  （testcontainers 與本機其他資料庫容器並存），已改用 `--maxWorkers=2` 重跑，結果尚未取得。
+- `pnpm test:integration`：**86 files／735 tests 全數 passed**（`--maxWorkers=2`，真 PG testcontainers）。
+  修正前的第一輪是 731 tests／5 failed，五項全是新 migration `0008` 造成的預期變更
+  （migration 清單、資料表清單、pending 計數），更新後那五個檔案重跑 46 passed；
+  第二輪完整跑曾被系統以記憶體不足中止（testcontainers 與本機其他資料庫容器並存），
+  降低並行度後重跑取得上述結果。
 - `smoke:docker`／`smoke:native`：未跑，屬 A 的 gate。
 
 ## 保留的缺口
 
 - 修正後的複審尚未進行。第一輪審查的 14 項都已修，但修正本身沒有被獨立看過。
-- 修正後的完整 `pnpm test:integration` 尚未跑完（記憶體不足中止後重跑中）。
 - ops 的三個新入口只有 bus 層覆蓋，沒有帶真實資料的 HTTP 層測試——與 B04 留下的
   `listFailures`／`redriveFailure` HTTP 缺口是同一類，建議一起補。
 - 排程狀態沒有 Admin UI（屬 B13）。
