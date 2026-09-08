@@ -3,18 +3,17 @@
 - 規格：[Spec 0009](specs/0009-complete-modular-base.md)，能力範圍與最終驗收以該文件為準。
 - 日期／盤點基準：2026-09-07，`1f4470d`；Spec 0008 Ticket 81–90 已完成，保留已驗證的未提交工作樹。
 - 工作包 B00–B17 是本機規劃識別，不是 GitHub Issue，也不佔用既有 Ticket 92 之後的編號。
-- 執行狀態：B00–B02 `done`，見 [B00 驗證紀錄](base/b00/README.md)、[B01 紀錄](base/b01/README.md)；B02 已通過 [驗收對照](base/b02/acceptance.md)。[B03](base/b03/README.md) `in_progress`（transport、catalog artifact、CORS 與 test config 已實作；final gates／smokes／whole-B03 review pending），依 [B01–B04 派工契約](base/b00/next-work-cards.md) 執行。B04–B17 `planned`，依下列前置及契約審查解鎖。planned 不代表可直接丟給多位 writer 同時開工。
+- 執行狀態：B00–B02 `done`，見 [B00 驗證紀錄](base/b00/README.md)、[B01 紀錄](base/b01/README.md)；B02 已通過 [驗收對照](base/b02/acceptance.md)。[B03](base/b03/README.md) `in_progress`（transport、catalog artifact、CORS 與 test config 已實作；whole-B03 source review 已記錄通過；完整 integration／final-source smokes 與結案證據 pending），依 [B01–B04 派工契約](base/b00/next-work-cards.md) 執行。[B04](base/b04/README.md) `done`（五片實作與三份獨立 5b review 全部結案，P0／P1 皆已修並附量體證據；typecheck、unit、完整 integration 與 Docker／native smoke 實跑通過）。B05–B17 `planned`，依下列前置及契約審查解鎖。planned 不代表可直接丟給多位 writer 同時開工。
 
 ## 1. 接手與派工方式
 
 1. 讀 Spec 0009、本文件、適用規則、`git status` 及目前 HEAD；核對前置工作包交付證據。
-2. 依下方工作包只取一個可驗收切片；大工作包可拆子票，但每項 F 能力必須保留 owner，不因拆票漏掉完整目標。
+2. 每條已派工作線一次只取一個可驗收切片；跨 session 的啟動、ownership 與整合依 §3.1。大工作包可拆子票，但每項 F 能力必須保留 owner，不因拆票漏掉完整目標。
 3. 實作前把 interface、目標檔案、驗收、測試命令與移轉方式具體化為該次派工單；涉及選型的包先完成指定比較，主代理做決策。
 4. 每片先交付可運作的能力與呼叫端，再交接下一片；套件安裝、接口空殼或只有成功路徑不能單獨關閉工作包。
 5. 獨立審查、必要驗證完成後，才記錄完成狀態與下一個可執行前沿。待驗證環境明列，不能宣稱整體 base 完成。
 
-使用者已透過接手指示授權依序完成 B00–B17；B00 先做研究與隔離 PoC。commit、push、GitHub 建單／留言、
-merge、publish、部署與對外寄信仍按使用者授權執行。本計畫不重設既有 Spec 0008 的授權或進度。
+歷史接手指示曾授權原工作流程依序完成 B00–B17；目前各 session 的執行範圍以使用者對該 session 的任務指派為準，不能引用本段將本次文件工作擴大為實作。既有 B03 session 的授權與 Spec 0008 進度保留。commit、push、GitHub 建單／留言、merge、publish、部署與對外寄信仍按使用者授權執行。
 
 ## 2. 模型與單一 writer
 
@@ -28,7 +27,7 @@ merge、publish、部署與對外寄信仍按使用者授權執行。本計畫�
 | 高風險獨立審查 | reviewer，明確指定 Sol／high | 跨模組、公開契約、資料、權限、外部副作用、併發與最終整合 |
 
 高風險 implementation 留在主代理；如要交給 Sol／high worker，另需使用者明確授權，
-不能將高風險票默默降給 Terra。本次接手明確指定有界派工使用 Terra／high，取代上表的 scout／implementer 預設；Sol／high 風險分析與獨立審查保持不變。
+不能將高風險票默默降給 Terra。2026-09-09 效率調整取代先前有界派工一律 Terra／high 的覆蓋：後續派工依上表角色預設，日常實作使用 medium；具體難題才說明原因提高強度。既有 session 不會因此自動切換模型／強度；使用者對個別 session 的明確選擇仍優先。Sol／high 風險分析與獨立審查保持不變。
 
 同時最多四個 active agents，包含主代理。設計期可用「主代理＋architect＋scout」，
 實作期可用「主代理＋一個有界 implementer＋scout／另一個無重疊 implementer＋reviewer」。
@@ -37,7 +36,7 @@ merge、publish、部署與對外寄信仍按使用者授權執行。本計畫�
 共用接線檔由主代理單獨擁有：`kernel/{runtime,module,theme}.ts` 對應的實際 src 檔、
 `bundle/src/*`、`config/src/schema.ts`、`apps/api/src/app.module.ts`、
 `apps/admin/src/{App.tsx,api.ts,routes.tsx,main.tsx}`、根 `package.json`／lockfile／TS／build／CI 設定。
-子代理只回報所需接線 diff／依賴，經主代理整合；上述檔案及每個 migration history 同時只有一位 writer。
+其他 session／子代理只回報所需接線 diff／依賴，經整合 owner 寫入；上述檔案及每個 migration history 同時只有一位 writer。跨 session 時，本節的共用檔案主代理就是 Session A，各工作線主代理僅擁有派工單列出的局部實作。
 
 ## 3. 依賴圖與階段出口
 
@@ -75,6 +74,67 @@ merge、publish、部署與對外寄信仍按使用者授權執行。本計畫�
 可並行的例子：B02 後 B03／B04／B11 的分析與隔離測試；B03 後先做 B12，再由 B09 使用其簽章契約；
 有資源與檔案衝突時依序做，不用每個能力各開一個大 agent。B13 的 UI 不與 Spec 0008 同檔案修改並行。
 無 calendar deadline；B00 先根據選型與首個切片實測成本補估算，再按工作包追蹤，不以 agent 數量換算工期。
+
+### 3.1 多 session 派工（2026-09-08）
+
+採「Session A 整合 owner＋Session B Queue 線＋Session C 共用服務線」。本節取代全專案一次只能推進一個 implementation 切片的排程限制；每條線仍一次一片，前置依賴仍以 §3 表格為唯一來源。
+本次使用者要求先寫派工計畫；本文件交付不啟動新實作、建立 worktree 或授權 commit／merge 等操作。後續使用者指派 session 接手後，依以下 gate 執行。
+
+#### 目前前沿與啟動條件
+
+| Session | B03 結案前可派範圍 | B03 結案後的工作線 | 交付出口 |
+| --- | --- | --- | --- |
+| A：整合 owner，原 session | 完成既有 B03；依 [acceptance](base/b03/acceptance.md#待完成的最終-gates) 取得 final-source gates 與結案證據 | 持有共用接線、migration history、整合基準與重型驗證排程 | 每片整合後的 source identity、review、checks、下一個可執行前沿 |
+| B：Queue owner | 唯讀 B04 契約分析、呼叫端盤點與故障案例設計；交付給 A，不提前改 production 或跑重型測試 | B04；完成並整合驗收後接 B05 | 依 [B04 card](base/b00/next-work-cards.md#b04--同一-queue-完整可靠性) 交付完整可靠性與移轉證據，再承接 Scheduler |
+| C：共用服務 owner | 唯讀 B12 consumer／工具盤點與介面提案；交付給 A，不提前實作 | B12；完成並整合驗收後接 B09 | 共用工具含真實 consumer；其後 Storage 使用已驗收的簽章與時間契約 |
+
+B03 結案前維持既有收尾 ownership。雖然 B04 的 DAG 前置只有 B02，本輪排程仍將 B04 implementation 放在 B03 結案後，避免改動驗收基準。A 確認 B03 出口後，先完成 B、C 的具體派工單與 Sol/high 契約分析，再同時開啟兩條 implementation 線。
+
+B04 與 B09 等 B06 前置均完成後，由 A 指定一位空出的工作線 owner 接 B06。後續 B07／B08、B15／B16 可在 §3 前置全數成立且 ownership 分開後並行；B13 → B10 → B14 保持既定順序。B11 排入空出的工作線，在 B15／B16 需要它之前完成，不為它常駐第四條 implementation 線。這是優先順序，不增加或刪除 DAG 依賴。
+
+#### 實作邊界與契約
+
+| Owner | 可寫範圍 | 交由 A 整合的需求 |
+| --- | --- | --- |
+| B | B04 card 中 jobs、outbox、kernel worker／job-registry／event-delivery／ops-module、Extension job facade 及專屬 regression tests；實際檔案在每片派工單列明 | module／runtime／bundle 註冊、config、根設定、migration SQL／id／順序與 history 的提案 |
+| C | B12 的共用工具實作與指定 consumer／tests；B09 接手後為 storage adapters 與指定 HTTP routes／tests。新檔與 consumer 清單先由 A 確認 | 安全 transport 共用層、release 註冊、config、根設定、migration 提案；Admin 共用入口仍由 A 持有 |
+| A | §2 共用檔案、migration history、跨線契約、整合與 gate 文件 | 對每項需求指定整合基準並回覆 consumer 可用版本 |
+
+上表 B／C 的高風險範圍是待指派的實作 ownership。使用者明確指派獨立 session 接手該高風險範圍後，才由該 session 主代理保留其模型執行；不能只把子代理改稱「主代理」而轉交。若 A 使用子代理承接高風險 implementation，仍須已有使用者對 Sol/high worker 的明確授權並指定 Sol/high；未取得此授權時，高風險核心留在 A，B／C 僅做分析或已定義的低風險切片。已存在且涵蓋該範圍的授權無須重問。跨線契約由 A 決策，先取 Sol/high 分析，整合後由未參與實作的 Sol/high reviewer 審查。各 session 的子代理共用該線 ownership；協調總負載，不以另開 session 規避工具的 active-agent 上限。
+
+開工前在派工單固定以下契約與對應測試；若需改動，先讓 A 更新受影響 consumer 與整合順序，再繼續依賴它的實作：
+
+- B03 的 transport／auth／error 宣告與 B01／B02 的 capability、release registration 邊界沿用已驗收版本。
+- B04 固定 job／subscriber／dedupe identity、payload version、occurrence／claim token、AbortSignal／clock、重送及外部副作用語意。B04 不暗中依賴尚未完成的 B12 工具；必要新依賴先回報 A。
+- B12 固定 sign／verify／rotation、expiry／日期序列化、受信任目的地／redirect／redaction 與公開 import 入口。B09 必須等完整 B12 整合驗收，再從該基準開始；介面凍結本身不取代前置工作包完成。
+- migration SQL 由工作線提出，A 統一寫入與分配 id／順序；每個 migration history 保持一位 writer。共用檔案需求以精確 diff 或接線清單交接，不讓各線各自修改後再猜測衝突語意。
+
+#### Worktree、驗證與交接
+
+1. **固定基準。** A 記錄已驗收的起始 commit；若尚無已授權 commit，A 從固定 source 產出相對指定 HEAD 的 binary patch、必要未追蹤原始檔清單／副本及內容 hash；新 worktree 從該 HEAD 建立，先檢查並套用 patch、補入清單檔案，再逐檔比對 hash。來源含秘密或既有資料／release 產物時不納入複製。比對通過前不開始 focused 工作。現有未提交修改由原 owner 保留；建立 worktree 後比對實際 source，不假設未提交檔案或 ignored 設定已帶入。每條線使用不同 worktree／branch，依專案既有命令建立自己的依賴環境。
+2. **明確派工。** A 發出下方格式的派工單，填妥局部檔案、consumer、契約、測試與資源。僅接到分析任務的 session 保持唯讀；前置或 ownership 未齊的工作回報 blocker，轉做不依賴它的已授權範圍。
+3. **分開資源。** 各線使用自己的測試 DB／schema、暫存路徑、port、Docker project／image tag 及 build／release 輸出。使用 smoke scripts 的隔離參數並核對實際值；不沿用商家 DB、既有 release 或其他 session 的資源。固定 `/tmp` 日誌檔名也須避開跨線覆寫。
+4. **分層驗證。** 各線完成 focused tests 與適用 typecheck／unit checks。A 排程完整 integration、Docker／native build／smoke，同一主機一次一組重型 gate；Vitest 的 `fileParallelism: false` 不會協調多個程序。驗證期間固定 source，記錄命令、exit code、日誌及 source identity。
+5. **逐片整合。** 線內交付後，A 在獲授權的整合方式下接入共用檔案，完成 §6 與各包要求的 checks、獨立 review 和修正。分支 focused PASS 不等於整合 PASS。B12 整合驗收後才交基準給 B09；B04 整合驗收後才交給 B05。若兩線碰到同一檔案或契約，A 先指定順序，受影響切片等待新基準。
+6. **結案與回復。** A 更新工作包證據與下一片派工單。gate failure 由所屬線修正，再針對 source delta 重驗；尚未整合的變更可保留在原 worktree。已套用 migration 或產生外部副作用時，依該包資料版本／stop-drain／snapshot／對帳流程處理，不能把 git revert 當作資料回復。
+
+#### 每片派工單格式
+
+```text
+Session／工作包／切片：
+模式：唯讀分析或實作；本次目標與完成條件：
+起始 commit 或 source snapshot／diff hash：
+已完成前置與證據連結：
+主代理 owner／worktree／branch：
+可寫檔案、新檔與 consumer：
+引用的已定契約、所需共用接線與 migration 提案：
+focused tests／必要整合 gates／測試資源／執行時段：
+獨立 reviewer 與結果：
+交付 source identity／passed、failed、not-run checks／風險與回復：
+交回 A 的事項與下一個可執行切片：
+```
+
+本輪文件變更理由是讓獨立工作線能並行，同時保留單一接線 owner 與前置 gates；驗證包含依賴表未變、文件連結、diff 與獨立審查。若協調成本過高，由 A 將下一片改排序列執行，保留各線成果與原前置／驗收要求。
 
 ## 4. 工作包派工卡
 
@@ -229,13 +289,7 @@ B00–B12 的後端工作不必等完整 Admin UI 才能開始，但避開 Admin
 每次交付記錄：工作包／切片、HEAD、owner 與檔案、實際選用版本、完成的 F 項、
 passed／failed／not-run checks、審查與修正、migration／rollback 結果、剩餘 blocker、下一個可派工包。
 
-可直接用的派工指令：
-
-> 請讀 `docs/specs/0009-complete-modular-base.md` 與 `docs/base-implementation-plan.md`，
-> 接手 B00。先核對 git status／HEAD 與 Ticket 81 現況，完成隔離的 Queue 選型驗證與
-> B01–B04 契約／子票，附可重跑證據並安排 Sol／high 獨立審查。
-> 此任務只做 B00，不改 production runtime、不安裝 production dependency、不 commit／push／發布工單。
-> 你不是唯一工作者；保留現有修改，超出指定 ownership 的需求回報主代理整合。
+跨 session 接手時，使用 §3.1 的派工單格式，先指定 A／B／C 與分析或實作模式；目前入口是 B03 收尾與 B04／B12 的唯讀準備，不再使用歷史 B00 接手指令。
 
 ## 7. 本輪規劃交付紀錄（2026-09-06）
 

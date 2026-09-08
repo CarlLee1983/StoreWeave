@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { Pool } from 'pg';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { expect, it, vi } from 'vitest';
-import { baselineMigrations, runMigrations, catalogDigest } from '@storeweave/db';
+import { baselineMigrations, runMigrations, catalogDigest, legacyBaselineSelection } from '@storeweave/db';
 import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
 import { release } from '../../packages/platform/bundle/src/releases/commerce';
 import { verifyLegacySafetyDatabase, verifyLegacyRestoredDatabase } from '../../tools/cli/src/verify-restored-database';
@@ -23,8 +23,9 @@ it('publishes a native B01 safety dump without baseline DDL and preserves raw hi
   writeFileSync(configPath, JSON.stringify({ version: 1, store: { id: 'legacy-test', name: 'Legacy test' }, database: { url: container.getConnectionUri() }, extensions: [] }));
   const { runtime } = await bootstrapRelease(release, { configPath, loggerName: 'legacy-test', logDestination: 'stderr' });
   try {
-    // Execute all 49 real SQL steps, then retain the historical three-column ledger shape.
-    await runMigrations(pool, runtime.migrations);
+    // Execute the pinned B01 catalog, then retain the historical three-column ledger shape.
+    const legacySource = legacyBaselineSelection(baseline, runtime.migrations);
+    await runMigrations(pool, legacySource.migrations);
     const columns = await pool.query<{ column_name: string }>("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='platform_migrations'");
     for (const { column_name } of columns.rows) if (!['id', 'phase', 'applied_at'].includes(column_name)) {
       await pool.query(`ALTER TABLE public.platform_migrations DROP COLUMN "${column_name.replaceAll('"', '""')}"`);

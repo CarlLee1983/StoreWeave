@@ -4,6 +4,7 @@ import type { BaseConfig } from '@storeweave/config';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
 import { JobQueue } from '@storeweave/jobs';
 import { EventBus } from '@storeweave/event-bus';
+import { OutboxStore } from '@storeweave/outbox';
 import { composeRuntimeModules, projectModulePins, projectExtensionPin, type PlatformModule } from '@storeweave/kernel';
 import type { ReleaseDefinition, ReleaseBuildManifest, BuildModuleManifest, BuildExtensionManifest } from './release';
 
@@ -24,7 +25,7 @@ export function projectReleaseManifest<C extends BaseConfig>(
 ): ReleaseBuildManifest {
   const modules = projectModules(composeRuntimeModules({
     modules: releaseModules, roles: release.roles, platformVersion: release.baseVersion,
-    jobs: new JobQueue(), events: new EventBus(), logger: noopLogger,
+    jobs: new JobQueue(), events: new EventBus(), outbox: new OutboxStore(), logger: noopLogger,
   }));
   const availableExtensions = Object.entries(release.availableExtensions).map(([id, definition]): BuildExtensionManifest => {
     if (id !== definition.manifest.id) throw new Error(`Extension catalog key does not match manifest id: ${id}`);

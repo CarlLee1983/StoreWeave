@@ -33,6 +33,10 @@ describe('release build manifest', () => {
     }, setup });
     const manifest = buildReleaseManifest({ ...base, availableExtensions: { 'manifest-probe': extension } });
     expect(manifest.modules.map(module => module.id)).toEqual(['platform', 'platform-identity', 'platform-ops']);
+    expect(manifest.modules.find(module => module.id === 'platform')?.dataRelations)
+      .toContain('platform_job_quarantine');
+    expect(manifest.modules.find(module => module.id === 'platform')?.dataRelations)
+      .toContain('platform_outbox_quarantine');
     expect(manifest.modules.find(module => module.id === 'platform-ops')?.migrations).toEqual([]);
     expect(manifest.availableExtensions[0]?.work.jobTypes).toEqual(['ext.manifest-probe.run']);
     expect(manifest.availableExtensions[0]).not.toHaveProperty('enabled');

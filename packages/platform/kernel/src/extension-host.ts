@@ -187,16 +187,23 @@ export class ExtensionHost {
       }
       for (const job of registration.jobs ?? []) {
         this.deps.jobRegistry.register(job.type, async (payload, jobCtx) => {
-          await job.handler(payload, { ...context, attempt: jobCtx.attempt, jobId: jobCtx.jobId });
-        }, manifest.id);
+          await job.handler(payload, {
+            ...context,
+            attempt: jobCtx.attempt,
+            jobId: jobCtx.jobId,
+            occurrenceId: jobCtx.occurrenceId,
+            idempotencyKey: jobCtx.idempotencyKey,
+            signal: jobCtx.signal,
+          });
+        }, manifest.id, job.jobContractV1);
       }
       for (const sub of registration.events ?? []) {
         this.deps.eventBus.subscribe({
           subscriberId: manifest.id,
           eventName: sub.event,
           maxAttempts: sub.maxAttempts,
-          handler: async (event) => {
-            await sub.handler(event, context);
+        handler: async (event, eventCtx) => {
+            await sub.handler(event, { ...context, eventId: eventCtx.eventId, idempotencyKey: eventCtx.idempotencyKey });
           },
         });
       }

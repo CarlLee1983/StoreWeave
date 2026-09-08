@@ -4,6 +4,15 @@ import type { ExtensionContext, ExtensionEventHandler, ExtensionJobHandler } fro
 import type { AnyProvider } from './providers';
 import type { McpToolDefinition } from './mcp';
 import { validateManifestShape, type ExtensionManifest } from './manifest';
+import type { z } from 'zod';
+
+/** Additive B04 metadata. Legacy extensions may mount, but fenced-dispatch cutover names them and blocks. */
+export interface ExtensionJobContractV1 {
+  readonly currentVersion: number;
+  readonly versions: Readonly<Record<number, z.ZodType<unknown>>>;
+  readonly upgrades?: Readonly<Record<number, (payload: unknown) => unknown>>;
+  readonly execution?: { readonly timeoutMs?: number; readonly concurrencyKey?: string; readonly concurrencyLimit?: number };
+}
 
 /**
  * Extension 的 handler 收到的是 ExtensionContext，不是 CommandContext ——
@@ -34,6 +43,8 @@ export interface ExtensionEventRegistration {
 export interface ExtensionJobRegistration {
   type: string;
   handler: ExtensionJobHandler;
+  /** Required for B04 fenced payload dispatch; absent legacy registrations receive a cutover diagnostic. */
+  jobContractV1?: ExtensionJobContractV1;
 }
 
 /** Extension `setup()` 的回傳值 —— 全部都是宣告，實際掛載由 Kernel 執行。 */

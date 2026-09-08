@@ -4,7 +4,7 @@ import { createDemoErpProvider } from './erp-client';
 import {
   createInspectDeliveryPayloadHandler, createListDeliveriesHandler, createOrderPaidHandler,
   createPushOrderJob, createResendHandler, inspectDeliveryPayloadQuery, listDeliveriesQuery,
-  resendOrderCommand,
+  resendOrderCommand, pushJobPayload,
 } from './handlers';
 import type { DeliveryRecord } from './state';
 
@@ -32,7 +32,7 @@ export const demoErpExtension = defineExtension<DemoErpConfig>({
     return {
       providers: [createDemoErpProvider(ctx)],
       events: [{ event: 'commerce.order.paid.v2', handler: createOrderPaidHandler(), maxAttempts: 8 }],
-      jobs: [{ type: PUSH_ORDER_JOB, handler: createPushOrderJob() }],
+      jobs: [{ type: PUSH_ORDER_JOB, handler: createPushOrderJob(), jobContractV1: { currentVersion: 1, versions: { 1: pushJobPayload } } }],
       commands: [{ descriptor: resendOrderCommand, handler: createResendHandler() }],
       queries: [
         { descriptor: listDeliveriesQuery, handler: createListDeliveriesHandler() },

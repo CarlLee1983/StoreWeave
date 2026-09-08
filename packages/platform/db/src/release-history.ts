@@ -37,6 +37,16 @@ export interface PreparedRelease {
   readonly appliedMigrations: readonly string[];
 }
 
+/** A persisted effective-release row must be self-authenticating before use. */
+export interface EffectiveReleaseHistoryRecord {
+  readonly effective_manifest: unknown;
+  readonly effective_manifest_checksum: string;
+  readonly release_id: string;
+  readonly release_version: string;
+  readonly base_version: string;
+  readonly build_manifest_checksum: string;
+}
+
 export interface ReleaseSnapshot {
   readonly snapshotId: string;
   readonly database: { name: string; oid: string; systemIdentifier: string; serverVersion: string; properties: {
@@ -222,17 +232,26 @@ function validateOwners(owners: readonly ReleaseOwnerPin[]): void {
 }
 
 async function latestRelease(client: PoolClient) {
-  const result = await client.query<{ sequence: string; effective_manifest: unknown; effective_manifest_checksum: string;
-    release_id: string; release_version: string; base_version: string; build_manifest_checksum: string }>(
+  const result = await client.query<EffectiveReleaseHistoryRecord & { sequence: string }>(
     'SELECT * FROM public.platform_release_history ORDER BY sequence DESC LIMIT 1');
   const row = result.rows[0];
   if (!row) return null;
+  const manifest = validateEffectiveReleaseHistoryRecord(row);
+  return { sequence: row.sequence, manifest, checksum: row.effective_manifest_checksum };
+}
+
+/**
+ * Shared trust boundary for consumers of stored effective release history.
+ * It deliberately validates the complete manifest, its digest, metadata, and
+ * ownership rather than accepting a convenient JSON projection.
+ */
+export function validateEffectiveReleaseHistoryRecord(row: EffectiveReleaseHistoryRecord): EffectiveReleaseManifest {
   const manifest = effectiveSchema.parse(row.effective_manifest);
   if (catalogDigest(manifest) !== row.effective_manifest_checksum || manifest.releaseId !== row.release_id
     || manifest.releaseVersion !== row.release_version || manifest.baseVersion !== row.base_version
     || manifest.buildManifestChecksum !== row.build_manifest_checksum) throw new Error('Release history metadata drift');
   validateOwners(manifest.owners.map(entry => entry.owner));
-  return { sequence: row.sequence, manifest, checksum: row.effective_manifest_checksum };
+  return manifest;
 }
 
 function desiredManifest(selection: ReleaseSelection, previous: EffectiveReleaseManifest | undefined): EffectiveReleaseManifest {

@@ -3,11 +3,11 @@ import { PermanentJobError, type JobHandler } from '@storeweave/jobs';
 import type { InvoiceProvider, ProviderRegistry } from '@storeweave/extension-sdk';
 import type { InvoiceDto } from './dto';
 
-const payload = z.object({ invoiceId: z.string().uuid() });
+export const invoiceJobPayload = z.object({ invoiceId: z.string().uuid() }).strict();
 
 export function createIssueInvoiceJob(providers: ProviderRegistry): JobHandler {
   return async (raw, ctx) => {
-    const { invoiceId } = payload.parse(raw);
+    const { invoiceId } = invoiceJobPayload.parse(raw);
     if (!ctx.executeQuery || !ctx.executeCommand) throw new PermanentJobError('Invoice issue job lacks core bus access');
     const invoice = await ctx.executeQuery('commerce.invoice.get', { id: invoiceId }) as InvoiceDto;
     if (invoice.status === 'issued' || invoice.status === 'void_pending' || invoice.status === 'voided') return;
@@ -30,7 +30,7 @@ export function createIssueInvoiceJob(providers: ProviderRegistry): JobHandler {
 
 export function createVoidInvoiceJob(providers: ProviderRegistry): JobHandler {
   return async (raw, ctx) => {
-    const { invoiceId } = payload.parse(raw);
+    const { invoiceId } = invoiceJobPayload.parse(raw);
     if (!ctx.executeQuery || !ctx.executeCommand) throw new PermanentJobError('Invoice void job lacks core bus access');
     const invoice = await ctx.executeQuery('commerce.invoice.get', { id: invoiceId }) as InvoiceDto;
     if (invoice.status === 'voided') return;

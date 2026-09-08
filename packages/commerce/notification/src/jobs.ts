@@ -3,7 +3,7 @@ import { PermanentJobError, type JobHandler } from '@storeweave/jobs';
 import type { NotificationProvider, ProviderRegistry } from '@storeweave/extension-sdk';
 import type { LifecycleDeliveryDto } from './dto';
 
-const payload = z.object({ deliveryId: z.string().uuid() });
+export const lifecycleNotificationJobPayload = z.object({ deliveryId: z.string().uuid() }).strict();
 /**
  * This handler is invoked by Worker after it has claimed the job.  Worker
  * deliberately runs handlers outside a database transaction, so provider I/O
@@ -11,7 +11,7 @@ const payload = z.object({ deliveryId: z.string().uuid() });
  */
 export function createLifecycleNotificationJob(providers: ProviderRegistry): JobHandler {
   return async (raw, ctx) => {
-    const { deliveryId } = payload.parse(raw);
+    const { deliveryId } = lifecycleNotificationJobPayload.parse(raw);
     if (!ctx.executeQuery || !ctx.executeCommand) throw new PermanentJobError('Lifecycle notification job lacks core bus access');
     const delivery = await ctx.executeQuery('commerce.notification.getLifecycleDelivery', { id: deliveryId }) as LifecycleDeliveryDto;
     // A previous attempt may have succeeded just before its worker crashed.

@@ -100,5 +100,111 @@ CREATE TABLE IF NOT EXISTS platform_worker_heartbeat (
 );
 `,
     ),
+    sqlMigration(
+      '0003_job_occurrence_fencing',
+      'expand',
+      `
+ALTER TABLE public.platform_jobs
+  ADD COLUMN IF NOT EXISTS occurrence_id uuid DEFAULT md5(random()::text || clock_timestamp()::text)::uuid,
+  ADD COLUMN IF NOT EXISTS claim_token uuid,
+  ADD COLUMN IF NOT EXISTS lease_expires_at timestamptz,
+  ADD COLUMN IF NOT EXISTS payload_version integer NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS deferred_type text,
+  ADD COLUMN IF NOT EXISTS deferred_payload jsonb,
+  ADD COLUMN IF NOT EXISTS deferred_payload_version integer,
+  ADD COLUMN IF NOT EXISTS deferred_run_at timestamptz,
+  ADD COLUMN IF NOT EXISTS deferred_max_attempts integer,
+  ADD COLUMN IF NOT EXISTS deferred_at timestamptz,
+  ADD COLUMN IF NOT EXISTS cancel_requested_at timestamptz,
+  ADD COLUMN IF NOT EXISTS cancelled_at timestamptz;
+UPDATE public.platform_jobs SET occurrence_id = id WHERE occurrence_id IS NULL;
+ALTER TABLE public.platform_jobs ALTER COLUMN occurrence_id SET NOT NULL;
+UPDATE public.platform_jobs
+SET lease_expires_at = locked_at
+WHERE status = 'running' AND claim_token IS NULL
+  AND lease_expires_at IS NULL AND locked_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS platform_jobs_lease_idx
+  ON public.platform_jobs (lease_expires_at) WHERE status = 'running';
+      `,
+    ),
+    sqlMigration(
+      '0004_job_payload_quarantine',
+      'expand',
+      `
+CREATE TABLE IF NOT EXISTS public.platform_job_quarantine (
+  id              uuid PRIMARY KEY DEFAULT md5(random()::text || clock_timestamp()::text)::uuid,
+  job_id          uuid NOT NULL,
+  occurrence_id   uuid NOT NULL,
+  type            text NOT NULL,
+  payload         jsonb NOT NULL,
+  payload_version integer NOT NULL,
+  reason          text NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS platform_job_quarantine_occurrence_idx
+  ON public.platform_job_quarantine (job_id, occurrence_id);
+      `,
+    ),
+    sqlMigration(
+      '0005_outbox_subscriber_snapshot_quarantine',
+      'expand',
+      `
+ALTER TABLE public.platform_outbox ADD COLUMN IF NOT EXISTS subscriber_ids jsonb;
+CREATE TABLE IF NOT EXISTS public.platform_outbox_quarantine (
+  id              uuid PRIMARY KEY DEFAULT md5(random()::text || clock_timestamp()::text)::uuid,
+  outbox_id       uuid NOT NULL UNIQUE,
+  event_name      text NOT NULL,
+  event_version   integer NOT NULL,
+  payload         jsonb NOT NULL,
+  subscriber_ids  jsonb,
+  reason          text NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.platform_outbox_quarantine_audit (
+  id              uuid PRIMARY KEY DEFAULT md5(random()::text || clock_timestamp()::text)::uuid,
+  outbox_id       uuid NOT NULL REFERENCES public.platform_outbox(id),
+  action          text NOT NULL,
+  subscriber_ids  jsonb,
+  evidence        text NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS platform_outbox_quarantine_audit_outbox_idx
+  ON public.platform_outbox_quarantine_audit (outbox_id, created_at);
+      `,
+    ),
+    sqlMigration(
+      '0006_job_retention_dedupe_horizon',
+      'expand',
+      `
+ALTER TABLE public.platform_jobs
+  ADD COLUMN IF NOT EXISTS retain_until timestamptz,
+  ADD COLUMN IF NOT EXISTS dedupe_until timestamptz;
+ALTER TABLE public.platform_jobs ALTER COLUMN payload DROP NOT NULL;
+UPDATE public.platform_jobs
+SET retain_until = COALESCE(completed_at, cancelled_at, updated_at) + interval '7 days',
+    dedupe_until = COALESCE(completed_at, cancelled_at, updated_at) + interval '30 days'
+WHERE status IN ('completed', 'cancelled')
+  AND (retain_until IS NULL OR dedupe_until IS NULL);
+CREATE INDEX IF NOT EXISTS platform_jobs_retention_idx
+  ON public.platform_jobs (retain_until) WHERE status IN ('completed', 'cancelled');
+CREATE INDEX IF NOT EXISTS platform_jobs_dedupe_retained_idx
+  ON public.platform_jobs (dedupe_until) WHERE status = 'dedupe_retained';
+      `,
+    ),
+    sqlMigration(
+      '0007_ops_listing_indexes',
+      'expand',
+      `
+CREATE INDEX IF NOT EXISTS platform_outbox_failure_idx
+  ON public.platform_outbox (occurred_at DESC, id DESC) WHERE status IN ('dead', 'quarantined');
+CREATE INDEX IF NOT EXISTS platform_jobs_delivery_quarantine_idx
+  ON public.platform_jobs (dedupe_key)
+  WHERE status = 'quarantined' AND type = 'platform.event.deliver';
+CREATE INDEX IF NOT EXISTS platform_jobs_quarantined_idx
+  ON public.platform_jobs (type, id) WHERE status = 'quarantined';
+CREATE INDEX IF NOT EXISTS platform_jobs_dead_idx
+  ON public.platform_jobs (updated_at DESC, id) WHERE status = 'dead';
+      `,
+    ),
   ],
 };

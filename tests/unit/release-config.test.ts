@@ -34,6 +34,15 @@ describe('release configuration', () => {
     expect(baseConfigSchema.safeParse({ ...base, unexpected: true }).success).toBe(false);
   });
 
+  it('rejects a dedupe horizon shorter than either terminal payload retention period before runtime startup', () => {
+    expect(baseConfigSchema.safeParse({ ...base, worker: {
+      completedPayloadRetentionDays: 8, cancelledPayloadRetentionDays: 7, dedupeHorizonDays: 7,
+    } }).success).toBe(false);
+    expect(baseConfigSchema.parse(base).worker).toMatchObject({
+      completedPayloadRetentionDays: 7, cancelledPayloadRetentionDays: 7, dedupeHorizonDays: 30,
+    });
+  });
+
   it('preserves Commerce v1 defaults and static-token restrictions', () => {
     const config = commerceConfigSchema.parse(base);
     expect(config.store.currency).toBe('TWD');

@@ -4,7 +4,7 @@ import { orderMigrations } from './migrations';
 import { orderEvents } from './events';
 import {
   cancelOrderCommand, checkoutCartCommand, createCancelOrderHandler, createCheckoutCartHandler, createExpireOrderHandler, createExpireReservationJob, createPayOrderHandler, createPlaceOrderHandler, createProcessPaymentJob, createRecordPaymentResultHandler,
-  expireOrderCommand, payOrderCommand, placeOrderCommand, recordPaymentResultCommand, EXPIRE_ORDER_JOB, PROCESS_PAYMENT_JOB, type OrderModuleDeps,
+  expireOrderCommand, payOrderCommand, placeOrderCommand, recordPaymentResultCommand, EXPIRE_ORDER_JOB, PROCESS_PAYMENT_JOB, expireOrderJobPayload, processPaymentJobPayload, type OrderModuleDeps,
 } from './commands';
 import {
   getOrderHandler, getOrderQuery, listOrdersHandler, listOrdersQuery,
@@ -48,8 +48,8 @@ export function createOrderModule(deps: OrderModuleDeps): PlatformModule {
       { descriptor: cancelOrderCommand, handler: createCancelOrderHandler(deps) },
     ],
     jobs: [
-      { type: PROCESS_PAYMENT_JOB, handler: createProcessPaymentJob(deps) },
-      { type: EXPIRE_ORDER_JOB, handler: createExpireReservationJob() },
+      { type: PROCESS_PAYMENT_JOB, handler: createProcessPaymentJob(deps), jobContractV1: { currentVersion: 1, versions: { 1: processPaymentJobPayload } } },
+      { type: EXPIRE_ORDER_JOB, handler: createExpireReservationJob(), jobContractV1: { currentVersion: 1, versions: { 1: expireOrderJobPayload } } },
     ],
     queries: [
       { descriptor: getOrderQuery, handler: getOrderHandler },

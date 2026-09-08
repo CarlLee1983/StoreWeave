@@ -15,6 +15,9 @@ import { createPairedSnapshot } from '../../tools/cli/src/release-snapshot';
 import { validateLegacyB01Directory, validateReleaseDirectory } from '../../tools/cli/src/release-validation';
 import { writeNativeRelease } from './fixtures/native-release';
 
+// 這支測試會實際 spawn release runtime 的 node 子程序，預設 5s 不足以涵蓋機器負載。
+vi.setConfig({ testTimeout: 30_000 });
+
 vi.mock('node:fs', async importOriginal => {
   const actual = await importOriginal<typeof import('node:fs')>();
   return { ...actual, cpSync: vi.fn(actual.cpSync) };

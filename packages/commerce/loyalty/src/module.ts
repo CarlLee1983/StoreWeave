@@ -1,4 +1,5 @@
 import packageJson from '../package.json';
+import { z } from 'zod';
 import { defineModule, type PlatformModule } from '@storeweave/kernel';
 import {
   adjustRewardsCommand, adjustRewardsHandler,
@@ -51,12 +52,14 @@ export function createLoyaltyModule(deps: LoyaltyModuleDeps): PlatformModule {
     {
       type: RECALCULATE_TIERS_JOB,
       handler: createRecalculateTiersJob(),
+      jobContractV1: { currentVersion: 1, versions: { 1: z.object({ bucket: z.number().int(), scheduledFor: z.string().datetime() }).strict() } },
       // 一天一次。等級是帳本的推導值，快取晚幾小時更新不影響正確性。
       schedule: { everyMs: 24 * 60 * 60 * 1000 },
     },
     {
       type: NOTIFY_EXPIRING_REWARDS_JOB,
       handler: createNotifyExpiringRewardsJob(),
+      jobContractV1: { currentVersion: 1, versions: { 1: z.object({ bucket: z.number().int(), scheduledFor: z.string().datetime() }).strict() } },
       schedule: { everyMs: 24 * 60 * 60 * 1000 },
     },
   ],

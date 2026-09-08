@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PermanentJobError } from '@storeweave/jobs';
+import { z } from 'zod';
 import { ADMIN_ACTOR, actorWith, createHarness, type TestHarness } from './helpers';
 
 const ALWAYS_FAILS = 'test.always-fails';
@@ -17,6 +18,7 @@ beforeAll(async () => {
       throw new PermanentJobError('ERP 端沒有這張單');
     },
     'test',
+    { currentVersion: 1, versions: { 1: z.object({ dedupeKey: z.string() }).strict() } },
   );
 }, 300_000);
 
@@ -83,7 +85,9 @@ describe('死信佇列（DLQ）', () => {
 
   it('已完成的工作不能用死信重送（否則會再產生一次外部副作用）', async () => {
     const dedupeKey = `ok-${randomUUID()}`;
-    h.runtime.jobRegistry.register(SUCCEEDS, async () => {}, 'test');
+    h.runtime.jobRegistry.register(SUCCEEDS, async () => {}, 'test', {
+      currentVersion: 1, versions: { 1: z.object({}).strict() },
+    });
     const { id } = await h.runtime.database.transaction((tx) =>
       h.runtime.jobs.enqueue(tx, { type: SUCCEEDS, payload: {}, dedupeKey }),
     );
@@ -93,7 +97,33 @@ describe('死信佇列（DLQ）', () => {
       h.runtime.commands.execute('platform.jobs.retryJob', { jobId: id }, {
         actor: ADMIN_ACTOR, idempotencyKey: randomUUID(),
       }),
-    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+  });
+
+  it('重送必須帶 idempotency key，重放同一把 key 不會再跑一次', async () => {
+    const id = await deadJob();
+    await expect(
+      h.runtime.commands.execute('platform.jobs.retryJob', { jobId: id }, { actor: ADMIN_ACTOR }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', message: expect.stringContaining('idempotency') });
+
+    const idempotencyKey = randomUUID();
+    const first = await h.runtime.commands.execute('platform.jobs.retryJob', { jobId: id }, { actor: ADMIN_ACTOR, idempotencyKey });
+    // 第二次若真的重跑 handler，狀態已不是 dead，會是 CONFLICT 而不是回放同一個結果。
+    const second = await h.runtime.commands.execute('platform.jobs.retryJob', { jobId: id }, { actor: ADMIN_ACTOR, idempotencyKey });
+    expect(second).toEqual(first);
+    expect((await h.runtime.database.db.execute<{ count: string }>(sql`
+      SELECT count(*)::text AS count FROM platform_audit_log WHERE action = 'jobs.retried' AND resource_id = ${id}
+    `)).rows).toEqual([{ count: '1' }]);
+  });
+
+  it('quarantine 與 outbox 的重送同樣強制 idempotency key', async () => {
+    for (const [command, input] of [
+      ['platform.jobs.redriveQuarantinedJob', { jobId: randomUUID() }],
+      ['platform.outbox.redriveFailure', { outboxId: randomUUID(), subscriberIds: ['a'], evidence: 'x' }],
+    ] as const) {
+      await expect(h.runtime.commands.execute(command, input, { actor: ADMIN_ACTOR }))
+        .rejects.toMatchObject({ code: 'VALIDATION_ERROR', message: expect.stringContaining('idempotency') });
+    }
   });
 
   it('沒有 jobs:write 權限就不能重送', async () => {

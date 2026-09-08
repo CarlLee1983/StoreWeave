@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { afterEach, describe, expect, it } from 'vitest';
-import { baselineMigrations, catalogDigest, migrationCatalog, platformMigrations, prepareRelease, recordEffectiveRelease as finalizeRelease, releaseMigrationStatus, runMigrations, sqlMigration,
+import { baselineMigrations, catalogDigest, legacyBaselineSelection, migrationCatalog, platformMigrations, prepareRelease, recordEffectiveRelease as finalizeRelease, releaseMigrationStatus, runMigrations, sqlMigration,
   type EffectiveReleaseManifest, type PreparedRelease, type MigrationSet, type ModulePin, type ReleaseOwnerPin, type ReleaseSelection } from '@storeweave/db';
 import { identityMigrations } from '@storeweave/identity';
 import { buildReleaseManifest } from '../../packages/platform/bundle/src/release-manifest';
@@ -117,12 +117,15 @@ describe('release transitions', () => {
     expect((await pool.query('SELECT id, version FROM platform_extension_registry')).rows).toEqual([{ id: extension.id, version: extension.version }]);
   });
 
-  it('adopts the full pinned Commerce legacy state before a SQL-free Base transition', async () => {
+  it('adopts the full pinned Commerce legacy state before forward Base migrations', async () => {
     const pool = await database();
     const modules = commerce.createModules({ config: commerce.config.schema.parse(commerce.manifestConfig), providers: new ProviderRegistry() });
     const sets = [...baseSets, ...modules.flatMap(module => module.migrations ? [module.migrations] : [])];
+    const legacySource = legacyBaselineSelection(legacyCommerce, sets);
     await pool.query('CREATE TABLE platform_migrations(id text PRIMARY KEY, phase text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())');
-    for (const migration of migrationCatalog(sets)) {
+    // Create the fixed pre-B02 source fixture, never an unpinned slice of the
+    // current catalog (which legitimately contains later B04 migrations).
+    for (const migration of migrationCatalog(legacySource.migrations)) {
       await pool.query(migration.up);
       await pool.query('INSERT INTO platform_migrations(id, phase) VALUES ($1,$2)', [migration.id, migration.phase]);
     }
@@ -135,7 +138,13 @@ describe('release transitions', () => {
     expect((await pool.query('SELECT count(*)::int AS count FROM platform_migrations WHERE module_id IS NOT NULL')).rows).toEqual([{ count: 49 }]);
     await expect(baselineMigrations(pool, sets, legacyCommerce, 'repeat')).resolves.toMatchObject({ baselineId: null, adopted: [] });
     const prepared = await prepareRelease(pool, { ...selection(), releaseId: 'base', releaseVersion: '0.1.0' }, baseSets, 'apply');
-    expect(prepared.appliedMigrations).toEqual([]);
+    expect(prepared.appliedMigrations).toEqual([
+      'platform/0003_job_occurrence_fencing',
+      'platform/0004_job_payload_quarantine',
+      'platform/0005_outbox_subscriber_snapshot_quarantine',
+      'platform/0006_job_retention_dedupe_horizon',
+      'platform/0007_ops_listing_indexes',
+    ]);
     expect(prepared.manifest.owners.filter(entry => entry.state === 'active')).toHaveLength(3);
     expect(prepared.manifest.owners.filter(entry => entry.state === 'disabled')).toHaveLength(22);
     expect(JSON.stringify(prepared.manifest)).not.toContain('CREATE TABLE');

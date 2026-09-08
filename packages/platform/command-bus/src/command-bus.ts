@@ -169,6 +169,7 @@ export class CommandBus {
             actorId: options.actor.id,
             correlationId,
             occurredAt: now,
+            subscriberIds: this.deps.events.subscribersFor(descriptorForEvent.name).map(sub => sub.subscriberId),
           });
         },
         audit: async (entry) => {

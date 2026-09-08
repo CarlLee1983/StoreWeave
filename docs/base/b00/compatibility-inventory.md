@@ -138,7 +138,7 @@ There are **148 decorator-defined verb/path pairs**, plus two Fastify static rou
 | `/api/v1/refunds` (4) | GET ``, `:id`; POST `orders/:orderId`, `:id/retry` | `refund.controller.ts:7-23` |
 | `/api/v1/rmas` (8) | GET ``, `:id`; POST ``, `:id/approve`, `:id/request-information`, `:id/reject`, `:id/receive`, `:id/request-refund` | `rma.controller.ts:7-56` |
 | `/api/v1/shipping` (8) | GET `methods`, `methods/:id`, `shipments/:id/label`, `shipments/:id`; POST `methods`, `shipments`, `shipments/:id/stage`; PATCH `methods/:id` | `shipping.controller.ts:16-62` |
-| `/api/v1/system` (2) | GET `jobs/dead`; POST `jobs/dead/:jobId/retry` | `system.controller.ts:7-24` |
+| `/api/v1/system` (6) | GET `jobs/dead`; POST `jobs/dead/:jobId/retry`; GET `jobs/quarantined`; POST `jobs/quarantined/:jobId/redrive`; GET `outbox/failures`; POST `outbox/failures/:outboxId/redrive` | `system.controller.ts:18-59` |
 | `/mcp` (2) | GET ``, POST `` | `mcp/mcp.controller.ts:22-126` |
 | storefront root (41) | GET `storefront-assets/:file`, ``, `catalog`, `story`, `journal`, `journal/:slug`, `news`, `news/:slug`, `faq`, `contact`, `p/:id`, `account/orders`, `account/profile`, `orders/:number`, `cart`, `account/rewards`, `account/coupons`, `checkout`, `checkout/pickup/select`, `forgot-password`, `reset-password`, `login`, `register`; POST `contact`, `account/profile`, `orders/:number/rmas`, `orders/:number/pay`, `orders/:number/cancel`, `cart/items`, `cart/items/:productId`, `cart/clear`, `cart/coupon`, `cart/rewards`, `checkout/pickup/start`, `checkout/pickup/callback`, `checkout`, `forgot-password`, `reset-password`, `login`, `register`, `logout` | `storefront/storefront.controller.ts:135-1260` |
 

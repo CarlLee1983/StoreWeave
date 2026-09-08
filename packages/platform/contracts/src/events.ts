@@ -39,3 +39,14 @@ export interface DomainEvent<P = unknown> {
   readonly correlationId: string;
   readonly payload: P;
 }
+
+/**
+ * Outbox fan-out delivers each event to one subscriber through this job type, keyed by
+ * `evt:<eventId>:<subscriberId>`. Kernel dispatches it and the outbox store lists its
+ * quarantines, so the identity lives here rather than being duplicated on both sides.
+ */
+export const EVENT_DELIVERY_JOB = 'platform.event.deliver';
+
+export function eventDeliveryDedupeKey(eventId: string, subscriberId: string): string {
+  return `evt:${eventId}:${subscriberId}`;
+}

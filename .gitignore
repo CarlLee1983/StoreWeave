@@ -13,3 +13,6 @@ var/
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 graft/
+
+# Claude Code 本地 worktree（非專案內容）
+.claude/worktrees/

@@ -158,9 +158,16 @@ describe('release process artifacts', () => {
           await expect(exec(process.execPath, [cli, 'migrate', 'baseline',
             '--catalog', 'legacy-commerce-0.1.0-pre-b02', '--evidence', 'corrupted modern fixture'], { env, timeout: 15_000 }))
             .rejects.toMatchObject({ code: 1 });
-          // Reset metadata only in this disposable fixture to the actual old three-column shape.
-          // Domain data and original migration timestamps remain; old-binary smoke is separate.
-          await client.query(`DROP TABLE platform_release_history;
+          // Reset this disposable ledger to the pinned old three-column, pre-B04 history.
+          // The exact historical DDL fixture is covered by release-transition.
+          await client.query(`DELETE FROM platform_migrations WHERE id IN (
+              'platform/0003_job_occurrence_fencing',
+              'platform/0004_job_payload_quarantine',
+              'platform/0005_outbox_subscriber_snapshot_quarantine',
+              'platform/0006_job_retention_dedupe_horizon',
+              'platform/0007_ops_listing_indexes'
+            );
+            DROP TABLE platform_release_history;
             ALTER TABLE platform_migrations DROP COLUMN checksum, DROP COLUMN migration_order,
               DROP COLUMN legacy_baseline_id, DROP COLUMN migration_owner, DROP COLUMN migration_id,
               DROP COLUMN module_id, DROP COLUMN module_version, DROP COLUMN release_id, DROP COLUMN release_version;

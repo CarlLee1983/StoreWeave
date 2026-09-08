@@ -1,4 +1,5 @@
 import packageJson from '../package.json';
+import { z } from 'zod';
 import { defineModule } from '@storeweave/kernel';
 import { createCartModule, type CartModuleDeps } from './commands';
 import { PURGE_STALE_GUEST_CARTS_JOB, createPurgeStaleGuestCartsJob } from './jobs';
@@ -30,6 +31,7 @@ export function createCart(deps: CartModuleDeps) {
       {
         type: PURGE_STALE_GUEST_CARTS_JOB,
         handler: createPurgeStaleGuestCartsJob(),
+        jobContractV1: { currentVersion: 1, versions: { 1: z.object({ bucket: z.number().int(), scheduledFor: z.string().datetime() }).strict() } },
         // 一天一次就夠：保留期是三十天，清理晚幾小時不會有人察覺。
         schedule: { everyMs: 24 * 60 * 60 * 1000 },
       },

@@ -72,11 +72,11 @@ afterAll(async () => {
 });
 
 describe('Base HTTP input boundary', () => {
-  it('selects Base controllers once and retains the validated 5-controller, 17-route catalog', () => {
+  it('selects Base controllers once and retains the validated 5-controller, 21-route catalog', () => {
     expect(controllerFactory).toHaveBeenCalledTimes(1);
     expect(controllerFactory.mock.results[0]?.value).toHaveLength(5);
     const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
-    expect(catalog.storeweaveHttpCatalog).toHaveLength(17);
+    expect(catalog.storeweaveHttpCatalog).toHaveLength(21);
     expect(catalog.storeweaveHttpCatalog?.filter(route => route.method === 'GET').every(route => route.automaticMethods?.[0] === 'HEAD')).toBe(true);
     expect(app.getHttpAdapter().getInstance().hasRoute({ method: 'OPTIONS', url: '*' })).toBe(false);
   });
@@ -203,12 +203,17 @@ describe('Base HTTP input boundary', () => {
   });
 
   it('validates pagination and rejects a reader attempting a write', async () => {
-    expect(describeHttpRoutes(runtime, [SystemController])).toHaveLength(2);
+    expect(describeHttpRoutes(runtime, [SystemController])).toHaveLength(6);
     expect(() => describeHttpRoutes(runtime, [InventoryController])).toThrow('not found');
     const headers = { authorization: 'Bearer base-http-readonly-token' };
     const valid = await app.inject({ url: '/api/v1/system/jobs/dead?limit=1&offset=0', headers });
     expect(valid.statusCode).toBe(200);
     expect(valid.json().data).toEqual({ items: [], total: 0 });
+    for (const url of ['/api/v1/system/jobs/quarantined', '/api/v1/system/outbox/failures']) {
+      const response = await app.inject({ url, headers });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data).toEqual({ items: [], total: 0 });
+    }
     for (const query of ['limit=0', 'limit=201', 'limit=1.5', 'offset=-1', 'offset=NaN']) {
       const invalid = await app.inject({ url: `/api/v1/system/jobs/dead?${query}`, headers });
       expect(invalid.statusCode).toBe(400);
@@ -218,6 +223,14 @@ describe('Base HTTP input boundary', () => {
       url: '/api/v1/system/jobs/dead/00000000-0000-4000-8000-000000000000/retry', headers });
     expect(denied.statusCode).toBe(403);
     expect(denied.json().error.code).toBe('FORBIDDEN');
+    for (const request of [
+      { url: '/api/v1/system/jobs/quarantined/00000000-0000-4000-8000-000000000000/redrive' },
+      { url: '/api/v1/system/outbox/failures/00000000-0000-4000-8000-000000000000/redrive', payload: { subscriberIds: [], evidence: 'test' } },
+    ]) {
+      const response = await app.inject({ method: 'POST', headers, ...request });
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.code).toBe('FORBIDDEN');
+    }
   });
 
   it('keeps Commerce and callback routes absent from Base', async () => {
@@ -295,7 +308,7 @@ describe('Base HTTP input boundary', () => {
       cors.credentials = false;
       withoutCredentials = await createReleaseServer({ runtime, httpAdapter, release: { version: 'test', configPath: '<test>' } });
       const catalog = (withoutCredentials.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier).storeweaveHttpCatalog!;
-      expect(catalog).toHaveLength(18);
+      expect(catalog).toHaveLength(22);
       expect(catalog.find(route => route.kind === 'cors-preflight')).toMatchObject({
         method: 'OPTIONS', path: '*', automaticRoute: true, auth: 'unauthenticated', request: 'headers', rateLimit: null,
         policy: { allowedOrigins: ['https://console.example'], credentials: false,

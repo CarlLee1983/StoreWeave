@@ -14,13 +14,13 @@ import {
   type ShipmentOperationRecord,
 } from './state';
 
-const shipmentIdInput = z.object({ shipmentId: z.string().uuid() }).strict();
+export const shipmentIdInput = z.object({ shipmentId: z.string().uuid() }).strict();
 const operationListInput = z.object({
   status: z.enum(['pending', 'created', 'failed']).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 }).strict();
 const operationListOutput = z.object({ items: z.array(shipmentOperationDto) });
-const recurringStatusPayload = z.object({
+export const recurringStatusPayload = z.object({
   bucket: z.number().int().nonnegative(),
   scheduledFor: z.string().datetime(),
 }).strict();

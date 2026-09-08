@@ -77,6 +77,10 @@ export type EventHandlerFn<P = any> = (event: DomainEvent<P>, ctx: EventHandlerC
 export interface EventHandlerContext {
   readonly logger: Logger;
   readonly correlationId: string;
+  /** The persisted outbox identity, stable across delivery-job retries and redrive. */
+  readonly eventId?: string;
+  /** Stable provider/idempotency key for this event/subscriber delivery. */
+  readonly idempotencyKey?: string;
   /**
    * 以 system 身分執行一個 Command。只有 Core 模組的訂閱者拿得到——
    * Extension 走 SDK，不該有一支直達 Command Bus 的捷徑。

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { PermanentJobError } from '@storeweave/jobs';
 import { occurrenceKeyFor, bucketFor } from '@storeweave/kernel';
+import { z } from 'zod';
 import { createHarness, type TestHarness } from './helpers';
 
 /**
@@ -12,6 +13,7 @@ import { createHarness, type TestHarness } from './helpers';
 const HOUR = 60 * 60 * 1000;
 // 固定在過去，確保切片起點一定小於資料庫的 now()，工作立刻可被認領
 const T0 = new Date('2026-01-05T03:20:00.000Z');
+const recurringPayload = z.object({ bucket: z.number().int(), scheduledFor: z.string().datetime() }).strict();
 
 let h: TestHarness;
 beforeAll(async () => { h = await createHarness(); }, 300_000);
@@ -44,7 +46,7 @@ async function jobRows(type: string) {
 describe('週期性工作', () => {
   it('確保當下切片後，工作會被執行；同一個切片不會再排第二次', async () => {
     const handler = vi.fn(async () => {});
-    h.runtime.jobRegistry.register('test.recurring.basic', handler, 'test');
+    h.runtime.jobRegistry.register('test.recurring.basic', handler, 'test', { currentVersion: 1, versions: { 1: recurringPayload } });
     h.runtime.recurring.register({ type: 'test.recurring.basic', everyMs: HOUR });
 
     await h.runtime.recurring.ensureScheduled(T0);
@@ -76,7 +78,7 @@ describe('週期性工作', () => {
 
   it('連續數個切片各跑一次', async () => {
     const handler = vi.fn(async () => {});
-    h.runtime.jobRegistry.register('test.recurring.many', handler, 'test');
+    h.runtime.jobRegistry.register('test.recurring.many', handler, 'test', { currentVersion: 1, versions: { 1: recurringPayload } });
     h.runtime.recurring.register({ type: 'test.recurring.many', everyMs: HOUR });
 
     for (let i = 0; i < 4; i += 1) {
@@ -90,7 +92,7 @@ describe('週期性工作', () => {
 
   it('某一次進了死信不會讓後續的切片停擺', async () => {
     const handler = vi.fn(async () => { throw new PermanentJobError('故意失敗'); });
-    h.runtime.jobRegistry.register('test.recurring.dead', handler, 'test');
+    h.runtime.jobRegistry.register('test.recurring.dead', handler, 'test', { currentVersion: 1, versions: { 1: recurringPayload } });
     h.runtime.recurring.register({ type: 'test.recurring.dead', everyMs: HOUR });
 
     await h.runtime.recurring.ensureScheduled(T0);
@@ -111,7 +113,7 @@ describe('週期性工作', () => {
 
   it('worker tick 會自己確保週期性工作已排入', async () => {
     const handler = vi.fn(async () => {});
-    h.runtime.jobRegistry.register('test.recurring.tick', handler, 'test');
+    h.runtime.jobRegistry.register('test.recurring.tick', handler, 'test', { currentVersion: 1, versions: { 1: recurringPayload } });
     h.runtime.recurring.register({ type: 'test.recurring.tick', everyMs: HOUR });
 
     const first = await h.worker.tick();

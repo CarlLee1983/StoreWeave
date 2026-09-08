@@ -5,7 +5,7 @@ import { orderPaidV2 } from '@storeweave/order';
 import { refundSucceededV1 } from '@storeweave/refund';
 import { createQueueInvoiceIssueHandler, ISSUE_INVOICE_JOB, queueInvoiceIssueCommand, queueInvoiceVoidCommand, queueInvoiceVoidHandler, recordInvoiceIssueCommand, recordInvoiceIssueHandler, recordInvoiceVoidCommand, recordInvoiceVoidHandler, retryInvoiceIssueCommand, retryInvoiceIssueHandler, retryInvoiceVoidCommand, retryInvoiceVoidHandler, VOID_INVOICE_JOB, type InvoiceOrderLookup } from './commands';
 import { invoiceMigrations } from './migrations';
-import { createIssueInvoiceJob, createVoidInvoiceJob } from './jobs';
+import { createIssueInvoiceJob, createVoidInvoiceJob, invoiceJobPayload } from './jobs';
 import { getInvoiceHandler, getInvoiceIssueLinesHandler, getInvoiceIssueLinesQuery, getInvoiceIssueSnapshotHandler, getInvoiceIssueSnapshotQuery, getInvoiceQuery, listInvoicesHandler, listInvoicesQuery } from './queries';
 
 export function createInvoiceModule(ordersBinding: BoundModuleCapability<InvoiceOrderLookup>, providers: ProviderRegistry): PlatformModule {
@@ -39,7 +39,10 @@ export function createInvoiceModule(ordersBinding: BoundModuleCapability<Invoice
       { descriptor: getInvoiceQuery, handler: getInvoiceHandler }, { descriptor: listInvoicesQuery, handler: listInvoicesHandler },
       { descriptor: getInvoiceIssueSnapshotQuery, handler: getInvoiceIssueSnapshotHandler }, { descriptor: getInvoiceIssueLinesQuery, handler: getInvoiceIssueLinesHandler },
     ],
-    jobs: [{ type: ISSUE_INVOICE_JOB, handler: createIssueInvoiceJob(providers) }, { type: VOID_INVOICE_JOB, handler: createVoidInvoiceJob(providers) }],
+    jobs: [
+      { type: ISSUE_INVOICE_JOB, handler: createIssueInvoiceJob(providers), jobContractV1: { currentVersion: 1, versions: { 1: invoiceJobPayload } } },
+      { type: VOID_INVOICE_JOB, handler: createVoidInvoiceJob(providers), jobContractV1: { currentVersion: 1, versions: { 1: invoiceJobPayload } } },
+    ],
     subscribers: [
       { eventName: orderPaidV2.name, handler: async (event, ctx) => {
         if (!providers.has('invoice') || !ctx.executeCommand) return;

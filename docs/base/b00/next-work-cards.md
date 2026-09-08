@@ -1,6 +1,6 @@
 # B01–B04 可執行派工契約
 
-這四張卡具體化 [Base 計畫](../../base-implementation-plan.md)；不另建相依來源。B00 結案前不可開始 production 實作。每包由主代理擁有共用接線與高風險 implementation，先取 Sol/high 分析，整合後再由未參與實作的 Sol/high reviewer 審查。一次只推進一個 implementation 切片；純文件／測試工具可在明確 ownership 後交 Terra/high。
+這四張卡具體化 [Base 計畫](../../base-implementation-plan.md)；不另建相依來源。B00 結案前不可開始 production 實作。每包由主代理擁有共用接線與高風險 implementation，先取 Sol/high 分析，整合後再由未參與實作的 Sol/high reviewer 審查。每條工作線一次只推進一個 implementation 切片；跨 session 啟動、共用接線 owner 與整合順序統一依 [Base 計畫 §3.1](../../base-implementation-plan.md#31-多-session-派工2026-09-08)。純文件／測試工具可在明確 ownership 後委派，模型與強度統一依 Base 計畫 §2。
 
 共同相容基準是 [inventory](compatibility-inventory.md)。新 owner 不代表新公開 id；保留 HTTP verb/path、descriptor id/payload、SDK、config／CLI 的可觀察語意。以下測試檔名是派工目標，尚未建立；不能將測試計畫當作 PASS。
 

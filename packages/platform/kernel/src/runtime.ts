@@ -17,7 +17,7 @@ import type { BaseConfig, SecretProvider } from '@storeweave/config';
 import { ExtensionHost, type MountedExtension } from './extension-host';
 import { JobRegistry } from './job-registry';
 import { McpToolRegistry } from './mcp-registry';
-import { EVENT_DELIVERY_JOB, createEventDeliveryHandler } from './event-delivery';
+import { EVENT_DELIVERY_JOB, createEventDeliveryHandler, eventDeliveryJobContract } from './event-delivery';
 import type { PlatformModule } from './module';
 import { createOpsModule } from './ops-module';
 import { AuthService, createIdentityModule } from '@storeweave/identity';
@@ -75,25 +75,27 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
 }
 
 /** Pure composition shared by runtime and release metadata projection; no handlers execute here. */
-export function composeRuntimeModules({ modules, roles, logger, platformVersion, jobs, events }: {
+export function composeRuntimeModules({ modules, roles, logger, platformVersion, jobs, events, outbox }: {
   modules: readonly PlatformModule[];
   roles: ReleaseRoleCatalog;
   logger: Logger;
   platformVersion: string;
   jobs: JobQueue;
   events: EventBus;
+  outbox: OutboxStore;
 }): readonly PlatformModule[] {
   const platformModule: PlatformModule = {
     name: 'platform', version: packageJson.version, baseVersionRange: '^1.0.0',
     migrations: platformMigrations,
     data: { owns: [
       'platform_migrations', 'platform_migration_baselines', 'platform_release_history', 'platform_outbox', 'platform_jobs', 'platform_idempotency',
-      'platform_audit_log', 'platform_extension_state', 'platform_extension_registry', 'platform_worker_heartbeat',
+      'platform_audit_log', 'platform_extension_state', 'platform_extension_registry', 'platform_worker_heartbeat', 'platform_job_quarantine',
+      'platform_outbox_quarantine', 'platform_outbox_quarantine_audit',
     ] },
-    jobs: [{ type: EVENT_DELIVERY_JOB, handler: createEventDeliveryHandler(events, logger) }],
+    jobs: [{ type: EVENT_DELIVERY_JOB, handler: createEventDeliveryHandler(events, logger), jobContractV1: eventDeliveryJobContract }],
   };
   return validateModuleGraph(
-    [platformModule, createOpsModule(jobs), createIdentityModule(roles), ...modules], platformVersion,
+    [platformModule, createOpsModule(jobs, { events, outbox }), createIdentityModule(roles), ...modules], platformVersion,
   );
 }
 
@@ -111,8 +113,14 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
 
 
   const jobs = new JobQueue();
+  jobs.setRetentionPolicy({
+    completedPayloadRetentionDays: config.worker.completedPayloadRetentionDays,
+    cancelledPayloadRetentionDays: config.worker.cancelledPayloadRetentionDays,
+    dedupeHorizonDays: config.worker.dedupeHorizonDays,
+  });
   const events = new EventBus();
-  const allModules = composeRuntimeModules({ modules: options.modules, roles: options.roles, logger, platformVersion, jobs, events });
+  const outbox = new OutboxStore();
+  const allModules = composeRuntimeModules({ modules: options.modules, roles: options.roles, logger, platformVersion, jobs, events, outbox });
   const enabled = config.extensions.filter(entry => entry.enabled).map(entry => {
     const definition = options.availableExtensions[entry.id];
     if (!definition || definition.manifest.id !== entry.id) {
@@ -141,7 +149,6 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       customerMs: config.auth.sessionTtlMinutes.customer * 60_000,
     }, options.roles);
     const audit = new AuditWriter();
-    const outbox = new OutboxStore();
     const jobRegistry = new JobRegistry();
     const recurring = new RecurringScheduler({ jobs, database, logger });
     const providers = options.providers ?? new ProviderRegistry(logger);
@@ -162,7 +169,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       for (const c of mod.commands ?? []) commands.register(c.descriptor, c.handler, mod.name);
       for (const q of mod.queries ?? []) queries.register(q.descriptor, q.handler, mod.name);
       for (const j of mod.jobs ?? []) {
-        jobRegistry.register(j.type, j.handler, mod.name);
+        jobRegistry.register(j.type, j.handler, mod.name, j.jobContractV1);
         if (j.schedule) recurring.register({ type: j.type, everyMs: j.schedule.everyMs });
       }
       for (const p of mod.policies ?? []) authorization.policies.register(p);
@@ -188,6 +195,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       database, commandBus: commands, queryBus: queries, eventBus: events,
       jobs, jobRegistry, providers, mcpTools, authorization, secrets, logger, platformVersion,
     });
+    jobs.setPayloadVersionResolver((type) => jobRegistry.currentVersion(type));
 
     const host = extensions;
     let activation: Promise<readonly string[]> | undefined;

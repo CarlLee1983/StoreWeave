@@ -1,4 +1,5 @@
 import packageJson from '../package.json';
+import { z } from 'zod';
 import { defineModule, type PlatformModule } from '@storeweave/kernel';
 import { defineEvent } from '@storeweave/contracts';
 import { customerRegisteredV1 } from '@storeweave/customer';
@@ -43,6 +44,7 @@ export function createCouponModule(deps: CouponModuleDeps): PlatformModule {
     {
       type: BIRTHDAY_COUPONS_JOB,
       handler: createBirthdayCouponsJob(),
+      jobContractV1: { currentVersion: 1, versions: { 1: z.object({ bucket: z.number().int(), scheduledFor: z.string().datetime() }).strict() } },
       // 一天一次。切片對齊 UTC，因此它在店鋪時區的哪個時刻跑不固定——
       // handler 自己以店鋪時區判斷「今天」，所以這不影響正確性。
       schedule: { everyMs: 24 * 60 * 60 * 1000 },

@@ -20,7 +20,7 @@ export interface ExtensionJobApi {
   /** 僅重送已進死信佇列的工作；適合可能造成外部副作用的人工重試。 */
   retryDead(jobId: string): Promise<void>;
   /**
-   * 人工重送任意狀態的既有工作。僅適用於 handler 本身有安全重播語意的情況；
+   * 人工重送已完成或死信的既有工作。僅適用於 handler 本身有安全重播語意的情況；
    * carrier create 等外部副作用應改用 retryDead()。
    */
   requeue(jobId: string): Promise<void>;
@@ -47,12 +47,26 @@ export interface ExtensionContext<TConfig = unknown> {
   now(): Date;
 }
 
+/** Additive per-delivery values. They are not the queue occurrence/fencing token. */
+export interface ExtensionEventContext<TConfig = unknown> extends ExtensionContext<TConfig> {
+  readonly eventId?: string;
+  readonly idempotencyKey?: string;
+}
+
 export type ExtensionEventHandler<P = unknown> = (
   event: DomainEvent<P>,
-  ctx: ExtensionContext<any>,
+  ctx: ExtensionEventContext<any>,
 ) => Promise<void>;
 
 export type ExtensionJobHandler = (
   payload: unknown,
-  ctx: ExtensionContext<any> & { attempt: number; jobId: string },
+  ctx: ExtensionContext<any> & {
+    attempt: number;
+    jobId: string;
+    /** Stable provider key for one logical occurrence; retries keep this value. */
+    occurrenceId: string;
+    /** Alias of occurrenceId for provider APIs. */
+    idempotencyKey: string;
+    signal: AbortSignal;
+  },
 ) => Promise<void>;

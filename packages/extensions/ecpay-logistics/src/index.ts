@@ -10,7 +10,7 @@ import {
   createEcpayLogisticsStatusReconciliationJob, createGetShipmentOperationHandler,
   createListShipmentOperationsHandler, createRetryShipmentHandler,
   createShipmentCreatedHandler, getShipmentOperationQuery, listShipmentOperationsQuery,
-  retryShipmentCommand,
+  retryShipmentCommand, recurringStatusPayload, shipmentIdInput,
 } from './handlers';
 import { createEcpayLogisticsProvider } from './provider';
 
@@ -43,11 +43,12 @@ export const ecpayLogisticsExtension = defineExtension<EcpayLogisticsConfig>({
       providers: [createEcpayLogisticsProvider(ctx)],
       events: [{ event: 'commerce.shipment.created.v1', handler: createShipmentCreatedHandler(), maxAttempts: 8 }],
       jobs: [
-        { type: CREATE_ECPAY_LOGISTICS_SHIPMENT_JOB, handler: createEcpayLogisticsShipmentJob() },
-        { type: QUERY_ECPAY_LOGISTICS_SHIPMENT_STATUS_JOB, handler: createEcpayLogisticsStatusQueryJob() },
+        { type: CREATE_ECPAY_LOGISTICS_SHIPMENT_JOB, handler: createEcpayLogisticsShipmentJob(), jobContractV1: { currentVersion: 1, versions: { 1: shipmentIdInput } } },
+        { type: QUERY_ECPAY_LOGISTICS_SHIPMENT_STATUS_JOB, handler: createEcpayLogisticsStatusQueryJob(), jobContractV1: { currentVersion: 1, versions: { 1: shipmentIdInput } } },
         {
           type: RECONCILE_ECPAY_LOGISTICS_SHIPMENT_STATUSES_JOB,
           handler: createEcpayLogisticsStatusReconciliationJob(),
+          jobContractV1: { currentVersion: 1, versions: { 1: recurringStatusPayload } },
           schedule: { everyMs: ctx.config.statusQueryIntervalMinutes * 60_000 },
         },
       ],

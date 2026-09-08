@@ -46,6 +46,11 @@ export interface OrderModuleDeps {
 
 export const PROCESS_PAYMENT_JOB = 'commerce.order.process-payment';
 export const EXPIRE_ORDER_JOB = 'commerce.order.expire-reservation';
+export const processPaymentJobPayload = z.object({
+  orderId: z.string().uuid(), orderNumber: z.string(), amountCents: z.number().int().nonnegative(),
+  currency: z.string(), provider: z.string(), method: z.string(), attemptRef: z.string(),
+}).strict();
+export const expireOrderJobPayload = z.object({ orderId: z.string().uuid(), expiresAt: z.string().datetime().optional() }).strict();
 const RESERVATION_MINUTES = 15;
 
 export const placeOrderCommand = defineCommand({
@@ -711,10 +716,7 @@ type CoreJobContext = {
 
 export function createProcessPaymentJob(deps: OrderModuleDeps) {
   return async (raw: unknown, rawCtx: unknown): Promise<void> => {
-    const { orderId, orderNumber, amountCents, currency, provider: providerId, method, attemptRef } = z.object({
-      orderId: z.string().uuid(), orderNumber: z.string(), amountCents: z.number().int().nonnegative(),
-      currency: z.string(), provider: z.string(), method: z.string(), attemptRef: z.string(),
-    }).strict().parse(raw);
+    const { orderId, orderNumber, amountCents, currency, provider: providerId, method, attemptRef } = processPaymentJobPayload.parse(raw);
     const ctx = rawCtx as CoreJobContext;
     const current = await ctx.executeQuery('commerce.order.getOrder', { id: orderId });
     const attempt = current.paymentAttempts.find((candidate: { attemptRef: string }) => candidate.attemptRef === attemptRef);
@@ -759,7 +761,7 @@ function paymentResultFromStart(provider: string, attemptRef: string, result: Pa
 
 export function createExpireReservationJob() {
   return async (raw: unknown, rawCtx: unknown): Promise<void> => {
-    const { orderId, expiresAt } = z.object({ orderId: z.string().uuid(), expiresAt: z.string().datetime().optional() }).strict().parse(raw);
+    const { orderId, expiresAt } = expireOrderJobPayload.parse(raw);
     const ctx = rawCtx as CoreJobContext;
     // The occurrence key changes when a deferred payment supplies a later deadline.
     // An old, already-claimed job can therefore no-op without poisoning the real expiry.

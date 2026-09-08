@@ -7,9 +7,10 @@ import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { expect, it } from 'vitest';
-import { catalogDigest, runMigrations } from '@storeweave/db';
+import { catalogDigest, legacyBaselineSelection, runMigrations } from '@storeweave/db';
 import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
 import { release } from '../../packages/platform/bundle/src/releases/commerce';
+import legacyCommerce from '../../packages/platform/bundle/src/legacy/commerce-pre-b02.json';
 import { readLegacyBridgeJournal } from '../../tools/cli/src/legacy-bridge-journal';
 import { writeNativeRelease } from '../unit/fixtures/native-release';
 
@@ -40,8 +41,9 @@ it.each(['paired', 'raw'] as const)('real B02 CLI recovers B01 through %s snapsh
     writeFileSync(configPath, JSON.stringify({ version: 1, store: { id: 'legacy-cli', name: 'Legacy CLI' }, database: { url: container.getConnectionUri() }, http: { host: '127.0.0.1', port }, extensions: [], logging: { level: 'error' } }));
     const { runtime } = await bootstrapRelease(release, { configPath, loggerName: 'legacy-cli-fixture', logDestination: 'stderr' });
     try {
-      // Real 49 SQL statements with B01 metadata shape; source executables are structural fixtures.
-      await runMigrations(runtime.database.pool, runtime.migrations);
+      // Real pinned B01 SQL with its historical metadata shape; source executables are structural fixtures.
+      const legacySource = legacyBaselineSelection(legacyCommerce, runtime.migrations);
+      await runMigrations(runtime.database.pool, legacySource.migrations);
       const columns = await runtime.database.pool.query<{ column_name: string }>("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='platform_migrations'");
       for (const { column_name } of columns.rows) if (!['id', 'phase', 'applied_at'].includes(column_name)) {
         await runtime.database.pool.query(`ALTER TABLE public.platform_migrations DROP COLUMN "${column_name.replaceAll('"', '""')}"`);

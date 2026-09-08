@@ -8,7 +8,7 @@ import {
   queueLifecycleDeliveryCommand, recordLifecycleDeliveryCommand, recordLifecycleDeliveryHandler,
   type NotificationOrderLookup,
 } from './commands';
-import { createLifecycleNotificationJob } from './jobs';
+import { createLifecycleNotificationJob, lifecycleNotificationJobPayload } from './jobs';
 import { notificationMigrations } from './migrations';
 import {
   getLifecycleDeliveryHandler, getLifecycleDeliveryQuery,
@@ -55,7 +55,7 @@ export function createNotificationModule(ordersBinding: BoundModuleCapability<No
       { descriptor: getLifecycleDeliveryQuery, handler: getLifecycleDeliveryHandler },
       { descriptor: listLifecycleDeliveriesQuery, handler: listLifecycleDeliveriesHandler },
     ],
-    jobs: [{ type: LIFECYCLE_NOTIFICATION_JOB, handler: createLifecycleNotificationJob(providers) }],
+    jobs: [{ type: LIFECYCLE_NOTIFICATION_JOB, handler: createLifecycleNotificationJob(providers), jobContractV1: { currentVersion: 1, versions: { 1: lifecycleNotificationJobPayload } } }],
     subscribers: [
       { eventName: orderPlacedV3.name, handler: (event, ctx) => {
         const p = event.payload;

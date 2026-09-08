@@ -227,7 +227,7 @@ describe('module graph', () => {
 
   it('accepts the real commerce assembly, including reciprocal shipping/refund capabilities', () => {
     const modules = [
-      platform(), identityModule, createOpsModule({} as never),
+      platform(), identityModule, createOpsModule({} as never, {} as never),
       ...coreModules({ providers: { list: () => [] } as never, defaultCurrency: 'TWD', orderNumberPrefix: 'SW', timezone: 'Asia/Taipei', locale: 'zh-TW' }),
     ];
     const validated = validateModuleGraph(modules, BASE);

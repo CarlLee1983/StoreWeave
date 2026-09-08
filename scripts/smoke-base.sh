@@ -33,6 +33,8 @@ expect 'health ready' 200 /health/ready
 expect 'health dependencies unauthenticated' 401 /health/dependencies
 expect 'health dependencies authenticated' 200 /health/dependencies -H "authorization: Bearer $ADMIN_TOKEN"
 expect 'Base jobs endpoint' 200 /api/v1/system/jobs/dead -H "authorization: Bearer $ADMIN_TOKEN"
+expect 'Base quarantined jobs endpoint' 200 /api/v1/system/jobs/quarantined -H "authorization: Bearer $ADMIN_TOKEN"
+expect 'Base outbox failures endpoint' 200 /api/v1/system/outbox/failures -H "authorization: Bearer $ADMIN_TOKEN"
 
 for path in / /api/v1/products /admin /storefront-assets/woven-day-hero.png /mcp; do
   expect "Commerce path absent: $path" 404 "$path"

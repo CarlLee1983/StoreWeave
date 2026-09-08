@@ -146,6 +146,32 @@ describe('runtime cleanup', () => {
     expect(runtime.jobRegistry.types()).toContain('ext.job-owner.task');
   });
 
+  it('bridges signal and logical occurrence idempotency key into a mounted extension job', async () => {
+    const runtime = await createRuntime(await options([]));
+    runtimes.push(runtime);
+    const seen: { occurrenceId?: string; idempotencyKey?: string; signal?: AbortSignal } = {};
+    const type = 'ext.job-bridge.task';
+    const definition = extension('job-bridge', () => ({
+      jobs: [{
+        type,
+        jobContractV1: { currentVersion: 1, versions: { 1: z.object({}).strict() } },
+        handler: async (_payload, ctx) => {
+          seen.occurrenceId = ctx.occurrenceId;
+          seen.idempotencyKey = ctx.idempotencyKey;
+          seen.signal = ctx.signal;
+        },
+      }],
+    }));
+    const declared = { ...definition, manifest: { ...definition.manifest, registeredJobs: [type] } };
+    await runtime.extensions.mount(declared, {});
+    const occurrenceId = randomUUID();
+    const controller = new AbortController();
+    await runtime.jobRegistry.get(type)({}, {
+      logger: noopLogger, attempt: 2, jobId: randomUUID(), occurrenceId, idempotencyKey: occurrenceId, signal: controller.signal,
+    });
+    expect(seen).toEqual({ occurrenceId, idempotencyKey: occurrenceId, signal: controller.signal });
+  });
+
   it('cleans mounted extensions in reverse order after a later setup failure, then closes the live DB pool', async () => {
     const order: string[] = [];
     const settings = await options([

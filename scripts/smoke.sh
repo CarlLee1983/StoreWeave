@@ -177,6 +177,10 @@ check "未帶 token 會被擋" "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE
 check "死信清單可用" "$(api GET /api/v1/system/jobs/dead)" "200"
 # 走完happy path後不該有任何死信；有的話代表這次部署真的有工作掛掉。
 check "這次流程沒有留下死信" "$(jqr 'j.data.total' < /tmp/smoke_body)" "0"
+check "quarantine 工作清單可用" "$(api GET /api/v1/system/jobs/quarantined)" "200"
+check "這次流程沒有留下 quarantine 工作" "$(jqr 'j.data.total' < /tmp/smoke_body)" "0"
+check "outbox failure 清單可用" "$(api GET /api/v1/system/outbox/failures)" "200"
+check "這次流程沒有留下 outbox failure" "$(jqr 'j.data.total' < /tmp/smoke_body)" "0"
 check "重送不存在的死信會 404" "$(api POST /api/v1/system/jobs/dead/00000000-0000-4000-8000-000000000000/retry '{}' "smoke-dlq-$SKU")" "404"
 check "重送缺 Idempotency-Key 會被拒" "$(api POST /api/v1/system/jobs/dead/00000000-0000-4000-8000-000000000000/retry '{}')" "400"
 

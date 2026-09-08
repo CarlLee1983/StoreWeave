@@ -18,7 +18,7 @@ import { promotionRule } from '@storeweave/promotion';
 
 /** 與 `createRuntime()` 掛載的一致：ops 與 identity 也是 Command Bus 上的公民（ADR 0024）。 */
 const MODULES = [
-  createOpsModule({} as never),
+  createOpsModule({} as never, {} as never),
   identityModule,
   ...coreModules({
     providers: new ProviderRegistry(noopLogger),

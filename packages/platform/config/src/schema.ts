@@ -68,6 +68,19 @@ const commonConfigSchema = z.object({
     pollIntervalMs: z.coerce.number().int().min(50).default(1000),
     outboxBatchSize: z.coerce.number().int().min(1).max(1000).default(100),
     staleLockSeconds: z.coerce.number().int().min(10).default(300),
+    completedPayloadRetentionDays: z.coerce.number().int().positive().default(7),
+    cancelledPayloadRetentionDays: z.coerce.number().int().positive().default(7),
+    dedupeHorizonDays: z.coerce.number().int().positive().default(30),
+    retentionCleanupBatchSize: z.coerce.number().int().min(1).max(1000).default(100),
+  }).superRefine((value, context) => {
+    const minimum = Math.max(value.completedPayloadRetentionDays, value.cancelledPayloadRetentionDays);
+    if (value.dedupeHorizonDays < minimum) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['dedupeHorizonDays'],
+        message: 'dedupeHorizonDays must be at least each terminal payload retention period',
+      });
+    }
   }).default({}),
   shutdown: z.object({ timeoutMs: z.number().int().positive().default(25_000) }).default({}),
   theme: z.object({

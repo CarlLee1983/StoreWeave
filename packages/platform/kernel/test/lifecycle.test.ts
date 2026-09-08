@@ -32,7 +32,11 @@ describe('resource lifecycle', () => {
         import { Worker } from ${JSON.stringify(resolve('packages/platform/kernel/src/worker.ts'))};
         import { installShutdown } from ${JSON.stringify(resolve('packages/platform/kernel/src/lifecycle.ts'))};
         const logger = { info: () => {}, error: () => {} };
-        const worker = new Worker({ config: { worker: { pollIntervalMs: 50 } }, logger });
+        const worker = new Worker({
+          config: { worker: { pollIntervalMs: 50, staleLockSeconds: 1 } },
+          jobRegistry: { assertPayloadDispatchReady: () => {} },
+          logger,
+        });
         worker.tick = () => new Promise(() => {});
         worker.start();
         setInterval(() => {}, 1000); // An in-flight external resource keeps the process alive.

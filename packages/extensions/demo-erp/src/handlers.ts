@@ -7,7 +7,7 @@ import { PUSH_ORDER_JOB, type DemoErpConfig } from './config';
 import { deliveryKey, deliveryRecord, erpReference, type DeliveryRecord } from './state';
 import { toErpDocument, toErpHttpPayload, type PaidOrderEventPayload } from './transform';
 
-const pushJobPayload = z.object({ orderId: z.string().uuid() });
+export const pushJobPayload = z.object({ orderId: z.string().uuid() }).strict();
 
 /**
  * 訂閱 `commerce.order.paid.v2`。
