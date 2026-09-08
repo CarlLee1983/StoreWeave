@@ -13,11 +13,13 @@ export interface CommercePaths {
   envFile: string;
 }
 
-export function resolvePaths(): CommercePaths {
-  const home = process.env.COMMERCE_HOME ?? '/opt/commerce';
-  const configDir = process.env.COMMERCE_CONFIG_DIR ?? '/etc/commerce';
-  const dataDir = process.env.COMMERCE_DATA_DIR ?? '/var/lib/commerce';
-  const logDir = process.env.COMMERCE_LOG_DIR ?? '/var/log/commerce';
+export function resolvePaths(releaseId = 'commerce'): CommercePaths {
+  const name = releaseId === 'commerce' ? 'commerce' : 'storeweave';
+  const legacy = (key: string) => releaseId === 'commerce' ? process.env[`COMMERCE_${key}`] : undefined;
+  const home = process.env.STOREWEAVE_HOME ?? legacy('HOME') ?? `/opt/${name}`;
+  const configDir = process.env.STOREWEAVE_CONFIG_DIR ?? legacy('CONFIG_DIR') ?? `/etc/${name}`;
+  const dataDir = process.env.STOREWEAVE_DATA_DIR ?? legacy('DATA_DIR') ?? `/var/lib/${name}`;
+  const logDir = process.env.STOREWEAVE_LOG_DIR ?? legacy('LOG_DIR') ?? `/var/log/${name}`;
   return {
     home,
     configDir,
@@ -26,7 +28,7 @@ export function resolvePaths(): CommercePaths {
     releasesDir: join(home, 'releases'),
     currentLink: join(home, 'current'),
     runDir: join(dataDir, 'run'),
-    configFile: process.env.COMMERCE_CONFIG ?? join(configDir, 'commerce.yaml'),
-    envFile: join(configDir, 'commerce.env'),
+    configFile: process.env.STOREWEAVE_CONFIG ?? legacy('CONFIG') ?? join(configDir, `${name}.yaml`),
+    envFile: join(configDir, `${name}.env`),
   };
 }

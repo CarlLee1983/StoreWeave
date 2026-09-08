@@ -1,26 +1,47 @@
 #!/usr/bin/env node
+import { createLegacyBridgeJournal, readLegacyBridgeJournal, advanceLegacyBridgeJournal } from './legacy-bridge-journal';
+import { createLegacySafetySnapshot, readLegacySafetySnapshot } from './legacy-safety-snapshot';
+import { createLegacyPairedSnapshot, readLegacyPairedSnapshot } from './legacy-paired-snapshot';
+import { verifyRestoredDatabase } from './verify-restored-database';
+import { verifySourceRuntime } from './verify-source-runtime';
+import { createPairedSnapshot } from './release-snapshot';
+import { createUpgradeJournal, readUpgradeJournal, requireUpgradeDatabase, writeUpgradeJournal } from './upgrade-journal';
+import { runReleaseCli } from './run-release-cli';
+import { readPairedSnapshot } from './read-release-snapshot';
+import { readRestoreJournal } from './restore-journal';
+import { restoreSnapshotToScratch } from './restore-release-snapshot';
+import { resumeRestoreCutover } from './resume-restore';
+import { parsePgUrl } from './pg-tool';
+import { withTransitionLock } from './transition-lock';
+import { randomUUID } from 'node:crypto';
+import { baselineMigrations, catalogDigest, readSnapshotDatabase } from '@storeweave/db';
 import 'reflect-metadata';
 import { execFileSync } from 'node:child_process';
 import {
-  chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync,
-  readlinkSync, rmSync, symlinkSync, unlinkSync, writeFileSync,
+  chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync,
+  readlinkSync, renameSync, symlinkSync, unlinkSync, writeFileSync,
 } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { Command } from 'commander';
-import { bootstrap } from '@storeweave/bundle';
+import { bootstrapRelease } from '@storeweave/bootstrap-release';
+import { release } from '@storeweave/selected-release';
 import { doctor as runDoctorChecks, type Runtime } from '@storeweave/kernel';
-import { validateConfigFile } from '@storeweave/config';
+import { loadReleaseConfig } from '@storeweave/config';
 import { bold, dim, fail, heading, line, red, statusIcon, yellow } from './output';
 import { resolvePaths } from './paths';
+import { installReleaseArchive, validateLegacyB01Directory, validateReleaseDirectory } from './release-validation';
+import { runPgTool, writePgBackup } from './pg-tool';
 import { SERVICES, serviceManager, startServices, statusServices, stopServices } from './service';
 
-const RELEASE_VERSION = process.env.COMMERCE_RELEASE_VERSION ?? '0.1.0';
+const RELEASE_VERSION = process.env.STOREWEAVE_RELEASE_VERSION ?? process.env.COMMERCE_RELEASE_VERSION ?? release.version;
+
+const RELEASE_NAME = release.id === 'commerce' ? 'commerce' : 'storeweave';
 
 async function withRuntime<T>(fn: (runtime: Runtime, configPath: string) => Promise<T>): Promise<T> {
-  const paths = resolvePaths();
+  const paths = resolvePaths(release.id);
   // 日誌走 stderr：`--json` 的輸出得能直接餵給 jq，混進一行 log 就整份解析失敗。
-  const { runtime, loaded } = await bootstrap({
-    configPath: paths.configFile, loggerName: 'commerce-cli', logDestination: 'stderr',
+  const { runtime, loaded } = await bootstrapRelease(release, {
+    configPath: paths.configFile, loggerName: `${RELEASE_NAME}-cli`, logDestination: 'stderr',
   });
   try {
     return await fn(runtime, loaded.sourcePath);
@@ -31,18 +52,18 @@ async function withRuntime<T>(fn: (runtime: Runtime, configPath: string) => Prom
 
 const program = new Command();
 program
-  .name('commerce')
-  .description('StoreWeave 單站電商平台的統一維運指令')
+  .name(RELEASE_NAME)
+  .description('StoreWeave release 維運指令')
   .version(RELEASE_VERSION);
 
 program
   .command('install')
   .description('建立目錄、放置設定範本並套用 migration')
-  .option('--config <path>', '要複製的 commerce.yaml 範本')
-  .option('--env <path>', '要複製的 commerce.env 範本')
+  .option('--config <path>', `要複製的 ${RELEASE_NAME}.yaml 範本`)
+  .option('--env <path>', `要複製的 ${RELEASE_NAME}.env 範本`)
   .option('--skip-migrate', '只做檔案準備，不連資料庫')
   .action(async (options: { config?: string; env?: string; skipMigrate?: boolean }) => {
-    const paths = resolvePaths();
+    const paths = resolvePaths(release.id);
     heading('建立目錄');
     for (const dir of [paths.configDir, paths.dataDir, paths.logDir, paths.runDir, join(paths.dataDir, 'backups'), paths.releasesDir]) {
       mkdirSync(dir, { recursive: true });
@@ -62,7 +83,10 @@ program
     if (!existsSync(paths.configFile)) {
       fail(`找不到 ${paths.configFile}。請用 --config 指定範本，或手動放置設定檔。`);
     }
-    const validation = validateConfigFile(paths.configFile);
+    const validation = (() => {
+      try { return { ok: true as const, config: loadReleaseConfig(release.config, paths.configFile).config }; }
+      catch (error) { return { ok: false as const, errors: [(error as Error).message] }; }
+    })();
     if (!validation.ok) fail(validation.errors.join('\n'));
     line(`  ${dim('config ')} 設定檔通過 schema 驗證`);
 
@@ -74,17 +98,16 @@ program
       const applied = await runtime.migrate();
       heading('Migration');
       line(applied.length ? applied.map((id) => `  ${id}`).join('\n') : `  ${dim('沒有待套用的 migration')}`);
-      await runtime.extensions.persistRegistry();
     });
     heading('安裝完成');
-    line(`  接著執行 ${bold('commerce start')} 啟動服務，再用 ${bold('commerce doctor')} 檢查。`);
+    line(`  接著執行 ${bold(`${RELEASE_NAME} start`)} 啟動服務，再用 ${bold(`${RELEASE_NAME} doctor`)} 檢查。`);
   });
 
-program.command('start').description('啟動 API 與 Worker').action(() => printServices(startServices()));
-program.command('stop').description('停止 API 與 Worker').action(() => printServices(stopServices()));
-program.command('restart').description('重新啟動 API 與 Worker').action(() => {
-  stopServices();
-  printServices(startServices());
+program.command('start').description('啟動 API 與 Worker').action(async () => printServices(await startServices()));
+program.command('stop').description('停止 API 與 Worker').action(async () => printServices(await stopServices()));
+program.command('restart').description('重新啟動 API 與 Worker').action(async () => {
+  await stopServices();
+  printServices(await startServices());
 });
 program.command('status').description('顯示服務狀態').action(() => printServices(statusServices()));
 
@@ -93,10 +116,12 @@ program
   .description('檢查安裝、設定、資料庫、Worker、佇列與 Extension 狀態')
   .option('--json', '以 JSON 輸出')
   .action(async (options: { json?: boolean }) => {
-    const paths = resolvePaths();
-    const checks = await withRuntime((runtime, configPath) =>
-      runDoctorChecks(runtime, { releaseVersion: RELEASE_VERSION, configPath }),
-    );
+    const paths = resolvePaths(release.id);
+    const checks = await withRuntime(async (runtime, configPath) => {
+      try { await runtime.activateRelease('require-current'); }
+      catch (error) { return [{ name: 'release activation', status: 'fail' as const, detail: (error as Error).message }]; }
+      return runDoctorChecks(runtime, { releaseVersion: RELEASE_VERSION, configPath });
+    });
     const services = statusServices().map((s) => ({
       name: `service: ${s.name}`,
       status: (s.running ? 'pass' : 'warn') as 'pass' | 'warn',
@@ -107,7 +132,7 @@ program
     if (options.json) {
       line(JSON.stringify({ release: RELEASE_VERSION, configFile: paths.configFile, checks: all }, null, 2));
     } else {
-      heading(`commerce doctor  ${dim(`release ${RELEASE_VERSION}`)}`);
+      heading(`${RELEASE_NAME} doctor  ${dim(`release ${RELEASE_VERSION}`)}`);
       for (const check of all) {
         line(`  ${statusIcon(check.status)}  ${check.name}${check.detail ? dim(` — ${check.detail}`) : ''}`);
       }
@@ -115,14 +140,18 @@ program
     if (all.some((c) => c.status === 'fail')) process.exitCode = 1;
   });
 
-program
+const migrateCommand = program
   .command('migrate')
   .description('套用尚未執行的資料庫 migration')
   .option('--status', '只顯示狀態，不執行')
-  .action(async (options: { status?: boolean }) => {
+  .option('--json', '以 JSON 輸出 --status，供復原流程核對')
+  .action(async (options: { status?: boolean; json?: boolean }) => {
+    if (options.json && !options.status) fail('--json requires --status');
     await withRuntime(async (runtime) => {
       if (options.status) {
         const status = await runtime.migrationStatus();
+        if (options.json) { line(JSON.stringify(status)); return; }
+        line(status.releaseCurrent ? 'Release 已啟用' : 'Release 尚待 migrate 啟用（包含無 SQL 的變更）');
         heading('已套用');
         for (const m of status.applied) line(`  ${m.id} ${dim(`(${m.phase})`)}`);
         heading('待套用');
@@ -135,20 +164,36 @@ program
     });
   });
 
+migrateCommand.command('baseline')
+  .description('明確採納 release 內固定的舊 migration catalog；不宣稱能證明歷史 SQL bytes')
+  .requiredOption('--catalog <id>', '固定 catalog id')
+  .requiredOption('--evidence <text>', '操作者與來源 release／備份驗證證據')
+  .action(async (options: { catalog: string; evidence: string }) => {
+    const baseline = release.legacyBaselines.find(baseline => baseline.id === options.catalog);
+    if (!baseline) throw new Error(`Unknown legacy catalog "${options.catalog}" for release "${release.id}"`);
+    await withRuntime(async runtime => {
+      const result = await baselineMigrations(runtime.database.pool, runtime.migrations, baseline, options.evidence,
+        runtime.config.extensions.filter(entry => entry.enabled).map(entry => entry.id));
+      line(JSON.stringify(result));
+    });
+  });
+
+
 program
   .command('backup')
   .description('以 pg_dump 備份資料庫')
   .option('--out <file>', '輸出檔案路徑')
   .action(async (options: { out?: string }) => {
-    const paths = resolvePaths();
+    const paths = resolvePaths(release.id);
     await withRuntime(async (runtime) => {
       const dir = runtime.config.paths.backupDir;
       mkdirSync(dir, { recursive: true });
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
       const target = options.out ? resolve(options.out) : join(dir, `${runtime.config.store.id}-${stamp}.dump`);
       requireBinary('pg_dump');
-      execFileSync('pg_dump', ['--format=custom', '--no-owner', '--file', target, runtime.config.database.url], { stdio: 'inherit' });
-      chmodSync(target, 0o600);
+      requireBinary('pg_restore');
+      const dumped = await writePgBackup(runtime.config.database.url, target);
+      if (dumped.stderr) process.stderr.write(dumped.stderr);
       heading('備份完成');
       line(`  ${target}`);
       line(`  ${dim('設定檔請一併備份：')} ${paths.configFile}, ${paths.envFile}`);
@@ -166,76 +211,141 @@ program
     if (!options.yes) fail('還原會覆寫現有資料。確認後請加上 --yes 再執行。');
     await withRuntime(async (runtime) => {
       requireBinary('pg_restore');
-      execFileSync('pg_restore', ['--clean', '--if-exists', '--no-owner', '--dbname', runtime.config.database.url, target], { stdio: 'inherit' });
+      const restored = await runPgTool('pg_restore', runtime.config.database.url, ['--clean', '--if-exists', '--no-owner', target]);
+      if (restored.stderr) process.stderr.write(restored.stderr);
       heading('還原完成');
-      line(`  ${dim('請接著執行')} commerce migrate ${dim('與')} commerce doctor`);
+      line(`  ${dim('請接著執行')} ${RELEASE_NAME} migrate ${dim('與')} ${RELEASE_NAME} doctor`);
     });
   });
 
 program
   .command('upgrade')
-  .description('安裝新版 Release、套用 migration 並切換 current symlink')
-  .requiredOption('--release <tarball>', 'Release tarball 路徑')
+  .description('保存配對快照後套用新版 migration，或重試同一候選版本')
+  .option('--from-legacy-b01', '明確從 Commerce B01 升級，必須直接執行候選 B02 CLI')
+  .option('--catalog <id>', 'B01 固定 migration catalog')
+  .option('--evidence <text>', 'B01 採納來源與操作者證據')
+  .option('--safety <directory>', '繼續尚無日誌的 B01 原始備份，搭配 --checksum')
+  .option('--release <tarball>', 'Release tarball 路徑')
+  .option('--resume <journal>', '從既有 upgrade journal 重試')
+  .option('--snapshot <directory>', '從已發布但尚無日誌的配對快照繼續')
+  .option('--checksum <digest>', '配對快照記錄的 manifest checksum')
+  .option('--external-writers-stopped', '確認外部寫入者已停止，並維持停止直到操作完成')
   .option('--no-restart', '不自動重啟服務')
-  .action((options: { release: string; restart: boolean }) => {
-    const paths = resolvePaths();
-    const tarball = resolve(options.release);
-    if (!existsSync(tarball)) fail(`找不到 release：${tarball}`);
-    requireBinary('tar');
-
-    const version = basename(tarball).replace(/\.tar\.gz$/, '').replace(/^commerce-/, '');
-    const targetDir = join(paths.releasesDir, version);
-    mkdirSync(paths.releasesDir, { recursive: true });
-    if (existsSync(targetDir)) rmSync(targetDir, { recursive: true, force: true });
-    mkdirSync(targetDir, { recursive: true });
-
-    heading(`解壓 ${version}`);
-    execFileSync('tar', ['-xzf', tarball, '-C', targetDir, '--strip-components=1'], { stdio: 'inherit' });
-
-    const previous = existsSync(paths.currentLink) ? readlinkSync(paths.currentLink) : null;
-    try {
-      heading('套用 migration（使用新版程式）');
-      execFileSync(join(targetDir, 'bin', 'commerce'), ['migrate'], { stdio: 'inherit', env: process.env });
-
-      if (previous) writeFileSync(join(paths.home, 'previous'), previous, 'utf8');
-      switchSymlink(paths.currentLink, targetDir);
-      heading(`current -> ${targetDir}`);
-
-      if (options.restart !== false) {
-        stopServices();
-        printServices(startServices());
-      }
-    } catch (err) {
-      line(red('升級失敗，current symlink 保持指向舊版。'));
-      line(dim(`  ${(err as Error).message}`));
-      if (previous) line(dim(`  目前仍是：${previous}`));
-      process.exit(1);
+  .action(async (options: { release?: string; resume?: string; snapshot?: string; checksum?: string; externalWritersStopped?: boolean; restart: boolean; fromLegacyB01?: boolean; catalog?: string; evidence?: string; safety?: string }) => {
+    if (!options.externalWritersStopped) fail('upgrade requires --external-writers-stopped');
+    if (options.fromLegacyB01) {
+      const paths = resolvePaths(release.id);
+      return withTransitionLock(paths.home, (directory, lockFd) => upgradeLegacyB01(options, directory, lockFd));
     }
+    if (options.catalog || options.evidence || options.safety) fail('Legacy options require --from-legacy-b01');
+    if ([options.release, options.resume, options.snapshot].filter(Boolean).length !== 1 || Boolean(options.snapshot) !== Boolean(options.checksum)) {
+      fail('Use --release, --resume, or --snapshot with --checksum');
+    }
+    const paths = resolvePaths(release.id);
+    return withTransitionLock(paths.home, async (directory, lockFd) => {
+      let recorded = options.resume ? await readUpgradeJournal(options.resume, directory) : undefined;
+      const loaded = loadReleaseConfig(release.config, paths.configFile);
+      if (!isSymlink(paths.currentLink)) fail('current must be an existing source symlink');
+      if (options.snapshot) {
+        const pair = await readPairedSnapshot(options.snapshot, options.checksum!);
+        if (pair.manifest.source.releaseId !== release.id
+          || ![pair.manifest.source.directory, pair.manifest.candidate.directory].map(path => realpathSync(path)).includes(realpathSync(paths.currentLink))) fail('current does not match the upgrade source or candidate');
+        await stopServices();
+        await verifyRestoredDatabase(pair.directory, options.checksum!, loaded.config.database.url, pair.manifest.evidence.database.oid);
+        await verifySourceRuntime(pair.directory, options.checksum!, paths.configFile, loaded.config.database.url, lockFd);
+        await verifyRestoredDatabase(pair.directory, options.checksum!, loaded.config.database.url, pair.manifest.evidence.database.oid);
+        recorded = await readUpgradeJournal(await createUpgradeJournal(directory, pair.directory, options.checksum!), directory);
+      }
+      if (!recorded) {
+        requireBinary('tar'); requireBinary('pg_dump'); requireBinary('pg_restore');
+        const source = validateReleaseDirectory(realpathSync(paths.currentLink), release.id);
+        heading('驗證並準備候選 Release');
+        const candidate = installReleaseArchive(resolve(options.release!), paths.releasesDir, release.id, true);
+        await stopServices();
+        const pair = await withRuntime(runtime => createPairedSnapshot({ databaseUrl: loaded.config.database.url,
+          sourceDirectory: source.directory, candidateDirectory: candidate.directory, snapshotDirectory: directory, lockFd },
+          callback => runtime.withReleaseSnapshot(callback)));
+        line(`  snapshot：${pair.directory}`);
+        line(`  checksum：${pair.manifestChecksum}`);
+        const file = await createUpgradeJournal(directory, pair.directory, pair.manifestChecksum);
+        recorded = await readUpgradeJournal(file, directory);
+      }
+      const { file, journal, snapshot: pair } = recorded;
+      if (pair.manifest.source.releaseId !== release.id
+        || ![pair.manifest.source.directory, pair.manifest.candidate.directory].map(path => realpathSync(path)).includes(realpathSync(paths.currentLink))) {
+        fail('current does not match the upgrade source or candidate');
+      }
+      line(`  upgrade journal：${file}`);
+      await stopServices();
+      await requireUpgradeDatabase(pair, loaded.config.database.url);
+      writeUpgradeJournal(file, { ...journal, phase: 'migrating' }, directory);
+      runReleaseCli(pair.manifest.candidate, paths.configFile, loaded.config.database.url, 'migrate', lockFd);
+      const status = JSON.parse(runReleaseCli(pair.manifest.candidate, paths.configFile, loaded.config.database.url, 'status', lockFd));
+      if (status.releaseCurrent !== true || !Array.isArray(status.pending) || status.pending.length !== 0) throw new Error('Candidate release is not current after migration');
+      await readPairedSnapshot(pair.directory, journal.snapshot.checksum);
+      await requireUpgradeDatabase(pair, loaded.config.database.url);
+      writeUpgradeJournal(file, { ...journal, phase: 'migrated' }, directory);
+      switchSymlink(paths.currentLink, pair.manifest.candidate.directory);
+      writeUpgradeJournal(file, { ...journal, phase: 'activated' }, directory);
+      heading(`current -> ${pair.manifest.candidate.directory}`);
+      if (options.restart !== false) printServices(await startServices());
+    });
   });
 
 program
   .command('rollback')
-  .description('把 current symlink 切回上一版並重啟服務')
-  .option('--to <version>', '指定要切回的版本目錄名稱')
-  .action((options: { to?: string }) => {
-    const paths = resolvePaths();
-    const previousFile = join(paths.home, 'previous');
-    const target = options.to
-      ? join(paths.releasesDir, options.to)
-      : existsSync(previousFile) ? readFileSync(previousFile, 'utf8').trim() : null;
-
-    if (!target) fail('找不到可回退的版本。請用 --to <version> 指定。');
-    if (!existsSync(target)) fail(`版本目錄不存在：${target}`);
-
-    const current = existsSync(paths.currentLink) ? readlinkSync(paths.currentLink) : null;
-    switchSymlink(paths.currentLink, target);
-    if (current) writeFileSync(previousFile, current, 'utf8');
-
-    heading(`current -> ${target}`);
-    line(yellow('  提醒：只有 expand/migrate 階段的 schema 能安全回退。'));
-    line(yellow('  已執行過 contract 階段 migration 的版本無法用舊程式讀取。'));
-    stopServices();
-    printServices(startServices());
+  .option('--safety <directory>', '還原 B01 採納前原始備份，需 --to-legacy-b01 與 --checksum')
+  .option('--to-legacy-b01', '明確以候選 B02 CLI 還原配對的 B01 資料庫與程式')
+  .description('以配對快照還原資料庫與來源版本，或繼續已記錄的還原')
+  .option('--snapshot <directory>', '配對快照目錄')
+  .option('--checksum <digest>', '快照記錄的 manifest checksum')
+  .option('--resume <journal>', '繼續既有 restore journal')
+  .option('--maintenance-database <name>', '獨立 maintenance 資料庫', 'postgres')
+  .option('--yes', '確認將目前資料庫替換為快照內容')
+  .option('--external-writers-stopped', '確認外部寫入者已停止，並維持停止直到操作完成')
+  .option('--no-restart', '完成後不自動重啟服務')
+  .action(async (options: { safety?: string; snapshot?: string; checksum?: string; resume?: string; maintenanceDatabase: string;
+    yes?: boolean; externalWritersStopped?: boolean; restart: boolean; toLegacyB01?: boolean }) => {
+    if (!options.yes || !options.externalWritersStopped) fail('rollback requires --yes and --external-writers-stopped');
+    if (options.safety && !options.toLegacyB01) fail('Raw B01 restore requires --to-legacy-b01');
+    if (options.resume ? Boolean(options.snapshot || options.safety || options.checksum) : [options.snapshot, options.safety].filter(Boolean).length !== 1 || !options.checksum) {
+      fail('Use --snapshot or --safety with --checksum, or --resume with an existing journal');
+    }
+    const paths = resolvePaths(release.id);
+    return withTransitionLock(paths.home, async (directory, lockFd) => {
+      const resumed = options.resume ? await readRestoreJournal(options.resume, directory) : undefined;
+      if (resumed && (resumed.journal.kind !== 'restore') !== Boolean(options.toLegacyB01)) fail('Restore journal requires its matching explicit legacy mode');
+      const readSnapshot = options.safety ? readLegacySafetySnapshot : options.toLegacyB01 ? readLegacyPairedSnapshot : readPairedSnapshot;
+      const pair = resumed?.snapshot ?? await readSnapshot((options.safety ?? options.snapshot)!, options.checksum!);
+      if (options.toLegacyB01) {
+        const executing = validateReleaseDirectory(dirname(dirname(realpathSync(process.argv[1]!))), 'commerce');
+        const releases = realpathSync(paths.releasesDir);
+        if (release.id !== 'commerce' || executing.version !== release.version || executing.treeChecksum !== pair.manifest.candidate.treeChecksum
+          || dirname(realpathSync(pair.manifest.source.directory)) !== releases
+          || dirname(realpathSync(pair.manifest.candidate.directory)) !== releases) fail('B01 rollback requires its exact installation-local candidate CLI and source');
+      }
+      if (pair.manifest.source.releaseId !== release.id) fail('Snapshot release identity does not match this CLI');
+      if (!isSymlink(paths.currentLink) || ![pair.manifest.source.directory, pair.manifest.candidate.directory].map(path => realpathSync(path)).includes(realpathSync(paths.currentLink))) {
+        fail('current does not match the snapshot source or candidate');
+      }
+      const loaded = loadReleaseConfig(release.config, paths.configFile);
+      const maintenance = parsePgUrl(loaded.config.database.url);
+      if (!options.maintenanceDatabase || Buffer.byteLength(options.maintenanceDatabase) > 63 || options.maintenanceDatabase.includes('\0')) fail('Invalid maintenance database name');
+      if (decodeURIComponent(maintenance.pathname.slice(1)) !== pair.manifest.evidence.database.name) fail('Configured database does not match the snapshot source');
+      maintenance.pathname = `/${encodeURIComponent(options.maintenanceDatabase)}`;
+      if (options.maintenanceDatabase === pair.manifest.evidence.database.name) fail('Maintenance database must differ from the live database');
+      if (!resumed) requireBinary('pg_restore');
+      heading('停止並等待目前 API／Worker 結束');
+      await stopServices();
+      const journalFile = resumed?.file ?? (await restoreSnapshotToScratch(pair.directory, options.checksum!,
+        maintenance.toString(), directory, lockFd, options.safety ? 'legacy-b01-safety' : options.toLegacyB01 ? 'legacy-b01' : 'modern')).journalFile;
+      line(`  restore journal：${journalFile}`);
+      const restored = await resumeRestoreCutover(resumed ?? await readRestoreJournal(journalFile, directory), maintenance.toString(), paths.configFile, lockFd);
+      switchSymlink(paths.currentLink, restored.sourceDirectory);
+      heading(`current -> ${restored.sourceDirectory}`);
+      line(`  保留原資料庫：${restored.quarantineName}`);
+      if (options.restart !== false) printServices(await startServices());
+    });
   });
 
 program
@@ -252,6 +362,7 @@ program
       return;
     }
     await withRuntime(async (runtime) => {
+      await runtime.activateRelease('require-current');
       const user = await runtime.commands.execute<{ id: string; email: string; role: string }>(
         'platform.identity.createUser',
         { email: options.email, password, displayName: options.name, role: options.role },
@@ -269,6 +380,7 @@ program
   .option('--json', '以 JSON 輸出')
   .action(async (options: { json?: boolean }) => {
     await withRuntime(async (runtime) => {
+      await runtime.activateRelease('require-current');
       const items = runtime.extensions.list().map((ext) => ({
         id: ext.id,
         name: ext.name,
@@ -301,6 +413,84 @@ program
     });
   });
 
+async function upgradeLegacyB01(options: { release?: string; resume?: string; safety?: string; snapshot?: string;
+  checksum?: string; catalog?: string; evidence?: string; restart: boolean }, directory: string, lockFd: number) {
+  if (release.id !== 'commerce' || options.snapshot || [options.release, options.resume, options.safety].filter(Boolean).length !== 1
+    || Boolean(options.safety) !== Boolean(options.checksum)) fail('B01 bridge requires Commerce and --release, --resume, or --safety with --checksum');
+  const baseline = release.legacyBaselines.find(entry => entry.id === 'legacy-commerce-0.1.0-pre-b02');
+  if (!baseline || (options.resume ? Boolean(options.catalog || options.evidence)
+    : options.catalog !== baseline.id || !options.evidence?.trim())) fail('B01 bridge requires its fixed --catalog and --evidence; resume uses recorded evidence');
+  const paths = resolvePaths(release.id);
+  const executing = validateReleaseDirectory(dirname(dirname(realpathSync(process.argv[1]!))), 'commerce');
+  if (executing.version !== release.version) fail('Execute the exact B02 candidate CLI directly');
+  let recorded = options.resume ? await readLegacyBridgeJournal(options.resume, directory) : undefined;
+  let safety = recorded?.safety ?? (options.safety ? await readLegacySafetySnapshot(options.safety, options.checksum!) : undefined);
+  if (!isSymlink(paths.currentLink)) fail('B01 current must be a source symlink');
+  const current = realpathSync(paths.currentLink), releases = realpathSync(paths.releasesDir);
+  if (dirname(current) !== releases) fail('B01 current must be inside this installation releases directory');
+  if (!safety) {
+    const source = validateLegacyB01Directory(current);
+    const candidate = installReleaseArchive(resolve(options.release!), paths.releasesDir, 'commerce', true);
+    if (candidate.version === source.version || candidate.treeChecksum !== executing.treeChecksum) fail('B01 bridge must run the exact distinct candidate release');
+    requireBinary('pg_dump'); requireBinary('pg_restore');
+    await stopServices();
+    const created = await withRuntime(runtime => createLegacySafetySnapshot(runtime.database.pool, {
+      databaseUrl: runtime.config.database.url, sourceDirectory: source.directory, candidateDirectory: candidate.directory,
+      operationRoot: directory, lockFd }));
+    safety = await readLegacySafetySnapshot(created.directory, created.manifestChecksum);
+    line(`  safety：${safety.directory}`);
+    line(`  checksum：${safety.manifestChecksum}`);
+  }
+  if (safety.manifest.candidate.treeChecksum !== executing.treeChecksum
+    || dirname(realpathSync(safety.manifest.source.directory)) !== releases
+    || dirname(realpathSync(safety.manifest.candidate.directory)) !== releases
+    || ![safety.manifest.source.directory, safety.manifest.candidate.directory].map(path => realpathSync(path)).includes(current)) fail('B01 bridge source or candidate differs from this installation');
+  await stopServices();
+  if (!recorded) recorded = await readLegacyBridgeJournal(await createLegacyBridgeJournal(directory, safety.directory,
+    safety.manifestChecksum, options.evidence!), directory);
+  line(`  bridge journal：${recorded.file}`);
+  const file = recorded.file;
+  await withRuntime(async runtime => {
+    // Physical identity permits forward retry after partial SQL, but never a replacement database.
+    await requireUpgradeDatabase(safety!, runtime.config.database.url);
+    if (recorded!.journal.phase === 'safety') {
+      requireBinary('pg_dump'); requireBinary('pg_restore');
+      if (current !== realpathSync(safety!.manifest.source.directory)) fail('Unmigrated bridge must still use its B01 source');
+      const client = await runtime.database.pool.connect();
+      try {
+        await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+        await client.query("SET LOCAL search_path = pg_catalog; SET LOCAL TIME ZONE 'UTC'; SET LOCAL DateStyle = 'ISO, YMD'");
+        if (catalogDigest(await readSnapshotDatabase(client)) !== catalogDigest(safety!.manifest.evidence.database)) {
+          fail('B01 database differs from its original safety snapshot');
+        }
+        const rows = await client.query("SELECT coalesce(jsonb_agg(to_jsonb(m) ORDER BY id), '[]'::jsonb) AS entries FROM (SELECT id, phase, applied_at FROM public.platform_migrations) m");
+        if (catalogDigest(rows.rows[0].entries) !== safety!.manifest.evidence.migrationsChecksum) fail('B01 history differs from its original safety snapshot');
+        await client.query('COMMIT');
+      } catch (error) { await client.query('ROLLBACK'); throw error; }
+      finally { client.release(); }
+      await baselineMigrations(runtime.database.pool, runtime.migrations, baseline!, recorded!.journal.evidence,
+        runtime.config.extensions.filter(entry => entry.enabled).map(entry => entry.id));
+      const pair = await createLegacyPairedSnapshot(runtime.database.pool, runtime.migrations, {
+        databaseUrl: runtime.config.database.url, safetyDirectory: safety!.directory, safetyChecksum: safety!.manifestChecksum, evidence: recorded!.journal.evidence,
+        operationRoot: directory, enabledExtensions: runtime.config.extensions.filter(entry => entry.enabled).map(entry => entry.id), lockFd });
+      recorded = await advanceLegacyBridgeJournal(file, directory, 'paired', { directory: pair.directory, checksum: pair.manifestChecksum });
+    }
+    if (recorded!.journal.phase === 'paired') recorded = await advanceLegacyBridgeJournal(file, directory, 'migrating');
+    if (recorded!.journal.phase === 'migrating') {
+      runReleaseCli(safety!.manifest.candidate, paths.configFile, runtime.config.database.url, 'migrate', lockFd);
+      recorded = await advanceLegacyBridgeJournal(file, directory, 'migrated');
+    }
+    const status = JSON.parse(runReleaseCli(safety!.manifest.candidate, paths.configFile, runtime.config.database.url, 'status', lockFd));
+    if (status.releaseCurrent !== true || !Array.isArray(status.pending) || status.pending.length) fail('B01 candidate is not current after migration');
+    recorded = await readLegacyBridgeJournal(file, directory);
+    await requireUpgradeDatabase(recorded.snapshot!, runtime.config.database.url);
+    switchSymlink(paths.currentLink, safety!.manifest.candidate.directory);
+    if (recorded.journal.phase === 'migrated') await advanceLegacyBridgeJournal(file, directory, 'activated');
+  });
+  heading(`current -> ${safety.manifest.candidate.directory}`);
+  if (options.restart !== false) printServices(await startServices());
+}
+
 function printServices(statuses: ReturnType<typeof statusServices>): void {
   heading(`服務狀態 ${dim(`(${serviceManager()})`)}`);
   for (const s of statuses) {
@@ -309,12 +499,15 @@ function printServices(statuses: ReturnType<typeof statusServices>): void {
 }
 
 function switchSymlink(link: string, target: string): void {
-  const tmp = `${link}.tmp`;
-  if (existsSync(tmp)) unlinkSync(tmp);
+  if ((existsSync(link) || isSymlink(link)) && !isSymlink(link)) throw new Error(`current must be a symlink: ${link}`);
+  const tmp = `${link}.tmp-${randomUUID()}`;
   symlinkSync(target, tmp);
-  if (existsSync(link) || isSymlink(link)) unlinkSync(link);
-  symlinkSync(target, link);
-  unlinkSync(tmp);
+  try {
+    renameSync(tmp, link);
+    const fd = openSync(dirname(link), 'r');
+    try { fsyncSync(fd); } finally { closeSync(fd); }
+  }
+  finally { if (isSymlink(tmp)) unlinkSync(tmp); }
 }
 
 function isSymlink(path: string): boolean {

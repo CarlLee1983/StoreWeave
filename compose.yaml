@@ -23,7 +23,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: storeweave/commerce:local
+    image: ${STOREWEAVE_IMAGE:-storeweave/commerce:local}
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,7 +49,7 @@ services:
     restart: unless-stopped
 
   worker:
-    image: storeweave/commerce:local
+    image: ${STOREWEAVE_IMAGE:-storeweave/commerce:local}
     depends_on:
       api:
         condition: service_healthy

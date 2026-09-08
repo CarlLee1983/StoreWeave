@@ -14,6 +14,10 @@ http:
   host: 0.0.0.0
   port: 3000
   publicUrl: ${COMMERCE_PUBLIC_URL:-http://localhost:3000}
+  cors:
+    # Browser origins only; this is not derived from publicUrl.
+    allowedOrigins: []
+    credentials: false
   trustProxy: false
 
 database:

@@ -5,3 +5,4 @@ apps/admin/dist
 .git
 *.log
 .env
+.cache

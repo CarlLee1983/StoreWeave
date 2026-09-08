@@ -1,0 +1,40 @@
+[Unit]
+Description=StoreWeave Base Worker
+Documentation=https://github.com/carl/StoreWeave
+After=network-online.target storeweave-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=storeweave
+Group=storeweave
+# current 是 symlink：升級只換 symlink，回退也只換 symlink
+WorkingDirectory=/opt/storeweave/current
+Environment=NODE_ENV=production
+Environment=STOREWEAVE_CONFIG=/etc/storeweave/storeweave.yaml
+Environment=STOREWEAVE_HOME=/opt/storeweave
+EnvironmentFile=-/etc/storeweave/storeweave.env
+ExecStart=/opt/storeweave/current/runtime/bin/node /opt/storeweave/current/app/worker.js
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# 記錄走 journald（journalctl -u storeweave-worker）
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=storeweave-worker
+
+# 最小權限
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/storeweave /var/log/storeweave
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,7 +1,7 @@
 {
-  "$ref": "#/definitions/CommerceConfig",
+  "$ref": "#/definitions/BaseConfig",
   "definitions": {
-    "CommerceConfig": {
+    "BaseConfig": {
       "type": "object",
       "properties": {
         "version": {
@@ -21,21 +21,15 @@
             },
             "locale": {
               "type": "string",
-              "default": "zh-TW"
+              "default": "en"
             },
             "timezone": {
               "type": "string",
-              "default": "Asia/Taipei"
+              "default": "UTC"
             },
             "supportEmail": {
               "type": "string",
               "format": "email"
-            },
-            "currency": {
-              "type": "string",
-              "minLength": 3,
-              "maxLength": 3,
-              "default": "TWD"
             }
           },
           "required": [
@@ -171,7 +165,7 @@
           "properties": {
             "id": {
               "type": "string",
-              "default": "default"
+              "default": "none"
             },
             "options": {
               "type": "object",
@@ -187,7 +181,7 @@
           "properties": {
             "enabled": {
               "type": "boolean",
-              "default": true
+              "default": false
             },
             "basePath": {
               "type": "string",
@@ -203,7 +197,7 @@
           "properties": {
             "enabled": {
               "type": "boolean",
-              "default": true
+              "default": false
             },
             "path": {
               "type": "string",
@@ -228,12 +222,7 @@
                   },
                   "role": {
                     "type": "string",
-                    "enum": [
-                      "admin",
-                      "staff",
-                      "readonly",
-                      "mcp"
-                    ]
+                    "minLength": 1
                   },
                   "secretRef": {
                     "type": "string",
@@ -322,7 +311,7 @@
             },
             "file": {
               "type": "string",
-              "default": "/var/log/commerce/commerce.log"
+              "default": "/var/log/storeweave/storeweave.log"
             }
           },
           "additionalProperties": false,
@@ -333,11 +322,11 @@
           "properties": {
             "dataDir": {
               "type": "string",
-              "default": "/var/lib/commerce"
+              "default": "/var/lib/storeweave"
             },
             "backupDir": {
               "type": "string",
-              "default": "/var/lib/commerce/backups"
+              "default": "/var/lib/storeweave/backups"
             }
           },
           "additionalProperties": false,
@@ -356,7 +345,7 @@
             },
             "file": {
               "type": "string",
-              "default": "/etc/commerce/commerce.env"
+              "default": "/etc/storeweave/storeweave.env"
             }
           },
           "additionalProperties": false,
@@ -372,6 +361,6 @@
     }
   },
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "StoreWeave commerce.yaml",
+  "title": "StoreWeave storeweave.yaml",
   "description": "Release 設定檔結構。機密使用 ${ENV_VAR} 參照。"
 }

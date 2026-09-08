@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=./base.schema.json
+# Build with STOREWEAVE_RELEASE=base. Secrets remain outside this file.
+version: 1
+store:
+  id: base-site
+  name: Base site
+  locale: en
+  timezone: UTC
+database:
+  url: ${STOREWEAVE_DATABASE_URL}
+  autoMigrate: false
+http:
+  publicUrl: http://localhost:3000
+  cors:
+    # Empty keeps CORS and its automatic OPTIONS route disabled.
+    allowedOrigins: []
+    credentials: false
+auth:
+  tokens: []
+extensions: []
+secrets:
+  provider: file
+  file: /etc/storeweave/storeweave.env
+shutdown:
+  timeoutMs: 25000

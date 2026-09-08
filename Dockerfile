@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1
 # 建置階段：安裝依賴並產生 Application Artifact（dist/）。
+ARG STOREWEAVE_RELEASE=commerce
 FROM node:22-bookworm-slim AS builder
+ARG STOREWEAVE_RELEASE
 WORKDIR /src
 
 RUN corepack enable
@@ -56,34 +58,37 @@ COPY tools/cli/package.json tools/cli/
 RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN pnpm build
+RUN case "$STOREWEAVE_RELEASE" in base|commerce) ;; *) exit 1 ;; esac \
+ && STOREWEAVE_RELEASE="$STOREWEAVE_RELEASE" pnpm build \
+ && if [ "$STOREWEAVE_RELEASE" = commerce ]; then NAME=commerce; CONFIG=deployments/example-store/commerce.yaml; else NAME=storeweave; CONFIG=deployments/storeweave.example.yaml; fi \
+ && mkdir -p "/runtime-root/opt/$NAME/current" "/runtime-root/etc/$NAME" \
+ && cp -R dist/. "/runtime-root/opt/$NAME/current/" \
+ && cp "$CONFIG" "/runtime-root/etc/$NAME/$NAME.yaml.example"
 
 # 執行階段：只帶編譯後的 JavaScript 與靜態資源，沒有原始碼、沒有編譯工具。
 FROM node:22-bookworm-slim AS runtime
-LABEL org.opencontainers.image.title="StoreWeave Commerce"
+ARG STOREWEAVE_RELEASE
+LABEL org.opencontainers.image.title="StoreWeave ${STOREWEAVE_RELEASE}"
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends postgresql-client tini ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd --system commerce && useradd --system --gid commerce --home /var/lib/commerce commerce
-
-WORKDIR /opt/commerce/current
-COPY --from=builder /src/dist ./
-COPY deployments/example-store/commerce.yaml /etc/commerce/commerce.yaml.example
+COPY --from=builder /runtime-root/ /
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-RUN printf '#!/bin/sh\nexec node /opt/commerce/current/app/cli.js "$@"\n' > /usr/local/bin/commerce \
- && chmod +x /usr/local/bin/commerce /usr/local/bin/entrypoint.sh \
- && mkdir -p /var/lib/commerce/backups /var/log/commerce /etc/commerce \
- && chown -R commerce:commerce /var/lib/commerce /var/log/commerce
+# Keep the existing Commerce UID/GID so existing data volumes retain access.
+RUN case "$STOREWEAVE_RELEASE" in commerce) NAME=commerce ;; base) NAME=storeweave ;; *) exit 1 ;; esac \
+ && groupadd --system --gid 999 "$NAME" \
+ && useradd --system --uid 999 --gid "$NAME" --home "/var/lib/$NAME" "$NAME" \
+ && printf '#!/bin/sh\nexec node /opt/%s/current/app/cli.js "$@"\n' "$NAME" > "/usr/local/bin/$NAME" \
+ && chmod +x "/usr/local/bin/$NAME" /usr/local/bin/entrypoint.sh \
+ && printf '%s\n' "$STOREWEAVE_RELEASE" > /usr/local/share/storeweave-release \
+ && mkdir -p "/var/lib/$NAME/backups" "/var/log/$NAME" "/etc/$NAME" \
+ && chown -R "$NAME:$NAME" "/var/lib/$NAME" "/var/log/$NAME"
 
-ENV NODE_ENV=production \
-    COMMERCE_CONFIG=/etc/commerce/commerce.yaml \
-    COMMERCE_ADMIN_DIR=/opt/commerce/current/admin \
-    COMMERCE_HOME=/opt/commerce
-
-USER commerce
+ENV NODE_ENV=production
+USER 999:999
 EXPOSE 3000
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 CMD ["api"]
