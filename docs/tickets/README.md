@@ -1,5 +1,17 @@
 # 工單
 
+**完整基底派工規劃**：請讀 [Spec 0009](../specs/0009-complete-modular-base.md) 與
+[Base 執行計畫](../base-implementation-plan.md)，B00–B17 為本機工作包，尚非 GitHub 工單。
+Spec0008 Ticket81–90 已於2026-09-07完成本機驗收與指定獨立審查；未commit／push。後續入口為Base B00。
+
+切換模型或新對話接手後台實作，先讀 [Spec 0008 實作交接](../admin-implementation-handoff.md)。
+
+GitHub 派工入口：[Spec 0008 總單 #17](https://github.com/CarlLee1983/StoreWeave/issues/17)，內含完整規格與本批工單連結。
+
+**後台既有規劃（2026-09-06）**：[Spec 0008](../specs/0008-admin-foundations-and-contracts.md)
+拆為 81–90，建議依編號逐一交給 Terra／high；真正相依與審查模型見各票。
+91 為 ForgeFlowv2 discovery，等待來源與預期場景，不阻擋 81–90。以下原有交付紀錄保留。
+
 由 `docs/specs/` 的五份規格拆出，共 49 張，之後補了第 50、51、52、53、54、55 張。依相依順序編號。詞彙見根目錄 `CONTEXT.md`，
 決策見 `docs/adr/`（本批為 0013、0014、0015，並補充了 0009）。
 
@@ -149,6 +161,17 @@
 | [78](78-admin-brand-content.md) | 後台品牌內容管理（**done**） | 76 |
 | [79](79-contact-us.md) | 聯絡我們：前台表單與後台收件匣（**done**） | 76, 77 |
 | [80](80-migrate-brand-content-to-seed.md) | 織日內容搬進 seed，`brand-content.ts` 下線（**done**） | 76, 77 |
+| [81](81-admin-order-http-contract.md) | 收斂後台 Order HTTP 型別與待付款顯示（**locally-verified**） | — |
+| [82](82-admin-shadcn-primitives.md) | 建立 shadcn 基礎並替換共用選單與理由對話框（**completed locally**） | — |
+| [83](83-admin-products-ui-pilot.md) | 以商品頁完成 shadcn UI 垂直試點（**completed locally**） | 82 |
+| [84](84-admin-marketing-content-ui.md) | 遷移促銷、券、會員設定與品牌內容 UI（**completed locally**） | 83 |
+| [85](85-admin-commerce-operations-ui.md) | 遷移訂單、會員、RMA 與出貨工作台 UI（**completed locally**） | 81, 83 |
+| [86](86-admin-shell-and-observability-ui.md) | 遷移後台外殼、登入與其餘營運頁 UI（**completed locally**） | 83 |
+| [87](87-admin-query-foundation-products.md) | 建立 Query 與身分快取邊界並遷移商品讀寫（**completed locally**） | 83 |
+| [88](88-admin-commerce-query-migration.md) | 收斂商務編輯與操作頁的 Query 狀態（**done**） | 81, 84, 85, 87 |
+| [89](89-admin-operations-query-migration.md) | 收斂營運查詢、重送與外殼徽章的 Query 狀態（**done**） | 86, 88 |
+| [90](90-admin-migration-closure.md) | 完成後台遷移清理、文件與整體驗收（**done**） | 81, 84, 85, 86, 88, 89 |
+| [91](91-forgeflowv2-integration-discovery.md) | 釐清 ForgeFlowv2 整合責任與契約（discovery）（**needs-information**） | — |
 
 **76–80 是 Spec 0007 的回填紀錄**（2026-08-26）：這一批不是先開工單再做，而是照
 [Spec 0007](../specs/0007-brand-content-and-contact.md) 直接實作完再補上工單。
