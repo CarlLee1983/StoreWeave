@@ -41,11 +41,24 @@ describe('DateField', () => {
     const user = userEvent.setup();
     const { onChange } = renderField({ value: '2026-08-10' });
 
-    await user.click(screen.getByRole('button', { name: /選擇日期/ }));
+    const trigger = screen.getByRole('button', { name: /選擇日期/ });
+    await user.click(trigger);
     await screen.findByRole('dialog', { name: /選擇日期/ });
 
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog', { name: /選擇日期/ })).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('點選欄位外會收起日曆', async () => {
+    const user = userEvent.setup();
+    renderField();
+
+    await user.click(screen.getByRole('button', { name: /選擇日期/ }));
+    await screen.findByRole('dialog', { name: /選擇日期/ });
+
+    await user.click(document.body);
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /選擇日期/ })).not.toBeInTheDocument());
   });
 });

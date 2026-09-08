@@ -19,6 +19,12 @@ This document defines the official design system, architectural principles, typo
 5. **Multi-Language Adaptability (i18n)**
    * Fluid layout containers accommodate text expansion across different languages (e.g., Traditional Chinese, English, Japanese) without layout shifts or text wrapping defects.
 
+### 1.1 Implemented Admin Boundaries
+
+Server state uses one App-lifetime `QueryClient`; `query.ts` owns query keys, `api.ts` is the sole production HTTP transport, and `routes.tsx` owns the 16 route definitions, navigation, page metadata, and header actions. Queries and mutations set `retry: false`; cache and pending operation recovery are memory-only. Identity changes cancel and clear query cache plus pending operations before new data can render. Commands keep an immutable request and idempotency key while their result is unknown. Only a definite success or rejection ends that operation; only afterwards may a new user action receive a new key.
+
+`Dialog`, `DropdownMenu`, and `Popover` are the shared Radix-backed primitives. React Hook Form and TanStack Table remain deferred until repeated validation or confirmed table sorting, visibility, or selection needs justify them.
+
 ---
 
 ## 2. Typography System
@@ -193,11 +199,11 @@ Status indicators must never rely on plain dots or emojis. They incorporate expl
 ### 5.2 Component Guidelines
 
 1. **Sidebar Navigation**:
-   * Width: `240px`, fixed left layout with collapsible support.
+   * Width: `250px`, fixed left layout; at narrow widths it becomes the existing icon rail.
    * Semantic category labels (`COMMERCE`, `INTEGRATIONS`) in 11px uppercase bold.
    * Badges in monospace with danger variant highlighting Dead Letter Queue count (`1 DLQ`).
 2. **Topbar & Utilities**:
-   * Fixed height: `56px`.
+   * Fixed height: `60px`.
    * Search input with keyboard badge (`⌘K`).
    * Dynamic Language Switcher (`zh-TW`, `en-US`, `ja-JP`).
    * Theme toggle with dedicated vector Sun / Moon SVGs.
@@ -206,14 +212,19 @@ Status indicators must never rely on plain dots or emojis. They incorporate expl
    * Header height: `34px`, row height: `44px`.
    * Monospace alignment for IDs, amounts, and timestamps.
    * Row hover feedback with subtle background contrast transition (`100ms`).
-4. **Slide-Over Drawer**:
-   * 兩種寬度：payload 檢視用 `520px`；帶表單的編輯抽屜用 `min(620px, 100vw)`
-     （`.product-edit-drawer`，商品與品牌內容共用）——表單欄位在 520px 下會擠。
+4. **Dialog 與選單 primitive**：
+   * `src/components/ui/dialog.tsx`、`dropdown-menu.tsx` 與 `popover.tsx` 是由 [shadcn/ui source distribution](https://ui.shadcn.com/docs) 改寫為既有 token CSS 的 Radix 基底（出處與調整在同目錄 `README.md`）；商務語意留在 `ReasonDialog`、`RowMenu`，不要自行維護 window click listener 或 focus trap。
+   * Dialog 使用 `--bg-surface`、`--border-default`、`--border-focus` 與 `--shadow-dropdown`；破壞性確認沿用 `--status-error-*`。
+   * `ReasonDialog` 保留 trim 後必填理由；取消、Esc、點擊關閉與關閉後焦點還原均透過 Dialog primitive lifecycle。
+   * 相容基準：Node `>=22`、React/React DOM `18.3.1`、Vite `6`；Radix Dialog `1.1.23`、Dropdown Menu `2.1.24` 的 peer range 均包含 React 18。此專案未導入 Tailwind，primitives 直接使用既有 CSS token，避免 reset 影響尚未遷移的頁面。
+   * 商品的 create／edit Sheet 是 `DialogContent.ui-product-sheet` 的具象用法：開啟時聚焦首欄、關閉時回到觸發者。列表保持原生 table；窄版由 `.table-wrap` 水平捲動及 `.products-table` 最小寬度保留列操作，不壓縮成不可用的欄位。
+5. **Slide-Over Drawer**:
+   * Payload 檢視使用 `min(560px, 100vw)`；表單 drawer 使用 `DialogContent` 加頁面語意 class。
    * Slide in from right with subtle backdrop blur.
-   * 一律掛 `useEscapeKey`。
+   * Drawer 一律透過 Dialog primitive 處理 Esc、focus trap 與回焦。
    * Payload 檢視提供格式化 JSON、一鍵複製與「Replay Event」動作。
 
-5. **長文編輯表單**：
+6. **長文編輯表單**：
    * 抽屜內的欄位排在 `.form-grid`（兩欄）。**內文這類長文欄位要跨兩欄**：
      加 `.form-field--full`（`.form-grid > .form-field--full { grid-column: 1 / -1 }`）。
    * 欄位說明（`.field-hint`）放進 `<label>` 內，不要當成 `.form-grid` 的直接子元素——

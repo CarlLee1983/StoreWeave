@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Promotion, type PromotionRule } from '../api';
 import { useI18n, type MessageKey } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
@@ -6,9 +7,11 @@ import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
 import { Icon } from '../components/Icon';
 import { EmptyState } from '../components/EmptyState';
-import { useEscapeKey } from '../hooks/useEscapeKey';
 import { RowMenu, type RowMenuItem } from '../components/RowMenu';
 import { DateTimeField } from '../components/DateTimeField';
+import { Dialog, DialogClose, DialogContent, DialogTitle } from '../components/ui/dialog';
+import { analyticsKeys, promotionKeys } from '../query';
+import { executeAdminOperation, type AdminOperation, type AdminOperationEntry, useAdminOperationEntries, useAdminOperations } from '../admin-operations';
 
 /** 規則型別在編譯期已知，每一種有自己的表單欄位——折扣設定需要客製 UI，不做 schema 驅動的動態表單。 */
 const RULE_TYPES = ['threshold_fixed_amount', 'threshold_percentage', 'order_percentage'] as const;
@@ -83,6 +86,23 @@ export interface PromotionPayload {
   endsAt?: string;
 }
 
+type PromotionOperation = AdminOperation & (
+  | { kind: 'create'; request: PromotionPayload; draft: FormState }
+  | { kind: 'edit'; promotionId: string; request: PromotionPayload; draft: FormState }
+  | { kind: 'status'; promotionId: string; request: { status: Promotion['status'] }; preview: { name: string; status: Promotion['status'] } }
+);
+type PromotionOperationEntry = AdminOperationEntry<PromotionOperation>;
+type PromotionOperationResult = Awaited<ReturnType<typeof executeAdminOperation<PromotionOperation, Promotion>>>;
+type RunPromotionOperation = (operation: PromotionOperation, retryEntry?: PromotionOperationEntry) => Promise<PromotionOperationResult>;
+
+function isPromotionOperation(entry: AdminOperationEntry): entry is PromotionOperationEntry {
+  return entry.operation.area === 'promotion' && ['create', 'edit', 'status'].includes((entry.operation as PromotionOperation).kind);
+}
+function promotionPreview(operation: PromotionOperation) {
+  if (operation.kind === 'status') return `${operation.preview.name} · ${operation.request.status}`;
+  return operation.kind === 'create' ? operation.request.name : operation.request.name;
+}
+
 /**
  * 經營者填的是百分比與整數分，契約收的是基點——換算與驗證留在這裡，
  * 畫面不出現「基點」這個詞。回傳 Error 表示這份表單不該送出。
@@ -131,37 +151,52 @@ function toPayload(form: FormState, t: (key: MessageKey) => string): PromotionPa
 
 export function PromotionsPage() {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const operations = useAdminOperations();
+  const operationEntries = useAdminOperationEntries().filter(isPromotionOperation);
   const [status, setStatus] = useState('');
-  const [promotions, setPromotions] = useState<Promotion[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<unknown>(null);
-  const [reloadKey, setReloadKey] = useState(0);
   const [creating, setCreating] = useState(false);
   const [editingPromotion, setEditingPromotion] = useState<Promotion | null>(null);
+  const [operationError, setOperationError] = useState<unknown>(null);
   const limit = 100;
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    api
-      .listPromotions({ status: status || undefined, limit })
-      .then((result) => {
-        if (cancelled) return;
-        setPromotions(result.items);
-        setTotal(result.total);
-      })
-      .catch((err) => !cancelled && setError(err))
-      .finally(() => !cancelled && setLoading(false));
-
-    return () => {
-      cancelled = true;
-    };
-  }, [status, reloadKey]);
-
-  const reload = () => setReloadKey((k) => k + 1);
+  const input = { status: status || undefined, limit, offset: 0 };
+  const promotionsQuery = useQuery({ queryKey: promotionKeys.list(input), queryFn: ({ signal }) => api.listPromotions(input, signal) });
+  const promotions = promotionsQuery.data?.items ?? [];
+  const total = promotionsQuery.data?.total ?? 0;
+  const reload = () => void promotionsQuery.refetch();
+  const inspectOperation = (entry: PromotionOperationEntry) => {
+    if (entry.operation.kind === 'create') setCreating(true);
+    if (entry.operation.kind === 'edit') {
+      const operation = entry.operation;
+      setEditingPromotion(promotions.find((promotion) => promotion.id === operation.promotionId) ?? {
+        id: operation.promotionId, name: operation.request.name, rule: operation.request.rule, priority: operation.request.priority,
+        stackable: operation.request.stackable, requiresCoupon: operation.request.requiresCoupon, autoIssue: null, autoIssueValidDays: null,
+        startsAt: operation.request.startsAt ?? null, endsAt: operation.request.endsAt ?? null, status: 'disabled', createdAt: '', updatedAt: '',
+      });
+    }
+  };
+  const commandMutation = useMutation<Promotion, unknown, PromotionOperation>({
+    mutationFn: (operation) => {
+      switch (operation.kind) {
+        case 'create': return api.createPromotion(operation.request, operation.idempotencyKey);
+        case 'edit': return api.updatePromotion(operation.promotionId, operation.request, operation.idempotencyKey);
+        case 'status': return api.setPromotionStatus(operation.promotionId, operation.request.status, operation.idempotencyKey);
+      }
+    },
+  });
+  const runOperation: RunPromotionOperation = (operation, retryEntry) => executeAdminOperation(
+    operations, operation, (live) => commandMutation.mutateAsync(live),
+    (_result, live) => {
+      void queryClient.invalidateQueries({ queryKey: promotionKeys.lists });
+      if (live.kind === 'edit') void queryClient.invalidateQueries({ queryKey: analyticsKeys.promotionPerformances });
+      return undefined;
+    }, retryEntry,
+  );
+  const retryOperation = async (entry: PromotionOperationEntry) => {
+    const result = await runOperation(entry.operation, entry);
+    if (result.state === 'rejected') setOperationError(result.error);
+  };
 
   // 頁首那顆「+ 建立活動」由 routes 宣告，預設只捲到 targetId；
   // 這裡攔下同名事件改開抽屜，preventDefault 等於告訴 App「這頁自己處理了」。
@@ -176,7 +211,14 @@ export function PromotionsPage() {
 
   return (
     <section>
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+      {promotionsQuery.isError ? <ErrorBanner error={promotionsQuery.error} onRetry={reload} /> : null}
+      {operationError ? <ErrorBanner error={operationError} onDismiss={() => setOperationError(null)} /> : null}
+      {operationEntries.map((entry) => <div className="error-banner" role="status" key={entry.operation.idempotencyKey}>
+        <span>{entry.operation.kind === 'create' ? `${t('createPromotion')}: ${promotionPreview(entry.operation)}` : entry.operation.kind === 'edit' ? `${t('edit')}: ${promotionPreview(entry.operation)}` : `${t('status')}: ${entry.operation.preview.name} · ${t(entry.operation.request.status as MessageKey)}`}</span>
+        {entry.error instanceof Error ? <span>{entry.error.message}</span> : null}
+        {entry.phase === 'unknown' && (entry.operation.kind === 'create' || entry.operation.kind === 'edit') ? <button type="button" className="button button--quiet" onClick={() => inspectOperation(entry)}>{t('inspectOriginalOperation')}</button> : null}
+        {entry.phase === 'unknown' ? <button type="button" className="button button--quiet" onClick={() => void retryOperation(entry)}>{t('retryOriginalOperation')}</button> : null}
+      </div>)}
 
       <div className="toolbar">
         <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label={t('status')}>
@@ -188,13 +230,13 @@ export function PromotionsPage() {
         {total > promotions.length ? <span>{`${promotions.length} / ${total}`}</span> : null}
       </div>
 
-      {loading ? (
+      {promotionsQuery.isLoading ? (
         <Loading />
-      ) : promotions.length === 0 ? (
+      ) : promotionsQuery.isSuccess && promotions.length === 0 ? (
         <EmptyState icon="sparkles" title={t('noPromotions')} hint="建立滿額折或整單折扣，設定期間與優先序後即可上線。" />
-      ) : (
+      ) : promotionsQuery.isSuccess ? (
         <div className="table-wrap">
-          <table className="data-table data-table--fixed">
+          <table className="data-table data-table--fixed promotions-table">
             <thead>
               <tr>
                 <th style={{ width: '26%' }}>{t('promotionName')}</th>
@@ -212,17 +254,18 @@ export function PromotionsPage() {
                   key={promotion.id}
                   promotion={promotion}
                   onEdit={() => setEditingPromotion(promotion)}
-                  onChanged={reload}
+                  onRunOperation={runOperation}
+                  blocked={operationEntries.some((entry) => entry.operation.scope === `promotion:${promotion.id}`)}
                 />
               ))}
             </tbody>
           </table>
         </div>
-      )}
+        ) : null}
 
       {/* 建立活動抽屜 */}
       {creating ? (
-        <CreatePromotionDrawer onClose={() => setCreating(false)} onCreated={reload} />
+        <CreatePromotionDrawer onClose={() => setCreating(false)} onRunOperation={runOperation} recovery={operationEntries.find((entry) => entry.operation.scope === 'promotion:create') ?? null} />
       ) : null}
 
       {/* 側邊抽屜式活動編輯器 */}
@@ -230,10 +273,9 @@ export function PromotionsPage() {
         <EditPromotionDrawer
           promotion={editingPromotion}
           onClose={() => setEditingPromotion(null)}
-          onSaved={() => {
-            reload();
-            setEditingPromotion(null);
-          }}
+          onSaved={() => setEditingPromotion(null)}
+          onRunOperation={runOperation}
+          recovery={operationEntries.find((entry) => entry.operation.scope === `promotion:${editingPromotion.id}`) ?? null}
         />
       ) : null}
     </section>
@@ -243,11 +285,13 @@ export function PromotionsPage() {
 function PromotionRow({
   promotion,
   onEdit,
-  onChanged,
+  onRunOperation,
+  blocked,
 }: {
   promotion: Promotion;
   onEdit: () => void;
-  onChanged: () => void;
+  onRunOperation: RunPromotionOperation;
+  blocked: boolean;
 }) {
   const { t, formatDateTime } = useI18n();
   const [submitting, setSubmitting] = useState(false);
@@ -257,14 +301,12 @@ function PromotionRow({
   const toggle = async () => {
     setSubmitting(true);
     setError(null);
-    try {
-      await api.setPromotionStatus(promotion.id, nextStatus);
-      onChanged();
-    } catch (err) {
-      setError(err);
-    } finally {
-      setSubmitting(false);
-    }
+    const result = await onRunOperation({
+      area: 'promotion', scope: `promotion:${promotion.id}`, kind: 'status', promotionId: promotion.id,
+      request: { status: nextStatus }, preview: { name: promotion.name, status: nextStatus }, idempotencyKey: crypto.randomUUID(),
+    });
+    if (result.state === 'rejected') setError(result.error);
+    setSubmitting(false);
   };
 
   const menuItems: RowMenuItem[] =
@@ -289,12 +331,12 @@ function PromotionRow({
             <button
               className="button button--quiet edit-btn"
               type="button"
-              disabled={submitting}
+              disabled={submitting || blocked}
               onClick={onEdit}
             >
               <Icon name="pencil" /> {t('edit')}
             </button>
-            <RowMenu disabled={submitting} items={menuItems} />
+            <RowMenu disabled={submitting || blocked} items={menuItems} />
           </div>
           {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
         </div>
@@ -306,15 +348,17 @@ function PromotionRow({
 function PromotionFields({
   form,
   onChange,
+  nameRef,
 }: {
   form: FormState;
   onChange: (patch: Partial<FormState>) => void;
+  nameRef?: React.RefObject<HTMLInputElement>;
 }) {
   const { t } = useI18n();
   return (
     <div className="form-grid">
       <label>{t('promotionName')}
-        <input value={form.name} onChange={(e) => onChange({ name: e.target.value })} />
+        <input ref={nameRef} value={form.name} onChange={(e) => onChange({ name: e.target.value })} />
       </label>
 
       <label>{t('ruleType')}
@@ -380,13 +424,20 @@ function PromotionFields({
 }
 
 /** 建立活動抽屜：常駐展開的表單會佔掉清單上方一整塊，改由頁首的「+ 建立活動」開啟，版型比照商品的建立抽屜。 */
-function CreatePromotionDrawer({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreatePromotionDrawer({ onClose, onRunOperation, recovery }: { onClose: () => void; onRunOperation: RunPromotionOperation; recovery: PromotionOperationEntry | null }) {
   const { t } = useI18n();
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const returnFocusRef = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const locked = recovery !== null;
 
-  useEscapeKey(onClose);
+  useEffect(() => {
+    if (recovery?.operation.kind === 'create') setForm(recovery.operation.draft);
+  }, [recovery]);
+  useEffect(() => { if (locked) cancelRef.current?.focus(); }, [locked]);
 
   const submit = async () => {
     const payload = toPayload(form, t);
@@ -396,33 +447,32 @@ function CreatePromotionDrawer({ onClose, onCreated }: { onClose: () => void; on
     }
     setSubmitting(true);
     setError(null);
-    try {
-      await api.createPromotion(payload);
-      onCreated();
-      onClose();
-    } catch (err) {
-      setError(err);
-    } finally {
-      setSubmitting(false);
-    }
+    const result = await onRunOperation({ area: 'promotion', scope: 'promotion:create', kind: 'create', request: payload, draft: { ...form }, idempotencyKey: crypto.randomUUID() });
+    if (result.state === 'success') onClose();
+    if (result.state === 'rejected') setError(result.error);
+    setSubmitting(false);
+  };
+  const retry = async () => {
+    if (!recovery) return;
+    const result = await onRunOperation(recovery.operation, recovery);
+    if (result.state === 'rejected') setError(result.error);
   };
 
   return (
-    <div className="payload-overlay" role="presentation" onMouseDown={onClose}>
-      <div
-        className="payload-drawer product-edit-drawer"
-        role="dialog"
-        aria-modal="true"
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent
+        className="ui-product-sheet"
         aria-label={t('createPromotion')}
-        onMouseDown={(e) => e.stopPropagation()}
+        onOpenAutoFocus={(event) => { event.preventDefault(); (locked ? cancelRef.current : nameRef.current)?.focus(); }}
+        onCloseAutoFocus={(event) => { event.preventDefault(); returnFocusRef.current?.focus(); }}
       >
         <header className="product-drawer-header">
           <div>
-            <h2>{t('createPromotion')}</h2>
+            <DialogTitle>{t('createPromotion')}</DialogTitle>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label={t('close')} title={t('close')}>
+          <DialogClose type="button" className="icon-button" aria-label={t('close')} title={t('close')}>
             <Icon name="chevron" />
-          </button>
+          </DialogClose>
         </header>
 
         <form
@@ -435,21 +485,22 @@ function CreatePromotionDrawer({ onClose, onCreated }: { onClose: () => void; on
         >
           {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
 
-          <div className="drawer-form-body">
-            <PromotionFields form={form} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} />
-          </div>
+          <fieldset className="drawer-form-body" disabled={locked || submitting} style={{ border: 0, margin: 0, minWidth: 0, padding: 0 }}>
+            <PromotionFields form={form} nameRef={nameRef} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} />
+          </fieldset>
 
           <footer className="product-drawer-footer">
-            <button className="button" type="button" onClick={onClose}>
+            <button ref={cancelRef} className="button" type="button" onClick={onClose}>
               {t('cancel')}
             </button>
-            <button className="button button--primary" disabled={submitting}>
+            {recovery?.phase === 'unknown' ? <button className="button button--quiet" type="button" onClick={() => void retry()}>{t('retryOriginalOperation')}</button> : null}
+            <button className="button button--primary" disabled={locked || submitting}>
               {t('createPromotion')}
             </button>
           </footer>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -458,17 +509,28 @@ function EditPromotionDrawer({
   promotion,
   onClose,
   onSaved,
+  onRunOperation,
+  recovery,
 }: {
   promotion: Promotion;
   onClose: () => void;
   onSaved: () => void;
+  onRunOperation: RunPromotionOperation;
+  recovery: PromotionOperationEntry | null;
 }) {
   const { t } = useI18n();
   const [form, setForm] = useState<FormState>(() => formStateOf(promotion));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const returnFocusRef = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const locked = recovery !== null;
 
-  useEscapeKey(onClose);
+  useEffect(() => {
+    if (recovery?.operation.kind === 'edit') setForm(recovery.operation.draft);
+  }, [recovery]);
+  useEffect(() => { if (locked) cancelRef.current?.focus(); }, [locked]);
 
   const submit = async () => {
     const payload = toPayload(form, t);
@@ -478,33 +540,33 @@ function EditPromotionDrawer({
     }
     setSubmitting(true);
     setError(null);
-    try {
-      await api.updatePromotion(promotion.id, payload);
-      onSaved();
-    } catch (err) {
-      setError(err);
-    } finally {
-      setSubmitting(false);
-    }
+    const result = await onRunOperation({ area: 'promotion', scope: `promotion:${promotion.id}`, kind: 'edit', promotionId: promotion.id, request: payload, draft: { ...form }, idempotencyKey: crypto.randomUUID() });
+    if (result.state === 'success') onSaved();
+    if (result.state === 'rejected') setError(result.error);
+    setSubmitting(false);
+  };
+  const retry = async () => {
+    if (!recovery) return;
+    const result = await onRunOperation(recovery.operation, recovery);
+    if (result.state === 'rejected') setError(result.error);
   };
 
   return (
-    <div className="payload-overlay" role="presentation" onMouseDown={onClose}>
-      <div
-        className="payload-drawer product-edit-drawer"
-        role="dialog"
-        aria-modal="true"
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent
+        className="ui-product-sheet"
         aria-label={`${t('edit')} ${promotion.name}`}
-        onMouseDown={(e) => e.stopPropagation()}
+        onOpenAutoFocus={(event) => { event.preventDefault(); (locked ? cancelRef.current : nameRef.current)?.focus(); }}
+        onCloseAutoFocus={(event) => { event.preventDefault(); returnFocusRef.current?.focus(); }}
       >
         <header className="product-drawer-header">
           <div>
-            <h2>{t('edit')}</h2>
+            <DialogTitle>{t('edit')}</DialogTitle>
             <p className="product-drawer-sku">{promotion.name}</p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label={t('close')} title={t('close')}>
+          <DialogClose type="button" className="icon-button" aria-label={t('close')} title={t('close')}>
             <Icon name="chevron" />
-          </button>
+          </DialogClose>
         </header>
 
         <form
@@ -517,20 +579,21 @@ function EditPromotionDrawer({
         >
           {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
 
-          <div className="drawer-form-body">
-            <PromotionFields form={form} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} />
-          </div>
+          <fieldset className="drawer-form-body" disabled={locked || submitting} style={{ border: 0, margin: 0, minWidth: 0, padding: 0 }}>
+            <PromotionFields form={form} nameRef={nameRef} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} />
+          </fieldset>
 
           <footer className="product-drawer-footer">
-            <button className="button" type="button" onClick={onClose}>
+            <button ref={cancelRef} className="button" type="button" onClick={onClose}>
               {t('cancel')}
             </button>
-            <button className="button button--primary" disabled={submitting}>
+            {recovery?.phase === 'unknown' ? <button className="button button--quiet" type="button" onClick={() => void retry()}>{t('retryOriginalOperation')}</button> : null}
+            <button className="button button--primary" disabled={locked || submitting}>
               {t('saveChanges')}
             </button>
           </footer>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

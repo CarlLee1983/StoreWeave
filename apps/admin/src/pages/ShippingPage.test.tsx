@@ -1,10 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {} from '@testing-library/jest-dom/vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render as baseRender, screen, waitFor } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import { ShippingPage } from './ShippingPage';
 import { I18nProvider } from '../i18n';
 import { api, type EcpayLogisticsShipmentOperation, type Order, type Shipment, type ShippingMethod } from '../api';
+import { createAdminQueryClient } from '../query';
+import { AdminOperationProvider, createAdminOperationStore } from '../admin-operations';
+import type { OrderOperation } from '../order-operations';
+import type { ShippingOperation } from '../shipping-operations';
+
+const render = (ui: Parameters<typeof baseRender>[0], store = createAdminOperationStore()) => baseRender(<QueryClientProvider client={createAdminQueryClient()}><AdminOperationProvider value={store}>{ui}</AdminOperationProvider></QueryClientProvider>);
 
 vi.mock('../api', async () => {
   const actual = await vi.importActual<typeof import('../api')>('../api');
@@ -54,6 +61,7 @@ describe('未安裝綠界物流時', () => {
 
 describe('ShippingPage', () => {
   it('建立表單改由抽屜開啟：頁首動作事件會開抽屜而不是捲動頁面', async () => {
+    const user = userEvent.setup();
     renderPage();
     expect(await screen.findByText('7-ELEVEN 取貨')).toBeInTheDocument();
 
@@ -61,6 +69,10 @@ describe('ShippingPage', () => {
     window.dispatchEvent(new CustomEvent('admin:action:create-shipping-method', { cancelable: true }));
 
     expect(await screen.findByLabelText('配送代碼')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: '建立配送方式' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: '建立配送方式' })).not.toBeInTheDocument();
+    expect(api.createShippingMethod).not.toHaveBeenCalled();
   });
 
   it('顯示配送方式並阻擋不合法的建立資料', async () => {
@@ -80,22 +92,61 @@ describe('ShippingPage', () => {
     window.dispatchEvent(new CustomEvent('admin:action:create-shipping-method', { cancelable: true }));
     await user.type(await screen.findByLabelText('配送代碼'), 'home');
     await user.type(screen.getByLabelText('配送名稱'), '宅配');
-    await user.type(screen.getByLabelText('Provider'), 'manual');
-    await user.type(screen.getByLabelText('Type'), 'home');
+    await user.type(screen.getByLabelText('服務商'), 'manual');
+    await user.type(screen.getByLabelText('類型'), 'home');
     await user.click(screen.getByRole('button', { name: '建立配送方式' }));
-    await waitFor(() => expect(api.createShippingMethod).toHaveBeenCalledWith(expect.objectContaining({ code: 'home', name: '宅配', provider: 'manual', type: 'home', feeCents: 0 })));
+    await waitFor(() => expect(api.createShippingMethod).toHaveBeenCalledWith(expect.objectContaining({ code: 'home', name: '宅配', provider: 'manual', type: 'home', feeCents: 0 }), expect.any(String)));
+  });
+
+  it('unknown method edit keeps raw fields locked after remount and retries the normalized saved request', async () => {
+    const user = userEvent.setup();
+    const store = createAdminOperationStore();
+    vi.mocked(api.updateShippingMethod).mockRejectedValueOnce(new Error('timeout')).mockResolvedValueOnce(method);
+    const view = render(<I18nProvider><ShippingPage /></I18nProvider>, store);
+    await screen.findByText('7-ELEVEN 取貨');
+    await user.click(screen.getByRole('button', { name: '編輯' }));
+    await user.clear(screen.getByLabelText('配送名稱'));
+    await user.type(screen.getByLabelText('配送名稱'), '  新名稱  ');
+    await user.clear(screen.getByLabelText('費率（cents）'));
+    await user.type(screen.getByLabelText('費率（cents）'), '006000');
+    await user.clear(screen.getByLabelText('免運門檻（cents）'));
+    await user.type(screen.getByLabelText('免運門檻（cents）'), '  0100000  ');
+    await user.click(screen.getByRole('button', { name: '儲存變更' }));
+    await screen.findByText(/timeout/);
+
+    view.unmount();
+    const remount = render(<I18nProvider><ShippingPage /></I18nProvider>, store);
+    await screen.findByText('7-ELEVEN 取貨');
+    await user.click(screen.getByRole('button', { name: '編輯' }));
+    expect(screen.getByLabelText('配送名稱')).toHaveValue('  新名稱  ');
+    expect(screen.getByLabelText('費率（cents）')).toHaveValue('006000');
+    expect(screen.getByLabelText('免運門檻（cents）')).toHaveValue('  0100000  ');
+    expect(screen.getByLabelText('配送名稱')).toHaveAttribute('readonly');
+    expect(screen.getByRole('button', { name: '取消' })).toHaveFocus();
+
+    remount.unmount();
+    vi.mocked(api.listShippingMethods).mockRejectedValue(new Error('read failed'));
+    render(<I18nProvider><ShippingPage /></I18nProvider>, store);
+    const retry = await screen.findByRole('button', { name: '以原操作重試' });
+    expect(screen.getByText(/006000/)).toBeInTheDocument();
+    await user.click(retry);
+    await waitFor(() => expect(api.updateShippingMethod).toHaveBeenCalledTimes(2));
+    expect(api.updateShippingMethod).toHaveBeenLastCalledWith(method.id, expect.objectContaining({ name: '新名稱', feeCents: 6000, freeShippingThresholdCents: 100000 }), expect.any(String));
   });
 
   it('從已付款訂單建立物流單，且只顯示不透明標籤參照', async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('出貨工作台');
+    await screen.findByRole('option', { name: /SW-1002/ });
     await user.selectOptions(screen.getByLabelText('已付款訂單'), order.id);
     await user.click(screen.getByRole('button', { name: '建立物流單' }));
-    await waitFor(() => expect(api.createShipment).toHaveBeenCalledWith({ orderId: order.id }));
+    await waitFor(() => expect(api.createShipment).toHaveBeenCalledWith({ orderId: order.id }, expect.any(String)));
     expect(screen.getByText('TRACK-1')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '讀取標籤列印參照' }));
     expect(await screen.findByText('opaque-label-handle')).toBeInTheDocument();
+    expect(api.getShipmentLabelInfo).toHaveBeenCalledTimes(1);
+    expect(api.getShipmentLabelInfo).toHaveBeenCalledWith(shipment.id, expect.any(AbortSignal));
     expect(screen.queryByRole('link', { name: /opaque-label-handle/i })).not.toBeInTheDocument();
   });
 
@@ -106,7 +157,76 @@ describe('ShippingPage', () => {
     await user.type(screen.getByLabelText('物流單 ID'), shipment.id);
     await user.click(screen.getByRole('button', { name: '查詢物流單' }));
     await user.click(await screen.findByRole('button', { name: '標示為已出貨' }));
-    await waitFor(() => expect(api.advanceShipmentStage).toHaveBeenCalledWith(shipment.id, 'shipped'));
+    await waitFor(() => expect(api.advanceShipmentStage).toHaveBeenCalledWith(shipment.id, 'shipped', expect.any(String)));
+  });
+
+  it('ECPay 重試佔用 shipment scope 時不把它當成階段推進重播', async () => {
+    const user = userEvent.setup();
+    const store = createAdminOperationStore();
+    const retry: ShippingOperation = { area: 'shipping', scope: `shipment:${shipment.id}`, kind: 'retry-ecpay', shipmentId: shipment.id, request: { shipmentId: shipment.id }, draft: {}, idempotencyKey: 'ecpay-key' };
+    store.begin(retry);
+    render(<I18nProvider><ShippingPage /></I18nProvider>, store);
+    await user.type(await screen.findByLabelText('物流單 ID'), shipment.id);
+    await user.click(screen.getByRole('button', { name: '查詢物流單' }));
+    expect(await screen.findByRole('button', { name: '標示為已出貨' })).toBeDisabled();
+    expect(api.advanceShipmentStage).not.toHaveBeenCalled();
+  });
+
+  it('訂單操作佔用 order scope 時不建立物流單', async () => {
+    const user = userEvent.setup();
+    const store = createAdminOperationStore();
+    const payment: OrderOperation = { area: 'order', scope: `order:${order.id}`, kind: 'pay', orderId: order.id, request: {}, draft: {}, idempotencyKey: 'pay-key' };
+    store.begin(payment);
+    render(<I18nProvider><ShippingPage /></I18nProvider>, store);
+    await screen.findByRole('option', { name: /SW-1002/ });
+    await user.selectOptions(screen.getByLabelText('已付款訂單'), order.id);
+    const create = screen.getByRole('button', { name: '建立物流單' });
+    expect(create).toBeDisabled();
+    await user.click(create);
+    expect(api.createShipment).not.toHaveBeenCalled();
+  });
+
+  it('階段推進復原佔用 shipment scope 時不把它當成 ECPay 重試且保留原操作重試', async () => {
+    const user = userEvent.setup();
+    const store = createAdminOperationStore();
+    const advance: ShippingOperation = { area: 'shipping', scope: `shipment:${shipment.id}`, kind: 'advance-shipment', shipmentId: shipment.id, request: { status: 'shipped' }, draft: { status: 'shipped' }, idempotencyKey: 'advance-key' };
+    const handle = store.begin(advance);
+    if (!handle) throw new Error('advance operation should begin');
+    store.markUnknown(handle, new Error('timeout'));
+    vi.mocked(api.getEcpayLogisticsShipmentOperation).mockResolvedValue(failedOperation);
+    render(<I18nProvider><ShippingPage /></I18nProvider>, store);
+    await user.type(await screen.findByLabelText('物流單 ID'), shipment.id);
+    await user.click(screen.getByRole('button', { name: '查詢物流單' }));
+    const retry = await screen.findByRole('button', { name: '重試綠界物流建單' });
+    expect(retry).toBeDisabled();
+    await user.click(retry);
+    expect(api.retryEcpayLogisticsShipment).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '以原操作重試' })).toBeEnabled();
+  });
+
+  it('不把物流讀取失敗誤畫成空清單或可建立的新操作', async () => {
+    vi.mocked(api.listShippingMethods).mockRejectedValue(new Error('methods read failed'));
+    vi.mocked(api.listOrders).mockRejectedValue(new Error('orders read failed'));
+    vi.mocked(api.listEcpayLogisticsShipmentOperations).mockRejectedValue(new Error('operations read failed'));
+    renderPage();
+    await screen.findByText(/methods read failed/);
+    await screen.findByText(/orders read failed/);
+    await screen.findByText(/operations read failed/);
+    expect(screen.queryByText('目前沒有配送方式')).not.toBeInTheDocument();
+    expect(screen.queryByText('目前沒有失敗的綠界物流作業')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '建立物流單' })).toBeDisabled();
+    expect(api.createShipment).not.toHaveBeenCalled();
+  });
+
+  it('不把失敗的物流作業讀取誤畫成尚無紀錄', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getEcpayLogisticsShipmentOperation).mockRejectedValue(new Error('operation read failed'));
+    renderPage();
+    await screen.findByText('出貨工作台');
+    await user.type(screen.getByLabelText('物流單 ID'), shipment.id);
+    await user.click(screen.getByRole('button', { name: '查詢物流單' }));
+    await screen.findByText(/operation read failed/);
+    expect(screen.queryByText('ECPay 物流單作業尚無紀錄。')).not.toBeInTheDocument();
   });
 
   it('顯示失敗的綠界作業稽核資訊，且只重試帶死信工作 ID 的失敗作業', async () => {
@@ -120,7 +240,7 @@ describe('ShippingPage', () => {
     expect(await screen.findByText('carrier create request failed')).toBeInTheDocument();
     expect(screen.getAllByText('2026-08-25T00:00:00.000Z').length).toBeGreaterThan(1);
     await user.click(screen.getByRole('button', { name: '重試綠界物流建單' }));
-    await waitFor(() => expect(api.retryEcpayLogisticsShipment).toHaveBeenCalledWith(shipment.id));
+    await waitFor(() => expect(api.retryEcpayLogisticsShipment).toHaveBeenCalledWith(shipment.id, expect.any(String)));
     expect(api.createShipment).not.toHaveBeenCalled();
   });
 });

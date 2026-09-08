@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getToken, setToken, type CurrentUser } from './api';
 import { LOCALES, useI18n } from './i18n';
 import { navigate, useRoute } from './router';
@@ -7,25 +8,44 @@ import { Icon } from './components/Icon';
 import { LoginPage } from './pages/LoginPage';
 import { Loading } from './components/Loading';
 import { api } from './api';
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from './components/ui/dialog';
+import { useAdminOperations } from './admin-operations';
+import { deadJobKeys } from './query';
 
 export function App() {
+  const queryClient = useQueryClient();
+  const adminOperations = useAdminOperations();
   const { locale, setLocale, t } = useI18n();
   const route = useRoute();
   const [tokenVersion, setTokenVersion] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('storeweave.admin.theme') as 'dark' | 'light') || 'dark');
   const [commandOpen, setCommandOpen] = useState(false);
+  const commandReturnFocusRef = useRef<HTMLElement | null>(null);
   const [tokenOpen, setTokenOpen] = useState(false);
-  const [deadJobCount, setDeadJobCount] = useState(0);
   // 靜態 API token 存在時維持既有行為，直接進後台，不檢查帳號登入狀態
   const [authStatus, setAuthStatus] = useState<'checking' | 'authed' | 'anon'>(() => (getToken() ? 'authed' : 'checking'));
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const identityEpoch = useRef(0);
+
+  const prepareIdentity = async () => {
+    const epoch = ++identityEpoch.current;
+    setAuthStatus('checking');
+    setCommandOpen(false);
+    setCurrentUser(null);
+    adminOperations.clearIdentity();
+    await queryClient.cancelQueries();
+    if (epoch !== identityEpoch.current) return epoch;
+    queryClient.clear();
+    return epoch;
+  };
 
   useEffect(() => {
     if (getToken()) return;
+    const epoch = identityEpoch.current;
     api
       .me()
-      .then((user) => { setCurrentUser(user); setAuthStatus('authed'); })
-      .catch(() => setAuthStatus('anon'));
+      .then((user) => { if (epoch === identityEpoch.current) { setCurrentUser(user); setAuthStatus('authed'); } })
+      .catch(() => { if (epoch === identityEpoch.current) setAuthStatus('anon'); });
   }, []);
 
   useEffect(() => {
@@ -33,16 +53,19 @@ export function App() {
     localStorage.setItem('storeweave.admin.theme', theme);
   }, [theme]);
 
-  const refreshDeadJobCount = () => {
-    api.listDeadJobs({ limit: 1 }).then((result) => setDeadJobCount(result.total)).catch(() => {});
-  };
-
-  useEffect(refreshDeadJobCount, [tokenVersion]);
+  const deadJobsQuery = useQuery({
+    queryKey: deadJobKeys.list({ limit: 1, offset: 0 }),
+    queryFn: ({ signal }) => api.listDeadJobs({ limit: 1, offset: 0 }, signal),
+    enabled: authStatus === 'authed',
+  });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setCommandOpen(true); }
-      if (event.key === 'Escape') { setCommandOpen(false); setTokenOpen(false); }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        commandReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        setCommandOpen(true);
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -56,10 +79,35 @@ export function App() {
   };
 
   const go = (nextRoute: Route) => { navigate(nextRoute); setCommandOpen(false); };
-  const handleLoggedIn = (user: CurrentUser) => { setCurrentUser(user); setAuthStatus('authed'); setTokenVersion((value) => value + 1); };
-  const handleLogout = () => { api.logout().catch(() => {}).finally(() => { setCurrentUser(null); setAuthStatus('anon'); }); };
+  const handleLoggedIn = async (user: CurrentUser) => {
+    const epoch = await prepareIdentity();
+    if (epoch === identityEpoch.current) {
+      setCurrentUser(user);
+      setAuthStatus('authed');
+      setTokenVersion((value) => value + 1);
+    }
+  };
+  const handleLogout = async () => {
+    const epoch = await prepareIdentity();
+    api.logout().catch(() => {}).finally(() => {
+      if (epoch === identityEpoch.current) setAuthStatus('anon');
+    });
+  };
+  const handleTokenChange = async (token: string) => {
+    const epoch = await prepareIdentity();
+    if (epoch !== identityEpoch.current) return;
+    setToken(token);
+    setTokenVersion((value) => value + 1);
+    if (token) {
+      setAuthStatus('authed');
+      return;
+    }
+    api.me().then((user) => {
+      if (epoch === identityEpoch.current) { setCurrentUser(user); setAuthStatus('authed'); }
+    }).catch(() => { if (epoch === identityEpoch.current) setAuthStatus('anon'); });
+  };
 
-  const routeContext: RouteContext = { deadJobCount, onDeadJobsChanged: refreshDeadJobCount };
+  const routeContext: RouteContext = { deadJobCount: deadJobsQuery.data?.total ?? 0, deadJobError: deadJobsQuery.isError && !deadJobsQuery.data };
   const currentPage = routeDefinition(route);
 
   if (authStatus === 'checking') {
@@ -102,7 +150,7 @@ export function App() {
                     </span>
                     <span className="nav-link__label">{t(item.navLabel)}</span>
                     {badge ? (
-                      <span className={`nav-badge ${badge.variant === 'error' ? 'nav-badge--error' : ''}`}>
+                      <span className={`nav-badge ${badge.variant === 'error' ? 'nav-badge--error' : ''}`} aria-label={badge.text === '!' ? t('deadJobBadgeError') : undefined}>
                         {badge.text}
                       </span>
                     ) : null}
@@ -127,7 +175,7 @@ export function App() {
             <button
               type="button"
               className="command-trigger"
-              onClick={() => setCommandOpen(true)}
+              onClick={(event) => { commandReturnFocusRef.current = event.currentTarget; setCommandOpen(true); }}
               aria-label={t('openCommand')}
             >
               <Icon name="search" />
@@ -158,19 +206,20 @@ export function App() {
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
             </button>
 
-            <button
-              type="button"
-              className={`token-trigger ${getToken() ? 'token-trigger--set' : ''}`}
-              onClick={() => setTokenOpen(!tokenOpen)}
-              aria-expanded={tokenOpen}
-            >
-              <Icon name="key" />
-              <span>API Token</span>
-            </button>
-
-            {tokenOpen ? (
-              <TokenPanel onTokenChange={() => setTokenVersion((value) => value + 1)} onClose={() => setTokenOpen(false)} />
-            ) : null}
+            <Dialog open={tokenOpen} onOpenChange={setTokenOpen}>
+              <DialogTrigger asChild>
+                <button
+                  type="button"
+                  className={`token-trigger ${getToken() ? 'token-trigger--set' : ''}`}
+                  aria-expanded={tokenOpen}
+                  aria-label={t('apiTokenSettings')}
+                >
+                  <Icon name="key" />
+                  <span>API Token</span>
+                </button>
+              </DialogTrigger>
+              {tokenOpen ? <TokenPanel onTokenChange={handleTokenChange} onClose={() => setTokenOpen(false)} /> : null}
+            </Dialog>
 
             {currentUser ? (
               <div className="user-profile-chip">
@@ -215,21 +264,21 @@ export function App() {
         </main>
       </div>
 
-      {commandOpen ? <CommandPalette onNavigate={go} onClose={() => setCommandOpen(false)} /> : null}
+      {commandOpen ? <CommandPalette returnFocus={commandReturnFocusRef.current} onNavigate={go} onClose={() => setCommandOpen(false)} /> : null}
     </div>
   );
 }
 
-function TokenPanel({ onTokenChange, onClose }: { onTokenChange: () => void; onClose: () => void }) {
+function TokenPanel({ onTokenChange, onClose }: { onTokenChange: (token: string) => Promise<void>; onClose: () => void }) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(getToken());
-  const save = () => { setToken(draft); onTokenChange(); onClose(); };
-  const clear = () => { setToken(''); setDraft(''); onTokenChange(); };
+  const save = () => { void onTokenChange(draft).then(onClose); };
+  const clear = () => { setDraft(''); void onTokenChange(''); };
   return (
-    <div className="token-panel" role="dialog" aria-label={t('apiTokenSettings')}>
+    <DialogContent className="token-panel" aria-describedby="token-panel-description">
       <div className="token-panel__header">
-        <p><Icon name="key" /> API Token</p>
-        <span>{t('tokenStored')}</span>
+        <DialogTitle><Icon name="key" /> API Token</DialogTitle>
+        <DialogDescription id="token-panel-description">{t('tokenStored')}</DialogDescription>
       </div>
       <input
         autoFocus
@@ -246,29 +295,35 @@ function TokenPanel({ onTokenChange, onClose }: { onTokenChange: () => void; onC
           {t('save')}
         </button>
       </div>
-    </div>
+    </DialogContent>
   );
 }
 
-function CommandPalette({ onNavigate, onClose }: { onNavigate: (route: Route) => void; onClose: () => void }) {
+function CommandPalette({ returnFocus, onNavigate, onClose }: { returnFocus: HTMLElement | null; onNavigate: (route: Route) => void; onClose: () => void }) {
   const { t } = useI18n();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const matches = ROUTE_TABLE.filter((item) => t(item.navLabel).toLowerCase().includes(query.toLowerCase()));
+  const activeOptionId = matches[active] ? `command-option-${matches[active].path}` : undefined;
+  useEffect(() => { document.getElementById(activeOptionId ?? '')?.scrollIntoView?.({ block: 'nearest' }); }, [activeOptionId]);
   const choose = (index: number) => matches[index] && onNavigate(matches[index].path);
   return (
-    <div className="command-overlay" role="presentation" onMouseDown={onClose}>
-      <div
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent
         className="command-palette"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t('commandMenu')}
-        onMouseDown={(event) => event.stopPropagation()}
+        aria-describedby="command-palette-hint"
+        onCloseAutoFocus={(event) => { event.preventDefault(); returnFocus?.focus(); }}
       >
+        <DialogTitle className="sr-only">{t('commandMenu')}</DialogTitle>
         <div className="command-palette__search">
           <Icon name="search" />
           <input
             autoFocus
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded="true"
+            aria-controls="command-options"
+            aria-activedescendant={activeOptionId}
             placeholder={t('searchPages')}
             value={query}
             onChange={(event) => {
@@ -278,7 +333,7 @@ function CommandPalette({ onNavigate, onClose }: { onNavigate: (route: Route) =>
             onKeyDown={(event) => {
               if (event.key === 'ArrowDown') {
                 event.preventDefault();
-                setActive((value) => Math.min(value + 1, matches.length - 1));
+                setActive((value) => Math.min(value + 1, Math.max(matches.length - 1, 0)));
               }
               if (event.key === 'ArrowUp') {
                 event.preventDefault();
@@ -289,11 +344,15 @@ function CommandPalette({ onNavigate, onClose }: { onNavigate: (route: Route) =>
           />
         </div>
         <p className="command-palette__group-title">{t('goTo')}</p>
-        <div className="command-palette__list">
+        <div id="command-options" className="command-palette__list" role="listbox" aria-label={t('goTo')}>
           {matches.map((item, index) => (
             <button
+              id={`command-option-${item.path}`}
               key={item.path}
               type="button"
+              role="option"
+              tabIndex={-1}
+              aria-selected={index === active}
               className={`command-palette__option ${index === active ? 'command-palette__option--active' : ''}`}
               onClick={() => onNavigate(item.path)}
             >
@@ -303,11 +362,11 @@ function CommandPalette({ onNavigate, onClose }: { onNavigate: (route: Route) =>
             </button>
           ))}
         </div>
-        <footer>
+        <footer id="command-palette-hint">
           <span>{t('navigateHint')}</span>
           <span><kbd>Esc</kbd> {t('close')}</span>
         </footer>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { DayPicker } from 'react-day-picker';
 import { zhTW, enUS, ja } from 'react-day-picker/locale';
 import { Icon } from './Icon';
 import { useI18n } from '../i18n';
-import { useEscapeKey } from '../hooks/useEscapeKey';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 const LOCALES = { 'zh-TW': zhTW, 'en-US': enUS, 'ja-JP': ja } as const;
 
@@ -51,25 +51,13 @@ export function DateField({
 }): ReactNode {
   const { locale } = useI18n();
   const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-
-  useEscapeKey(() => setOpen(false));
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    window.addEventListener('mousedown', onPointerDown);
-    return () => window.removeEventListener('mousedown', onPointerDown);
-  }, [open]);
 
   const selected = toDate(value);
   // 還沒選日期時，從界線那個月開始顯示：不然打開結束日曆看到的整頁都是不能選的日子。
   const defaultMonth = selected ?? toDate(min ?? '') ?? toDate(max ?? '');
 
   return (
-    <div className="date-field" ref={wrapRef}>
+    <div className="date-field">
       <label htmlFor={id}>
         <span className="field-label-text">{label}</span>
       </label>
@@ -82,37 +70,37 @@ export function DateField({
           disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
         />
-        <button
-          type="button"
-          className="button button--quiet date-field__trigger"
-          aria-label={`${label}：選擇日期`}
-          aria-expanded={open}
-          disabled={disabled}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <Icon name="calendar" />
-        </button>
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="button button--quiet date-field__trigger"
+              aria-label={`${label}：選擇日期`}
+              disabled={disabled}
+            >
+              <Icon name="calendar" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="date-field__popup" align="start" aria-label={`${label}：選擇日期`}>
+            <DayPicker
+              mode="single"
+              locale={LOCALES[locale] ?? zhTW}
+              selected={selected}
+              defaultMonth={defaultMonth}
+              disabled={[
+                ...(min ? [{ before: toDate(min)! }] : []),
+                ...(max ? [{ after: toDate(max)! }] : []),
+              ]}
+              onSelect={(date) => {
+                if (!date) return;
+                onChange(toISODate(date));
+                setOpen(false);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
       </div>
       {hint ? <p className="field-hint">{hint}</p> : null}
-      {open ? (
-        <div className="date-field__popup" role="dialog" aria-label={`${label}：選擇日期`}>
-          <DayPicker
-            mode="single"
-            locale={LOCALES[locale] ?? zhTW}
-            selected={selected}
-            defaultMonth={defaultMonth}
-            disabled={[
-              ...(min ? [{ before: toDate(min)! }] : []),
-              ...(max ? [{ after: toDate(max)! }] : []),
-            ]}
-            onSelect={(date) => {
-              if (!date) return;
-              onChange(toISODate(date));
-              setOpen(false);
-            }}
-          />
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -58,4 +58,13 @@ describe('LoginPage', () => {
     expect(screen.getByRole('button', { name: '登入中…' })).toBeDisabled();
     resolveLogin(user);
   });
+
+  it('使用目前語系的登入展示文字', () => {
+    localStorage.setItem('storeweave.admin.locale', 'en-US');
+    renderPage();
+
+    expect(screen.getByText('Quick-fill demo accounts')).toBeInTheDocument();
+    expect(screen.getByText('Security-hardened session')).toBeInTheDocument();
+    localStorage.removeItem('storeweave.admin.locale');
+  });
 });

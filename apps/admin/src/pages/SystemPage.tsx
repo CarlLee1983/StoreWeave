@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
-import { api, type ExtensionInfo, type HealthReport } from '../api';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../api';
 import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { StatusBadge } from '../components/StatusBadge';
+import { EmptyState } from '../components/EmptyState';
+import { extensionKeys, healthKeys } from '../query';
 
 export function SystemPage() {
   return (
@@ -16,27 +18,18 @@ export function SystemPage() {
 
 function HealthSection() {
   const { t } = useI18n();
-  const [report, setReport] = useState<HealthReport | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<unknown>(null);
-
-  useEffect(() => {
-    api
-      .healthDependencies()
-      .then(setReport)
-      .catch(setError)
-      .finally(() => setLoading(false));
-  }, []);
+  const query = useQuery({ queryKey: healthKeys.dependencies, queryFn: ({ signal }) => api.healthDependencies(signal) });
+  const report = query.data;
 
   return (
     <div className="panel">
       <div className="panel__header"><h3>{t('dependencyHealth')}</h3></div><div className="panel__body">
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-      {loading ? (
+      {query.isError ? <ErrorBanner error={query.error} onRetry={() => void query.refetch()} /> : null}
+      {query.isLoading ? (
         <Loading />
       ) : (
-        report && (
-          <table className="data-table data-table--fixed">
+        report && (report.checks.length === 0 ? <EmptyState icon="activity" title={t('noHealthChecks')} /> : (
+          <div className="table-wrap"><table className="data-table data-table--fixed observability-table">
             <thead>
               <tr>
                 <th style={{ width: '22%' }}>{t('name')}</th>
@@ -51,46 +44,30 @@ function HealthSection() {
                   <td>
                     <StatusBadge value={check.status} />
                   </td>
-                  <td>{check.detail ? <span className="cell-truncate" title={check.detail}>{check.detail}</span> : '—'}</td>
+                  <td>{check.detail ? <span className="cell-truncate" title={check.detail}>{check.detail}</span> : t('none')}</td>
                 </tr>
               ))}
             </tbody>
-          </table>
-        )
+          </table></div>
+        ))
       )}
     </div></div>
   );
 }
 
-function statusClass(status: string): 'pass' | 'warn' | 'fail' {
-  const normalized = status.toLowerCase();
-  if (normalized.includes('fail') || normalized.includes('error') || normalized.includes('down')) return 'fail';
-  if (normalized.includes('warn') || normalized.includes('degrad')) return 'warn';
-  return 'pass';
-}
-
 function ExtensionsSection() {
   const { t } = useI18n();
-  const [extensions, setExtensions] = useState<ExtensionInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<unknown>(null);
-
-  useEffect(() => {
-    api
-      .listExtensions()
-      .then((result) => setExtensions(result.items))
-      .catch(setError)
-      .finally(() => setLoading(false));
-  }, []);
+  const query = useQuery({ queryKey: extensionKeys.list, queryFn: ({ signal }) => api.listExtensions(signal) });
+  const extensions = query.data?.items;
 
   return (
     <div className="panel">
       <div className="panel__header"><h3>{t('installedExtensions')}</h3></div><div className="panel__body">
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-      {loading ? (
+      {query.isError ? <ErrorBanner error={query.error} onRetry={() => void query.refetch()} /> : null}
+      {query.isLoading ? (
         <Loading />
       ) : (
-        <ul className="extension-list">
+        extensions?.length === 0 ? <EmptyState icon="box" title={t('noExtensions')} /> : extensions ? <ul className="extension-list">
           {extensions.map((ext) => (
             <li key={ext.id} className="extension-card">
               <div className="extension-card__header">
@@ -104,7 +81,7 @@ function ExtensionsSection() {
               </dl>
             </li>
           ))}
-        </ul>
+        </ul> : null
       )}
     </div></div>
   );

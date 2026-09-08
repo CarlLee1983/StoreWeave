@@ -42,7 +42,7 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: (user: CurrentUser) => v
           </div>
           <div className="login-brand-text">
             <h2>StoreWeave</h2>
-            <span>Commerce Operating System</span>
+            <span>{t('loginProductTagline')}</span>
           </div>
         </div>
 
@@ -60,7 +60,7 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: (user: CurrentUser) => v
               <input
                 type="email"
                 autoComplete="username"
-                placeholder="operator@storeweave.test"
+                placeholder={t('loginEmailPlaceholder')}
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 required
@@ -86,7 +86,7 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: (user: CurrentUser) => v
 
           <div className="login-demo-presets">
             <p className="login-demo-presets__label">
-              <Icon name="sparkles" /> 快速填入測試示範帳號
+              <Icon name="sparkles" /> {t('loginDemoAccounts')}
             </p>
             <div className="login-demo-buttons">
               <button
@@ -94,23 +94,23 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: (user: CurrentUser) => v
                 className="demo-pill-btn demo-pill-btn--admin"
                 onClick={() => fillDemoAccount('admin@storeweave.test', 'AdminPassword123!')}
               >
-                <Icon name="shield" /> 總部店長 (Admin)
+                <Icon name="shield" /> {t('loginDemoAdmin')}
               </button>
               <button
                 type="button"
                 className="demo-pill-btn"
                 onClick={() => fillDemoAccount('gold_vip@woven-day.test', 'CustomerPassword123!')}
               >
-                <Icon name="user" /> 金卡 VIP 顧客
+                <Icon name="user" /> {t('loginDemoCustomer')}
               </button>
             </div>
           </div>
         </form>
 
         <footer className="login-footer">
-          <span>StoreWeave Engine v0.1.0</span>
+          <span>{t('loginFooterEngine')}</span>
           <span>·</span>
-          <span>Security Hardened Session</span>
+          <span>{t('loginFooterSecurity')}</span>
         </footer>
       </div>
     </div>

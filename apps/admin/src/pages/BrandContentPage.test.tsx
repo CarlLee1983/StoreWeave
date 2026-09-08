@@ -4,7 +4,10 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrandContentPage, bodyToText, textToBody } from './BrandContentPage';
 import { I18nProvider } from '../i18n';
-import { api, type Article } from '../api';
+import { ApiError, api, type Article } from '../api';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { createAdminQueryClient } from '../query';
+import { AdminOperationProvider, createAdminOperationStore } from '../admin-operations';
 
 vi.mock('../api', async () => {
   const actual = await vi.importActual<typeof import('../api')>('../api');
@@ -38,7 +41,7 @@ const article: Article = {
   updatedAt: '2026-08-20T00:00:00.000Z',
 };
 
-const renderPage = () => render(<I18nProvider><BrandContentPage /></I18nProvider>);
+const renderPage = (store = createAdminOperationStore()) => render(<QueryClientProvider client={createAdminQueryClient()}><AdminOperationProvider value={store}><I18nProvider><BrandContentPage /></I18nProvider></AdminOperationProvider></QueryClientProvider>);
 
 beforeEach(() => {
   vi.mocked(api.listArticles).mockReset().mockResolvedValue({ items: [article], total: 1 });
@@ -81,6 +84,13 @@ describe('bodyToText / textToBody', () => {
 });
 
 describe('BrandContentPage', () => {
+  it('內容讀取失敗不呈現可操作的空表格', async () => {
+    vi.mocked(api.listArticles).mockRejectedValue(new Error('articles failed'));
+    renderPage();
+    expect(await screen.findByText('articles failed')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
   it('清單顯示類型、標題、slug 與狀態', async () => {
     renderPage();
 
@@ -98,12 +108,12 @@ describe('BrandContentPage', () => {
 
     await user.selectOptions(screen.getByLabelText('類型'), 'news');
     await waitFor(() => expect(api.listArticles).toHaveBeenLastCalledWith(
-      expect.objectContaining({ kind: 'news' }),
+      expect.objectContaining({ kind: 'news' }), expect.any(AbortSignal),
     ));
 
     await user.selectOptions(screen.getByLabelText('狀態'), 'published');
     await waitFor(() => expect(api.listArticles).toHaveBeenLastCalledWith(
-      expect.objectContaining({ status: 'published' }),
+      expect.objectContaining({ status: 'published' }), expect.any(AbortSignal),
     ));
   });
 
@@ -154,6 +164,21 @@ describe('BrandContentPage', () => {
     expect(within(dialog).getByLabelText('類型')).toBeDisabled();
   });
 
+  it('編輯 Dialog 用 Escape 關閉後焦點回到編輯鈕', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('出貨作業公告');
+
+    const trigger = screen.getByRole('button', { name: '編輯' });
+    await user.click(trigger);
+    expect(await screen.findByRole('dialog', { name: /編輯/ })).toBeInTheDocument();
+    expect(screen.getByLabelText('Slug')).toHaveFocus();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /編輯/ })).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+  });
+
   it('編輯抽屜不改任何欄位直接送出時擋下並提示，不呼叫 updateArticle', async () => {
     const user = userEvent.setup();
     renderPage();
@@ -181,7 +206,7 @@ describe('BrandContentPage', () => {
     await user.type(titleField, '出貨作業最新公告');
     await user.click(within(dialog).getByRole('button', { name: '儲存變更' }));
 
-    await waitFor(() => expect(api.updateArticle).toHaveBeenCalledWith(article.id, { title: '出貨作業最新公告' }));
+    await waitFor(() => expect(api.updateArticle).toHaveBeenCalledWith(article.id, { title: '出貨作業最新公告' }, expect.any(String)));
   });
 
   it('圖片清單載入失敗時顯示提示，配圖下拉仍可選不配圖', async () => {
@@ -204,8 +229,52 @@ describe('BrandContentPage', () => {
     await user.click(screen.getByRole('button', { name: /更多操作/ }));
     await user.click(await screen.findByRole('menuitem', { name: '上架' }));
 
-    await waitFor(() => expect(api.publishArticle).toHaveBeenCalledWith(article.id));
+    await waitFor(() => expect(api.publishArticle).toHaveBeenCalledWith(article.id, expect.any(String)));
     expect(api.listArticles).toHaveBeenCalledTimes(2);
+  });
+
+  it('發布未知時由 recovery 使用原鍵重試', async () => {
+    vi.mocked(api.publishArticle).mockRejectedValueOnce(new Error('network lost')).mockResolvedValueOnce({ ...article, status: 'published' });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('出貨作業公告');
+    await user.click(screen.getByRole('button', { name: /更多操作/ }));
+    await user.click(await screen.findByRole('menuitem', { name: '上架' }));
+    await screen.findByText('network lost');
+    const firstKey = vi.mocked(api.publishArticle).mock.calls[0][1];
+    await user.click(screen.getByRole('button', { name: '以原操作重試' }));
+    await waitFor(() => expect(api.publishArticle).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.publishArticle).mock.calls[1][1]).toBe(firstKey);
+  });
+
+  it('同篇內容有未知操作時擋住刪除，仍可重試原操作', async () => {
+    const store = createAdminOperationStore();
+    const operation = { area: 'article', scope: `article:${article.id}`, kind: 'publish' as const, articleId: article.id, request: {}, preview: { title: article.title }, idempotencyKey: 'article-publish-key' };
+    store.markUnknown(store.begin(operation)!, new Error('publish uncertain'));
+    const user = userEvent.setup();
+    renderPage(store);
+    await screen.findByText('出貨作業公告');
+    expect(screen.getByRole('button', { name: '更多操作' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '以原操作重試' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: '以原操作重試' }));
+    await waitFor(() => expect(api.publishArticle).toHaveBeenCalledWith(article.id, 'article-publish-key'));
+    expect(api.deleteArticle).not.toHaveBeenCalled();
+  });
+
+  it('抽屜內重試的明確拒絕保留在抽屜並解鎖欄位', async () => {
+    vi.mocked(api.updateArticle).mockRejectedValueOnce(new TypeError('offline')).mockRejectedValueOnce(new ApiError('VALIDATION_ERROR', 'article rejected', 400));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('出貨作業公告');
+    await user.click(screen.getByRole('button', { name: '編輯' }));
+    const dialog = await screen.findByRole('dialog', { name: /編輯/ });
+    await user.clear(within(dialog).getByLabelText('標題'));
+    await user.type(within(dialog).getByLabelText('標題'), '重試公告');
+    await user.click(within(dialog).getByRole('button', { name: '儲存變更' }));
+    await screen.findByText('offline');
+    await user.click(within(dialog).getByRole('button', { name: '以原操作重試' }));
+    expect(await within(dialog).findByText('article rejected')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('標題')).toBeEnabled();
   });
 
   it('刪除走確認對話框，不使用 window.confirm', async () => {
@@ -220,7 +289,22 @@ describe('BrandContentPage', () => {
     const dialog = await screen.findByRole('dialog', { name: '刪除這則內容？' });
     await user.click(within(dialog).getByRole('button', { name: '刪除' }));
 
-    await waitFor(() => expect(api.deleteArticle).toHaveBeenCalledWith(article.id));
+    await waitFor(() => expect(api.deleteArticle).toHaveBeenCalledWith(article.id, expect.any(String)));
     expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('RowMenu 的刪除確認按 Escape 後焦點回到選單 trigger', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('出貨作業公告');
+
+    const trigger = screen.getByRole('button', { name: /更多操作/ });
+    await user.click(trigger);
+    await user.click(await screen.findByRole('menuitem', { name: '刪除' }));
+    expect(await screen.findByRole('dialog', { name: '刪除這則內容？' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '刪除這則內容？' })).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
   });
 });

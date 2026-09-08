@@ -1,7 +1,10 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { App } from './App';
 import { I18nProvider } from './i18n';
+import { createAdminQueryClient } from './query';
+import { createAdminOperationStore, AdminOperationProvider } from './admin-operations';
 import 'react-day-picker/style.css';
 import './styles.css';
 import './enhancements.css';
@@ -13,6 +16,10 @@ if (!container) {
 
 createRoot(container).render(
   <StrictMode>
-    <I18nProvider><App /></I18nProvider>
+    <QueryClientProvider client={createAdminQueryClient()}>
+      <AdminOperationProvider value={createAdminOperationStore()}>
+        <I18nProvider><App /></I18nProvider>
+      </AdminOperationProvider>
+    </QueryClientProvider>
   </StrictMode>,
 );

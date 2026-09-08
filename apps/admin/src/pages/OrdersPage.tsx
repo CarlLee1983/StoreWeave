@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { api, type Order, type Refund, type Rma } from '../api';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api, type Order, type Rma } from '../api';
 import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
@@ -8,6 +9,11 @@ import { Icon } from '../components/Icon';
 import { EmptyState } from '../components/EmptyState';
 import { RowMenu, type RowMenuItem } from '../components/RowMenu';
 import { ReasonDialog } from '../components/ReasonDialog';
+import { orderKeys, refundKeys, rmaKeys } from '../query';
+import { isRmaReasonOperation, rmaScope, type RmaOperation, type RmaOperationResource, useRmaCommand } from '../rma-operations';
+import { type AdminOperationEntry, useAdminOperationEntries } from '../admin-operations';
+import { isRmaOperationEntry } from '../rma-operations';
+import { isOrderOperationEntry, orderScope, refundScope, type OrderOperation, useOrderCommand } from '../order-operations';
 
 const ORDER_STATUS_OPTIONS = {
   pending: 'pending',
@@ -22,51 +28,63 @@ const orderStatusOptions = Object.values(ORDER_STATUS_OPTIONS);
 export function OrdersPage() {
   const { t, formatMoney } = useI18n();
   const [status, setStatus] = useState<Order['status'] | ''>('');
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [refundQueue, setRefundQueue] = useState<Refund[]>([]);
-  const [rmaQueue, setRmaQueue] = useState<Rma[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<unknown>(null);
-  const [reloadKey, setReloadKey] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [reasonTarget, setReasonTarget] = useState<{ rma: Rma; action: 'information' | 'reject' } | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [reasonTarget, setReasonTarget] = useState<{ rma: Rma; action: 'information' | 'reject'; returnFocus: HTMLElement | null } | null>(null);
+  const [recoveryReason, setRecoveryReason] = useState<AdminOperationEntry<RmaOperation> | null>(null);
+  const operationPendingRef = useRef(false);
+  const recoveryRetryRef = useRef<HTMLButtonElement>(null);
+  const [operationPending, setOperationPending] = useState(false);
+  const runRmaCommand = useRmaCommand();
+  const operationEntries = useAdminOperationEntries();
+  const rmaRecoveries = operationEntries.filter(isRmaOperationEntry);
+  const orderRecoveries = operationEntries.filter(isOrderOperationEntry);
+  const runOrderCommand = useOrderCommand();
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    Promise.all([
-      api.listOrders({ status: status || undefined, limit: 50 }),
-      api.listRefunds({ limit: 50 }),
-      api.listRmas({ limit: 50 }),
-    ])
-      .then(([ordersResult, refundsResult, rmasResult]) => {
-        if (!cancelled) { setOrders(ordersResult.items); setRefundQueue(refundsResult.items); setRmaQueue(rmasResult.items); }
-      })
-      .catch((err) => !cancelled && setError(err))
-      .finally(() => !cancelled && setLoading(false));
-
-    return () => {
-      cancelled = true;
-    };
-  }, [status, reloadKey]);
-
-  const reload = () => setReloadKey((k) => k + 1);
+  const orderInput = { status: status || undefined, limit: 50, offset: 0 };
+  const queueInput = { limit: 50, offset: 0 };
+  const ordersQuery = useQuery({ queryKey: orderKeys.list(orderInput), queryFn: ({ signal }) => api.listOrders(orderInput, signal) });
+  const refundsQuery = useQuery({ queryKey: refundKeys.list(queueInput), queryFn: ({ signal }) => api.listRefunds(queueInput, signal) });
+  const rmasQuery = useQuery({ queryKey: rmaKeys.list(queueInput), queryFn: ({ signal }) => api.listRmas(queueInput, signal) });
+  const orders = ordersQuery.isSuccess ? ordersQuery.data.items : [];
+  const refundQueue = refundsQuery.isSuccess ? refundsQuery.data.items : [];
+  const rmaQueue = rmasQuery.isSuccess ? rmasQuery.data.items : [];
   const retryQueuedRefund = async (refundId: string) => {
-    setError(null);
-    try { await api.retryRefund(refundId); reload(); }
-    catch (err) { setError(err); }
-  };
-  const runRmaAction = async (rma: Rma, action: 'approve' | 'receive' | 'refund' | 'retry') => {
+    if (operationPendingRef.current) return;
+    operationPendingRef.current = true;
+    setOperationPending(true);
     setError(null);
     try {
-      if (action === 'approve') await api.approveRma(rma.id);
-      if (action === 'receive') await api.receiveRma(rma.id, rma.lines.map((line) => ({ rmaLineId: line.id, disposition: 'restock' })));
-      if (action === 'refund') await api.requestRmaRefund(rma.id);
-      if (action === 'retry' && rma.refundId) await api.retryRefund(rma.refundId);
-      reload();
+      const recovery = orderRecoveries.find((entry) => entry.operation.scope === refundScope(refundId));
+      const result = await runOrderCommand({ area: 'order', scope: refundScope(refundId), kind: 'retry-refund', refundId, request: {}, draft: {}, idempotencyKey: crypto.randomUUID() }, recovery?.operation.kind === 'retry-refund' ? recovery : undefined);
+      if (result.state === 'rejected' || result.state === 'unknown') setError(result.error);
     } catch (err) { setError(err); }
+    finally { operationPendingRef.current = false; setOperationPending(false); }
+  };
+  const runRmaAction = async (rma: Rma, action: 'approve' | 'receive' | 'refund' | 'retry') => {
+    if (operationPendingRef.current) return;
+    operationPendingRef.current = true;
+    setOperationPending(true);
+    setError(null);
+    try {
+      const operation: RmaOperation | null = action === 'approve'
+        ? { area: 'rma', scope: rmaScope(rma.id), kind: 'approve', rmaId: rma.id, resource: rmaResource(rma), request: {}, draft: { note: '' }, idempotencyKey: crypto.randomUUID() }
+        : action === 'receive'
+          ? { area: 'rma', scope: rmaScope(rma.id), kind: 'receive', rmaId: rma.id, resource: rmaResource(rma), request: { lines: rma.lines.map((line) => ({ rmaLineId: line.id, disposition: 'restock' })) }, draft: { lines: rma.lines.map((line) => ({ rmaLineId: line.id, disposition: 'restock', discardReason: '' })) }, idempotencyKey: crypto.randomUUID() }
+          : action === 'refund'
+            ? { area: 'rma', scope: rmaScope(rma.id), kind: 'refund', rmaId: rma.id, resource: rmaResource(rma), request: {}, draft: { reason: '' }, idempotencyKey: crypto.randomUUID() }
+            : rma.refundId ? { area: 'rma', scope: rmaScope(rma.id), kind: 'retry-refund', rmaId: rma.id, resource: rmaResource(rma), request: { refundId: rma.refundId }, draft: {}, idempotencyKey: crypto.randomUUID() } : null;
+      if (!operation) return;
+      const result = await runRmaCommand(operation);
+      if (result.state === 'rejected' || result.state === 'unknown') setError(result.error);
+    } catch (err) { setError(err); }
+    finally { operationPendingRef.current = false; setOperationPending(false); }
+  };
+  const retryRma = async (entry: AdminOperationEntry<RmaOperation>) => {
+    setOperationPending(true); setError(null);
+    const result = await runRmaCommand(entry.operation, entry);
+    if (result.state === 'rejected' || result.state === 'unknown') setError(result.error);
+    setOperationPending(false);
   };
 
   // 補件與拒絕都要留下理由，理由收在頁內對話框而不是 window.prompt。
@@ -75,26 +93,36 @@ export function OrdersPage() {
     const { rma, action } = reasonTarget;
     setError(null);
     try {
-      if (action === 'information') await api.requestRmaInformation(rma.id, reason);
-      else await api.rejectRma(rma.id, reason);
-      setReasonTarget(null);
-      reload();
+      const result = await runRmaCommand({ area: 'rma', scope: rmaScope(rma.id), kind: action, rmaId: rma.id, resource: rmaResource(rma), request: { reason }, draft: { reason }, idempotencyKey: crypto.randomUUID() });
+      if (result.state === 'success') setReasonTarget(null);
+      else if (result.state === 'rejected' || result.state === 'unknown') setError(result.error);
     } catch (err) { setError(err); }
+  };
+  const submitRecoveryReason = async (reason: string) => {
+    if (!recoveryReason || !isRmaReasonOperation(recoveryReason.operation)) return;
+    setError(null);
+    const operation = recoveryReason.operation;
+    const result = await runRmaCommand({ ...operation, request: { reason }, draft: { reason }, idempotencyKey: crypto.randomUUID() });
+    if (result.state === 'success') setRecoveryReason(null);
+    else if (result.state === 'rejected' || result.state === 'unknown') setError(result.error);
   };
   const paid = orders.filter((order) => order.status === 'paid');
   const pending = orders.filter((order) => order.status === 'pending' || order.status === 'payment_processing' || order.status === 'awaiting_payment');
   const gmv = paid.reduce((total, order) => total + order.totalCents, 0);
+  const activeReasonRecovery = reasonTarget ? rmaRecoveries.find((entry) => entry.operation.rmaId === reasonTarget.rma.id && isRmaReasonOperation(entry.operation) && entry.operation.kind === reasonTarget.action) ?? null : null;
 
   return (
     <section>
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+      {ordersQuery.isError ? <ErrorBanner error={ordersQuery.error} onRetry={() => void ordersQuery.refetch()} /> : null}
+      {refundsQuery.isError ? <ErrorBanner error={refundsQuery.error} onRetry={() => void refundsQuery.refetch()} /> : null}
+      {rmasQuery.isError ? <ErrorBanner error={rmasQuery.error} onRetry={() => void rmasQuery.refetch()} /> : null}
 
-      <div className="pipeline" aria-label={t('erpPipeline')}>
-        <span>Ingest</span><b>{orders.length}</b><i><Icon name="arrow-right" /></i><span>Queue</span><b>{pending.length}</b><i><Icon name="arrow-right" /></i><span>Worker</span><b>Active</b><i><Icon name="arrow-right" /></i><span>DLQ</span><b className="pipeline__alert">{orders.filter((order) => order.status === 'cancelled').length}</b>
+      {ordersQuery.isLoading ? <Loading /> : ordersQuery.isSuccess ? <><div className="pipeline" aria-label={t('erpPipeline')}>
+        <span>{t('ingest')}</span><b>{orders.length}</b><i><Icon name="arrow-right" /></i><span>{t('queue')}</span><b>{pending.length}</b><i><Icon name="arrow-right" /></i><span>{t('worker')}</span><b>{t('pipelineActive')}</b><i><Icon name="arrow-right" /></i><span>DLQ</span><b className="pipeline__alert">{orders.filter((order) => order.status === 'cancelled').length}</b>
       </div>
       <div className="summary-cards summary-cards--orders">
         <Metric label={t('transactionTotal')} value={formatMoney(gmv, orders[0]?.currency ?? 'TWD')} /><Metric label={t('pendingOrders')} value={String(pending.length)} /><Metric label={t('completedOrders')} value={String(paid.length)} /><Metric label={t('currentlyShown')} value={String(orders.length)} />
-      </div>
+      </div></> : null}
 
       <div className="toolbar">
         <select value={status} onChange={(e) => setStatus(orderStatusOptions.find((option) => option === e.target.value) ?? '')}>
@@ -102,56 +130,69 @@ export function OrdersPage() {
         </select>
       </div>
 
-      <section className="account-panel" aria-label="退款作業隊列">
-        <div className="section-heading"><h2>退款作業隊列</h2><p>待處理與失敗的退款可在此追蹤；失敗項目可安全重試。</p></div>
-        {refundQueue.length === 0 ? <EmptyState icon="refresh" title="目前沒有退款紀錄" hint="失敗的退款會留在這裡，可以安全重試。" /> : (
-          <div className="table-wrap"><table className="data-table data-table--fixed"><thead><tr><th style={{ width: '26%' }}>訂單</th><th style={{ width: '14%' }}>狀態</th><th style={{ width: '14%' }} className="col-numeric">金額</th><th style={{ width: '32%' }}>失敗原因</th><th style={{ width: '14%' }} className="col-actions">操作</th></tr></thead>
+      <section className="account-panel" aria-label={t('refundQueue')}>
+        <div className="section-heading"><h2>{t('refundQueue')}</h2><p>{t('refundQueueHint')}</p></div>
+        {refundsQuery.isLoading ? <Loading /> : refundsQuery.isSuccess ? refundQueue.length === 0 ? <EmptyState icon="refresh" title={t('noRefunds')} hint={t('noRefundsHint')} /> : (
+          <div className="table-wrap"><table className="data-table data-table--fixed orders-queue-table"><thead><tr><th style={{ width: '26%' }}>{t('orders')}</th><th style={{ width: '14%' }}>{t('status')}</th><th style={{ width: '14%' }} className="col-numeric">{t('amount')}</th><th style={{ width: '32%' }}>{t('failureReason')}</th><th style={{ width: '14%' }} className="col-actions">{t('actions')}</th></tr></thead>
             <tbody>{refundQueue.map((refund) => <tr key={refund.id}>
               <td><span className="cell-truncate mono" title={refund.orderId}>{refund.orderId}</span></td>
               <td><StatusBadge value={refund.status} /></td>
               <td className="col-numeric">{formatMoney(refund.amountCents, refund.currency)}</td>
               <td><span className="cell-truncate" title={refund.failureMessage ?? undefined}>{refund.failureMessage ?? '—'}</span></td>
-              <td className="col-actions">{refund.status === 'failed' ? <button className="button button--quiet" type="button" onClick={() => void retryQueuedRefund(refund.id)}><Icon name="refresh" /> 重試退款</button> : <span className="text-muted">—</span>}</td>
+              <td className="col-actions">{refund.status === 'failed' ? <button className="button button--quiet" type="button" disabled={operationPending || orderRecoveries.some((entry) => entry.operation.scope === refundScope(refund.id))} onClick={() => void retryQueuedRefund(refund.id)}><Icon name="refresh" /> {t('retryRefund')}</button> : <span className="text-muted">—</span>}</td>
             </tr>)}</tbody>
           </table></div>
-        )}
+        ) : null}
       </section>
 
-      <section className="account-panel" aria-label="退貨作業隊列">
-        <div className="section-heading"><h2>退貨作業隊列</h2><p>換貨第一版採退款後重新下單；收件入庫只適用可回補的商品。</p></div>
-        {rmaQueue.length === 0 ? <EmptyState icon="box" title="目前沒有退貨案件" hint="顧客申請退貨後，案件會出現在這裡等待處理。" /> : (
-          <div className="table-wrap"><table className="data-table data-table--fixed"><thead><tr><th style={{ width: '22%' }}>訂單</th><th style={{ width: '24%' }}>品項</th><th style={{ width: '14%' }}>狀態</th><th style={{ width: '18%' }}>原因</th><th style={{ width: '22%' }} className="col-actions">操作</th></tr></thead>
+      <section className="account-panel" aria-label={t('returnQueue')}>
+        <div className="section-heading"><h2>{t('returnQueue')}</h2><p>{t('returnQueueHint')}</p></div>
+        {rmasQuery.isLoading ? <Loading /> : rmasQuery.isSuccess ? rmaQueue.length === 0 ? <EmptyState icon="box" title={t('noRmas')} hint={t('noRmasHint')} /> : (
+          <div className="table-wrap"><table className="data-table data-table--fixed orders-queue-table"><thead><tr><th style={{ width: '22%' }}>{t('orders')}</th><th style={{ width: '24%' }}>{t('item')}</th><th style={{ width: '14%' }}>{t('status')}</th><th style={{ width: '18%' }}>{t('reason')}</th><th style={{ width: '22%' }} className="col-actions">{t('actions')}</th></tr></thead>
             <tbody>{rmaQueue.map((rma) => <tr key={rma.id}>
               <td><span className="cell-truncate mono" title={rma.orderId}>{rma.orderId}</span></td>
               <td><span className="cell-truncate" title={rma.lines.map((line) => `${line.name} × ${line.quantity}`).join('、')}>{rma.lines.map((line) => `${line.name} × ${line.quantity}`).join('、')}</span></td>
               <td><StatusBadge value={rma.status} /></td>
               <td><span className="cell-truncate" title={rma.staffNote ?? rma.reason}>{rma.staffNote ?? rma.reason}</span></td>
               <td className="col-actions">
-                <RmaActions rma={rma} onRun={runRmaAction} onAskReason={(action) => setReasonTarget({ rma, action })} />
+                <RmaActions rma={rma} busy={operationPending || rmaRecoveries.some((entry) => entry.operation.scope === rmaScope(rma.id))} onRun={runRmaAction} onAskReason={(action, returnFocus) => setReasonTarget({ rma, action, returnFocus })} />
               </td>
             </tr>)}</tbody>
           </table></div>
-        )}
+        ) : null}
       </section>
+      {rmaRecoveries.map((entry) => <section className="account-panel" key={entry.operation.idempotencyKey} aria-label={`${t('returnQueue')} ${entry.operation.rmaId}`}><div className="error-banner" role="status"><strong>{entry.phase === 'pending' ? t('productOperationPending') : t('unknownError')}</strong><span>{entry.operation.rmaId}</span>{entry.phase === 'unknown' ? <button className="button button--quiet" type="button" disabled={operationPending} onClick={() => void retryRma(entry)}>{t('retryOriginalOperation')}</button> : null}{isRmaReasonOperation(entry.operation) ? <button className="button button--quiet" type="button" onClick={() => setRecoveryReason(entry)}>{t('inspectOriginalOperation')}</button> : null}</div><RmaRecoveryPreview operation={entry.operation} /></section>)}
+      <OrderRecoveries entries={orderRecoveries} />
 
       {reasonTarget ? (
         <ReasonDialog
-          title={reasonTarget.action === 'information' ? '要求補件' : '拒絕退貨'}
+          title={reasonTarget.action === 'information' ? t('requestInformation') : t('rejectReturn')}
           description={reasonTarget.action === 'information'
-            ? '說明還需要顧客補充哪些資料，內容會寫進案件紀錄。'
-            : '拒絕會結束這件退貨，原因會寫進案件紀錄，顧客看得到。'}
-          confirmLabel={reasonTarget.action === 'information' ? '送出' : '拒絕'}
-          placeholder={reasonTarget.action === 'information' ? '例如：請補拍外包裝與商品瑕疵處照片' : '例如：不符合退貨條件'}
+            ? t('rmaInformationDescription')
+            : t('rmaRejectionDescription')}
+          confirmLabel={reasonTarget.action === 'information' ? t('submitCorrection') : t('rejectAction')}
+          placeholder={reasonTarget.action === 'information' ? t('rmaInformationPlaceholder') : t('rmaRejectionPlaceholder')}
           danger={reasonTarget.action === 'reject'}
+          error={error}
+          onDismissError={() => setError(null)}
+          initialReason={activeReasonRecovery && isRmaReasonOperation(activeReasonRecovery.operation) ? activeReasonRecovery.operation.draft.reason : undefined}
+          readOnly={Boolean(activeReasonRecovery)}
+          recoveryFocusRef={recoveryRetryRef}
+          recoveryReady={activeReasonRecovery?.phase === 'unknown' && !operationPending}
+          recoveryAction={activeReasonRecovery?.phase === 'unknown' ? <button ref={recoveryRetryRef} className="button button--primary" type="button" disabled={operationPending} onClick={() => void retryRma(activeReasonRecovery)}>{t('retryOriginalOperation')}</button> : null}
+          labels={{ close: t('close'), cancel: t('cancel'), invalidReason: t('invalidReason'), submitting: t('submitting') }}
+          returnFocus={reasonTarget.returnFocus}
           onClose={() => setReasonTarget(null)}
-          onConfirm={(reason) => void submitRmaReason(reason)}
+          onConfirm={submitRmaReason}
         />
       ) : null}
+      {recoveryReason && isRmaReasonOperation(recoveryReason.operation) ? (() => {
+        const liveRecovery = rmaRecoveries.find((entry) => entry.operation.idempotencyKey === recoveryReason.operation.idempotencyKey) ?? null;
+        return <ReasonDialog title={recoveryReason.operation.kind === 'information' ? t('requestInformation') : t('rejectReturn')} confirmLabel={recoveryReason.operation.kind === 'information' ? t('submitCorrection') : t('rejectAction')} danger={recoveryReason.operation.kind === 'reject'} initialReason={recoveryReason.operation.draft.reason} readOnly={Boolean(liveRecovery)} error={error} onDismissError={() => setError(null)} recoveryFocusRef={recoveryRetryRef} recoveryReady={liveRecovery?.phase === 'unknown' && !operationPending} recoveryAction={liveRecovery?.phase === 'unknown' ? <button ref={recoveryRetryRef} className="button button--primary" type="button" disabled={operationPending} onClick={() => void retryRma(liveRecovery)}>{t('retryOriginalOperation')}</button> : null} labels={{ close: t('close'), cancel: t('cancel'), invalidReason: t('invalidReason'), submitting: t('submitting') }} onClose={() => setRecoveryReason(null)} onConfirm={submitRecoveryReason} />;
+      })() : null}
 
-      {loading ? (
-        <Loading />
-      ) : (
-        <div className="table-wrap"><table className="data-table data-table--fixed">
+      {ordersQuery.isSuccess ? (
+        <div className="table-wrap"><table className="data-table data-table--fixed orders-table">
           <thead>
             <tr>
               <th style={{ width: '14%' }}>{t('orderNumber')}</th>
@@ -159,14 +200,14 @@ export function OrdersPage() {
               <th style={{ width: '14%' }}>{t('status')}</th>
               <th style={{ width: '14%' }} className="col-numeric">{t('total')}</th>
               <th style={{ width: '20%' }}>{t('orderedAt')}</th>
-              <th style={{ width: '10%' }} className="col-actions">{t('status') === 'Status' ? 'Detail' : '明細'}</th>
+              <th style={{ width: '10%' }} className="col-actions">{t('orderDetail')}</th>
             </tr>
           </thead>
           <tbody>
             {orders.length === 0 ? (
               <tr>
                 <td colSpan={6}>
-                  <EmptyState icon="receipt" title="目前沒有訂單" hint="前台完成結帳後，訂單會即時出現在這裡。" />
+                  <EmptyState icon="receipt" title={t('noOrders')} hint={t('noOrdersHint')} />
                 </td>
               </tr>
             ) : orders.map((order) => (
@@ -175,14 +216,41 @@ export function OrdersPage() {
                 order={order}
                 expanded={expandedId === order.id}
                 onToggle={() => setExpandedId(expandedId === order.id ? null : order.id)}
-                onChanged={reload}
               />
             ))}
           </tbody>
         </table></div>
-      )}
+      ) : null}
     </section>
   );
+}
+
+function OrderRecoveries({ entries }: { entries: AdminOperationEntry<OrderOperation>[] }) {
+  const { t } = useI18n();
+  const command = useOrderCommand();
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  if (!entries.length) return error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null;
+  return <div className="command-recoveries" aria-live="polite">{entries.map((entry) => {
+    const operation = entry.operation;
+    const action = operation.kind === 'pay' ? t('requestPayment') : operation.kind === 'cancel' ? t('cancelOrder') : operation.kind === 'refund' ? t('requestFullRefund') : t('retryRefund');
+    const resource = operation.kind === 'retry-refund' ? operation.refundId : operation.orderId;
+    const detail = operation.kind === 'cancel' || operation.kind === 'refund' ? operation.draft.reason : null;
+    return <section className="account-panel" key={operation.idempotencyKey} aria-label={`${action} ${resource}`}>
+      <div className="error-banner" role="status"><strong>{entry.phase === 'pending' ? t('running') : t('unknownError')}</strong><span>{action} · {resource}</span>{entry.phase === 'unknown' ? <button className="button button--quiet" type="button" disabled={submitting} onClick={() => { setSubmitting(true); void command(operation, entry).then((result) => { if (result.state === 'rejected') setError(result.error); }).finally(() => setSubmitting(false)); }}>{t('retryOriginalOperation')}</button> : null}</div>
+      {detail ? <dl className="order-totals"><dt>{t('reason')}</dt><dd>{detail}</dd></dl> : null}
+    </section>;
+  })}</div>;
+}
+
+function rmaResource(rma: Rma): RmaOperationResource {
+  return { orderId: rma.orderId, lines: rma.lines.map((line) => ({ rmaLineId: line.id, sku: line.sku, name: line.name, quantity: line.quantity })) };
+}
+
+function RmaRecoveryPreview({ operation }: { operation: RmaOperation }) {
+  const { t } = useI18n();
+  const action = operation.kind === 'approve' ? t('approveReturn') : operation.kind === 'information' ? t('requestInformation') : operation.kind === 'reject' ? t('rejectReturn') : operation.kind === 'receive' ? t('receiveReturn') : operation.kind === 'refund' ? t('requestRefund') : t('retryRefund');
+  return <dl className="order-totals"><dt>{t('rmaCase')}</dt><dd className="mono">{operation.rmaId}</dd><dt>{t('orderId')}</dt><dd className="mono">{operation.resource.orderId}</dd><dt>{t('actions')}</dt><dd>{action}</dd>{operation.resource.lines.map((line) => <Fragment key={line.rmaLineId}><dt>{t('products')}</dt><dd>{line.name} · {line.sku} × {line.quantity}</dd></Fragment>)}{operation.kind === 'approve' ? <><dt>{t('staffNote')}</dt><dd>{operation.draft.note || '—'}</dd></> : null}{operation.kind === 'information' || operation.kind === 'reject' || operation.kind === 'refund' ? <><dt>{t('returnReason')}</dt><dd>{operation.draft.reason || '—'}</dd></> : null}{operation.kind === 'receive' ? operation.draft.lines.map((line) => <Fragment key={line.rmaLineId}><dt>{t('disposition')} · <code>{line.rmaLineId}</code></dt><dd>{line.disposition === 'restock' ? t('restock') : `${t('discard')} · ${line.discardReason || '—'}`}</dd></Fragment>) : null}</dl>;
 }
 
 /**
@@ -191,29 +259,32 @@ export function OrdersPage() {
  */
 function RmaActions({
   rma,
+  busy,
   onRun,
   onAskReason,
 }: {
   rma: Rma;
+  busy: boolean;
   onRun: (rma: Rma, action: 'approve' | 'receive' | 'refund' | 'retry') => void;
-  onAskReason: (action: 'information' | 'reject') => void;
+  onAskReason: (action: 'information' | 'reject', returnFocus: HTMLElement | null) => void;
 }) {
+  const { t } = useI18n();
   const primary = rma.status === 'approved'
-    ? { label: '收件並全部回補', icon: 'box' as const, run: () => onRun(rma, 'receive') }
+    ? { label: t('receiveAndRestock'), icon: 'box' as const, run: () => onRun(rma, 'receive') }
     : rma.status === 'received'
-      ? { label: '申請退款', icon: 'send' as const, run: () => onRun(rma, 'refund') }
+      ? { label: t('requestRefund'), icon: 'send' as const, run: () => onRun(rma, 'refund') }
       : rma.status === 'refund_failed'
-        ? { label: '重試退款', icon: 'refresh' as const, run: () => onRun(rma, 'retry') }
+        ? { label: t('retryRefund'), icon: 'refresh' as const, run: () => onRun(rma, 'retry') }
         : ['requested', 'needs_information'].includes(rma.status)
-          ? { label: '核准', icon: 'check' as const, run: () => onRun(rma, 'approve') }
+          ? { label: t('approveReturn'), icon: 'check' as const, run: () => onRun(rma, 'approve') }
           : null;
 
   const menuItems: RowMenuItem[] = [
     ...(['requested', 'approved'].includes(rma.status)
-      ? [{ key: 'information', label: '要求補件', icon: 'file-text' as const, onSelect: () => onAskReason('information') }]
+      ? [{ key: 'information', label: t('requestInformation'), icon: 'file-text' as const, onSelect: (returnFocus: HTMLButtonElement | null) => onAskReason('information', returnFocus) }]
       : []),
     ...(['requested', 'needs_information', 'approved'].includes(rma.status)
-      ? [{ key: 'reject', label: '拒絕', icon: 'ban' as const, danger: true, onSelect: () => onAskReason('reject') }]
+      ? [{ key: 'reject', label: t('rejectAction'), icon: 'ban' as const, danger: true, onSelect: (returnFocus: HTMLButtonElement | null) => onAskReason('reject', returnFocus) }]
       : []),
   ];
 
@@ -222,11 +293,11 @@ function RmaActions({
   return (
     <div className="product-actions-row">
       {primary ? (
-        <button className="button button--quiet" type="button" onClick={primary.run}>
+        <button className="button button--quiet" type="button" disabled={busy} onClick={primary.run}>
           <Icon name={primary.icon} /> {primary.label}
         </button>
       ) : null}
-      {menuItems.length > 0 ? <RowMenu items={menuItems} /> : null}
+      {menuItems.length > 0 ? <RowMenu items={menuItems} label={t('moreActions')} disabled={busy} /> : null}
     </div>
   );
 }
@@ -239,72 +310,95 @@ function OrderRow({
   order,
   expanded,
   onToggle,
-  onChanged,
 }: {
   order: Order;
   expanded: boolean;
   onToggle: () => void;
-  onChanged: () => void;
 }) {
   const { t, formatMoney, formatDateTime } = useI18n();
-  const [reason, setReason] = useState('');
-  const [refundReason, setRefundReason] = useState('');
-  const [refunds, setRefunds] = useState<Refund[]>([]);
+  const runOrderCommand = useOrderCommand();
+  const operationEntries = useAdminOperationEntries();
+  const orderRecoveries = operationEntries.filter(isOrderOperationEntry);
+  const orderOccupancy = operationEntries.find((entry) => entry.operation.scope === orderScope(order.id)) ?? null;
+  const orderRecovery = orderOccupancy && isOrderOperationEntry(orderOccupancy) ? orderOccupancy : null;
+  const [reason, setReason] = useState(() => orderRecovery?.operation.kind === 'cancel' ? orderRecovery.operation.draft.reason : '');
+  const [refundReason, setRefundReason] = useState(() => orderRecovery?.operation.kind === 'refund' ? orderRecovery.operation.draft.reason : '');
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const [refundSubmissionKey, setRefundSubmissionKey] = useState(() => crypto.randomUUID());
+  const [refundAttempt, setRefundAttempt] = useState<{ reason: string; rawReason: string; key: string } | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const refundRecovery = orderRecovery?.operation.kind === 'refund' ? orderRecovery : null;
+  const hadRefundRecovery = useRef(Boolean(refundRecovery));
+  const refundsQuery = useQuery({ queryKey: refundKeys.list({ orderId: order.id, limit: 20, offset: 0 }), queryFn: ({ signal }) => api.listRefunds({ orderId: order.id, limit: 20, offset: 0 }, signal), enabled: expanded });
+  const refunds = refundsQuery.isSuccess ? refundsQuery.data.items : [];
+
+  useEffect(() => {
+    if (hadRefundRecovery.current && !refundRecovery && refundAttempt) {
+      setRefundAttempt(null);
+      setRefundReason(refundAttempt.rawReason);
+      setRefundSubmissionKey(crypto.randomUUID());
+    }
+    hadRefundRecovery.current = Boolean(refundRecovery);
+  }, [refundAttempt, refundRecovery]);
 
   const handlePay = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setError(null);
     try {
-      await api.payOrder(order.id);
-      onChanged();
+      const result = await runOrderCommand({ area: 'order', scope: orderScope(order.id), kind: 'pay', orderId: order.id, request: {}, draft: {}, idempotencyKey: crypto.randomUUID() }, orderRecovery?.operation.kind === 'pay' ? orderRecovery : undefined);
+      if (result.state === 'rejected' || result.state === 'unknown') setError(result.error);
     } catch (err) {
       setError(err);
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
 
   const handleCancel = async () => {
+    if (submittingRef.current) return;
     if (!reason.trim()) {
       setError(new Error(t('invalidCancelReason')));
       return;
     }
+    submittingRef.current = true;
     setSubmitting(true);
     setError(null);
     try {
-      await api.cancelOrder(order.id, reason.trim());
-      onChanged();
+      const request = { reason: reason.trim() };
+      const result = await runOrderCommand({ area: 'order', scope: orderScope(order.id), kind: 'cancel', orderId: order.id, request, draft: { reason }, idempotencyKey: crypto.randomUUID() }, orderRecovery?.operation.kind === 'cancel' ? orderRecovery : undefined);
+      if (result.state === 'rejected' || result.state === 'unknown') setError(result.error);
     } catch (err) {
       setError(err);
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
 
-  useEffect(() => {
-    if (!expanded) return;
-    let cancelled = false;
-    api.listRefunds({ orderId: order.id, limit: 20 }).then((result) => {
-      if (!cancelled) setRefunds(result.items);
-    }).catch((err) => { if (!cancelled) setError(err); });
-    return () => { cancelled = true; };
-  }, [expanded, order.id]);
-
   const handleRefund = async () => {
-    if (!refundReason.trim()) { setError(new Error('請輸入退款原因')); return; }
-    setSubmitting(true); setError(null);
-    try { await api.requestRefund(order.id, refundReason.trim()); setRefundReason(''); onChanged(); const result = await api.listRefunds({ orderId: order.id }); setRefunds(result.items); }
-    catch (err) { setError(err); }
-    finally { setSubmitting(false); }
+    if (submittingRef.current) return;
+    const attempt = refundAttempt ?? { reason: refundReason.trim(), rawReason: refundReason, key: refundSubmissionKey };
+    if (!attempt.reason) { setError(new Error(t('invalidRefundReason'))); return; }
+    if (!refundAttempt) setRefundAttempt(attempt);
+    submittingRef.current = true; setSubmitting(true); setError(null);
+    try {
+      const result = await runOrderCommand({ area: 'order', scope: orderScope(order.id), kind: 'refund', orderId: order.id, request: { reason: attempt.reason }, draft: { reason: attempt.rawReason }, idempotencyKey: attempt.key }, orderRecovery?.operation.kind === 'refund' ? orderRecovery : undefined);
+      if (result.state === 'success') { setRefundAttempt(null); setRefundReason(''); setRefundSubmissionKey(crypto.randomUUID()); }
+      else if (result.state === 'rejected') { setRefundAttempt(null); setRefundReason(attempt.rawReason); setRefundSubmissionKey(crypto.randomUUID()); setError(result.error); }
+      else if (result.state === 'unknown') setError(result.error);
+    }
+    finally { submittingRef.current = false; setSubmitting(false); }
   };
 
   const handleRetryRefund = async (refundId: string) => {
-    setSubmitting(true); setError(null);
-    try { await api.retryRefund(refundId); const result = await api.listRefunds({ orderId: order.id }); setRefunds(result.items); onChanged(); }
-    catch (err) { setError(err); }
-    finally { setSubmitting(false); }
+    if (submittingRef.current) return;
+    submittingRef.current = true; setSubmitting(true); setError(null);
+    try { const recovery = orderRecoveries.find((entry) => entry.operation.scope === refundScope(refundId)); const result = await runOrderCommand({ area: 'order', scope: refundScope(refundId), kind: 'retry-refund', refundId, request: {}, draft: {}, idempotencyKey: crypto.randomUUID() }, recovery?.operation.kind === 'retry-refund' ? recovery : undefined); if (result.state === 'rejected' || result.state === 'unknown') setError(result.error); }
+    finally { submittingRef.current = false; setSubmitting(false); }
   };
 
   return (
@@ -373,36 +467,38 @@ function OrderRow({
 
               {order.status === 'pending' && (
                 <div className="inline-form">
-                  <button id="order-actions" className="button button--primary" type="button" disabled={submitting} onClick={handlePay}>
+                  <button id="order-actions" className="button button--primary" type="button" disabled={submitting || !!orderOccupancy} onClick={handlePay}>
                     {t('requestPayment')}
                   </button>
-                  <input placeholder={t('cancellationReason')} value={reason} onChange={(e) => setReason(e.target.value)} />
-                  <button className="button" type="button" disabled={submitting} onClick={handleCancel}>
+                  <input placeholder={t('cancellationReason')} value={reason} readOnly={!!orderOccupancy} onChange={(e) => setReason(e.target.value)} />
+                  <button className="button" type="button" disabled={submitting || !!orderOccupancy} onClick={handleCancel}>
                     {t('cancelOrder')}
                   </button>
                 </div>
               )}
               {order.status === 'paid' && (
-                <div className="inline-form" aria-label="退款作業">
-                  <input placeholder="退款原因" value={refundReason} onChange={(e) => setRefundReason(e.target.value)} />
-                  <button id="refund-actions" className="button button--primary" type="button" disabled={submitting || refunds.some((refund) => refund.status !== 'failed')} onClick={handleRefund}>
-                    申請整單退款
+                <div className="inline-form" aria-label={t('refundOperation')}>
+                  <input placeholder={t('refundReason')} value={refundAttempt?.rawReason ?? refundReason} disabled={Boolean(refundAttempt)} readOnly={!!orderOccupancy} onChange={(e) => setRefundReason(e.target.value)} />
+                  <button id="refund-actions" className="button button--primary" type="button" disabled={submitting || !!orderOccupancy || !refundsQuery.isSuccess || refundsQuery.isFetching || refunds.some((refund) => refund.status !== 'failed')} onClick={handleRefund}>
+                    {t('requestFullRefund')}
                   </button>
                 </div>
               )}
-              {refunds.length > 0 && (
-                <table className="data-table data-table--nested" aria-label="退款隊列">
-                  <thead><tr><th style={{ width: '18%' }}>退款狀態</th><th style={{ width: '16%' }} className="col-numeric">金額</th><th style={{ width: '48%' }}>原因／失敗資訊</th><th style={{ width: '18%' }} className="col-actions">操作</th></tr></thead>
+              {refundsQuery.isLoading ? <Loading /> : null}
+              {refundsQuery.isSuccess && refunds.length > 0 && (
+                <table className="data-table data-table--nested" aria-label={t('refundQueue')}>
+                  <thead><tr><th style={{ width: '18%' }}>{t('refundStatus')}</th><th style={{ width: '16%' }} className="col-numeric">{t('amount')}</th><th style={{ width: '48%' }}>{t('reasonAndFailure')}</th><th style={{ width: '18%' }} className="col-actions">{t('actions')}</th></tr></thead>
                   <tbody>{refunds.map((refund) => (
                     <tr key={refund.id}>
                       <td><StatusBadge value={refund.status} /></td>
                       <td className="col-numeric">{formatMoney(refund.amountCents, refund.currency)}</td>
                       <td><span className="cell-truncate" title={refund.failureMessage ?? refund.reason}>{refund.failureMessage ?? refund.reason}</span></td>
-                      <td className="col-actions">{refund.status === 'failed' ? <button className="button button--quiet" type="button" disabled={submitting} onClick={() => handleRetryRefund(refund.id)}><Icon name="refresh" /> 重試退款</button> : <span className="text-muted">—</span>}</td>
+                      <td className="col-actions">{refund.status === 'failed' ? <button className="button button--quiet" type="button" disabled={submitting} onClick={() => handleRetryRefund(refund.id)}><Icon name="refresh" /> {t('retryRefund')}</button> : <span className="text-muted">—</span>}</td>
                     </tr>
                   ))}</tbody>
                 </table>
               )}
+              {refundsQuery.isError ? <ErrorBanner error={refundsQuery.error} onRetry={() => void refundsQuery.refetch()} /> : null}
             </div>
           </td>
         </tr>

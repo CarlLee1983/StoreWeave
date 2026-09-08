@@ -3,6 +3,8 @@ import type {} from '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { AnalyticsPage } from './AnalyticsPage';
 import { I18nProvider } from '../i18n';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { createAdminQueryClient } from '../query';
 import {
   api,
   type AttributionSummary,
@@ -65,7 +67,7 @@ const partners: AttributionSummary[] = [
 const outstanding: OutstandingRewards = { currency: 'TWD', availableCents: 88_000, pendingCents: 12_000, customerCount: 42 };
 
 function renderPage() {
-  return render(<I18nProvider><AnalyticsPage /></I18nProvider>);
+  return render(<QueryClientProvider client={createAdminQueryClient()}><I18nProvider><AnalyticsPage /></I18nProvider></QueryClientProvider>);
 }
 
 function dateInputs(container: HTMLElement) {
@@ -103,7 +105,7 @@ describe('銷售摘要（搬家自系統頁，行為不變）', () => {
 
     expect(api.salesSummary).toHaveBeenCalledTimes(1);
     const [from, to] = dateInputs(container).map((input) => input.value);
-    expect(api.salesSummary).toHaveBeenCalledWith({ from, to });
+    expect(api.salesSummary).toHaveBeenCalledWith({ from, to }, expect.anything());
 
     const spanDays = (Date.parse(to) - Date.parse(from)) / (24 * 60 * 60 * 1000);
     expect(spanDays).toBe(30);
@@ -120,15 +122,14 @@ describe('銷售摘要（搬家自系統頁，行為不變）', () => {
     expect(vi.mocked(api.salesSummary).mock.calls[1][0]).toMatchObject({ from: '2026-01-01' });
   });
 
-  it('沒有資料時顯示零值與空的熱銷表格', async () => {
+  it('沒有資料時顯示零值與熱銷商品空狀態', async () => {
     vi.mocked(api.salesSummary).mockResolvedValue(empty);
     const { container } = renderPage();
 
     await waitFor(() => expect(api.salesSummary).toHaveBeenCalled());
     await waitFor(() => expect(container.querySelectorAll('.summary-card').length).toBeGreaterThan(0));
 
-    // 熱銷商品那張表是空的；活動成效與夥伴成效有自己的表格，因此指名第一張。
-    expect(container.querySelectorAll('.panel')[0].querySelectorAll('.data-table tbody tr')).toHaveLength(0);
+    expect(await screen.findByText('這段期間尚無商品銷售資料。')).toBeInTheDocument();
     expect(screen.getAllByText('0').length).toBeGreaterThanOrEqual(3);
   });
 
@@ -138,6 +139,21 @@ describe('銷售摘要（搬家自系統頁，行為不變）', () => {
 
     expect(await screen.findByText(/boom/)).toBeInTheDocument();
     expect(container.querySelectorAll('.panel')[0].querySelectorAll('.data-table tbody tr')).toHaveLength(0);
+  });
+
+  it('已成功的摘要在日期變更後讀取失敗時顯示該次錯誤，不影響其他分析區塊', async () => {
+    vi.mocked(api.salesSummary).mockReset().mockResolvedValueOnce(summary).mockRejectedValueOnce(new Error('later summary unavailable'));
+    const { container } = renderPage();
+    await screen.findByText('SKU-ALPHA');
+
+    fireEvent.change(dateInputs(container)[0], { target: { value: '2026-01-01' } });
+
+    await waitFor(() => expect(api.salesSummary).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('later summary unavailable')).toBeInTheDocument();
+    expect(container.querySelectorAll('.panel')[0].querySelectorAll('.data-table tbody tr')).toHaveLength(0);
+    expect(screen.getByText('夏季八折')).toBeInTheDocument();
+    expect(screen.getByText('STREAMER-A')).toBeInTheDocument();
+    expect(screen.getByText('42')).toBeInTheDocument();
   });
 });
 
@@ -218,4 +234,3 @@ describe('查詢區間', () => {
     await waitFor(() => expect(new Date(to.value).getTime()).toBeGreaterThanOrEqual(new Date(from.value).getTime()));
   });
 });
-

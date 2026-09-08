@@ -17,7 +17,8 @@
     "types": [],
     "baseUrl": "../..",
     "paths": {
-      "@storeweave/order/http": ["packages/commerce/order/src/http.ts"]
+      "@storeweave/order/http": ["packages/commerce/order/src/http.ts"],
+      "@storeweave/shipping": ["packages/commerce/shipping/src/dto.ts"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"]

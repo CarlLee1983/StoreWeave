@@ -5,6 +5,9 @@ import userEvent from '@testing-library/user-event';
 import { LoyaltyPage } from './LoyaltyPage';
 import { I18nProvider } from '../i18n';
 import { api, type RewardSettings, type Tier } from '../api';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { createAdminQueryClient } from '../query';
+import { AdminOperationProvider, createAdminOperationStore } from '../admin-operations';
 
 vi.mock('../api', async () => {
   const actual = await vi.importActual<typeof import('../api')>('../api');
@@ -28,9 +31,16 @@ beforeEach(() => {
   vi.mocked(api.removeTier).mockReset().mockResolvedValue({ items: [tiers[0]] });
 });
 
-const renderPage = () => render(<I18nProvider><LoyaltyPage /></I18nProvider>);
+const renderPage = (store = createAdminOperationStore()) => render(<QueryClientProvider client={createAdminQueryClient()}><AdminOperationProvider value={store}><I18nProvider><LoyaltyPage /></I18nProvider></AdminOperationProvider></QueryClientProvider>);
 
 describe('LoyaltyPage（工單 72）', () => {
+  it('等級讀取失敗時不以空清單開放等級異動', async () => {
+    vi.mocked(api.listTiers).mockRejectedValue(new Error('tiers failed'));
+    renderPage();
+    await screen.findByText('tiers failed');
+    expect(screen.queryByRole('button', { name: '儲存等級' })).not.toBeInTheDocument();
+  });
+
   it('累積比例以百分比呈現，倍率以倍數呈現，不把基點攤給店員看', async () => {
     renderPage();
     expect((await screen.findByLabelText('購物金回饋（%）') as HTMLInputElement).value).toBe('1');
@@ -45,7 +55,7 @@ describe('LoyaltyPage（工單 72）', () => {
     await user.clear(accrual);
     await user.type(accrual, '2.5');
     await user.click(screen.getByRole('button', { name: '儲存設定' }));
-    await waitFor(() => expect(api.updateRewardSettings).toHaveBeenCalledWith({ accrualBasisPoints: 250 }));
+    await waitFor(() => expect(api.updateRewardSettings).toHaveBeenCalledWith({ accrualBasisPoints: 250 }, expect.any(String)));
   });
 
   it('沒有改動就不送出', async () => {
@@ -63,7 +73,22 @@ describe('LoyaltyPage（工單 72）', () => {
     await screen.findByLabelText('購物金回饋（%）');
     await user.click(screen.getByLabelText('購物金永不到期'));
     await user.click(screen.getByRole('button', { name: '儲存設定' }));
-    await waitFor(() => expect(api.updateRewardSettings).toHaveBeenCalledWith({ expiresAfterDays: null }));
+    await waitFor(() => expect(api.updateRewardSettings).toHaveBeenCalledWith({ expiresAfterDays: null }, expect.any(String)));
+  });
+
+  it('設定儲存未知時由 recovery 重用原鍵與 sparse patch', async () => {
+    vi.mocked(api.updateRewardSettings).mockRejectedValueOnce(new Error('network lost')).mockResolvedValueOnce({ ...settings, accrualBasisPoints: 250 });
+    const user = userEvent.setup();
+    renderPage();
+    const accrual = await screen.findByLabelText('購物金回饋（%）');
+    await user.clear(accrual);
+    await user.type(accrual, '2.5');
+    await user.click(screen.getByRole('button', { name: '儲存設定' }));
+    await screen.findByText('network lost');
+    const firstKey = vi.mocked(api.updateRewardSettings).mock.calls[0][1];
+    await user.click(screen.getByRole('button', { name: '以原操作重試' }));
+    await waitFor(() => expect(api.updateRewardSettings).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.updateRewardSettings).mock.calls[1]).toEqual([{ accrualBasisPoints: 250 }, firstKey]);
   });
 
   it('說明改動只影響之後的累積，不回溯既有帳本', async () => {
@@ -119,7 +144,7 @@ describe('LoyaltyPage（工單 72）', () => {
     await user.clear(screen.getByLabelText('等級倍率（倍）'));
     await user.type(screen.getByLabelText('等級倍率（倍）'), '1.8');
     await user.click(screen.getByRole('button', { name: '儲存等級' }));
-    await waitFor(() => expect(api.saveTier).toHaveBeenCalledWith({ name: 'gold', thresholdPoints: 8000, multiplierBasisPoints: 18000 }));
+    await waitFor(() => expect(api.saveTier).toHaveBeenCalledWith({ name: 'gold', thresholdPoints: 8000, multiplierBasisPoints: 18000 }, expect.any(String)));
   });
 
   it('門檻為零的保底等級不給刪，按鈕根本不出現', async () => {
@@ -139,21 +164,48 @@ describe('LoyaltyPage（工單 72）', () => {
     await screen.findByText('gold');
     const gold = screen.getAllByRole('row').find((row) => row.textContent?.includes('gold'))!;
     await user.click(within(gold).getByRole('button', { name: '移除' }));
-    await user.click(within(gold).getByRole('button', { name: '確認移除？' }));
+    await user.click(within(await screen.findByRole('dialog', { name: '移除 gold' })).getByRole('button', { name: '移除' }));
     expect(await screen.findByText(/still used by 2 promotion/)).toBeInTheDocument();
   });
 
-  it('移除等級要點兩次：第一次只是進入確認狀態，不會送出', async () => {
+  it('移除等級需在 Dialog 確認，Escape 關閉後焦點回到觸發鈕', async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('gold');
     const gold = screen.getAllByRole('row').find((row) => row.textContent?.includes('gold'))!;
 
-    await user.click(within(gold).getByRole('button', { name: '移除' }));
+    const trigger = within(gold).getByRole('button', { name: '移除' });
+    await user.click(trigger);
     expect(api.removeTier).not.toHaveBeenCalled();
-    expect(within(gold).getByRole('button', { name: '確認移除？' })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: '移除 gold' })).toBeInTheDocument();
 
-    await user.click(within(gold).getByRole('button', { name: '確認移除？' }));
-    await waitFor(() => expect(api.removeTier).toHaveBeenCalledWith('gold'));
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '移除 gold' })).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+
+    await user.click(trigger);
+    await user.click(within(await screen.findByRole('dialog', { name: '移除 gold' })).getByRole('button', { name: '移除' }));
+    await waitFor(() => expect(api.removeTier).toHaveBeenCalledWith('gold', expect.any(String)));
+  });
+
+  it('同一等級的未知移除同時擋住新的儲存與移除，仍可重試原操作', async () => {
+    const store = createAdminOperationStore();
+    const operation = { area: 'loyalty', scope: 'loyalty-tier:gold', kind: 'tier-remove' as const, tierName: 'gold', request: { name: 'gold' }, preview: { name: 'gold' }, idempotencyKey: 'tier-remove-key' };
+    store.markUnknown(store.begin(operation)!, new Error('remove uncertain'));
+    const user = userEvent.setup();
+    renderPage(store);
+    await screen.findByText('gold');
+    const gold = screen.getAllByRole('row').find((row) => row.textContent?.includes('gold'))!;
+    expect(within(gold).getByRole('button', { name: '移除' })).toBeDisabled();
+    await user.type(screen.getByLabelText('等級名稱'), 'gold');
+    await user.type(screen.getByLabelText('門檻積分'), '8000');
+    await user.clear(screen.getByLabelText('等級倍率（倍）'));
+    await user.type(screen.getByLabelText('等級倍率（倍）'), '1.8');
+    await user.click(screen.getByRole('button', { name: '儲存等級' }));
+    expect(api.saveTier).not.toHaveBeenCalled();
+    const retry = await screen.findByRole('button', { name: '以原操作重試' });
+    expect(retry).toBeEnabled();
+    await user.click(retry);
+    await waitFor(() => expect(api.removeTier).toHaveBeenCalledWith('gold', 'tier-remove-key'));
   });
 });

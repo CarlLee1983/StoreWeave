@@ -416,10 +416,12 @@ export function setToken(token: string): void {
 /** API 回傳的錯誤資訊 */
 export class ApiError extends Error {
   code: string;
+  readonly status: number;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, status = 0) {
     super(message);
     this.code = code;
+    this.status = status;
   }
 }
 
@@ -461,9 +463,10 @@ async function request<T>(
     idempotencyKey?: string;
     withAuth?: boolean;
     raw?: boolean;
+    signal?: AbortSignal;
   } = {},
 ): Promise<T> {
-  const { method = 'GET', body, idempotent = false, idempotencyKey, withAuth = true, raw = false } = options;
+  const { method = 'GET', body, idempotent = false, idempotencyKey, withAuth = true, raw = false, signal } = options;
   const headers: Record<string, string> = {};
 
   if (withAuth) {
@@ -489,6 +492,7 @@ async function request<T>(
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal,
   });
 
   const json: unknown = await res.json().catch(() => null);
@@ -498,19 +502,19 @@ async function request<T>(
   if (raw) {
     if (!res.ok) {
       const error = isEnvelope(json) && !json.success ? json.error : null;
-      throw new ApiError(error?.code ?? 'UNKNOWN_ERROR', error?.message ?? `HTTP ${res.status}`);
+      throw new ApiError(error?.code ?? 'UNKNOWN_ERROR', error?.message ?? `HTTP ${res.status}`, res.status);
     }
     if (json === null) {
-      throw new ApiError('UNKNOWN_ERROR', `無法解析伺服器回應（HTTP ${res.status}）`);
+      throw new ApiError('UNKNOWN_ERROR', `無法解析伺服器回應（HTTP ${res.status}）`, res.status);
     }
     return json as T;
   }
 
   if (!isEnvelope(json)) {
-    throw new ApiError('UNKNOWN_ERROR', `無法解析伺服器回應（HTTP ${res.status}）`);
+    throw new ApiError('UNKNOWN_ERROR', `無法解析伺服器回應（HTTP ${res.status}）`, res.status);
   }
   if (!json.success) {
-    throw new ApiError(json.error.code, json.error.message);
+    throw new ApiError(json.error.code, json.error.message, res.status);
   }
   return json.data as T;
 }
@@ -527,51 +531,51 @@ function toQuery(params: Record<string, string | number | boolean | undefined>):
 }
 
 export const api = {
-  listShippingMethods(params: { enabled?: boolean; limit?: number; offset?: number } = {}) {
-    return request<Paged<ShippingMethod>>(`/api/v1/shipping/methods${toQuery(params)}`);
+  listShippingMethods(params: { enabled?: boolean; limit?: number; offset?: number } = {}, signal?: AbortSignal) {
+    return request<Paged<ShippingMethod>>(`/api/v1/shipping/methods${toQuery(params)}`, { signal });
   },
   createShippingMethod(body: {
     code: string; name: string; provider: string; type: string; destinationKind: ShippingMethod['destinationKind'];
     feeCents: number; freeShippingThresholdCents?: number; enabled: boolean;
-  }) {
-    return request<ShippingMethod>('/api/v1/shipping/methods', { method: 'POST', body, idempotent: true });
+  }, idempotencyKey?: string) {
+    return request<ShippingMethod>('/api/v1/shipping/methods', { method: 'POST', body, idempotent: true, idempotencyKey });
   },
   updateShippingMethod(id: string, body: {
     name?: string; provider?: string; type?: string; destinationKind?: ShippingMethod['destinationKind'];
     feeCents?: number; freeShippingThresholdCents?: number | null; enabled?: boolean;
-  }) {
-    return request<ShippingMethod>(`/api/v1/shipping/methods/${id}`, { method: 'PATCH', body, idempotent: true });
+  }, idempotencyKey?: string) {
+    return request<ShippingMethod>(`/api/v1/shipping/methods/${id}`, { method: 'PATCH', body, idempotent: true, idempotencyKey });
   },
-  getShipment(id: string) {
-    return request<Shipment>(`/api/v1/shipping/shipments/${id}`);
+  getShipment(id: string, signal?: AbortSignal) {
+    return request<Shipment>(`/api/v1/shipping/shipments/${id}`, { signal });
   },
-  createShipment(body: { orderId: string; providerRef?: string; trackingNumber?: string }) {
-    return request<Shipment>('/api/v1/shipping/shipments', { method: 'POST', body, idempotent: true });
+  createShipment(body: { orderId: string; providerRef?: string; trackingNumber?: string }, idempotencyKey?: string) {
+    return request<Shipment>('/api/v1/shipping/shipments', { method: 'POST', body, idempotent: true, idempotencyKey });
   },
-  advanceShipmentStage(id: string, status: Exclude<Shipment['status'], 'created'>) {
-    return request<Shipment>(`/api/v1/shipping/shipments/${id}/stage`, { method: 'POST', body: { status }, idempotent: true });
+  advanceShipmentStage(id: string, status: Exclude<Shipment['status'], 'created'>, idempotencyKey?: string) {
+    return request<Shipment>(`/api/v1/shipping/shipments/${id}/stage`, { method: 'POST', body: { status }, idempotent: true, idempotencyKey });
   },
-  getShipmentLabelInfo(id: string) {
-    return request<ShipmentLabelInfo>(`/api/v1/shipping/shipments/${id}/label`);
+  getShipmentLabelInfo(id: string, signal?: AbortSignal) {
+    return request<ShipmentLabelInfo>(`/api/v1/shipping/shipments/${id}/label`, { signal });
   },
-  getEcpayLogisticsShipmentOperation(shipmentId: string) {
+  getEcpayLogisticsShipmentOperation(shipmentId: string, signal?: AbortSignal) {
     return request<EcpayLogisticsShipmentOperation | null>(
-      `/api/v1/extensions/ecpay-logistics/queries/ext.ecpay-logistics.getShipmentOperation${toQuery({ shipmentId })}`,
+      `/api/v1/extensions/ecpay-logistics/queries/ext.ecpay-logistics.getShipmentOperation${toQuery({ shipmentId })}`, { signal },
     );
   },
-  listEcpayLogisticsShipmentOperations(params: { status?: EcpayLogisticsShipmentOperation['status']; limit?: number } = {}) {
+  listEcpayLogisticsShipmentOperations(params: { status?: EcpayLogisticsShipmentOperation['status']; limit?: number } = {}, signal?: AbortSignal) {
     return request<{ items: EcpayLogisticsShipmentOperation[] }>(
-      `/api/v1/extensions/ecpay-logistics/queries/ext.ecpay-logistics.listShipmentOperations${toQuery(params)}`,
+      `/api/v1/extensions/ecpay-logistics/queries/ext.ecpay-logistics.listShipmentOperations${toQuery(params)}`, { signal },
     );
   },
-  retryEcpayLogisticsShipment(shipmentId: string) {
+  retryEcpayLogisticsShipment(shipmentId: string, idempotencyKey?: string) {
     return request<EcpayLogisticsShipmentOperation>(
       '/api/v1/extensions/ecpay-logistics/commands/ext.ecpay-logistics.retryShipment',
-      { method: 'POST', body: { shipmentId }, idempotent: true },
+      { method: 'POST', body: { shipmentId }, idempotent: true, idempotencyKey },
     );
   },
-  listProducts(params: { q?: string; status?: string; limit?: number; offset?: number }) {
-    return request<Paged<Product>>(`/api/v1/products${toQuery(params)}`);
+  listProducts(params: { q?: string; status?: string; limit?: number; offset?: number }, signal?: AbortSignal) {
+    return request<Paged<Product>>(`/api/v1/products${toQuery(params)}`, { signal });
   },
   createProduct(body: {
     sku: string;
@@ -580,8 +584,8 @@ export const api = {
     priceCents: number;
     currency: string;
     status: Product['status'];
-  }) {
-    return request<Product>('/api/v1/products', { method: 'POST', body, idempotent: true });
+  }, idempotencyKey?: string) {
+    return request<Product>('/api/v1/products', { method: 'POST', body, idempotent: true, idempotencyKey });
   },
   getProduct(id: string) {
     return request<Product>(`/api/v1/products/${id}`);
@@ -589,19 +593,21 @@ export const api = {
   patchProduct(
     id: string,
     body: { name?: string; description?: string | null; priceCents?: number; status?: Product['status'] },
+    idempotencyKey?: string,
   ) {
-    return request<Product>(`/api/v1/products/${id}`, { method: 'PATCH', body, idempotent: true });
+    return request<Product>(`/api/v1/products/${id}`, { method: 'PATCH', body, idempotent: true, idempotencyKey });
   },
-  listInventory(params: { belowQuantity?: number; productIds?: string[]; limit?: number; offset?: number }) {
+  listInventory(params: { belowQuantity?: number; productIds?: string[]; limit?: number; offset?: number }, signal?: AbortSignal) {
     const { productIds, ...rest } = params;
     return request<Paged<Stock>>(
       `/api/v1/inventory${toQuery({ ...rest, productIds: productIds?.length ? productIds.join(',') : undefined })}`,
+      { signal },
     );
   },
   getInventory(productId: string) {
     return request<Stock>(`/api/v1/inventory/${productId}`);
   },
-  adjustInventory(body: { productId: string; delta: number; reason?: string; reference?: string }) {
+  adjustInventory(body: { productId: string; delta: number; reason?: string; reference?: string }, idempotencyKey?: string) {
     const validReasons = ['restock', 'correction', 'damage', 'return', 'manual'];
     const reasonEnum = body.reason && validReasons.includes(body.reason) ? body.reason : 'manual';
     const ref = body.reference || (body.reason && !validReasons.includes(body.reason) ? body.reason : undefined);
@@ -609,83 +615,84 @@ export const api = {
       method: 'POST',
       body: { productId: body.productId, delta: body.delta, reason: reasonEnum, reference: ref },
       idempotent: true,
+      idempotencyKey,
     });
   },
-  listOrders(params: { status?: Order['status']; limit?: number; offset?: number }) {
-    return request<Paged<Order>>(`/api/v1/orders${toQuery(params)}`);
+  listOrders(params: { status?: Order['status']; limit?: number; offset?: number }, signal?: AbortSignal) {
+    return request<Paged<Order>>(`/api/v1/orders${toQuery(params)}`, { signal });
   },
   getOrder(id: string) {
     return request<Order>(`/api/v1/orders/${id}`);
   },
-  payOrder(id: string) {
-    return request<Order>(`/api/v1/orders/${id}/pay`, { method: 'POST', body: {}, idempotent: true });
+  payOrder(id: string, idempotencyKey?: string) {
+    return request<Order>(`/api/v1/orders/${id}/pay`, { method: 'POST', body: {}, idempotent: true, idempotencyKey });
   },
-  cancelOrder(id: string, reason: string) {
+  cancelOrder(id: string, reason: string, idempotencyKey?: string) {
     return request<Order>(`/api/v1/orders/${id}/cancel`, {
       method: 'POST',
       body: { reason },
-      idempotent: true,
+      idempotent: true, idempotencyKey,
     });
   },
-  listRefunds(params: { orderId?: string; status?: Refund['status']; limit?: number; offset?: number }) {
-    return request<Paged<Refund>>(`/api/v1/refunds${toQuery(params)}`);
+  listRefunds(params: { orderId?: string; status?: Refund['status']; limit?: number; offset?: number }, signal?: AbortSignal) {
+    return request<Paged<Refund>>(`/api/v1/refunds${toQuery(params)}`, { signal });
   },
-  requestRefund(orderId: string, reason: string) {
-    return request<Refund>(`/api/v1/refunds/orders/${orderId}`, { method: 'POST', body: { reason }, idempotent: true });
+  requestRefund(orderId: string, reason: string, idempotencyKey?: string) {
+    return request<Refund>(`/api/v1/refunds/orders/${orderId}`, { method: 'POST', body: { reason }, idempotent: true, idempotencyKey });
   },
-  retryRefund(id: string) {
-    return request<Refund>(`/api/v1/refunds/${id}/retry`, { method: 'POST', body: {}, idempotent: true });
+  retryRefund(id: string, idempotencyKey?: string) {
+    return request<Refund>(`/api/v1/refunds/${id}/retry`, { method: 'POST', body: {}, idempotent: true, idempotencyKey });
   },
-  listRmas(params: { orderId?: string; status?: Rma['status']; limit?: number; offset?: number }) {
-    return request<Paged<Rma>>(`/api/v1/rmas${toQuery(params)}`);
+  listRmas(params: { orderId?: string; status?: Rma['status']; limit?: number; offset?: number }, signal?: AbortSignal) {
+    return request<Paged<Rma>>(`/api/v1/rmas${toQuery(params)}`, { signal });
   },
-  approveRma(id: string, note?: string) {
-    return request<Rma>(`/api/v1/rmas/${id}/approve`, { method: 'POST', body: note ? { note } : {}, idempotent: true });
+  approveRma(id: string, note?: string, idempotencyKey?: string) {
+    return request<Rma>(`/api/v1/rmas/${id}/approve`, { method: 'POST', body: note ? { note } : {}, idempotent: true, idempotencyKey });
   },
-  requestRmaInformation(id: string, note: string) {
-    return request<Rma>(`/api/v1/rmas/${id}/request-information`, { method: 'POST', body: { note }, idempotent: true });
+  requestRmaInformation(id: string, note: string, idempotencyKey?: string) {
+    return request<Rma>(`/api/v1/rmas/${id}/request-information`, { method: 'POST', body: { note }, idempotent: true, idempotencyKey });
   },
-  rejectRma(id: string, note: string) {
-    return request<Rma>(`/api/v1/rmas/${id}/reject`, { method: 'POST', body: { note }, idempotent: true });
+  rejectRma(id: string, note: string, idempotencyKey?: string) {
+    return request<Rma>(`/api/v1/rmas/${id}/reject`, { method: 'POST', body: { note }, idempotent: true, idempotencyKey });
   },
-  receiveRma(id: string, lines: { rmaLineId: string; disposition: 'restock' | 'discard'; discardReason?: string }[]) {
-    return request<Rma>(`/api/v1/rmas/${id}/receive`, { method: 'POST', body: { lines }, idempotent: true });
+  receiveRma(id: string, lines: { rmaLineId: string; disposition: 'restock' | 'discard'; discardReason?: string }[], idempotencyKey?: string) {
+    return request<Rma>(`/api/v1/rmas/${id}/receive`, { method: 'POST', body: { lines }, idempotent: true, idempotencyKey });
   },
-  listLifecycleDeliveries(params: { orderId?: string; status?: LifecycleDelivery['status']; limit?: number; offset?: number }) {
-    return request<Paged<LifecycleDelivery>>(`/api/v1/notification-deliveries${toQuery(params)}`);
+  listLifecycleDeliveries(params: { orderId?: string; status?: LifecycleDelivery['status']; limit?: number; offset?: number }, signal?: AbortSignal) {
+    return request<Paged<LifecycleDelivery>>(`/api/v1/notification-deliveries${toQuery(params)}`, { signal });
   },
-  correctCustomerBirthday(id: string, body: { birthday: string; reason: string }) {
-    return request<Omit<AdminCustomer, 'email'>>(`/api/v1/customers/${id}/birthday`, { method: 'POST', body, idempotent: true });
+  correctCustomerBirthday(id: string, body: { birthday: string; reason: string }, idempotencyKey?: string) {
+    return request<Omit<AdminCustomer, 'email'>>(`/api/v1/customers/${id}/birthday`, { method: 'POST', body, idempotent: true, idempotencyKey });
   },
-  getRewardSettings() {
-    return request<RewardSettings>('/api/v1/loyalty/settings');
+  getRewardSettings(signal?: AbortSignal) {
+    return request<RewardSettings>('/api/v1/loyalty/settings', { signal });
   },
-  updateRewardSettings(body: { accrualBasisPoints?: number; effectiveAfterDays?: number; expiresAfterDays?: number | null; expiryNoticeDays?: number }) {
-    return request<RewardSettings>('/api/v1/loyalty/settings', { method: 'PATCH', body, idempotent: true });
+  updateRewardSettings(body: { accrualBasisPoints?: number; effectiveAfterDays?: number; expiresAfterDays?: number | null; expiryNoticeDays?: number }, idempotencyKey?: string) {
+    return request<RewardSettings>('/api/v1/loyalty/settings', { method: 'PATCH', body, idempotent: true, idempotencyKey });
   },
-  listTiers() {
-    return request<{ items: Tier[] }>('/api/v1/loyalty/tiers');
+  listTiers(signal?: AbortSignal) {
+    return request<{ items: Tier[] }>('/api/v1/loyalty/tiers', { signal });
   },
-  saveTier(body: Tier) {
-    return request<Tier>('/api/v1/loyalty/tiers', { method: 'PUT', body, idempotent: true });
+  saveTier(body: Tier, idempotencyKey?: string) {
+    return request<Tier>('/api/v1/loyalty/tiers', { method: 'PUT', body, idempotent: true, idempotencyKey });
   },
-  removeTier(name: string) {
-    return request<{ items: Tier[] }>(`/api/v1/loyalty/tiers/${encodeURIComponent(name)}`, { method: 'DELETE', idempotent: true });
+  removeTier(name: string, idempotencyKey?: string) {
+    return request<{ items: Tier[] }>(`/api/v1/loyalty/tiers/${encodeURIComponent(name)}`, { method: 'DELETE', idempotent: true, idempotencyKey });
   },
-  listInvoices(params: { orderId?: string; status?: Invoice['status']; limit?: number; offset?: number }) {
-    return request<Paged<Invoice>>(`/api/v1/invoices${toQuery(params)}`);
+  listInvoices(params: { orderId?: string; status?: Invoice['status']; limit?: number; offset?: number }, signal?: AbortSignal) {
+    return request<Paged<Invoice>>(`/api/v1/invoices${toQuery(params)}`, { signal });
   },
-  retryInvoiceIssue(id: string) {
-    return request<Invoice>(`/api/v1/invoices/${id}/retry-issue`, { method: 'POST', body: {}, idempotent: true });
+  retryInvoiceIssue(id: string, idempotencyKey: string) {
+    return request<Invoice>(`/api/v1/invoices/${id}/retry-issue`, { method: 'POST', body: {}, idempotent: true, idempotencyKey });
   },
-  retryInvoiceVoid(id: string) {
-    return request<Invoice>(`/api/v1/invoices/${id}/retry-void`, { method: 'POST', body: {}, idempotent: true });
+  retryInvoiceVoid(id: string, idempotencyKey: string) {
+    return request<Invoice>(`/api/v1/invoices/${id}/retry-void`, { method: 'POST', body: {}, idempotent: true, idempotencyKey });
   },
-  requestRmaRefund(id: string, reason?: string) {
-    return request<Rma>(`/api/v1/rmas/${id}/request-refund`, { method: 'POST', body: reason ? { reason } : {}, idempotent: true });
+  requestRmaRefund(id: string, reason?: string, idempotencyKey?: string) {
+    return request<Rma>(`/api/v1/rmas/${id}/request-refund`, { method: 'POST', body: reason ? { reason } : {}, idempotent: true, idempotencyKey });
   },
-  listPromotions(params: { status?: string; activeAt?: string; limit?: number; offset?: number }) {
-    return request<Paged<Promotion>>(`/api/v1/promotions${toQuery(params)}`);
+  listPromotions(params: { status?: string; activeAt?: string; limit?: number; offset?: number }, signal?: AbortSignal) {
+    return request<Paged<Promotion>>(`/api/v1/promotions${toQuery(params)}`, { signal });
   },
   createPromotion(body: {
     name: string;
@@ -695,24 +702,25 @@ export const api = {
     requiresCoupon?: boolean;
     startsAt?: string;
     endsAt?: string;
-  }) {
-    return request<Promotion>('/api/v1/promotions', { method: 'POST', body, idempotent: true });
+  }, idempotencyKey?: string) {
+    return request<Promotion>('/api/v1/promotions', { method: 'POST', body, idempotent: true, idempotencyKey });
   },
   updatePromotion(
     id: string,
     body: { name?: string; rule?: PromotionRule; priority?: number; stackable?: boolean; startsAt?: string; endsAt?: string },
+    idempotencyKey?: string,
   ) {
-    return request<Promotion>(`/api/v1/promotions/${id}`, { method: 'PATCH', body, idempotent: true });
+    return request<Promotion>(`/api/v1/promotions/${id}`, { method: 'PATCH', body, idempotent: true, idempotencyKey });
   },
-  setPromotionStatus(id: string, status: Promotion['status']) {
+  setPromotionStatus(id: string, status: Promotion['status'], idempotencyKey?: string) {
     return request<Promotion>(`/api/v1/promotions/${id}/status`, {
       method: 'POST',
       body: { status },
-      idempotent: true,
+      idempotent: true, idempotencyKey,
     });
   },
-  listCoupons(params: { status?: string; promotionId?: string; limit?: number; offset?: number }) {
-    return request<Paged<Coupon>>(`/api/v1/coupons${toQuery(params)}`);
+  listCoupons(params: { status?: string; promotionId?: string; limit?: number; offset?: number }, signal?: AbortSignal) {
+    return request<Paged<Coupon>>(`/api/v1/coupons${toQuery(params)}`, { signal });
   },
   createCoupon(body: {
     code: string;
@@ -722,23 +730,23 @@ export const api = {
     perCustomerLimit: number | null;
     startsAt?: string;
     endsAt?: string;
-  }) {
-    return request<Coupon>('/api/v1/coupons', { method: 'POST', body, idempotent: true });
+  }, idempotencyKey?: string) {
+    return request<Coupon>('/api/v1/coupons', { method: 'POST', body, idempotent: true, idempotencyKey });
   },
-  issueCoupons(body: { promotionId: string; codePrefix?: string; expiresInDays?: number }) {
-    return request<IssueResult>('/api/v1/coupons/issue', { method: 'POST', body, idempotent: true });
+  issueCoupons(body: { promotionId: string; codePrefix?: string; expiresInDays?: number }, idempotencyKey?: string) {
+    return request<IssueResult>('/api/v1/coupons/issue', { method: 'POST', body, idempotent: true, idempotencyKey });
   },
-  setCouponStatus(id: string, status: Coupon['status']) {
-    return request<Coupon>(`/api/v1/coupons/${id}/status`, { method: 'POST', body: { status }, idempotent: true });
+  setCouponStatus(id: string, status: Coupon['status'], idempotencyKey?: string) {
+    return request<Coupon>(`/api/v1/coupons/${id}/status`, { method: 'POST', body: { status }, idempotent: true, idempotencyKey });
   },
-  listCustomers(params: { q?: string; status?: string; limit?: number; offset?: number }) {
-    return request<Paged<AdminCustomer>>(`/api/v1/customers${toQuery(params)}`);
+  listCustomers(params: { q?: string; status?: string; limit?: number; offset?: number }, signal?: AbortSignal) {
+    return request<Paged<AdminCustomer>>(`/api/v1/customers${toQuery(params)}`, { signal });
   },
-  getCustomer(id: string) {
-    return request<AdminCustomerDetail>(`/api/v1/customers/${id}`);
+  getCustomer(id: string, signal?: AbortSignal) {
+    return request<AdminCustomerDetail>(`/api/v1/customers/${id}`, { signal });
   },
-  customerLoyalty(id: string) {
-    return request<CustomerLoyalty>(`/api/v1/customers/${id}/loyalty`);
+  customerLoyalty(id: string, signal?: AbortSignal) {
+    return request<CustomerLoyalty>(`/api/v1/customers/${id}/loyalty`, { signal });
   },
   // 調帳會生出錢：冪等鍵由畫面固定住，連點兩下不會補兩次。
   adjustRewards(id: string, body: { amountCents: number; reason: string }, idempotencyKey: string) {
@@ -749,62 +757,66 @@ export const api = {
     return request<{ points: number }>(`/api/v1/customers/${id}/tier-points`,
       { method: 'POST', body, idempotent: true, idempotencyKey });
   },
-  setCustomerStatus(id: string, status: AdminCustomer['status']) {
-    return request<AdminCustomer>(`/api/v1/customers/${id}/status`, { method: 'POST', body: { status }, idempotent: true });
+  setCustomerStatus(id: string, status: AdminCustomer['status'], idempotencyKey?: string) {
+    return request<AdminCustomer>(`/api/v1/customers/${id}/status`, { method: 'POST', body: { status }, idempotent: true, idempotencyKey });
   },
-  salesSummary(params: { from?: string; to?: string }) {
-    return request<SalesSummary>(`/api/v1/analytics/sales-summary${toQuery(dayRange(params))}`);
+  salesSummary(params: { from?: string; to?: string }, signal?: AbortSignal) {
+    return request<SalesSummary>(`/api/v1/analytics/sales-summary${toQuery(dayRange(params))}`, { signal });
   },
-  promotionPerformance(params: { from?: string; to?: string }) {
+  promotionPerformance(params: { from?: string; to?: string }, signal?: AbortSignal) {
     return request<{ currency: string; items: PromotionPerformance[] }>(
       `/api/v1/analytics/promotions${toQuery(dayRange(params))}`,
+      { signal },
     );
   },
-  partnerPerformance(params: { from?: string; to?: string }) {
+  partnerPerformance(params: { from?: string; to?: string }, signal?: AbortSignal) {
     return request<{ currency: string; items: AttributionSummary[] }>(
       `/api/v1/analytics/partners${toQuery(dayRange(params))}`,
+      { signal },
     );
   },
-  outstandingRewards() {
-    return request<OutstandingRewards>('/api/v1/analytics/outstanding-rewards');
+  outstandingRewards(signal?: AbortSignal) {
+    return request<OutstandingRewards>('/api/v1/analytics/outstanding-rewards', { signal });
   },
-  listExtensions() {
-    return request<{ items: ExtensionInfo[] }>('/api/v1/extensions');
+  listExtensions(signal?: AbortSignal) {
+    return request<{ items: ExtensionInfo[] }>('/api/v1/extensions', { signal });
   },
-  listDeliveries(limit = 50) {
+  listDeliveries(limit = 50, signal?: AbortSignal) {
     return request<{ items: Delivery[] }>(
       `/api/v1/extensions/demo-erp/queries/ext.demo-erp.listDeliveries?limit=${limit}`,
+      { signal },
     );
   },
-  inspectDeliveryPayload(orderId: string) {
+  inspectDeliveryPayload(orderId: string, signal?: AbortSignal) {
     return request<DeliveryPayload>(
       `/api/v1/extensions/demo-erp/queries/ext.demo-erp.inspectDeliveryPayload${toQuery({ orderId })}`,
+      { signal },
     );
   },
-  resendOrder(orderId: string) {
+  resendOrder(orderId: string, idempotencyKey: string) {
     return request<{ orderId: string; status: string; attempts: number; jobId: string }>(
       '/api/v1/extensions/demo-erp/commands/ext.demo-erp.resendOrder',
-      { method: 'POST', body: { orderId }, idempotent: true },
+      { method: 'POST', body: { orderId }, idempotent: true, idempotencyKey },
     );
   },
-  healthDependencies() {
-    return request<HealthReport>('/health/dependencies', { raw: true });
+  healthDependencies(signal?: AbortSignal) {
+    return request<HealthReport>('/health/dependencies', { raw: true, signal });
   },
-  listDeadJobs(params: { limit?: number; offset?: number }) {
-    return request<Paged<DeadJob>>(`/api/v1/system/jobs/dead${toQuery(params)}`);
+  listDeadJobs(params: { limit?: number; offset?: number }, signal?: AbortSignal) {
+    return request<Paged<DeadJob>>(`/api/v1/system/jobs/dead${toQuery(params)}`, { signal });
   },
-  retryDeadJob(jobId: string) {
+  retryDeadJob(jobId: string, idempotencyKey: string) {
     return request<{ jobId: string; status: string }>(
       `/api/v1/system/jobs/dead/${jobId}/retry`,
-      { method: 'POST', body: {}, idempotent: true },
+      { method: 'POST', body: {}, idempotent: true, idempotencyKey },
     );
   },
   /** Theme 決定哪些配圖存在（ADR 0034），這份清單只能問 API，不能寫死在畫面裡。 */
-  contentImageKeys() {
-    return request<{ keys: string[] }>('/api/v1/content/articles/image-keys');
+  contentImageKeys(signal?: AbortSignal) {
+    return request<{ keys: string[] }>('/api/v1/content/articles/image-keys', { signal });
   },
-  listArticles(params: { kind?: Article['kind']; status?: Article['status']; limit?: number; offset?: number } = {}) {
-    return request<Paged<Article>>(`/api/v1/content/articles${toQuery(params)}`);
+  listArticles(params: { kind?: Article['kind']; status?: Article['status']; limit?: number; offset?: number } = {}, signal?: AbortSignal) {
+    return request<Paged<Article>>(`/api/v1/content/articles${toQuery(params)}`, { signal });
   },
   getArticle(id: string) {
     return request<Article>(`/api/v1/content/articles/${id}`);
@@ -818,8 +830,8 @@ export const api = {
     body?: ArticleBlock[];
     imageKey?: string | null;
     position?: number;
-  }) {
-    return request<Article>('/api/v1/content/articles', { method: 'POST', body, idempotent: true });
+  }, idempotencyKey?: string) {
+    return request<Article>('/api/v1/content/articles', { method: 'POST', body, idempotent: true, idempotencyKey });
   },
   updateArticle(
     id: string,
@@ -831,30 +843,31 @@ export const api = {
       body?: ArticleBlock[];
       imageKey?: string | null;
       position?: number;
-    },
+    }, idempotencyKey?: string,
   ) {
-    return request<Article>(`/api/v1/content/articles/${id}`, { method: 'POST', body, idempotent: true });
+    return request<Article>(`/api/v1/content/articles/${id}`, { method: 'POST', body, idempotent: true, idempotencyKey });
   },
-  publishArticle(id: string) {
-    return request<Article>(`/api/v1/content/articles/${id}/publish`, { method: 'POST', body: {}, idempotent: true });
+  publishArticle(id: string, idempotencyKey?: string) {
+    return request<Article>(`/api/v1/content/articles/${id}/publish`, { method: 'POST', body: {}, idempotent: true, idempotencyKey });
   },
-  unpublishArticle(id: string) {
-    return request<Article>(`/api/v1/content/articles/${id}/unpublish`, { method: 'POST', body: {}, idempotent: true });
+  unpublishArticle(id: string, idempotencyKey?: string) {
+    return request<Article>(`/api/v1/content/articles/${id}/unpublish`, { method: 'POST', body: {}, idempotent: true, idempotencyKey });
   },
-  deleteArticle(id: string) {
-    return request<Article>(`/api/v1/content/articles/${id}`, { method: 'DELETE', idempotent: true });
+  deleteArticle(id: string, idempotencyKey?: string) {
+    return request<Article>(`/api/v1/content/articles/${id}`, { method: 'DELETE', idempotent: true, idempotencyKey });
   },
-  listContactMessages(params: { status?: ContactMessage['status']; limit?: number; offset?: number } = {}) {
-    return request<Paged<ContactMessage>>(`/api/v1/content/contact-messages${toQuery(params)}`);
+  listContactMessages(params: { status?: ContactMessage['status']; limit?: number; offset?: number } = {}, signal?: AbortSignal) {
+    return request<Paged<ContactMessage>>(`/api/v1/content/contact-messages${toQuery(params)}`, { signal });
   },
   getContactMessage(id: string) {
     return request<ContactMessage>(`/api/v1/content/contact-messages/${id}`);
   },
-  markContactMessageHandled(id: string) {
+  markContactMessageHandled(id: string, idempotencyKey: string) {
     return request<ContactMessage>(`/api/v1/content/contact-messages/${id}/handled`, {
       method: 'POST',
       body: {},
       idempotent: true,
+      idempotencyKey,
     });
   },
   login(email: string, password: string) {

@@ -1,10 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type {} from '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CouponsPage } from './CouponsPage';
 import { I18nProvider } from '../i18n';
-import { api, type Coupon, type Promotion } from '../api';
+import { ApiError, api, type Coupon, type Promotion } from '../api';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { createAdminQueryClient, promotionKeys } from '../query';
+import { AdminOperationProvider, createAdminOperationStore } from '../admin-operations';
 
 vi.mock('../api', async () => {
   const actual = await vi.importActual<typeof import('../api')>('../api');
@@ -54,7 +57,11 @@ const coupon: Coupon = {
   updatedAt: '2026-08-01T00:00:00.000Z',
 };
 
-const renderPage = () => render(<I18nProvider><CouponsPage /></I18nProvider>);
+const renderPage = () => {
+  const client = createAdminQueryClient();
+  render(<QueryClientProvider client={client}><AdminOperationProvider value={createAdminOperationStore()}><I18nProvider><CouponsPage /></I18nProvider></AdminOperationProvider></QueryClientProvider>);
+  return client;
+};
 
 beforeEach(() => {
   vi.mocked(api.listCoupons).mockReset().mockResolvedValue({ items: [coupon], total: 1 });
@@ -65,6 +72,15 @@ beforeEach(() => {
 });
 
 describe('CouponsPage', () => {
+  it('活動選擇器讀取失敗時不允許建立或批次發券', async () => {
+    vi.mocked(api.listPromotions).mockRejectedValue(new Error('promotion read failed'));
+    renderPage();
+    await screen.findByText('promotion read failed');
+    expect(screen.getByRole('button', { name: /批次發券/ })).toBeDisabled();
+    window.dispatchEvent(new CustomEvent('admin:action:create-coupon', { cancelable: true }));
+    expect(screen.queryByLabelText('折扣碼')).not.toBeInTheDocument();
+  });
+
   it('清單顯示型別、活動、期間、限量與已使用次數', async () => {
     renderPage();
 
@@ -126,7 +142,7 @@ describe('CouponsPage', () => {
       promotionId: promotion.id,
       maxRedemptions: 50,
       perCustomerLimit: 1,
-    })));
+      }), expect.any(String)));
   });
 
   it('只有「需要券」的活動能被選', async () => {
@@ -163,7 +179,7 @@ describe('CouponsPage', () => {
     await user.selectOptions(await screen.findByLabelText('發券活動'), promotion.id);
     await user.click(screen.getByRole('button', { name: '發放' }));
 
-    await waitFor(() => expect(api.issueCoupons).toHaveBeenCalledWith(expect.objectContaining({ promotionId: promotion.id })));
+    await waitFor(() => expect(api.issueCoupons).toHaveBeenCalledWith(expect.objectContaining({ promotionId: promotion.id }), expect.any(String)));
     const status = await screen.findByRole('status');
     expect(status).toHaveTextContent('42');
     expect(status).toHaveTextContent('3');
@@ -174,10 +190,86 @@ describe('CouponsPage', () => {
     renderPage();
     await screen.findByText('SUMMER20');
 
-    await user.click(screen.getByRole('button', { name: '停用' }));
+    await user.click(screen.getByRole('button', { name: '更多操作' }));
+    await user.click(await screen.findByRole('menuitem', { name: '停用' }));
 
-    await waitFor(() => expect(api.setCouponStatus).toHaveBeenCalledWith(coupon.id, 'void'));
+    await waitFor(() => expect(api.setCouponStatus).toHaveBeenCalledWith(coupon.id, 'void', expect.any(String)));
     await waitFor(() => expect(api.listCoupons).toHaveBeenCalledTimes(2));
+  });
+
+  it('券狀態未知時由 recovery 以原操作鍵重送', async () => {
+    vi.mocked(api.setCouponStatus).mockRejectedValueOnce(new Error('network lost')).mockResolvedValueOnce({ ...coupon, status: 'void' });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('SUMMER20');
+    await user.click(screen.getByRole('button', { name: '更多操作' }));
+    await user.click(await screen.findByRole('menuitem', { name: '停用' }));
+    await screen.findByText('network lost');
+    const firstKey = vi.mocked(api.setCouponStatus).mock.calls[0][2];
+    await user.click(screen.getByRole('button', { name: '以原操作重試' }));
+    await waitFor(() => expect(api.setCouponStatus).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.setCouponStatus).mock.calls[1][2]).toBe(firstKey);
+  });
+
+  it('抽屜內重試的 pending 全程鎖定欄位，明確拒絕留在抽屜並解鎖', async () => {
+    let rejectRetry!: (error: unknown) => void;
+    vi.mocked(api.createCoupon).mockRejectedValueOnce(new TypeError('offline')).mockImplementationOnce(() => new Promise((_, reject) => { rejectRetry = reject; }));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('SUMMER20');
+    window.dispatchEvent(new CustomEvent('admin:action:create-coupon', { cancelable: true }));
+    const dialog = (await screen.findByLabelText('折扣碼')).closest<HTMLElement>('[role="dialog"]')!;
+    await user.type(within(dialog).getByLabelText('折扣碼'), 'retry-code');
+    await user.selectOptions(within(dialog).getByLabelText('活動名稱'), promotion.id);
+    await user.click(within(dialog).getByRole('button', { name: '建立' }));
+    await screen.findByText('offline');
+    await user.click(within(dialog).getByRole('button', { name: '以原操作重試' }));
+    await waitFor(() => expect(within(dialog).getByLabelText('折扣碼')).toBeDisabled());
+    rejectRetry(new ApiError('VALIDATION_ERROR', 'coupon rejected', 400));
+    expect(await within(dialog).findByText('coupon rejected')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('折扣碼')).toBeEnabled();
+  });
+
+  it('已開啟的抽屜在活動選擇器讀取失敗後擋住新送出，但保留原操作重試', async () => {
+    let selectorFails = false;
+    vi.mocked(api.listPromotions).mockImplementation(async () => {
+      if (selectorFails) throw new Error('promotion refresh failed');
+      return { items: [promotion, openPromotion], total: 2 };
+    });
+    vi.mocked(api.createCoupon).mockRejectedValueOnce(new TypeError('offline')).mockRejectedValueOnce(new ApiError('VALIDATION_ERROR', 'coupon rejected', 400));
+    const user = userEvent.setup();
+    const client = renderPage();
+    await screen.findByText('SUMMER20');
+    window.dispatchEvent(new CustomEvent('admin:action:create-coupon', { cancelable: true }));
+    const dialog = (await screen.findByLabelText('折扣碼')).closest<HTMLElement>('[role="dialog"]')!;
+    await user.type(within(dialog).getByLabelText('折扣碼'), 'late-error');
+    await user.selectOptions(within(dialog).getByLabelText('活動名稱'), promotion.id);
+    await user.click(within(dialog).getByRole('button', { name: '建立' }));
+    await screen.findByText('offline');
+
+    selectorFails = true;
+    await client.invalidateQueries({ queryKey: promotionKeys.lists });
+    await screen.findByText('promotion refresh failed');
+    await user.click(within(dialog).getByRole('button', { name: '以原操作重試' }));
+    expect(await within(dialog).findByText('coupon rejected')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('折扣碼')).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: '建立' })).toBeDisabled();
+    expect(api.createCoupon).toHaveBeenCalledTimes(2);
+  });
+
+  it('批次發券 Dialog 由 Escape 關閉後回到觸發鈕', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('SUMMER20');
+
+    const trigger = screen.getByRole('button', { name: '批次發券' });
+    await user.click(trigger);
+    expect(await screen.findByRole('dialog', { name: '批次發券' })).toBeInTheDocument();
+    expect(screen.getByLabelText('發券活動')).toHaveFocus();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '批次發券' })).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
   });
 
   it('沒有券時顯示空狀態', async () => {
@@ -208,7 +300,7 @@ describe('還沒開始的券', () => {
     await waitFor(() => expect(api.createCoupon).toHaveBeenCalledWith(expect.objectContaining({
       code: 'PREORDER',
       startsAt: new Date('2026-09-01T10:00').toISOString(),
-    })));
+      }), expect.any(String)));
   });
 
   it('結束時間早於開始時間就擋下來，不必等後端退回', async () => {
@@ -227,4 +319,3 @@ describe('還沒開始的券', () => {
     expect(api.createCoupon).not.toHaveBeenCalled();
   });
 });
-

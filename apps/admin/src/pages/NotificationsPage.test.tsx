@@ -4,6 +4,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NotificationsPage } from './NotificationsPage';
 import { I18nProvider } from '../i18n';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { createAdminQueryClient } from '../query';
 import { api, type LifecycleDelivery } from '../api';
 
 vi.mock('../api', async () => {
@@ -27,7 +29,7 @@ beforeEach(() => {
   vi.mocked(api.listLifecycleDeliveries).mockReset().mockResolvedValue({ items: [sent, failed], total: 2 });
 });
 
-const renderPage = () => render(<I18nProvider><NotificationsPage /></I18nProvider>);
+const renderPage = () => render(<QueryClientProvider client={createAdminQueryClient()}><I18nProvider><NotificationsPage /></I18nProvider></QueryClientProvider>);
 
 describe('NotificationsPage（工單 73）', () => {
   it('顯示事件、狀態、嘗試次數與失敗原因', async () => {
@@ -48,15 +50,34 @@ describe('NotificationsPage（工單 73）', () => {
     renderPage();
     await screen.findByText('customer.order-paid');
     await user.selectOptions(screen.getByLabelText('投遞狀態'), 'failed');
-    await waitFor(() => expect(api.listLifecycleDeliveries).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'failed' })));
+    await waitFor(() => expect(api.listLifecycleDeliveries).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'failed' }), expect.anything()));
 
     await user.type(screen.getByLabelText('訂單 ID'), sent.orderId);
     await user.click(screen.getByRole('button', { name: '查詢' }));
-    await waitFor(() => expect(api.listLifecycleDeliveries).toHaveBeenLastCalledWith(expect.objectContaining({ orderId: sent.orderId })));
+    await waitFor(() => expect(api.listLifecycleDeliveries).toHaveBeenLastCalledWith(expect.objectContaining({ orderId: sent.orderId }), expect.anything()));
   });
 
   it('說明這裡不提供手動重送，以及為什麼', async () => {
     renderPage();
     expect(await screen.findByText(/不提供手動重送/)).toBeInTheDocument();
+  });
+
+  it('沒有通知時顯示空狀態', async () => {
+    vi.mocked(api.listLifecycleDeliveries).mockResolvedValue({ items: [], total: 0 });
+    renderPage();
+
+    expect(await screen.findByText('這個條件下沒有通知紀錄。')).toBeInTheDocument();
+  });
+
+  it('讀取失敗時提供重試且不把失敗畫成空清單', async () => {
+    vi.mocked(api.listLifecycleDeliveries).mockRejectedValueOnce(new Error('delivery read failed')).mockResolvedValueOnce({ items: [sent], total: 1 });
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText('delivery read failed')).toBeInTheDocument();
+    expect(screen.queryByText('這個條件下沒有通知紀錄。')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '重新讀取' }));
+    expect(await screen.findByText('customer.order-paid')).toBeInTheDocument();
+    expect(api.listLifecycleDeliveries).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { ErrorBanner } from './ErrorBanner';
 import { Icon } from './Icon';
-import { useEscapeKey } from '../hooks/useEscapeKey';
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 
 /**
  * 收一段必填理由再送出的小對話框。
@@ -13,6 +14,15 @@ export function ReasonDialog({
   confirmLabel,
   placeholder,
   danger,
+  error,
+  onDismissError,
+  labels = { close: '關閉', cancel: '取消', invalidReason: '請填寫原因後再送出。', submitting: '送出中…' },
+  initialReason = '',
+  readOnly = false,
+  recoveryAction,
+  recoveryFocusRef,
+  recoveryReady = false,
+  returnFocus,
   onClose,
   onConfirm,
 }: {
@@ -21,62 +31,89 @@ export function ReasonDialog({
   confirmLabel: string;
   placeholder?: string;
   danger?: boolean;
+  error?: unknown;
+  onDismissError?: () => void;
+  labels?: { close: string; cancel: string; invalidReason: string; submitting: string };
+  initialReason?: string;
+  readOnly?: boolean;
+  recoveryAction?: ReactNode;
+  recoveryFocusRef?: RefObject<HTMLButtonElement | null>;
+  recoveryReady?: boolean;
+  returnFocus?: HTMLElement | null;
   onClose: () => void;
-  onConfirm: (reason: string) => void;
+  onConfirm: (reason: string) => void | Promise<void>;
 }): ReactNode {
-  const [reason, setReason] = useState('');
+  const [reason, setReason] = useState(initialReason);
   const [touched, setTouched] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const returnFocusRef = useRef(returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null));
+  useLayoutEffect(() => {
+    if (recoveryReady) recoveryFocusRef?.current?.focus();
+    else if (readOnly) cancelRef.current?.focus();
+  }, [readOnly, recoveryFocusRef, recoveryReady]);
 
-  useEscapeKey(onClose);
-
-  const submit = () => {
+  const submit = async () => {
     setTouched(true);
-    if (!reason.trim()) return;
-    onConfirm(reason.trim());
+    if (readOnly || !reason.trim()) return;
+    setSubmitting(true);
+    try {
+      await onConfirm(reason.trim());
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <div className="payload-overlay" role="presentation" onMouseDown={onClose}>
-      <div
-        className="reason-dialog-card"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onMouseDown={(event) => event.stopPropagation()}
+    <Dialog open onOpenChange={(open: boolean) => { if (!open && !submitting) onClose(); }}>
+      <DialogContent
+        className="ui-reason-dialog"
+        onOpenAutoFocus={(event: Event) => {
+          event.preventDefault();
+          (readOnly ? recoveryFocusRef?.current ?? cancelRef.current : textareaRef.current)?.focus();
+        }}
+        onCloseAutoFocus={(event: Event) => {
+          event.preventDefault();
+          returnFocusRef.current?.focus();
+        }}
       >
-        <header className="reason-dialog-header">
-          <h3>{title}</h3>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="關閉">
+        <header className="ui-reason-dialog__header">
+          <DialogTitle>{title}</DialogTitle>
+          <DialogClose type="button" className="icon-button" aria-label={labels.close} disabled={submitting}>
             <Icon name="close" />
-          </button>
+          </DialogClose>
         </header>
 
         <form
-          className="reason-dialog-body"
+          className="ui-reason-dialog__body"
           onSubmit={(event) => {
             event.preventDefault();
             submit();
           }}
         >
-          {description ? <p className="reason-dialog-desc">{description}</p> : null}
+          {description ? <DialogDescription className="ui-reason-dialog__description">{description}</DialogDescription> : null}
+          {error ? <ErrorBanner error={error} onDismiss={onDismissError} /> : null}
           <textarea
             aria-label={title}
-            autoFocus
+            ref={textareaRef}
             rows={4}
             value={reason}
             placeholder={placeholder}
+            readOnly={readOnly}
             onChange={(event) => setReason(event.target.value)}
           />
-          {touched && !reason.trim() ? <p className="danger-text"><Icon name="alert" /> 請填寫原因後再送出。</p> : null}
+          {touched && !reason.trim() ? <p className="danger-text"><Icon name="alert" /> {labels.invalidReason}</p> : null}
 
-          <footer className="reason-dialog-footer">
-            <button className="button" type="button" onClick={onClose}>取消</button>
-            <button className={`button ${danger ? 'button--danger' : 'button--primary'}`} type="submit">
-              {confirmLabel}
+          <footer className="ui-reason-dialog__footer">
+            <DialogClose ref={cancelRef} className="button" type="button" disabled={submitting}>{labels.cancel}</DialogClose>
+            {recoveryAction}
+            <button className={`button ${danger ? 'button--danger' : 'button--primary'}`} type="submit" disabled={submitting || readOnly}>
+              {submitting ? labels.submitting : confirmLabel}
             </button>
           </footer>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

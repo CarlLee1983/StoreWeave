@@ -43,15 +43,11 @@
   }
 }
 
-/* Payload Drawer */
-.payload-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(3px);
+@media (max-width: 420px) {
+  .summary-cards--orders { grid-template-columns: 1fr; }
 }
 
+/* Payload Drawer */
 .payload-drawer {
   position: absolute;
   top: 0;
@@ -269,13 +265,6 @@
   font-weight: 600;
 }
 
-.btn-loading-state,
-.btn-normal-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .login-demo-presets {
   margin-top: 6px;
   padding-top: 16px;
@@ -340,6 +329,41 @@
   color: var(--text-muted);
   font-size: 11.5px;
   font-weight: 500;
+}
+
+@media (max-width: 420px) {
+  .login-page {
+    padding: 24px 16px;
+  }
+
+  .login-container,
+  .login-panel,
+  .login-field-group label {
+    min-width: 0;
+  }
+
+  .login-panel {
+    padding: 24px 20px;
+  }
+
+  .login-demo-buttons {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .demo-pill-btn,
+  .login-footer {
+    white-space: normal;
+  }
+
+  .demo-pill-btn {
+    height: auto;
+    min-height: 30px;
+    padding: 6px 8px;
+  }
+
+  .login-footer {
+    flex-wrap: wrap;
+  }
 }
 
 /* Products Page Enhancements */
@@ -479,80 +503,6 @@
   gap: 4px;
 }
 
-.row-menu {
-  position: relative;
-}
-
-
-
-.row-menu__popup {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 20;
-  min-width: 168px;
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  background: var(--bg-surface-raised);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-}
-
-.row-menu__item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.row-menu__item:hover {
-  background: var(--bg-surface-hover);
-  color: var(--text-primary);
-}
-
-.row-menu__item .icon {
-  width: 14px;
-  height: 14px;
-  color: var(--text-muted);
-}
-
-.row-menu__item--danger {
-  color: var(--status-error-text);
-}
-
-.row-menu__item--danger:hover {
-  background: var(--status-error-bg);
-  color: var(--status-error-text);
-}
-
-.row-menu__item--danger .icon {
-  color: var(--status-error-text);
-}
-
-.inventory-inline-form {
-  display: grid;
-  grid-template-columns: 70px 1fr auto;
-  gap: 4px;
-}
-
-.inventory-delta-input {
-  width: 100%;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.inventory-reason-input {
-  width: 100%;
-}
-
 /* 表格列裡的動作鈕比一般按鈕小一號，才不會把列高撐起來。 */
 .edit-btn,
 .row-menu__trigger {
@@ -628,10 +578,38 @@
   color: var(--text-primary);
 }
 
-/* Product Edit Drawer */
-.product-edit-drawer {
-  width: min(620px, 100vw);
+@media (max-width: 420px) {
+  .summary-cards--products { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pagination-bar { flex-direction: column; align-items: stretch; gap: 8px; }
+  .pagination-bar__controls { flex-wrap: wrap; justify-content: center; }
+  .pagination-page-badge { flex: none; white-space: nowrap; }
 }
+
+/* Product sheets use the Dialog primitive; ERP payload detail keeps separate
+   payload-drawer geometry. */
+.ui-product-sheet {
+  top: 0;
+  right: 0;
+  left: auto;
+  width: min(620px, 100vw);
+  height: 100%;
+  transform: none;
+  border-radius: 0;
+  border-width: 0 0 0 1px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Keep a dense product row legible on narrow screens; .table-wrap already
+   owns the horizontal scroll rather than compressing actions into each other. */
+.products-table {
+  min-width: 760px;
+}
+
+.shipping-methods-table { min-width: 780px; }
+.orders-table { min-width: 760px; }
+.orders-queue-table { min-width: 700px; }
+.customers-table { min-width: 700px; }
 
 .product-drawer-header {
   padding: 18px 24px;
@@ -759,18 +737,7 @@
   opacity: 1;
 }
 
-.stock-adjust-btn {
-  font-size: 11.5px;
-  font-weight: 500;
-}
-
-.stock-modal-overlay {
-  display: grid;
-  place-items: center;
-  padding: 24px;
-}
-
-.stock-modal-card {
+.ui-stock-dialog {
   width: min(520px, calc(100vw - 32px));
   max-height: 90vh;
   overflow-y: auto;
@@ -791,7 +758,7 @@
   background: var(--bg-surface-raised);
 }
 
-.stock-modal-header h3 {
+.stock-modal-header h2 {
   margin: 0;
   font-size: 15px;
   font-weight: 700;
@@ -1015,7 +982,7 @@
 .field-label-text,
 .stock-btn-hint,
 .danger-text,
-.stock-modal-header h3 {
+.stock-modal-header h2 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1024,7 +991,7 @@
 
 .field-label-text,
 .danger-text,
-.stock-modal-header h3 {
+.stock-modal-header h2 {
   justify-content: flex-start;
 }
 
@@ -1091,18 +1058,47 @@
   height: 48px;
 }
 
-/* ── 理由對話框 ─────────────────────────────────────────
-   取代 window.prompt：帶得了上下文，送出失敗也能留在原地。 */
-.reason-dialog-card {
+.button--danger {
+  background: var(--status-error-bg);
+  border-color: var(--status-error-border);
+  color: var(--status-error-text);
+}
+
+.button--danger:hover {
+  border-color: var(--status-error-text);
+}
+
+/* Radix primitives are portalled, so their layer and focus treatment cannot
+   inherit the old row-relative menu or click-through overlay styles. */
+.ui-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+}
+
+.ui-dialog-content {
+  position: fixed;
+  z-index: 51;
+  top: 50%;
+  left: 50%;
   width: min(480px, calc(100vw - 32px));
+  transform: translate(-50%, -50%);
+  overflow: hidden;
   border: 1px solid var(--border-default);
   border-radius: 12px;
   background: var(--bg-surface);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
-  overflow: hidden;
 }
 
-.reason-dialog-header {
+.ui-dialog-content:focus-visible,
+.ui-dropdown-menu-item:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.ui-reason-dialog__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1112,45 +1108,79 @@
   background: var(--bg-surface-raised);
 }
 
-.reason-dialog-header h3 {
+.ui-reason-dialog__header h2 {
   margin: 0;
   font-size: 14px;
   font-weight: 700;
 }
 
-.reason-dialog-body {
+.ui-reason-dialog__body {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 16px;
 }
 
-.reason-dialog-desc {
+.ui-reason-dialog__description {
   margin: 0;
   font-size: 12px;
   color: var(--text-secondary);
 }
 
-.reason-dialog-body textarea {
+.ui-reason-dialog__body textarea {
   width: 100%;
   resize: vertical;
 }
 
-.reason-dialog-footer {
+.ui-reason-dialog__footer {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   padding-top: 4px;
 }
 
-.button--danger {
-  background: var(--status-error-bg);
-  border-color: var(--status-error-border);
+.ui-dropdown-menu-content {
+  z-index: 50;
+  min-width: 168px;
+  padding: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-surface-raised);
+  box-shadow: var(--shadow-dropdown);
+}
+
+.ui-dropdown-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  outline: 0;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.ui-dropdown-menu-item[data-highlighted] {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.ui-dropdown-menu-item .icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+}
+
+.ui-dropdown-menu-item--danger,
+.ui-dropdown-menu-item--danger .icon,
+.ui-dropdown-menu-item--danger[data-highlighted] {
   color: var(--status-error-text);
 }
 
-.button--danger:hover {
-  border-color: var(--status-error-text);
+.ui-dropdown-menu-item--danger[data-highlighted] {
+  background: var(--status-error-bg);
 }
 
 /* 退貨案件的動作區：備註只跟核准有關，破壞性動作收在 ⋯ 選單裡。 */
@@ -1463,6 +1493,30 @@
   gap: 8px;
 }
 
+/* These two panels are portalled Radix dialogs; the shared dialog base owns
+   their layer and focus trap, while each retains its established geometry. */
+.ui-dialog-content.payload-drawer {
+  inset: 0 0 0 auto;
+  width: min(560px, 100vw);
+  height: 100%;
+  transform: none;
+  border-radius: 0;
+}
+
+.ui-dialog-content.token-panel {
+  top: 50%;
+  right: auto;
+  left: 50%;
+  z-index: 51;
+  transform: translate(-50%, -50%);
+}
+
+.ui-dialog-content.command-palette {
+  top: min(16vh, 120px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
 /* 擴充套件清單 */
 .extension-list {
   display: grid;
@@ -1648,7 +1702,6 @@ td .empty-state {
    操作者會以為這個欄位只能手打。保留可打字的輸入框，另外掛一顆看得見的
    按鈕開 react-day-picker 的日曆。 */
 .date-field {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1678,9 +1731,6 @@ td .empty-state {
 }
 
 .date-field__popup {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
   z-index: 50;
   padding: 8px;
   border: 1px solid var(--border-default);
@@ -1688,6 +1738,16 @@ td .empty-state {
   background: var(--bg-surface-raised);
   box-shadow: var(--shadow-dropdown);
 }
+
+/* These four fixed tables retain readable action cells; .table-wrap owns the
+   narrow-screen horizontal scroll instead of compressing controls together. */
+.promotions-table { min-width: 800px; }
+.coupons-table { min-width: 780px; }
+.loyalty-table { min-width: 560px; }
+.brand-content-table { min-width: 720px; }
+
+.promotions-table .col-actions,
+.brand-content-table .col-actions { min-width: 116px; }
 
 /* react-day-picker 的外觀對齊設計 token */
 .date-field__popup .rdp-root {

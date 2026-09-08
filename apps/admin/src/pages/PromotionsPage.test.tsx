@@ -4,7 +4,10 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { PromotionsPage } from './PromotionsPage';
 import { I18nProvider } from '../i18n';
-import { api, type Promotion } from '../api';
+import { ApiError, api, type Promotion } from '../api';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { analyticsKeys, createAdminQueryClient } from '../query';
+import { AdminOperationProvider, createAdminOperationStore } from '../admin-operations';
 
 vi.mock('../api', async () => {
   const actual = await vi.importActual<typeof import('../api')>('../api');
@@ -30,7 +33,7 @@ const promotion: Promotion = {
   updatedAt: '2026-08-22T00:00:00.000Z',
 };
 
-const renderPage = () => render(<I18nProvider><PromotionsPage /></I18nProvider>);
+const renderPage = (client = createAdminQueryClient()) => render(<QueryClientProvider client={client}><AdminOperationProvider value={createAdminOperationStore()}><I18nProvider><PromotionsPage /></I18nProvider></AdminOperationProvider></QueryClientProvider>);
 
 beforeEach(() => {
   vi.mocked(api.listPromotions).mockReset().mockResolvedValue({ items: [promotion], total: 1 });
@@ -40,6 +43,13 @@ beforeEach(() => {
 });
 
 describe('PromotionsPage', () => {
+  it('讀取失敗不把活動表格偽裝成空資料', async () => {
+    vi.mocked(api.listPromotions).mockRejectedValue(new Error('read failed'));
+    renderPage();
+    expect(await screen.findByText('read failed')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
   it('清單顯示型別、期間、狀態與優先序', async () => {
     renderPage();
 
@@ -119,7 +129,7 @@ describe('PromotionsPage', () => {
     await user.click(screen.getByRole('button', { name: /更多操作/ }));
     await user.click(await screen.findByRole('menuitem', { name: '停用' }));
 
-    await waitFor(() => expect(api.setPromotionStatus).toHaveBeenCalledWith(promotion.id, 'disabled'));
+    await waitFor(() => expect(api.setPromotionStatus).toHaveBeenCalledWith(promotion.id, 'disabled', expect.any(String)));
     expect(api.listPromotions).toHaveBeenCalledTimes(2);
   });
 
@@ -132,7 +142,35 @@ describe('PromotionsPage', () => {
     await user.click(screen.getByRole('button', { name: /更多操作/ }));
     await user.click(await screen.findByRole('menuitem', { name: '啟用' }));
 
-    await waitFor(() => expect(api.setPromotionStatus).toHaveBeenCalledWith(promotion.id, 'active'));
+    await waitFor(() => expect(api.setPromotionStatus).toHaveBeenCalledWith(promotion.id, 'active', expect.any(String)));
+  });
+
+  it('未知結果保留同一把操作鍵，從篩選外的 recovery 重試', async () => {
+    vi.mocked(api.setPromotionStatus).mockRejectedValueOnce(new Error('network lost')).mockResolvedValueOnce({ ...promotion, status: 'disabled' });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('滿千折百');
+    await user.click(screen.getByRole('button', { name: /更多操作/ }));
+    await user.click(await screen.findByRole('menuitem', { name: '停用' }));
+    await screen.findByText('network lost');
+    const firstKey = vi.mocked(api.setPromotionStatus).mock.calls[0][2];
+    await user.click(screen.getByRole('button', { name: '以原操作重試' }));
+    await waitFor(() => expect(api.setPromotionStatus).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.setPromotionStatus).mock.calls[1][2]).toBe(firstKey);
+  });
+
+  it('明確拒絕會解鎖，下一次明確操作使用新鍵', async () => {
+    vi.mocked(api.setPromotionStatus).mockRejectedValueOnce(new ApiError('VALIDATION_ERROR', 'status rejected', 400)).mockResolvedValueOnce({ ...promotion, status: 'disabled' });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('滿千折百');
+    await user.click(screen.getByRole('button', { name: /更多操作/ }));
+    await user.click(await screen.findByRole('menuitem', { name: '停用' }));
+    expect(await screen.findByText('status rejected')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /更多操作/ }));
+    await user.click(await screen.findByRole('menuitem', { name: '停用' }));
+    await waitFor(() => expect(api.setPromotionStatus).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.setPromotionStatus).mock.calls[1][2]).not.toBe(vi.mocked(api.setPromotionStatus).mock.calls[0][2]);
   });
 
   it('後端的驗證錯誤顯示在畫面上', async () => {
@@ -163,6 +201,21 @@ describe('PromotionsPage 建立活動抽屜', () => {
 });
 
 describe('PromotionsPage 編輯', () => {
+  it('編輯 Dialog 用 Escape 關閉後焦點回到編輯鈕', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('滿千折百');
+
+    const trigger = screen.getByRole('button', { name: '編輯' });
+    await user.click(trigger);
+    expect(await screen.findByRole('dialog', { name: '編輯' })).toBeInTheDocument();
+    expect(screen.getByLabelText('活動名稱')).toHaveFocus();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '編輯' })).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+  });
+
   it('編輯表單帶出這檔活動目前的參數與期間', async () => {
     const user = userEvent.setup();
     renderPage();
@@ -183,7 +236,9 @@ describe('PromotionsPage 編輯', () => {
 
   it('改完參數送出會呼叫 updatePromotion 並重新載入清單', async () => {
     const user = userEvent.setup();
-    renderPage();
+    const client = createAdminQueryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    renderPage(client);
     await screen.findByText('滿千折百');
 
     await user.click(screen.getByRole('button', { name: '編輯' }));
@@ -205,6 +260,7 @@ describe('PromotionsPage 編輯', () => {
     expect(new Date(body.startsAt!).toISOString()).toBe(promotion.startsAt);
     expect(new Date(body.endsAt!).toISOString()).toBe(promotion.endsAt);
     expect(api.listPromotions).toHaveBeenCalledTimes(2);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: analyticsKeys.promotionPerformances });
   });
 
   it('編輯時參數不合法一樣擋下來', async () => {
@@ -272,4 +328,3 @@ describe('活動期間的先後', () => {
     expect(within(calendar).getByText('20').closest('button')).not.toBeDisabled();
   });
 });
-

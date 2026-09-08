@@ -1,11 +1,14 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import type {} from '@testing-library/jest-dom/vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
 import { App } from './App';
 import { I18nProvider } from './i18n';
-import { api } from './api';
+import { api, setToken } from './api';
 import { ROUTE_TABLE } from './routes';
+import { createAdminQueryClient, deadJobKeys } from './query';
+import { createAdminOperationStore, AdminOperationProvider } from './admin-operations';
 
 /**
  * 後台外殼的導覽與路由行為（工單 02）。
@@ -41,7 +44,11 @@ vi.mock('./pages/DlqPage', () => ({ DlqPage: () => <div>DLQ_PAGE</div> }));
 vi.mock('./pages/BrandContentPage', () => ({ BrandContentPage: () => <div>BRAND_CONTENT_PAGE</div> }));
 vi.mock('./pages/ContactInboxPage', () => ({ ContactInboxPage: () => <div>CONTACT_INBOX_PAGE</div> }));
 
-const renderApp = () => render(<I18nProvider><App /></I18nProvider>);
+const renderApp = ({ client = createAdminQueryClient(), store = createAdminOperationStore() }: { client?: QueryClient; store?: ReturnType<typeof createAdminOperationStore> } = {}) => render(
+  <QueryClientProvider client={client}>
+    <AdminOperationProvider value={store}><I18nProvider><App /></I18nProvider></AdminOperationProvider>
+  </QueryClientProvider>,
+);
 const heading = () => screen.getByRole('heading', { level: 1 }).textContent;
 
 beforeEach(() => {
@@ -138,6 +145,26 @@ describe('後台外殼的導覽', () => {
     await waitFor(() => expect(api.listDeadJobs).toHaveBeenCalled());
     expect(document.querySelector('.nav-badge--error')).toBeNull();
   });
+
+  it('死信計數初次讀取失敗時顯示可存取的錯誤標記，不偽裝成零', async () => {
+    vi.mocked(api.listDeadJobs).mockRejectedValue(new Error('badge unavailable'));
+    renderApp();
+    await screen.findByText('PRODUCTS_PAGE');
+
+    expect(await screen.findByLabelText('死信佇列數量無法讀取')).toHaveTextContent('!');
+  });
+
+  it('一般重新讀取失敗時保留最後成功的死信計數', async () => {
+    const client = createAdminQueryClient();
+    vi.mocked(api.listDeadJobs).mockResolvedValueOnce({ items: [], total: 4 }).mockRejectedValueOnce(new Error('refresh failed'));
+    renderApp({ client });
+    await screen.findByText('4');
+
+    void client.invalidateQueries({ queryKey: deadJobKeys.lists });
+    await waitFor(() => expect(api.listDeadJobs).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('4')).toBeInTheDocument();
+    expect(screen.queryByLabelText('死信佇列數量無法讀取')).not.toBeInTheDocument();
+  });
 });
 
 describe('路由表驅動的外殼', () => {
@@ -195,10 +222,109 @@ describe('命令面板', () => {
     renderApp();
     await screen.findByText('PRODUCTS_PAGE');
 
-    await user.keyboard('{Meta>}k{/Meta}');
+    const trigger = screen.getByRole('button', { name: '開啟命令選單' });
+    await user.click(trigger);
     await screen.findByRole('dialog', { name: '命令選單' });
     await user.keyboard('{Escape}');
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '命令選單' })).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+  });
+
+  it('命令面板以方向鍵與 Enter 選頁，並提供選項語意', async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await screen.findByText('PRODUCTS_PAGE');
+
+    await user.click(screen.getByRole('button', { name: '開啟命令選單' }));
+    const dialog = await screen.findByRole('dialog', { name: '命令選單' });
+    const listbox = within(dialog).getByRole('listbox', { name: '前往' });
+    const search = within(dialog).getByRole('combobox');
+    expect(search).toHaveAttribute('aria-controls', listbox.id);
+    expect(search).toHaveAttribute('aria-activedescendant', 'command-option-orders');
+    await user.tab();
+    expect(document.activeElement).not.toHaveClass('command-palette__option');
+    await user.click(search);
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+
+    expect(await screen.findByText('SHIPPING_PAGE')).toBeInTheDocument();
+  });
+
+  it('到底時維持最後一個選項且不讓它成為 Tab stop', async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await screen.findByText('PRODUCTS_PAGE');
+
+    await user.click(screen.getByRole('button', { name: '開啟命令選單' }));
+    const search = await screen.findByRole('combobox');
+    await user.keyboard('{ArrowDown}'.repeat(ROUTE_TABLE.length + 1));
+
+    expect(search).toHaveAttribute('aria-activedescendant', 'command-option-system');
+    expect(screen.getByRole('option', { name: '系統健康度' })).toHaveAttribute('tabindex', '-1');
+  });
+});
+
+describe('API token panel', () => {
+  it('關閉未儲存草稿後，重新開啟會從已儲存 token 重設', async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await screen.findByText('PRODUCTS_PAGE');
+
+    const trigger = screen.getByRole('button', { name: 'API Token 設定' });
+    await user.click(trigger);
+    const input = await screen.findByPlaceholderText('輸入 API token');
+    await user.clear(input);
+    await user.type(input, 'unsaved-token');
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'API Token' })).not.toBeInTheDocument());
+    await user.click(trigger);
+    expect(await screen.findByPlaceholderText('輸入 API token')).toHaveValue('test-token');
+  });
+
+  it('saving a replacement token clears admin operations before cancelling and clearing Query', async () => {
+    const user = userEvent.setup();
+    const client = createAdminQueryClient();
+    const store = createAdminOperationStore();
+    const cancel = vi.spyOn(client, 'cancelQueries');
+    const clear = vi.spyOn(client, 'clear');
+    const clearOperations = vi.spyOn(store, 'clearIdentity');
+    renderApp({ client, store });
+    await screen.findByText('PRODUCTS_PAGE');
+    await user.click(screen.getByRole('button', { name: 'API Token 設定' }));
+    const input = await screen.findByPlaceholderText('輸入 API token');
+    await user.clear(input);
+    await user.type(input, 'replacement-token');
+    await user.click(screen.getByRole('button', { name: '儲存' }));
+    await waitFor(() => expect(clear).toHaveBeenCalled());
+    expect(clearOperations).toHaveBeenCalledBefore(cancel);
+    expect(cancel).toHaveBeenCalledBefore(clear);
+    expect(vi.mocked(setToken)).toHaveBeenCalledWith('replacement-token');
+  });
+
+  it('identity transition hides the old page until cancellation clears its cache and ignores a late old dead-job result', async () => {
+    const user = userEvent.setup();
+    const client = createAdminQueryClient();
+    let resolveOldDeadJobs!: (value: { items: never[]; total: number }) => void;
+    const oldDeadJobs = new Promise<{ items: never[]; total: number }>((resolve) => { resolveOldDeadJobs = resolve; });
+    let resolveCancellation!: () => void;
+    const cancellation = new Promise<void>((resolve) => { resolveCancellation = resolve; });
+    vi.mocked(api.listDeadJobs).mockImplementationOnce(() => oldDeadJobs).mockResolvedValueOnce({ items: [], total: 2 });
+    vi.spyOn(client, 'cancelQueries').mockImplementation(() => cancellation);
+    renderApp({ client });
+    await screen.findByText('PRODUCTS_PAGE');
+    await user.click(screen.getByRole('button', { name: 'API Token 設定' }));
+    const input = await screen.findByPlaceholderText('輸入 API token');
+    await user.clear(input);
+    await user.type(input, 'new-identity');
+    await user.click(screen.getByRole('button', { name: '儲存' }));
+    expect(screen.queryByText('PRODUCTS_PAGE')).not.toBeInTheDocument();
+    expect(screen.getByText('載入中…')).toBeInTheDocument();
+    resolveCancellation();
+    await screen.findByText('PRODUCTS_PAGE');
+    await waitFor(() => expect(screen.getByText('2')).toBeInTheDocument());
+    resolveOldDeadJobs({ items: [], total: 9 });
+    await Promise.resolve();
+    expect(screen.queryByText('9')).not.toBeInTheDocument();
   });
 });

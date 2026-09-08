@@ -1,15 +1,12 @@
-import { useEffect, useState } from 'react';
-import {
-  api,
-  type AttributionSummary,
-  type OutstandingRewards,
-  type PromotionPerformance,
-  type SalesSummary,
-} from '../api';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../api';
 import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { DateField } from '../components/DateField';
+import { EmptyState } from '../components/EmptyState';
+import { analyticsKeys } from '../query';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -65,38 +62,16 @@ export function AnalyticsPage() {
   );
 }
 
-/** 查詢區間換算成含頭含尾的一整天，與搬家前的行為逐字相同。 */
-function useRange(from: string, to: string) {
-  return { from, to };
-}
-
 function SalesSummarySection({ from, to }: { from: string; to: string }) {
   const { t, formatMoney } = useI18n();
-  const [summary, setSummary] = useState<SalesSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<unknown>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    api
-      .salesSummary({ from, to })
-      .then((result) => !cancelled && setSummary(result))
-      .catch((err) => !cancelled && setError(err))
-      .finally(() => !cancelled && setLoading(false));
-
-    return () => {
-      cancelled = true;
-    };
-  }, [from, to]);
+  const query = useQuery({ queryKey: analyticsKeys.salesSummary({ from, to }), queryFn: ({ signal }) => api.salesSummary({ from, to }, signal) });
+  const summary = query.data;
 
   return (
     <div className="panel">
       <div className="panel__header"><h3>{t('salesSummary')}</h3></div><div className="panel__body">
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-      {loading ? (
+      {query.isError ? <ErrorBanner error={query.error} onRetry={() => void query.refetch()} /> : null}
+      {query.isLoading ? (
         <Loading />
       ) : (
         summary && (
@@ -104,10 +79,10 @@ function SalesSummarySection({ from, to }: { from: string; to: string }) {
             <div className="summary-cards">
               <SummaryCard label={t('paidOrders')} value={String(summary.paidOrderCount)} /><SummaryCard label={t('pendingOrders')} value={String(summary.pendingOrderCount)} /><SummaryCard label={t('cancelledOrders')} value={String(summary.cancelledOrderCount)} /><SummaryCard label={t('grossRevenue')} value={formatMoney(summary.grossRevenueCents, summary.currency)} /><SummaryCard label={t('averageOrderValue')} value={formatMoney(summary.averageOrderValueCents, summary.currency)} />
             </div>
-            <table className="data-table data-table--fixed">
+            {summary.topProducts.length === 0 ? <EmptyState title={t('noTopProducts')} /> : <div className="table-wrap"><table className="data-table data-table--fixed analytics-table">
               <thead>
                 <tr>
-                  <th style={{ width: '16%' }}>SKU</th>
+                  <th style={{ width: '16%' }}>{t('sku')}</th>
                   <th style={{ width: '40%' }}>{t('productName')}</th>
                   <th style={{ width: '20%' }} className="col-numeric">{t('salesQuantity')}</th>
                   <th style={{ width: '24%' }} className="col-numeric">{t('revenue')}</th>
@@ -123,7 +98,7 @@ function SalesSummarySection({ from, to }: { from: string; to: string }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>}
           </>
         )
       )}
@@ -134,29 +109,16 @@ function SalesSummarySection({ from, to }: { from: string; to: string }) {
 
 function PromotionPerformanceSection({ from, to }: { from: string; to: string }) {
   const { t, formatMoney } = useI18n();
-  const [items, setItems] = useState<PromotionPerformance[] | null>(null);
-  const [currency, setCurrency] = useState('');
-  const [error, setError] = useState<unknown>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setError(null);
-    api.promotionPerformance(useRange(from, to))
-      .then((result) => {
-        if (cancelled) return;
-        setItems(result.items);
-        setCurrency(result.currency);
-      })
-      .catch((err) => !cancelled && setError(err));
-    return () => { cancelled = true; };
-  }, [from, to]);
+  const query = useQuery({ queryKey: analyticsKeys.promotionPerformance({ from, to }), queryFn: ({ signal }) => api.promotionPerformance({ from, to }, signal) });
+  const items = query.data?.items;
+  const currency = query.data?.currency ?? '';
 
   return (
     <div className="panel">
       <div className="panel__header"><h3>{t('promotionPerformance')}</h3></div><div className="panel__body">
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-      {!items ? <Loading /> : items.length === 0 ? <p className="muted">{t('noRedemptions')}</p> : (
-        <table className="data-table data-table--fixed">
+      {query.isError ? <ErrorBanner error={query.error} onRetry={() => void query.refetch()} /> : null}
+      {query.isLoading ? <Loading /> : items?.length === 0 ? <p className="muted">{t('noRedemptions')}</p> : items ? (
+        <div className="table-wrap"><table className="data-table data-table--fixed analytics-table">
           <thead>
             <tr>
               <th style={{ width: '28%' }}>{t('promotionName')}</th>
@@ -177,39 +139,26 @@ function PromotionPerformanceSection({ from, to }: { from: string; to: string })
               </tr>
             ))}
           </tbody>
-        </table>
-      )}
+        </table></div>
+      ) : null}
     </div></div>
   );
 }
 
 function PartnerSection({ from, to }: { from: string; to: string }) {
   const { t, formatMoney } = useI18n();
-  const [items, setItems] = useState<AttributionSummary[] | null>(null);
-  const [currency, setCurrency] = useState('');
-  const [error, setError] = useState<unknown>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setError(null);
-    api.partnerPerformance(useRange(from, to))
-      .then((result) => {
-        if (cancelled) return;
-        setItems(result.items);
-        setCurrency(result.currency);
-      })
-      .catch((err) => !cancelled && setError(err));
-    return () => { cancelled = true; };
-  }, [from, to]);
+  const query = useQuery({ queryKey: analyticsKeys.partnerPerformance({ from, to }), queryFn: ({ signal }) => api.partnerPerformance({ from, to }, signal) });
+  const items = query.data?.items;
+  const currency = query.data?.currency ?? '';
 
   return (
     <div className="panel">
       <div className="panel__header"><h3>{t('partnerPerformance')}</h3></div><div className="panel__body">
       {/* 佣金不由系統計算：這裡給的是成效數字，結算靠人工（Spec 0004） */}
       <p className="muted">{t('partnerPerformanceHint')}</p>
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-      {!items ? <Loading /> : items.length === 0 ? <p className="muted">{t('noPartners')}</p> : (
-        <table className="data-table data-table--fixed">
+      {query.isError ? <ErrorBanner error={query.error} onRetry={() => void query.refetch()} /> : null}
+      {query.isLoading ? <Loading /> : items?.length === 0 ? <p className="muted">{t('noPartners')}</p> : items ? (
+        <div className="table-wrap"><table className="data-table data-table--fixed analytics-table">
           <thead>
             <tr>
               <th style={{ width: '28%' }}>{t('partnerCode')}</th>
@@ -228,38 +177,30 @@ function PartnerSection({ from, to }: { from: string; to: string }) {
               </tr>
             ))}
           </tbody>
-        </table>
-      )}
+        </table></div>
+      ) : null}
     </div></div>
   );
 }
 
 function OutstandingRewardsSection() {
   const { t, formatMoney } = useI18n();
-  const [data, setData] = useState<OutstandingRewards | null>(null);
-  const [error, setError] = useState<unknown>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    api.outstandingRewards()
-      .then((result) => !cancelled && setData(result))
-      .catch((err) => !cancelled && setError(err));
-    return () => { cancelled = true; };
-  }, []);
+  const query = useQuery({ queryKey: analyticsKeys.outstandingRewards, queryFn: ({ signal }) => api.outstandingRewards(signal) });
+  const data = query.data;
 
   return (
     <div className="panel">
       <div className="panel__header"><h3>{t('outstandingRewards')}</h3></div><div className="panel__body">
       {/* 購物金一旦能折抵金額，它就是一本負債帳 */}
       <p className="muted">{t('outstandingRewardsHint')}</p>
-      {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
-      {!data ? <Loading /> : (
+      {query.isError ? <ErrorBanner error={query.error} onRetry={() => void query.refetch()} /> : null}
+      {query.isLoading ? <Loading /> : data ? (
         <div className="summary-cards">
           <SummaryCard label={t('rewardAvailable')} value={formatMoney(data.availableCents, data.currency)} />
           <SummaryCard label={t('rewardPending')} value={formatMoney(data.pendingCents, data.currency)} />
           <SummaryCard label={t('rewardHolders')} value={String(data.customerCount)} />
         </div>
-      )}
+      ) : null}
     </div></div>
   );
 }

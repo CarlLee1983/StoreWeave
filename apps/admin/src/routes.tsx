@@ -30,8 +30,8 @@ export type NavBadge = { text: string; variant?: 'error' };
 export interface RouteContext {
   /** 死信數量，供標記使用 */
   deadJobCount: number;
-  /** 頁面回報資料有變動，讓外殼重新整理側欄標記 */
-  onDeadJobsChanged: () => void;
+  /** 初次讀取失敗時顯示可辨識的側欄錯誤，不把失敗偽裝成零。 */
+  deadJobError: boolean;
 }
 
 export interface RouteDefinition {
@@ -187,9 +187,9 @@ const ENTRIES = [
     section: 'integrations',
     title: 'dlqTitle',
     subtitle: 'dlqSubtitle',
-    badge: ({ deadJobCount }: RouteContext): NavBadge | null =>
-      (deadJobCount > 0 ? { text: String(deadJobCount), variant: 'error' } : null),
-    render: ({ onDeadJobsChanged }: RouteContext) => <DlqPage onChanged={onDeadJobsChanged} />,
+    badge: ({ deadJobCount, deadJobError }: RouteContext): NavBadge | null =>
+      (deadJobError ? { text: '!', variant: 'error' } : deadJobCount > 0 ? { text: String(deadJobCount), variant: 'error' } : null),
+    render: () => <DlqPage />,
   },
   {
     path: 'system',
