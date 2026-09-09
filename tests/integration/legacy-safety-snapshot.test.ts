@@ -48,7 +48,7 @@ it('publishes a native B01 safety dump without baseline DDL and preserves raw hi
       if (i) { const u = new URL(args[i]); u.hostname = 'host.docker.internal'; args[i] = u.toString(); }
       const pass = process.env.PGPASSFILE;
       const credentials = pass ? ['--env', 'PGPASSFILE=' + pass, '--mount', 'type=bind,source=' + require('node:path').dirname(pass) + ',target=' + require('node:path').dirname(pass) + ',readonly'] : [];
-      try { require('node:child_process').execFileSync('docker', ['run', '--rm', '--add-host', 'host.docker.internal:host-gateway', ...credentials,
+      try { require('node:child_process').execFileSync('docker', ['run', '--rm', ...credentials,
         '--mount', ${JSON.stringify(`type=bind,source=${root},target=${root}`)}, '--entrypoint', ${JSON.stringify(tool)}, 'postgres:17-alpine', ...args], { stdio: 'inherit' }); }
       catch (error) { process.exitCode = error.status || 1; }
     `, { mode: 0o755 });

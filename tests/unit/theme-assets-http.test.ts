@@ -70,8 +70,17 @@ describe('Theme-owned storefront assets', () => {
     expect(nulPath.statusCode).toBe(404);
     const catalog = app.getHttpAdapter().getInstance() as { storeweaveHttpCatalog?: readonly { method: string; path: string; kind: string }[] };
     expect(catalog.storeweaveHttpCatalog).toEqual(expect.arrayContaining([
+      expect.objectContaining({ method: 'GET', path: '/admin', kind: 'static-admin-index', automaticMethods: ['HEAD'] }),
+      expect.objectContaining({ method: 'GET', path: '/admin/*', kind: 'static-admin-spa', automaticMethods: ['HEAD'] }),
       expect.objectContaining({ method: 'GET', path: '/storefront-assets/*', kind: 'static-theme-assets', automaticMethods: ['HEAD'] }),
     ]));
+    const index = await app.inject({ method: 'GET', url: '/admin' });
+    const fallback = await app.inject({ method: 'GET', url: '/admin/not-a-file' });
+    const traversalFallback = await app.inject({ method: 'GET', url: '/admin/%2e%2e/package.json' });
+    expect(index).toMatchObject({ statusCode: 200, headers: { 'cache-control': 'no-cache' } });
+    expect(index.headers['content-type']).toContain('text/html');
+    expect(fallback).toMatchObject({ statusCode: 200, headers: { 'cache-control': 'no-cache' } });
+    expect(traversalFallback.statusCode).toBe(404);
   });
 
   it('keeps an optional Theme layout mounted and renders its missing-layout 404', async () => {
