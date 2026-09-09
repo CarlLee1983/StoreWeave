@@ -15,6 +15,13 @@ http:
     # Empty keeps CORS and its automatic OPTIONS route disabled.
     allowedOrigins: []
     credentials: false
+# Defaults to a private local object store at <paths.dataDir>/storage.
+# For multi-host deployments, use an S3-compatible bucket instead; credentials
+# stay in the secret provider, never in this file.
+storage:
+  driver: local
+  maxUploadBytes: 20971520
+  signedUrlTtlSeconds: 300
 auth:
   tokens: []
 extensions: []

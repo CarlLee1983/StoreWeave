@@ -47,6 +47,16 @@ export interface DirectHttpContract {
   readonly output: JsonSchema7Type;
 }
 
+/** Streaming object storage is deliberately not a Bus DTO: its request and response bodies are byte streams. */
+export interface StorageHttpContract {
+  readonly kind: 'storage';
+  readonly operation: 'upload' | 'list' | 'metadata' | 'content' | 'signed-url' | 'delete';
+  readonly request: 'none' | 'body' | 'multipart';
+  readonly input: JsonSchema7Type;
+  readonly output: JsonSchema7Type | 'binary';
+  readonly params?: Readonly<Record<string, string>>;
+}
+
 /** A route that deliberately returns its own JSON shape rather than a Bus envelope. */
 export interface RawHttpContract {
   readonly kind: 'raw';
@@ -122,7 +132,7 @@ export interface StorefrontAssetHttpContract {
 }
 
 export type ExtensionHttpContract = ExtensionCommandHttpContract | ExtensionQueryHttpContract;
-export type HttpRouteContract = BusHttpContract | ComposedHttpContract | DirectHttpContract | RawHttpContract | ExtensionHttpContract | McpHttpContract | ProviderCallbackHttpContract | StorefrontHttpContract | StorefrontAssetHttpContract;
+export type HttpRouteContract = BusHttpContract | ComposedHttpContract | DirectHttpContract | StorageHttpContract | RawHttpContract | ExtensionHttpContract | McpHttpContract | ProviderCallbackHttpContract | StorefrontHttpContract | StorefrontAssetHttpContract;
 export type HttpRouteConfig = { readonly storeweaveContract?: HttpRouteContract };
 
 type BusTarget = BusHttpContract['target'];
@@ -152,6 +162,13 @@ type DescribedDirectRoute = {
   readonly rateLimit: RateLimitBucket | null;
   readonly kind: 'direct'; readonly request: DirectHttpContract['request']; readonly permission: null; readonly idempotency: 'none';
   readonly input: JsonSchema7Type; readonly error: JsonSchema7Type; readonly output: JsonSchema7Type;
+};
+type DescribedStorageRoute = {
+  readonly method: string; readonly path: string; readonly status: number; readonly auth: string;
+  readonly rateLimit: null; readonly kind: 'storage'; readonly operation: StorageHttpContract['operation'];
+  readonly request: StorageHttpContract['request']; readonly permission: string | null;
+  readonly params: Readonly<Record<string, string>>; readonly input: JsonSchema7Type;
+  readonly error: JsonSchema7Type; readonly output: JsonSchema7Type | { readonly type: 'string'; readonly format: 'binary' };
 };
 type DescribedExtensionTarget = {
   readonly extensionId: string; readonly target: BusTarget; readonly owner: string; readonly permission: unknown;
@@ -214,7 +231,7 @@ type DescribedStorefrontAssetRoute = {
   /** Public GET still rejects a malformed/invalid Bearer credential before the handler. */
   readonly guardError: JsonTransportError;
 };
-export type DescribedHttpRoute = (DescribedBusRoute | DescribedComposedRoute | DescribedDirectRoute | DescribedRawRoute | DescribedExtensionRoute | DescribedMcpRoute | DescribedProviderCallbackRoute | DescribedStorefrontRoute | DescribedStorefrontAssetRoute) & {
+export type DescribedHttpRoute = (DescribedBusRoute | DescribedComposedRoute | DescribedDirectRoute | DescribedStorageRoute | DescribedRawRoute | DescribedExtensionRoute | DescribedMcpRoute | DescribedProviderCallbackRoute | DescribedStorefrontRoute | DescribedStorefrontAssetRoute) & {
   /** The route's selected limiter bucket; unbounded routes are explicit. */
   readonly rateLimit: RateLimitBucket | null;
 };
@@ -427,6 +444,25 @@ export function describeHttpRoutes(runtime: Runtime, controllers: readonly Type[
       input: { type: 'object', properties: {}, additionalProperties: false }, output: contract.output,
       guardError: auth === 'bearer-or-session' ? { statuses: [401], contentType: 'application/json', output: errorSchema() } : null,
     }];
+    if (contract.kind === 'storage') {
+      const routeParams = [...path.matchAll(/:([^/]+)/g)].map(match => match[1]!);
+      const params = contract.params ?? {};
+      if (routeParams.some(param => !Object.hasOwn(params, param)) ||
+        Object.entries(params).some(([param]) => !routeParams.includes(param))) {
+        throw new Error(`Invalid storage parameter mapping: ${path}`);
+      }
+      const publicContent = contract.operation === 'content' && auth === 'session-or-anonymous';
+      if (!publicContent && auth !== 'bearer-or-session') throw new Error(`Invalid storage authentication: ${path}`);
+      return [{
+        method: verb, path, status: Reflect.getMetadata(HTTP_CODE_METADATA, handler) ?? (method === RequestMethod.POST ? 201 : 200),
+        auth, rateLimit: null, kind: 'storage', operation: contract.operation, request: contract.request,
+        permission: publicContent ? null : contract.operation === 'upload' ? 'storage:write'
+          : contract.operation === 'delete' ? 'storage:delete'
+            : contract.operation === 'signed-url' ? 'storage:share' : 'storage:read',
+        params, input: contract.input, error: errorSchema(),
+        output: contract.output === 'binary' ? { type: 'string', format: 'binary' } : contract.output,
+      }];
+    }
     if (contract.kind === 'provider-callback') return [{
       method: verb, path, status: null, auth, kind: contract.kind, request: contract.request, providerKinds: contract.providerKinds,
       rateLimit: contract.rateLimit, targets: providerCallbackTargets(runtime),

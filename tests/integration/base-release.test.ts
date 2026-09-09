@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createReleaseServer } from '../../apps/api/src/release-server';
 import { httpAdapter } from '../../apps/api/src/releases/base';
 import { SESSION_COOKIE } from '../../apps/api/src/http/cookie-names';
+import { csrfTokenFor } from '@storeweave/identity';
 import { ADMIN_ACTOR } from './helpers';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -27,6 +28,7 @@ async function configPath() {
   writeFileSync(config, JSON.stringify({
     version: 1, store: { id: 'release-test', name: 'Release Test' },
     database: { url: await createTestDatabase() }, logging: { level: 'error' }, extensions: [],
+    storage: { localRoot: join(directory, 'storage'), maxUploadBytes: 32 },
   }));
   return config;
 }
@@ -38,7 +40,7 @@ describe('selected release bootstrap', () => {
     runtimes.push(runtime);
     expect(result.theme).toBeUndefined();
     expect(runtime.config.store).not.toHaveProperty('currency');
-    expect(runtime.modules.map(module => module.name).sort()).toEqual(['platform', 'platform-cache', 'platform-identity', 'platform-ops']);
+    expect(runtime.modules.map(module => module.name).sort()).toEqual(['platform', 'platform-cache', 'platform-identity', 'platform-ops', 'platform-storage']);
     expect(Object.keys(runtime.roles).sort()).toEqual(['admin', 'readonly', 'staff']);
     await runtime.migrate();
     await expect(runtime.migrate()).resolves.toEqual([]);
@@ -49,7 +51,7 @@ describe('selected release bootstrap', () => {
       'platform_audit_log', 'platform_cache', 'platform_extension_registry', 'platform_extension_state',
       'platform_idempotency', 'platform_job_quarantine', 'platform_job_schedules', 'platform_jobs', 'platform_migration_baselines', 'platform_migrations', 'platform_outbox',
       'platform_outbox_quarantine', 'platform_outbox_quarantine_audit',
-      'platform_password_resets', 'platform_release_history', 'platform_sessions', 'platform_users', 'platform_worker_heartbeat',
+      'platform_password_resets', 'platform_release_history', 'platform_sessions', 'platform_storage_objects', 'platform_users', 'platform_worker_heartbeat',
     ]);
   });
 
@@ -84,6 +86,29 @@ describe('selected release bootstrap', () => {
       const me = await app.inject({ url: '/api/v1/auth/me', cookies: { [SESSION_COOKIE]: cookie!.value } });
       expect(me.statusCode).toBe(200);
       expect(me.json().data.role).toBe('staff');
+
+      const boundary = 'b09-test-boundary';
+      const upload = await app.inject({
+        method: 'POST', url: '/api/v1/storage/objects',
+        headers: { 'content-type': `multipart/form-data; boundary=${boundary}`, 'x-csrf-token': csrfTokenFor(cookie!.value) },
+        cookies: { [SESSION_COOKIE]: cookie!.value },
+        payload: Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="note.txt"\r\nContent-Type: text/plain\r\n\r\nbase storage\r\n--${boundary}--\r\n`),
+      });
+      expect(upload.statusCode).toBe(201);
+      const object = upload.json().data as { id: string; sha256: string };
+      const content = await app.inject({ url: `/api/v1/storage/objects/${object.id}/content`, cookies: { [SESSION_COOKIE]: cookie!.value } });
+      expect(content.statusCode).toBe(200);
+      expect(content.body).toBe('base storage');
+      expect(content.headers.etag).toBe(`"${object.sha256}"`);
+      const rejected = await app.inject({
+        method: 'POST', url: '/api/v1/storage/objects',
+        headers: { 'content-type': `multipart/form-data; boundary=${boundary}`, 'x-csrf-token': csrfTokenFor(cookie!.value) },
+        cookies: { [SESSION_COOKIE]: cookie!.value },
+        payload: Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="large.txt"\r\nContent-Type: text/plain\r\n\r\n${'x'.repeat(33)}\r\n--${boundary}--\r\n`),
+      });
+      expect(rejected.statusCode).not.toBe(201);
+      const listed = await app.inject({ url: '/api/v1/storage/objects', cookies: { [SESSION_COOKIE]: cookie!.value } });
+      expect(listed.json().data.items).toHaveLength(1);
     } finally { await app.close(); }
   });
 
@@ -92,7 +117,7 @@ describe('selected release bootstrap', () => {
     runtimes.push(result.runtime);
     expect(result.theme?.id).toBe('default');
     expect(result.runtime.config.store.currency).toBe('TWD');
-    expect(result.runtime.modules).toHaveLength(18);
+    expect(result.runtime.modules).toHaveLength(19);
     expect(result.runtime.actorForRole('staff').permissions).toContain('erp:write');
     await result.runtime.migrate();
     await expect(result.runtime.migrate()).resolves.toEqual([]);

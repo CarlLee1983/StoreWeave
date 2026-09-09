@@ -89,6 +89,14 @@ logging:
   level: info
   destination: stdout
 
+# Local objects share the commerce-data volume and survive release replacement.
+# S3-compatible deployments may replace this with driver: s3 plus bucket,
+# endpoint, and secret references; do not make the bucket publicly readable.
+storage:
+  driver: local
+  maxUploadBytes: 20971520
+  signedUrlTtlSeconds: 300
+
 paths:
   dataDir: /var/lib/commerce
   backupDir: /var/lib/commerce/backups

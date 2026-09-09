@@ -212,6 +212,90 @@
           "additionalProperties": false,
           "default": {}
         },
+        "storage": {
+          "type": "object",
+          "properties": {
+            "driver": {
+              "type": "string",
+              "enum": [
+                "local",
+                "s3"
+              ],
+              "default": "local"
+            },
+            "localRoot": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxUploadBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1073741824,
+              "default": 20971520
+            },
+            "signedUrlTtlSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600,
+              "default": 300
+            },
+            "cleanupIntervalMs": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 86400000,
+              "default": 60000
+            },
+            "staleObjectSeconds": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 604800,
+              "default": 3600
+            },
+            "s3": {
+              "type": "object",
+              "properties": {
+                "bucket": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 255
+                },
+                "region": {
+                  "type": "string",
+                  "minLength": 1,
+                  "default": "us-east-1"
+                },
+                "endpoint": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "forcePathStyle": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "prefix": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._/-]*$"
+                },
+                "accessKeyIdRef": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "secretAccessKeyRef": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "bucket",
+                "accessKeyIdRef",
+                "secretAccessKeyRef"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
         "shutdown": {
           "type": "object",
           "properties": {

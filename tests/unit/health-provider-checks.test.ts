@@ -7,8 +7,11 @@ function runtimeForProvider(provider: { id: string; kind: 'payment'; healthCheck
       store: { id: 'test-store' },
       auth: { tokens: [] },
       paths: { dataDir: '/tmp', backupDir: '/tmp' },
+      storage: { driver: 'local' },
     },
     database: { ping: vi.fn(async () => ({ ok: false, error: 'intentionally offline' })) },
+    storage: { healthCheck: vi.fn(async () => undefined) },
+    logger: { warn: vi.fn() },
     providers: {
       list: () => [provider],
       get: vi.fn(() => provider),
