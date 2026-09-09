@@ -133,6 +133,10 @@ export function testConfig(url: string, options: TestRuntimeOptions = {}): Comme
     storage: {
       ...(options.storageRoot ? { localRoot: options.storageRoot } : {}),
       ...(options.storageMaxUploadBytes ? { maxUploadBytes: options.storageMaxUploadBytes } : {}),
+      // 背景 sweeper 與測試搶同一列：測試把 updated_at 往回撥來製造 stale 物件，
+      // 預設的一小時門檻會讓 runtime 自己的掃描先認領走，cleanupStale() 就回 0。
+      // 拉到上限等於關掉背景掃描，要驗 sweep 的測試自己帶 olderThan 呼叫。
+      staleObjectSeconds: 7 * 24 * 60 * 60,
     },
     ...(options.mail ? { mail: options.mail } : {}),
     extensions: Object.entries(extensionEntries).map(([id, config]) => ({ id, enabled: true, config })),
