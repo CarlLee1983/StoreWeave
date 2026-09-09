@@ -26,8 +26,10 @@ import { resolveKeyring } from './keyring';
 import type { Keyring } from '@storeweave/crypto';
 import { createHash } from 'node:crypto';
 import { cacheMigrations, PostgresCacheManager, PostgresMutexManager, type CacheScope, type MutexScope } from '@storeweave/cache';
+import { LocalObjectStore, S3ObjectStore, StorageManager, storageMigrations, type StorageScope } from '@storeweave/storage';
 import packageJson from '../package.json';
 import { projectModulePins, projectExtensionPin } from './release-pins';
+import { join } from 'node:path';
 
 
 export interface RuntimeOptions<C extends BaseConfig = BaseConfig> {
@@ -46,6 +48,8 @@ export interface RuntimeOptions<C extends BaseConfig = BaseConfig> {
    * binding receives scopes fixed to its declared module id, never a manager.
    */
   cacheBindings?: readonly ModuleCacheBinding[];
+  /** Composition-only storage scopes for modules that declare stored-object ownership. */
+  storageBindings?: readonly ModuleStorageBinding[];
   platformVersion?: string;
 }
 
@@ -57,6 +61,11 @@ export interface ModuleCacheScopes {
 export interface ModuleCacheBinding {
   readonly module: string;
   bind(scopes: ModuleCacheScopes): void;
+}
+
+export interface ModuleStorageBinding {
+  readonly module: string;
+  bind(scope: StorageScope): void;
 }
 
 /** Module ids are not length-limited, while persisted cache namespaces deliberately are. */
@@ -87,6 +96,7 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
   readonly providers: ProviderRegistry;
   readonly mcpTools: McpToolRegistry;
   readonly extensions: ExtensionHost;
+  readonly storage: StorageManager;
   readonly migrations: readonly MigrationSet[];
   readonly platformVersion: string;
   readonly modules: readonly PlatformModule[];
@@ -126,8 +136,19 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
     name: 'platform-cache', version: packageJson.version, baseVersionRange: '^1.0.0',
     migrations: cacheMigrations, data: { owns: ['platform_cache'] },
   };
+  const storageModule: PlatformModule = {
+    name: 'platform-storage', version: packageJson.version, baseVersionRange: '^1.0.0',
+    migrations: storageMigrations, data: { owns: ['platform_storage_objects'] },
+    permissions: [
+      { key: 'storage:read', description: 'Read stored objects', owner: 'platform-storage' },
+      { key: 'storage:write', description: 'Upload stored objects', owner: 'platform-storage' },
+      { key: 'storage:delete', description: 'Delete stored objects', owner: 'platform-storage' },
+      { key: 'storage:share', description: 'Issue signed download URLs', owner: 'platform-storage' },
+      { key: 'storage:publish', description: 'Publish objects for unauthenticated download', owner: 'platform-storage' },
+    ],
+  };
   return validateModuleGraph(
-    [platformModule, cacheModule, createOpsModule(jobs, {
+    [platformModule, cacheModule, storageModule, createOpsModule(jobs, {
       events, outbox, scheduler,
       cache: cache ?? (() => { throw new Error('Cache scope is not configured'); }),
     }), createIdentityModule(roles), ...modules], platformVersion,
@@ -194,6 +215,22 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     cleanupIntervalMs: config.cache.cleanupIntervalMs,
     onCleanupError: error => logger.warn({ error: error instanceof Error ? error.message : String(error) }, 'cache cleanup failed'),
   });
+  const objectStore = config.storage.driver === 'local'
+    ? new LocalObjectStore({ root: config.storage.localRoot ?? join(config.paths.dataDir, 'storage') })
+    : (() => {
+      const settings = config.storage.s3!;
+      const accessKeyId = secrets.get(settings.accessKeyIdRef);
+      const secretAccessKey = secrets.get(settings.secretAccessKeyRef);
+      if (!accessKeyId || !secretAccessKey) {
+        throw PlatformError.validation('S3 storage credentials are not available from the configured secret provider');
+      }
+      return new S3ObjectStore({
+        bucket: settings.bucket, region: settings.region, endpoint: settings.endpoint,
+        forcePathStyle: settings.forcePathStyle, prefix: settings.prefix,
+        credentials: { accessKeyId, secretAccessKey },
+      });
+    })();
+  const storage = new StorageManager(database.pool, objectStore, config.storage.maxUploadBytes);
   const mutex = new PostgresMutexManager({
     url: config.database.url, ssl: config.database.ssl, poolSize: config.cache.mutexPoolSize,
     connectionTimeoutMs: Math.min(config.cache.mutexConnectionTimeoutMs, Math.max(1, Math.floor(config.shutdown.timeoutMs / 2))),
@@ -203,7 +240,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
   let extensions: ExtensionHost | undefined;
   let closing: Promise<void> | undefined;
   const close = () => closing ??= withCleanupDeadline(config.shutdown.timeoutMs,
-    () => closeInReverse([() => database.close(), () => cache.close(), () => mutex.close(), () => extensions?.close()]));
+    () => closeInReverse([() => database.close(), () => cache.close(), () => storage.close(), () => mutex.close(), () => extensions?.close()]));
   try {
     const moduleNames = new Set(allModules.map(module => module.name));
     const boundModules = new Set<string>();
@@ -220,6 +257,13 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       if (boundNamespaces.has(namespace)) throw PlatformError.validation(`Cache namespace collision for module "${binding.module}"`);
       boundNamespaces.add(namespace);
       binding.bind(Object.freeze({ cache: cache.forNamespace(namespace), mutex: mutex.forNamespace(namespace) }));
+    }
+    const boundStorageModules = new Set<string>();
+    for (const binding of options.storageBindings ?? []) {
+      if (!moduleNames.has(binding.module)) throw PlatformError.validation(`Storage binding targets unknown module "${binding.module}"`);
+      if (boundStorageModules.has(binding.module)) throw PlatformError.validation(`Duplicate storage binding for module "${binding.module}"`);
+      boundStorageModules.add(binding.module);
+      binding.bind(storage.forNamespace(cacheNamespaceForModule(binding.module)));
     }
     const authorization = new AuthorizationService();
     const auth = new AuthService({
@@ -281,7 +325,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     let activatedRelease: Readonly<{ readonly id: string; readonly version: string }> | null = null;
 
     const runtime: Runtime<C> = {
-      roles: options.roles, config, secrets, keyring, logger, database, authorization, auth, audit, outbox, jobs, jobRegistry, recurring,
+      roles: options.roles, config, secrets, keyring, logger, database, authorization, auth, audit, outbox, jobs, jobRegistry, recurring, storage,
       events, commands, queries, providers, mcpTools, extensions, migrations, platformVersion, modules: allModules,
       get activatedRelease() { return activatedRelease; },
       actorForRole(role, id) {
@@ -314,6 +358,11 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
               platformVersion: extension.platformVersion, permissions: [...new Set(extension.permissions)].sort(),
             })));
             cache.startCleanup();
+            storage.startCleanup({
+              intervalMs: config.storage.cleanupIntervalMs,
+              staleAfterMs: config.storage.staleObjectSeconds * 1_000,
+              onError: error => logger.warn({ error: error instanceof Error ? error.message : String(error) }, 'storage cleanup failed'),
+            });
             activatedRelease = Object.freeze({ id: actual.releaseId, version: actual.releaseVersion });
             return prepared.appliedMigrations;
           } catch (error) {

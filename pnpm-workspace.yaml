@@ -20,3 +20,6 @@ allowBuilds:
   esbuild: false
   protobufjs: false
   ssh2: false
+minimumReleaseAgeExclude:
+  - '@aws-sdk/client-s3@3.1128.0'
+  - '@aws-sdk/lib-storage@3.1128.0'

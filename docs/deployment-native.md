@@ -117,6 +117,10 @@ sudo -u commerce commerce doctor                   # 逐項驗證安裝狀態
 
 預設記錄走 journald：`journalctl -u commerce-api -f`。
 
+`/var/lib/commerce/storage` 是 local object storage 的預設根目錄，必須由 `commerce` 使用者可讀寫且隨
+release 保留。多台 API 主機不能使用彼此獨立的 local storage；改用私有 S3 相容 bucket，並把憑證寫入
+`commerce.env`、在 YAML 只引用其 secret 名稱。
+
 ## 升級
 
 候選 tarball 必須只有一個與 RELEASE／VERSION 相符的根目錄，且 build manifest 摘要與必要檔案完整。

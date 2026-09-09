@@ -44,6 +44,18 @@ extension status: demo-erp  投遞成功 / 待處理 / 失敗筆數
 service: commerce-api/worker  行程是否在跑
 ```
 
+## 物件儲存
+
+預設 `storage.driver: local` 會把不可公開的物件寫到 `<paths.dataDir>/storage`；Docker 的
+`commerce-data` volume 與原生的 `/var/lib/commerce` 都必須保留，不能隨 release 一起刪除。
+多主機部署請改用私有 S3 相容 bucket。bucket、prefix、endpoint 可寫在 `storage.s3`，但
+`accessKeyIdRef`／`secretAccessKeyRef` 只填 secret 名稱，值仍由 secret provider 取得。
+
+公開下載權限由 StoreWeave 管理，S3 bucket 不應設 public ACL。一般私有下載需要 `storage:read`；
+短效連結需要 `storage:share` 及 `security.signingKeys`。簽章金鑰輪替時，保留舊金鑰直到最後一個
+已發出的連結到期。把 local 與 S3 互換前，先以 object id、大小與 SHA-256 驗證完整複製，切勿直接
+刪除原本的 metadata 或 bytes。
+
 ## 後台登入與 API token
 
 兩條驗證路徑並存，因為人與機器是不同的東西：

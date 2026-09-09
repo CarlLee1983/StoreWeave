@@ -37,6 +37,8 @@ export interface TestRuntimeOptions {
   storeId?: string;
   /** 要斷言 log 內容的測試用得到；沒給就是 noopLogger（`child()` 的 binding 會被丟掉）。 */
   logger?: Logger;
+  storageRoot?: string;
+  storageMaxUploadBytes?: number;
 }
 
 export interface TestHarness {
@@ -128,6 +130,10 @@ export function testConfig(url: string, options: TestRuntimeOptions = {}): Comme
     // `cookies: { [SESSION_COOKIE]: ... }`。改動這一行會讓那些檔案一起失敗——那是預期的，
     // 前綴的行為由 `host-cookies.test.ts` 自己換掉 publicUrl 來蓋（ADR 0023）。
     http: { publicUrl: 'http://localhost:3000' },
+    storage: {
+      ...(options.storageRoot ? { localRoot: options.storageRoot } : {}),
+      ...(options.storageMaxUploadBytes ? { maxUploadBytes: options.storageMaxUploadBytes } : {}),
+    },
     extensions: Object.entries(extensionEntries).map(([id, config]) => ({ id, enabled: true, config })),
     logging: { level: 'error' },
   });

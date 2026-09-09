@@ -34,6 +34,7 @@ COPY packages/platform/jobs/package.json packages/platform/jobs/
 COPY packages/platform/kernel/package.json packages/platform/kernel/
 COPY packages/platform/outbox/package.json packages/platform/outbox/
 COPY packages/platform/query-bus/package.json packages/platform/query-bus/
+COPY packages/platform/storage/package.json packages/platform/storage/
 COPY packages/commerce/cart/package.json packages/commerce/cart/
 COPY packages/commerce/catalog/package.json packages/commerce/catalog/
 COPY packages/commerce/coupon/package.json packages/commerce/coupon/

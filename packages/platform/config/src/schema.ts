@@ -153,6 +153,29 @@ const commonConfigSchema = z.object({
     /** Bounds half-open mutex-pool connections; runtime also caps this below shutdown budget. */
     mutexConnectionTimeoutMs: z.coerce.number().int().min(1).max(60_000).default(5_000),
   }).default({}),
+  storage: z.object({
+    /** Both adapters are private; HTTP policy decides whether an object is publicly readable. */
+    driver: z.enum(['local', 's3']).default('local'),
+    /** Defaults at runtime to `<paths.dataDir>/storage`, outside release-owned artifacts. */
+    localRoot: z.string().min(1).optional(),
+    maxUploadBytes: z.coerce.number().int().min(1).max(1024 * 1024 * 1024).default(20 * 1024 * 1024),
+    signedUrlTtlSeconds: z.coerce.number().int().min(1).max(60 * 60).default(300),
+    cleanupIntervalMs: z.coerce.number().int().min(1_000).max(86_400_000).default(60_000),
+    staleObjectSeconds: z.coerce.number().int().min(60).max(7 * 24 * 60 * 60).default(60 * 60),
+    s3: z.object({
+      bucket: z.string().min(3).max(255),
+      region: z.string().min(1).default('us-east-1'),
+      endpoint: z.string().url().optional(),
+      forcePathStyle: z.boolean().default(false),
+      prefix: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/).optional(),
+      accessKeyIdRef: z.string().min(1),
+      secretAccessKeyRef: z.string().min(1),
+    }).strict().optional(),
+  }).superRefine((storage, context) => {
+    if (storage.driver === 's3' && !storage.s3) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['s3'], message: 's3 configuration is required when storage.driver is s3' });
+    }
+  }).default({}),
   shutdown: z.object({ timeoutMs: z.number().int().positive().default(25_000) }).default({}),
   theme: z.object({
     id: z.string().default('default'),

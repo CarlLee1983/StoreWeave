@@ -50,6 +50,11 @@ Theme 隨附的編輯照片由映像內建、前台以 `/storefront-assets/` 提
 要換成別的目錄才需要 `COMMERCE_THEME_ASSETS_DIR`——它的解析順序與相依寫在
 [deployment-native.md 的目錄佈局](deployment-native.md#目錄佈局)。
 
+上傳物件預設放在 `commerce-data` volume 的 `/var/lib/commerce/storage`，因此 image 重建與 release
+替換不會遺失它們。多節點 API 不可共用各自的 local disk；請設定私有的 S3 相容 storage backend，並把
+access key / secret 放在 `.env` 對應的 secret provider。不要把 bucket 設成 public，公開與短效 URL
+仍由應用程式的 storage 路由驗證。
+
 `commerce.yaml` 用 `${VAR}` 或 `${VAR:-預設值}` 參照它們。缺少必要變數會在啟動時
 列出名稱並直接失敗，不會用空字串跑下去。
 

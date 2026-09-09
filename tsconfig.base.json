@@ -32,6 +32,7 @@
       "@storeweave/identity": ["packages/platform/identity/src/index.ts"],
       "@storeweave/audit": ["packages/platform/audit/src/index.ts"],
       "@storeweave/cache": ["packages/platform/cache/src/index.ts"],
+      "@storeweave/storage": ["packages/platform/storage/src/index.ts"],
       "@storeweave/crypto": ["packages/platform/crypto/src/index.ts"],
       "@storeweave/http-client": ["packages/platform/http-client/src/index.ts"],
       "@storeweave/i18n": ["packages/platform/i18n/src/index.ts"],

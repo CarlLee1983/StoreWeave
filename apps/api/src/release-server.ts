@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import fastifyCookie from '@fastify/cookie';
 import fastifyRateLimit from '@fastify/rate-limit';
+import fastifyMultipart from '@fastify/multipart';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { withCleanupDeadline, type Runtime, type StorefrontTheme } from '@storeweave/kernel';
@@ -65,6 +66,21 @@ export async function createReleaseServer(options: ReleaseServerOptions): Promis
     if (cors) app.enableCors(cors);
     // Session / CSRF cookie 只做解析與序列化，不簽章——token 本身已經是高熵隨機值。
     await app.register(fastifyCookie);
+    // Do not use saveRequestFiles: uploads must remain streamed and the storage
+    // manager owns every temporary file. The plugin limits reject extra parts
+    // before an unbounded multipart body reaches a controller. Some narrowly
+    // scoped HTTP tests use a legacy partial runtime configuration and do not
+    // install the storage release, so only register this parser when storage is
+    // configured.
+    const storage = (runtime.config as typeof runtime.config & {
+      storage?: { maxUploadBytes: number };
+    }).storage;
+    if (storage) {
+      await app.register(fastifyMultipart, {
+        limits: { files: 1, fields: 0, parts: 1, fileSize: storage.maxUploadBytes },
+        throwFileSizeLimit: true,
+      });
+    }
 
     // 只節流登入端點。沒有它，密碼爆破不受限制，而且每次嘗試都逼伺服器跑一次
     // 記憶體困難的 scrypt —— 未授權請求會變成 CPU 與記憶體的放大攻擊面。

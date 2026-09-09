@@ -61,6 +61,8 @@ export async function dependencies(runtime: Runtime): Promise<DependencyHealth> 
   });
   if (!ping.ok) return summarize(checks);
 
+  checks.push(await storageHealthCheck(runtime, 'warn'));
+
   const outbox = await runtime.outbox.stats(runtime.database.db);
   checks.push({
     name: 'outbox',
@@ -149,6 +151,7 @@ export async function doctor(runtime: Runtime, options: { releaseVersion: string
   for (const dir of [runtime.config.paths.dataDir, runtime.config.paths.backupDir]) {
     checks.push(directoryCheck(dir));
   }
+  checks.push(await storageHealthCheck(runtime, 'fail'));
 
   for (const ext of runtime.extensions.list()) {
     const compat = checkPlatformCompatibility(ext.definition.manifest, runtime.platformVersion);
@@ -164,6 +167,10 @@ export async function doctor(runtime: Runtime, options: { releaseVersion: string
     for (const s of ext.definition.manifest.requiredSecrets ?? []) requiredSecrets.add(s);
   }
   for (const token of runtime.config.auth.tokens) requiredSecrets.add(token.secretRef);
+  if (runtime.config.storage.driver === 's3') {
+    requiredSecrets.add(runtime.config.storage.s3!.accessKeyIdRef);
+    requiredSecrets.add(runtime.config.storage.s3!.secretAccessKeyRef);
+  }
   for (const name of [...requiredSecrets].sort()) {
     checks.push({
       name: `secret present: ${name}`,
@@ -201,6 +208,16 @@ export async function doctor(runtime: Runtime, options: { releaseVersion: string
   }
 
   return checks;
+}
+
+async function storageHealthCheck(runtime: Runtime, unhealthyStatus: Extract<CheckStatus, 'warn' | 'fail'>): Promise<Check> {
+  try {
+    await runtime.storage.healthCheck();
+    return { name: 'object storage', status: 'pass', detail: runtime.config.storage.driver };
+  } catch (error) {
+    runtime.logger.warn({ error: (error as Error).message, driver: runtime.config.storage.driver }, 'object storage health check failed');
+    return { name: 'object storage', status: unhealthyStatus, detail: 'unavailable; see server logs' };
+  }
 }
 
 function directoryCheck(dir: string): Check {

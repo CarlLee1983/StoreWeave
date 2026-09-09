@@ -24,12 +24,13 @@ import { ContentArticleController, ContentContactController } from '../controlle
 import { RmaController } from '../controllers/rma.controller';
 import { McpController } from '../mcp/mcp.controller';
 import { StorefrontController } from '../storefront/storefront.controller';
+import { StorageController } from '../controllers/storage.controller';
 
 export const httpAdapter: ReleaseHttpAdapter = {
   releaseId: 'commerce', anonymousRole: 'storefront', startSession,
   controllers(config) {
     const controllers: Type[] = [
-      HealthController, MetaController, AuthController, CatalogController, InventoryController, SystemController,
+      HealthController, MetaController, AuthController, CatalogController, InventoryController, SystemController, StorageController,
       OrderController, PromotionController, CouponController, CustomerController, CartController, ShippingController, RefundController, RmaController, InvoiceController, LoyaltyController, NotificationController, CallbackController, AnalyticsController, ContentArticleController, ContentContactController, ExtensionsController, StorefrontController,
     ];
     if (config.mcp.enabled) controllers.push(McpController);
