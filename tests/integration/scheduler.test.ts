@@ -379,8 +379,10 @@ describe('宣告變更', () => {
 
     expect(await scheduledRunAts(type)).toEqual(['2026-03-01T00:00:00.000Z']);
     expect(result.enqueued).toBe(0);
-    // watermark 仍然前進，4/1 12:00 會照常排
-    expect((await scheduleRow(type)).last_occurrence_at).not.toBeNull();
+    // watermark 停在新宣告的「當下這一次」，所以 4/1 12:00 會照常排。
+    // 斷成非 null 擋不住迴歸——它在改宣告之前就已經是非 null 了。
+    const watermark = (await scheduleRow(type)).last_occurrence_at;
+    expect(new Date(watermark!).toISOString()).toBe('2026-03-01T12:00:00.000Z');
   });
 });
 

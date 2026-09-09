@@ -190,6 +190,8 @@ interface BackwardFallbackEntry {
 
 const backwardFallbackCache = new Map<string, BackwardFallbackEntry>();
 
+const copyOf = (runs: Date[]): Date[] => runs.map((run) => new Date(run.getTime()));
+
 /**
  * 不晚於 `at` 的最近 `count` 次，由新到舊。
  *
@@ -213,7 +215,9 @@ function cronRunsAtOrBefore(spec: CronSchedule, at: Date, count: number): Date[]
 function backwardByForwardScan(cron: Cron, spec: CronSchedule, at: Date, count: number): Date[] {
   const key = `${spec.fingerprint}|${count}`;
   const hit = backwardFallbackCache.get(key);
-  if (hit && at.getTime() >= hit.validFrom && at.getTime() < hit.validUntil) return hit.result.slice();
+  // 回傳複本連同元素一起複製：呼叫端對 Date 做任何就地變動都會污染快取，
+  // 而污染之後連 validFrom／validUntil 的比較都跟著失真。
+  if (hit && at.getTime() >= hit.validFrom && at.getTime() < hit.validUntil) return copyOf(hit.result);
   const windowStart = new Date(at.getTime() - BACKWARD_FALLBACK_WINDOW_MS);
   const forward = cron.nextRuns(MAX_OCCURRENCES_PER_SCAN, windowStart);
   const upTo = forward.filter((run) => run.getTime() <= at.getTime());
@@ -232,11 +236,13 @@ function backwardByForwardScan(cron: Cron, spec: CronSchedule, at: Date, count: 
     if (backwardFallbackCache.size > 256) backwardFallbackCache.clear();
     backwardFallbackCache.set(key, {
       result,
-      validFrom: result[0]?.getTime() ?? Number.NEGATIVE_INFINITY,
+      // 答案為空時下界是掃描視窗的起點，不是負無限：更早的 `at` 會帶著一個更早的視窗，
+      // 那個視窗可能含有這裡看不到的 occurrence。
+      validFrom: result[0]?.getTime() ?? windowStart.getTime(),
       validUntil: nextRun.getTime(),
     });
   }
-  return result.slice();
+  return copyOf(result);
 }
 
 /** 不晚於 `at` 的最近一次預定時刻；還沒有任何一次就回 undefined。 */

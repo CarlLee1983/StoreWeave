@@ -71,7 +71,10 @@ export interface EnsureScheduledResult {
   readonly deferred: number;
 }
 
-const EMPTY: EnsureScheduledResult = { enqueued: 0, skipped: 0, deduped: 0, failed: 0, deferred: 0 };
+/** 單一排程的結果。`deferred` 是階段層級的事實，一個排程永遠不會延後自己。 */
+export type EnsureOneResult = Omit<EnsureScheduledResult, 'deferred'>;
+
+const EMPTY: EnsureOneResult = { enqueued: 0, skipped: 0, deduped: 0, failed: 0 };
 
 /** 連續這麼多輪被 overlap 擋下就示警：多半代表上一次卡住了，而不是它真的很忙。 */
 const OVERLAP_SKIP_WARN_THRESHOLD = 3;
@@ -83,6 +86,14 @@ const OVERLAP_SKIP_WARN_THRESHOLD = 3;
  * 只需要讓「持續壞掉」與「偶發抖動」在 log 裡長得不一樣。
  */
 const SCHEDULE_FAILURE_WARN_THRESHOLD = 3;
+
+/**
+ * 連續這麼多輪排不完就升級成 error。
+ *
+ * 偶爾延後是正常的（某一輪剛好撞上鎖等待），連續延後是容量訊號：排程數成長，
+ * 或資料庫慢到一輪塞不下。後者需要有人處理，不該和前者長得一樣。
+ */
+const SCHEDULE_DEFERRAL_WARN_THRESHOLD = 3;
 
 /**
  * 冷啟動（資料庫第一次見到這個排程，或宣告變更後重設）時，多舊的 occurrence 就不補了。
@@ -159,6 +170,8 @@ export class RecurringScheduler {
    * 這一輪停在誰身上，下一輪就從誰開始，跑完一整圈才回到頭。
    */
   private resumeFrom: string | undefined;
+  /** 連續幾輪沒把整圈排完。排完一整圈就歸零。 */
+  private consecutiveDeferrals = 0;
 
   constructor(private readonly deps: RecurringSchedulerDeps) {}
 
@@ -205,7 +218,7 @@ export class RecurringScheduler {
    * 由 Worker 每一輪呼叫，時間由呼叫端注入，因此測試不需要等真實時鐘。
    */
   async ensureScheduled(now: Date = new Date(), timeoutMs?: number): Promise<EnsureScheduledResult> {
-    if (this.registered.size === 0) return EMPTY;
+    if (this.registered.size === 0) return { ...EMPTY, deferred: 0 };
 
     let enqueued = 0;
     let skipped = 0;
@@ -217,14 +230,24 @@ export class RecurringScheduler {
     const budget = timeoutMs ?? DEFAULT_SCHEDULE_TIMEOUT_MS;
     const deadline = Date.now() + budget;
     const order = this.rotatedOrder();
+    // 預算本身就小於一個切片時，切片跟著縮：與其開一個超出預算的交易，不如短一點。
+    const minSlice = Math.min(MIN_SCHEDULE_SLICE_MS, budget);
     let deferred: string[] = [];
     for (const [index, [type, spec]] of order.entries()) {
-      if (deadline - Date.now() < MIN_SCHEDULE_SLICE_MS) {
+      // 第一個一律排。降級成「這一輪少排幾個」是可以的，「一個都不排、而且每一輪都停在
+      // 同一個位置」不是降級而是靜默停擺——預算小於一個切片時整份輪替就再也不會前進。
+      if (index > 0 && deadline - Date.now() < minSlice) {
         // 被延後的**全部**都要進 log：只記邊界那一個，看 log 的人無從知道還有誰沒排到。
         deferred = order.slice(index).map(([deferredType]) => deferredType);
         this.resumeFrom = type;
-        this.deps.logger.warn(
-          { jobTypes: deferred, count: deferred.length },
+        // 連續延後與連續失敗一樣要分級：預算長期不夠是容量訊號，需要有人處理，
+        // 而不是每個 poll interval 印一行同樣的 warn 淹在雜訊裡。
+        this.consecutiveDeferrals += 1;
+        const log = this.consecutiveDeferrals >= SCHEDULE_DEFERRAL_WARN_THRESHOLD
+          ? this.deps.logger.error
+          : this.deps.logger.warn;
+        log.call(this.deps.logger,
+          { jobTypes: deferred, count: deferred.length, consecutive: this.consecutiveDeferrals },
           'scheduling phase ran out of budget; deferred to the next tick',
         );
         break;
@@ -232,7 +255,7 @@ export class RecurringScheduler {
       this.resumeFrom = undefined;
       try {
         const result = await this.deps.database.boundedTransaction(
-          Math.max(MIN_SCHEDULE_SLICE_MS, Math.min(budget, deadline - Date.now())),
+          Math.min(budget, Math.max(minSlice, deadline - Date.now())),
           `ensure schedule ${type}`,
           (tx) => this.ensureOne(tx, type, spec, now),
         );
@@ -257,14 +280,15 @@ export class RecurringScheduler {
         );
       }
     }
+    if (deferred.length === 0) this.consecutiveDeferrals = 0;
     return { enqueued, skipped, deduped, failed, deferred: deferred.length };
   }
 
   /**
    * 這一輪的排程順序：從 `resumeFrom` 開始繞一圈回到原點。
    *
-   * `resumeFrom` 已經被移除註冊（熱重載）時退回插入順序——輪替是公平性機制，
-   * 找不到起點不該讓整輪排不出來。
+   * 找不到起點時防禦性地退回插入順序。目前 `registered` 沒有移除的路徑，所以這條走不到；
+   * 輪替是公平性機制，將來若有人加上熱重載，也不該因為起點消失就讓整輪排不出來。
    */
   private rotatedOrder(): [string, ScheduleSpec][] {
     const entries = [...this.registered.entries()];
@@ -275,7 +299,7 @@ export class RecurringScheduler {
   }
 
   /** 一個排程一個有界交易；呼叫端逐一 catch，所以某個排程的錯誤不會讓其他排程整輪停擺。 */
-  private async ensureOne(tx: Tx, type: string, spec: ScheduleSpec, now: Date): Promise<EnsureScheduledResult> {
+  private async ensureOne(tx: Tx, type: string, spec: ScheduleSpec, now: Date): Promise<EnsureOneResult> {
     const { row, coldStart } = await this.lockRow(tx, type, spec, now);
     const watermark = toDate(row.last_occurrence_at);
     if (!watermark) return EMPTY;
@@ -292,7 +316,7 @@ export class RecurringScheduler {
         { jobType: type, staleOccurrence: newest.toISOString(), skipped: all.length },
         'cold start skipped a stale occurrence; the schedule starts from the next one',
       );
-      return { enqueued: 0, skipped: all.length, deduped: 0, failed: 0, deferred: 0 };
+      return { enqueued: 0, skipped: all.length, deduped: 0, failed: 0 };
     }
     // 追補有上限：停機太久時補最近的那幾次，不是最舊的那幾次。
     const due = all.slice(Math.max(0, all.length - spec.catchUp));
@@ -301,7 +325,7 @@ export class RecurringScheduler {
     if (row.paused) {
       // 暫停期間的 occurrence 是「跳過」不是「延後」：恢復時不該一次湧出整段積壓。
       await this.advance(tx, type, newest, { catchup, paused: due.length, overlap: 0 }, false, 0);
-      return { enqueued: 0, skipped: catchup + due.length, deduped: 0, failed: 0, deferred: 0 };
+      return { enqueued: 0, skipped: catchup + due.length, deduped: 0, failed: 0 };
     }
 
     if (spec.overlap === 'skip' && (await this.hasActiveJob(tx, type, now))) {
@@ -313,7 +337,7 @@ export class RecurringScheduler {
       // log 的數字與回傳值、與 skipped_* 欄位必須是同一個，否則排查時對不起來。
       log.call(this.deps.logger, { jobType: type, skipped: catchup + due.length, consecutive },
         'schedule occurrence skipped by overlap policy');
-      return { enqueued: 0, skipped: catchup + due.length, deduped: 0, failed: 0, deferred: 0 };
+      return { enqueued: 0, skipped: catchup + due.length, deduped: 0, failed: 0 };
     }
 
     let enqueued = 0;
@@ -334,7 +358,7 @@ export class RecurringScheduler {
     if (enqueued > 0) {
       this.deps.logger.debug({ jobType: type, enqueued, upTo: newest.toISOString() }, 'schedule occurrences enqueued');
     }
-    return { enqueued, skipped: catchup, deduped, failed: 0, deferred: 0 };
+    return { enqueued, skipped: catchup, deduped, failed: 0 };
   }
 
   /**

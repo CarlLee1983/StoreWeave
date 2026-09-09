@@ -320,10 +320,53 @@ describe('排程階段的預算不會餓死順序靠後的排程', () => {
       scheduler.register('later-b', { everyMs: HOUR });
 
       const at = new Date('2026-01-05T03:10:00.000Z');
-      for (let i = 0; i < 3; i += 1) await scheduler.ensureScheduled(at);
+      // 第一輪只夠 slow 吃掉整份預算，另外兩個被延後；第二輪從被延後的那個開始。
+      const first = await scheduler.ensureScheduled(at);
+      expect(first.deferred).toBe(2);
+      expect(first.failed).toBe(1);
+      for (let i = 0; i < 2; i += 1) await scheduler.ensureScheduled(at);
 
-      // 起點固定時 later-a／later-b 一次都排不到，而 failed 恆為 1，看起來只像偶爾抖動。
-      expect(new Set(enqueued)).toEqual(new Set(['later-a', 'later-b']));
+      // 起點固定時這兩個一次都排不到，而 failed 恆為 1，看起來只像偶爾抖動。
+      // slow 的交易一律拋例外，所以它從來不會 enqueue——這裡釘的是後面兩個不再被餓死。
+      expect(enqueued).toEqual(['later-a', 'later-b']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('預算比單一排程的下限還小時，仍然至少排一個，而不是整個停擺', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-05T03:10:00.000Z'));
+    try {
+      const enqueued: string[] = [];
+      const scheduler = new RecurringScheduler({
+        jobs: { enqueue: async (_tx: never, input: { type: string }) => {
+          enqueued.push(input.type);
+          return { id: 'x', deduped: false };
+        } } as never,
+        database: {
+          boundedTransaction: async (_ms: number, _op: string, fn: (tx: never) => Promise<unknown>) => {
+            vi.advanceTimersByTime(150);
+            return fn({ execute: async () => ({ rows: [dueRow()] }) } as never);
+          },
+        } as never,
+        logger: noopLogger,
+      });
+      scheduler.register('a', { everyMs: HOUR });
+      scheduler.register('b', { everyMs: HOUR });
+
+      // 預算小於 MIN_SCHEDULE_SLICE_MS。降級成「這一輪少排幾個」是可以的，
+      // 「一個都不排、而且每一輪都停在同一個位置」不行——那是靜默停擺。
+      const at = new Date('2026-01-05T03:10:00.000Z');
+      const first = await scheduler.ensureScheduled(at, 200);
+      expect(enqueued).toEqual(['a']);
+      expect(first.enqueued).toBe(1);
+      expect(first.deferred).toBe(1);
+
+      // 而且游標有前進：下一輪換 b，不是每輪都重排 a。
+      const second = await scheduler.ensureScheduled(at, 200);
+      expect(enqueued).toEqual(['a', 'b']);
+      expect(second.enqueued).toBe(1);
     } finally {
       vi.useRealTimers();
     }

@@ -103,6 +103,39 @@ insert 競爭由 `DO NOTHING` 等待對方 xid 後重讀解決、enqueue 與 adv
 | T8 (LOW) | 新行為缺測試：預算耗盡的 `break`、`fingerprint` 變更走冷啟動、`setPaused` 惰性 anchor | 三項各補一個測試（前者單元，後兩者整合） |
 | T9 (LOW) | `backwardFallbackCache` 是模組層可變全域，且回傳快取內的陣列本身 | 併入 T3 一起改成回傳複本；清空入口未加 |
 
+## 獨立審查（第四輪）
+
+範圍是第三輪的 9 項修正本身（commit `f5fdddd`）。判定 **Warning：可合併，建議先修 M1**，
+無 CRITICAL 無 HIGH。兩個重點疑慮都**成立為正確**：
+
+- **T1 的輪替公平性成立。** 審查把排序與預算邏輯轉寫成可執行模型，跑 60 輪 × 七種耗盡樣式
+  （慢排程在頭／中／尾、兩個交錯、全部中速、耗盡位置浮動、隨機成本），飢餓上界 N−1 輪，
+  沒有任何排程從未排到。不變式是「每輪被服務的一定是 rotated order 的前綴，break 把游標設成
+  第一個沒服務到的，只有整圈跑完才清成 undefined，而整圈跑完代表人人都排到了」。
+- **T3 的快取有效區間成立。** 用真的 croner 10.0.1 對 `0 0 29 2 *`（Asia/Taipei、
+  America/Los_Angeles）、`0 0 31 4 *`、`30 3 1 1 *`，`count ∈ {1, 2, 1000}`，
+  2027-06 → 2030-06 逐小時比對 ground truth：**mismatches = 0**，含 `count` 大於可得次數、
+  `at == validFrom` 與 `at == validUntil` 兩個邊界。
+
+`count` 前綴污染、跨測試殘留、migration `0008` 的索引述詞與查詢不符——三項經查證皆不成立。
+索引的部分述詞與 `hasActiveJob` 字面相同、前導欄 `type` 是等值條件，是這個查詢能拿到的最好形狀。
+
+| 編號 | 內容 | 處置 |
+| --- | --- | --- |
+| M1 (MEDIUM) | 輪替引入的新邊界：`budget < MIN_SCHEDULE_SLICE_MS` 時第一圈就 break，游標設回 order[0]，**沒有任何排程進入迴圈本體**，`failed` 恆為 0，只有一行 warn 每個 poll 重複。修正前的 `remaining > 0` 至少還會跑第一個。config 路徑安全（`staleLockSeconds.min(10)` ⇒ `databaseTimeoutMs ≥ 1250`），但建構子選項繞過 zod | 順序上的第一個一律排（`index > 0` 才套門檻），交易切片同時縮成 `min(MIN, budget)`。單元測試釘住「至少排一個」與「游標有前進」 |
+| M2 (MEDIUM) | 延後的 warn 不升級也不抑制，與同檔案對失敗、overlap 的分級不一致；「連續 N 輪排不完」是需要有人處理的容量訊號 | 加 `consecutiveDeferrals`，連續三輪升級成 error，排完整圈歸零；README 一併註明 `recurringDeferred` 在 production 同樣只有 log 讀得到 |
+| L1 | 重入呼叫 `ensureScheduled` 會清掉游標，理論上讓飢餓復發 | 不改。目前不可達（`worker.ts` 的迴圈 `await this.inFlight` 之後才排下一輪，單一 Worker 內串行；跨 process 是不同物件），正確性由列鎖與去重鍵保護 |
+| L2 | `result` 為空時 `validFrom = -Infinity` 誇大有效區間：更早的 `at` 帶著更早的視窗，可能含有這裡看不到的 occurrence | 改成 `windowStart.getTime()` |
+| L3 | `result.slice()` 只複製陣列，`Date` 元素仍是共用實例 | 改成逐元素複製 |
+| L4 | 公平性單元測試用 `Set` 丟掉次數與順序；`deferred` 欄位沒有測試 | 改斷言確定的軌跡，並斷言第一輪 `deferred === 2`、`failed === 1`。acceptance 原本寫「每個排程都輪得到」與實情有出入——`slow` 一律拋例外、從不 enqueue，釘住的是「後面兩個不再被餓死」 |
+| L5 | 宣告變更的整合測試斷 `not.toBeNull()`，改動前就已成立，擋不住 watermark 被重設到錯誤時刻 | 改斷確切時刻 `2026-03-01T12:00:00.000Z` |
+| L6 | `rotatedOrder` 註解說的熱重載路徑不存在（`registered` 沒有移除路徑） | 註解改成「防禦性退回」 |
+| L7 | `deferred` 是階段層級的事實，卻出現在 `ensureOne` 的每個 return，型別說謊 | `ensureOne` 改回傳 `EnsureOneResult = Omit<EnsureScheduledResult, 'deferred'>` |
+
+M1 的第二個建議（在 `worker.ts` 的時序不變式加 `databaseTimeoutMs >= MIN_SCHEDULE_SLICE_MS`）
+**試過但撤掉**：它擋掉 `lifecycle.test.ts` 刻意用的短租約組態（lease 1000 ms ⇒ database 125 ms），
+而那是合法的測試設定。排程器自己保證「至少排一個」之後，這道檢查沒有價值卻有代價。
+
 ## full gates（第二輪修正後實跑）
 
 - `pnpm typecheck`：PASS。
@@ -130,10 +163,20 @@ insert 競爭由 `DO NOTHING` 等待對方 xid 後重讀解決、enqueue 與 adv
   只剩 `tests/unit/theme-assets-http.test.ts`（B04 基準 `837870c` 上同樣紅，依賴已建置的靜態資產）；
   `cli-upgrade` 這一次通過，印證它是負載相關的 flake 而非固定失敗。
 
+## full gates（第四輪修正後實跑）
+
+- `pnpm typecheck`：PASS。
+- `pnpm exec vitest run --project unit packages/platform/kernel`：5 files、49 passed
+  （`schedule-spec` 32 passed；M1 的測試先確認過紅——預算小於切片時 `enqueued` 是 `[]`）。
+- `pnpm exec vitest run --project integration --maxWorkers=2`：**86 files／741 tests 全數 passed**。
+- `pnpm exec vitest run --project unit`：61 files、774 tests、773 passed、**1 failed**
+  ——仍然只有 `theme-assets-http`，B04 基準上同樣紅。
+
 ## 保留的缺口
 
-- 第四輪複審尚未進行：第三輪的 9 項修正本身沒有被獨立看過（T1 的輪替公平性、T3 的
-  快取有效區間邊界，是最值得再看一次的兩處）。
+- 第五輪複審尚未進行：第四輪的 M1／M2 與五項 LOW 修正本身沒有被獨立看過。
+- L1（重入呼叫清掉游標）刻意不修，目前不可達；若將來同一 process 出現第二個共用
+  `runtime.recurring` 的 Worker，這條就會變成真的，屆時把 order 與游標改成區域變數即可。
 - T7 的獨立計數器（`skipped_cold_start`）沒有做，冷啟動與追補上限的跳過數仍混在同一欄。
 - migration `0008` 這一輪再次就地修改（補索引）。理由與前次相同——它尚未部署，
   checksum drift 會讓跑過中間版本的資料庫開機即報錯而非靜默缺欄位；
