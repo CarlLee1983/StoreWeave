@@ -58,7 +58,7 @@ it('authenticates real pg_dump/pg_restore through private passfiles and retains 
       const credentials = process.env.PGPASSFILE ? ['--env', 'PGPASSFILE=' + process.env.PGPASSFILE,
         '--mount', 'type=bind,source=' + dirname(process.env.PGPASSFILE) + ',target=' + dirname(process.env.PGPASSFILE) + ',readonly'] : [];
       try {
-        execFileSync('docker', ['run', '--rm', ...credentials,
+        execFileSync('docker', ['run', '--rm', '--add-host', 'host.docker.internal:host-gateway', ...credentials,
           '--mount', ${JSON.stringify(`type=bind,source=${directory},target=${directory}`)},
           '--entrypoint', ${JSON.stringify(tool)}, 'postgres:17-alpine', ...args], { stdio: 'inherit' });
         if (${JSON.stringify(tool)} === 'pg_restore' && !args.includes('--list') && require('node:fs').existsSync(${JSON.stringify(join(directory, 'mutate-dump'))})) {
