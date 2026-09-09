@@ -80,11 +80,27 @@ function deferred<T = void>() {
 function pause(milliseconds: number): Promise<void> { return new Promise(resolve => setTimeout(resolve, milliseconds)); }
 function mutexPool(mutex: PostgresMutexManager): Pool { return (mutex as unknown as { pool: Pool }).pool; }
 
-function startMutexChild(url: string): ChildProcess {
+async function startMutexChild(url: string): Promise<ChildProcess> {
   const child = spawn(process.execPath, ['-e', MUTEX_PROCESS_FIXTURE], {
-    env: { ...process.env, CACHE_MUTEX_PROCESS_DATABASE_URL: url }, stdio: ['pipe', 'ignore', 'ignore'],
+    env: { ...process.env, CACHE_MUTEX_PROCESS_DATABASE_URL: url }, stdio: ['pipe', 'pipe', 'ignore'],
   });
   children.push(child);
+  await new Promise<void>((resolve, reject) => {
+    const stdout = child.stdout;
+    if (!stdout) {
+      reject(new Error('Mutex child did not expose stdout'));
+      return;
+    }
+    const onData = (chunk: Buffer) => {
+      if (chunk.toString('utf8').includes('ready\n')) {
+        stdout.off('data', onData);
+        resolve();
+      }
+    };
+    stdout.on('data', onData);
+    child.once('error', reject);
+    child.once('exit', (code, signal) => reject(new Error(`Mutex child exited before ready: ${code}/${signal}`)));
+  });
   return child;
 }
 
@@ -152,19 +168,10 @@ describe('PostgreSQL cache', () => {
 
   it('shares a cache value and advisory exclusion with an actual separate Node process', async () => {
     const { url, first, firstMutex } = await setup();
-    const child = startMutexChild(url);
-    let observedChildLock = false;
-    for (let attempt = 0; attempt < 20 && !observedChildLock; attempt += 1) {
-      try {
-        await firstMutex.forNamespace('inventory').runExclusive('cross-process', {
-          operationId: `parent-probe:${attempt}`, waitTimeoutMs: 50,
-        }, async () => undefined);
-      } catch (error) {
-        if (!(error instanceof Error) || !error.message.includes('timed out')) throw error;
-        observedChildLock = true;
-      }
-    }
-    expect(observedChildLock).toBe(true);
+    const child = await startMutexChild(url);
+    await expect(firstMutex.forNamespace('inventory').runExclusive('cross-process', {
+      operationId: 'parent-probe', waitTimeoutMs: 50,
+    }, async () => undefined)).rejects.toThrow('timed out');
     const childExited = new Promise<void>((resolveExit, rejectExit) => child.once('exit', (code, signal) => signal === 'SIGTERM' ? resolveExit() : rejectExit(new Error(`Cache child exited with ${code}/${signal}`))));
     child.kill('SIGTERM');
     await childExited;
