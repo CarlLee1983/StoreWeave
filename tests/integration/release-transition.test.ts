@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { baselineMigrations, catalogDigest, legacyBaselineSelection, migrationCatalog, platformMigrations, prepareRelease, recordEffectiveRelease as finalizeRelease, releaseMigrationStatus, runMigrations, sqlMigration,
   type EffectiveReleaseManifest, type PreparedRelease, type MigrationSet, type ModulePin, type ReleaseOwnerPin, type ReleaseSelection } from '@storeweave/db';
 import { identityMigrations } from '@storeweave/identity';
+import { cacheMigrations } from '@storeweave/cache';
 import { buildReleaseManifest } from '../../packages/platform/bundle/src/release-manifest';
 import { release as base } from '../../packages/platform/bundle/src/releases/base';
 import { release as commerce } from '../../packages/platform/bundle/src/releases/commerce';
@@ -20,7 +21,7 @@ async function database() {
 }
 const foundations: ModulePin[] = buildReleaseManifest(base).modules.map(({ baseVersionRange: _range,
   requiredDependencies: _required, optionalDependencies: _optional, ...pin }) => pin);
-const baseSets = [platformMigrations, identityMigrations];
+const baseSets = [platformMigrations, cacheMigrations, identityMigrations];
 const featureSet: MigrationSet = { module: 'feature', migrations: [
   sqlMigration('0001', 'expand', 'CREATE TABLE feature_rows(id integer PRIMARY KEY); INSERT INTO feature_rows VALUES (1)'),
 ] };
@@ -145,8 +146,9 @@ describe('release transitions', () => {
       'platform/0006_job_retention_dedupe_horizon',
       'platform/0007_ops_listing_indexes',
       'platform/0008_job_schedules',
+      'platform-cache/0001_init',
     ]);
-    expect(prepared.manifest.owners.filter(entry => entry.state === 'active')).toHaveLength(3);
+    expect(prepared.manifest.owners.filter(entry => entry.state === 'active')).toHaveLength(4);
     expect(prepared.manifest.owners.filter(entry => entry.state === 'disabled')).toHaveLength(22);
     expect(JSON.stringify(prepared.manifest)).not.toContain('CREATE TABLE');
     await recordEffectiveRelease(pool, prepared, prepared.manifest);

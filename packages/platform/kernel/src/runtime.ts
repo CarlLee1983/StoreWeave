@@ -24,6 +24,8 @@ import { AuthService, createIdentityModule } from '@storeweave/identity';
 import { validateModuleGraph } from './module-graph';
 import { resolveKeyring } from './keyring';
 import type { Keyring } from '@storeweave/crypto';
+import { createHash } from 'node:crypto';
+import { cacheMigrations, PostgresCacheManager, PostgresMutexManager, type CacheScope, type MutexScope } from '@storeweave/cache';
 import packageJson from '../package.json';
 import { projectModulePins, projectExtensionPin } from './release-pins';
 
@@ -39,7 +41,27 @@ export interface RuntimeOptions<C extends BaseConfig = BaseConfig> {
   availableExtensions: Record<string, ExtensionDefinition<any>>;
   /** 由呼叫端先建立，讓 Core 模組（例如 order）可以在組裝前就拿到同一個實例。 */
   providers?: ProviderRegistry;
+  /**
+   * Composition-only injection seam for modules that need cache/mutex. Each
+   * binding receives scopes fixed to its declared module id, never a manager.
+   */
+  cacheBindings?: readonly ModuleCacheBinding[];
   platformVersion?: string;
+}
+
+export interface ModuleCacheScopes {
+  readonly cache: CacheScope;
+  readonly mutex: MutexScope;
+}
+
+export interface ModuleCacheBinding {
+  readonly module: string;
+  bind(scopes: ModuleCacheScopes): void;
+}
+
+/** Module ids are not length-limited, while persisted cache namespaces deliberately are. */
+function cacheNamespaceForModule(module: string): string {
+  return `m-${createHash('sha256').update(module, 'utf8').digest('hex').slice(0, 62)}`;
 }
 
 export interface Runtime<C extends BaseConfig = BaseConfig> {
@@ -99,8 +121,12 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
     ] },
     jobs: [{ type: EVENT_DELIVERY_JOB, handler: createEventDeliveryHandler(events, logger), jobContractV1: eventDeliveryJobContract }],
   };
+  const cacheModule: PlatformModule = {
+    name: 'platform-cache', version: packageJson.version, baseVersionRange: '^1.0.0',
+    migrations: cacheMigrations, data: { owns: ['platform_cache'] },
+  };
   return validateModuleGraph(
-    [platformModule, createOpsModule(jobs, { events, outbox, scheduler }), createIdentityModule(roles), ...modules], platformVersion,
+    [platformModule, cacheModule, createOpsModule(jobs, { events, outbox, scheduler }), createIdentityModule(roles), ...modules], platformVersion,
   );
 }
 
@@ -154,11 +180,34 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     poolSize: config.database.poolSize,
     ssl: config.database.ssl,
   });
+  const cache = new PostgresCacheManager(database.pool, {
+    cleanupBatchSize: config.cache.cleanupBatchSize,
+    cleanupIntervalMs: config.cache.cleanupIntervalMs,
+    onCleanupError: error => logger.warn({ error: error instanceof Error ? error.message : String(error) }, 'cache cleanup failed'),
+  });
+  const mutex = new PostgresMutexManager({
+    url: config.database.url, ssl: config.database.ssl, poolSize: config.cache.mutexPoolSize,
+    connectionTimeoutMs: Math.min(config.cache.mutexConnectionTimeoutMs, Math.max(1, Math.floor(config.shutdown.timeoutMs / 2))),
+    retryIntervalMs: config.cache.lockRetryIntervalMs,
+    onIdleError: error => logger.warn({ error: error.message }, 'mutex idle connection failed'),
+  });
   let extensions: ExtensionHost | undefined;
   let closing: Promise<void> | undefined;
   const close = () => closing ??= withCleanupDeadline(config.shutdown.timeoutMs,
-    () => closeInReverse([() => database.close(), () => extensions?.close()]));
+    () => closeInReverse([() => database.close(), () => cache.close(), () => mutex.close(), () => extensions?.close()]));
   try {
+    const moduleNames = new Set(allModules.map(module => module.name));
+    const boundModules = new Set<string>();
+    const boundNamespaces = new Set<string>();
+    for (const binding of options.cacheBindings ?? []) {
+      if (!moduleNames.has(binding.module)) throw PlatformError.validation(`Cache binding targets unknown module "${binding.module}"`);
+      if (boundModules.has(binding.module)) throw PlatformError.validation(`Duplicate cache binding for module "${binding.module}"`);
+      boundModules.add(binding.module);
+      const namespace = cacheNamespaceForModule(binding.module);
+      if (boundNamespaces.has(namespace)) throw PlatformError.validation(`Cache namespace collision for module "${binding.module}"`);
+      boundNamespaces.add(namespace);
+      binding.bind(Object.freeze({ cache: cache.forNamespace(namespace), mutex: mutex.forNamespace(namespace) }));
+    }
     const authorization = new AuthorizationService();
     const auth = new AuthService({
       operatorMs: config.auth.sessionTtlMinutes.operator * 60_000,
@@ -251,6 +300,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
               id: extension.id, name: extension.name, version: extension.version,
               platformVersion: extension.platformVersion, permissions: [...new Set(extension.permissions)].sort(),
             })));
+            cache.startCleanup();
             activatedRelease = Object.freeze({ id: actual.releaseId, version: actual.releaseVersion });
             return prepared.appliedMigrations;
           } catch (error) {
