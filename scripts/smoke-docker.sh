@@ -42,7 +42,12 @@ extensions: []
 CONFIG
   export STOREWEAVE_CONFIG_PATH="$WORK/base.yaml"
 fi
-compose up -d --build
+if [ "${STOREWEAVE_SKIP_BUILD:-false}" = true ]; then
+  docker image inspect "$STOREWEAVE_IMAGE" >/dev/null
+  compose up -d
+else
+  compose up -d --build
+fi
 for i in $(seq 1 90); do
   if curl --max-time 3 -fsS "http://localhost:$PORT/health/ready" >/dev/null 2>&1; then break; fi
   [ "$i" -lt 90 ] || { echo 'API did not become ready' >&2; compose logs --tail 60 api; exit 1; }

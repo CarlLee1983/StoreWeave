@@ -1,5 +1,9 @@
 {
   "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "incremental": true,
+    "tsBuildInfoFile": "./node_modules/.cache/storeweave.tsbuildinfo"
+  },
   "include": [
     "apps/api/src/**/*.ts",
     "apps/worker/src/**/*.ts",

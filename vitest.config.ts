@@ -4,6 +4,8 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
+    // Integration tests start nested containers and run production-style CLI
+    // upgrades. CI shards them across runners; keep every shard serial.
     fileParallelism: false,
     projects: [
       {
