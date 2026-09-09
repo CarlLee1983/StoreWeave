@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Pool } from 'pg';
 import { Database, runMigrations } from '@storeweave/db';
@@ -14,7 +15,7 @@ const databases: Database[] = [];
 const mutexes: PostgresMutexManager[] = [];
 const runtimes: Runtime[] = [];
 const children: ChildProcess[] = [];
-const PROCESS_FIXTURE = `
+const MUTEX_PROCESS_FIXTURE = `
   const { createHash } = require('node:crypto');
   const { Pool } = require('pg');
   const pool = new Pool({ connectionString: process.env.CACHE_MUTEX_PROCESS_DATABASE_URL });
@@ -23,11 +24,22 @@ const PROCESS_FIXTURE = `
   (async () => {
     const locked = await pool.query('SELECT pg_catalog.pg_try_advisory_lock($1::integer, $2::integer) AS acquired', [first, second]);
     if (!locked.rows[0]?.acquired) throw new Error('child could not acquire advisory lock');
-    await pool.query('INSERT INTO public.platform_cache (namespace, key, value, expires_at) VALUES ($1, $2, $3, $4)', ['catalog', 'cross-process', JSON.stringify({ value: { writer: 'child' }, expires: Date.now() + 5000 }), new Date(Date.now() + 5000)]);
     process.stdout.write('ready\\n');
     await new Promise(resolve => process.stdin.once('data', resolve));
     await pool.query('SELECT pg_catalog.pg_advisory_unlock($1::integer, $2::integer)', [first, second]);
     await pool.end();
+  })().catch(async error => { process.stderr.write(String(error.stack || error)); await pool.end(); process.exitCode = 1; });
+`;
+const CACHE_INVALIDATION_PROCESS = `
+  const { Pool } = require('pg');
+  const pool = new Pool({ connectionString: process.env.CACHE_INVALIDATION_PROCESS_DATABASE_URL });
+  (async () => {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const result = await pool.query('DELETE FROM public.platform_cache WHERE namespace = $1 AND key = $2', ['catalog', 'cross-process-cache']);
+      if (result.rowCount === 1) { await pool.end(); return; }
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    throw new Error('Cache value was never visible to child process');
   })().catch(async error => { process.stderr.write(String(error.stack || error)); await pool.end(); process.exitCode = 1; });
 `;
 
@@ -68,9 +80,17 @@ function deferred<T = void>() {
 function pause(milliseconds: number): Promise<void> { return new Promise(resolve => setTimeout(resolve, milliseconds)); }
 function mutexPool(mutex: PostgresMutexManager): Pool { return (mutex as unknown as { pool: Pool }).pool; }
 
-function startChild(url: string): ChildProcess {
-  const child = spawn(process.execPath, ['-e', PROCESS_FIXTURE], {
+function startMutexChild(url: string): ChildProcess {
+  const child = spawn(process.execPath, ['-e', MUTEX_PROCESS_FIXTURE], {
     env: { ...process.env, CACHE_MUTEX_PROCESS_DATABASE_URL: url }, stdio: ['pipe', 'ignore', 'ignore'],
+  });
+  children.push(child);
+  return child;
+}
+
+function startInvalidationChild(url: string): ChildProcess {
+  const child = spawn(process.execPath, ['-e', CACHE_INVALIDATION_PROCESS], {
+    env: { ...process.env, CACHE_INVALIDATION_PROCESS_DATABASE_URL: url }, stdio: ['ignore', 'ignore', 'pipe'],
   });
   children.push(child);
   return child;
@@ -97,6 +117,9 @@ describe('PostgreSQL cache', () => {
     await expect(platform.cache.get('same-key')).resolves.toBe('platform');
     await expect(cache.cache.get('same-key')).resolves.toBeUndefined();
     await expect(cache.mutex.runExclusive('scope', { operationId: 'binding-probe', waitTimeoutMs: 500 }, async () => 'bound')).resolves.toBe('bound');
+    await expect(runtime.commands.execute('platform.cache.clearOpsCache', {}, {
+      actor: runtime.actorForRole('admin'), idempotencyKey: randomUUID(),
+    })).resolves.toEqual({ cleared: true });
   });
 
   it('shares values and invalidation across isolated pools while exact namespace clear preserves siblings', async () => {
@@ -117,9 +140,19 @@ describe('PostgreSQL cache', () => {
     await expect(identity.get('product:42')).resolves.toEqual({ role: 'operator' });
   });
 
+  it('observes a CacheScope invalidation performed by an actual separate Node process', async () => {
+    const { url, firstCache } = await setup();
+    const scope = firstCache.forNamespace('catalog');
+    await scope.set('cross-process-cache', { writer: 'parent' }, { ttlMs: 5_000 });
+    const child = startInvalidationChild(url);
+    const childExited = new Promise<void>((resolveExit, rejectExit) => child.once('exit', code => code === 0 ? resolveExit() : rejectExit(new Error(`Cache child exited with ${code}`))));
+    await childExited;
+    await expect(scope.get('cross-process-cache')).resolves.toBeUndefined();
+  });
+
   it('shares a cache value and advisory exclusion with an actual separate Node process', async () => {
     const { url, first, firstMutex } = await setup();
-    const child = startChild(url);
+    const child = startMutexChild(url);
     let observedChildLock = false;
     for (let attempt = 0; attempt < 20 && !observedChildLock; attempt += 1) {
       try {
@@ -132,14 +165,6 @@ describe('PostgreSQL cache', () => {
       }
     }
     expect(observedChildLock).toBe(true);
-    let childValue: string | undefined;
-    for (let attempt = 0; attempt < 50 && !childValue; attempt += 1) {
-      childValue = (await first.pool.query<{ value: string }>(
-        'SELECT value FROM public.platform_cache WHERE namespace = $1 AND key = $2', ['catalog', 'cross-process'],
-      )).rows[0]?.value;
-      if (!childValue) await pause(10);
-    }
-    expect(childValue).toContain('"writer":"child"');
     const childExited = new Promise<void>((resolveExit, rejectExit) => child.once('exit', (code, signal) => signal === 'SIGTERM' ? resolveExit() : rejectExit(new Error(`Cache child exited with ${code}/${signal}`))));
     child.kill('SIGTERM');
     await childExited;
@@ -160,6 +185,21 @@ describe('PostgreSQL cache', () => {
     await first.close();
     databases.splice(databases.indexOf(first), 1);
     await expect(cache.get('provider-down')).rejects.toThrow();
+  });
+
+  it('lets concurrent bounded cleaners split expired rows without blocking or double-counting', async () => {
+    const { firstCache, secondCache } = await setup();
+    const cache = firstCache.forNamespace('catalog');
+    await cache.set('expired-one', 1, { ttlMs: 20 });
+    await cache.set('expired-two', 2, { ttlMs: 20 });
+    await pause(40);
+    const cleared = await Promise.all([
+      firstCache.clearExpired({ limit: 1 }),
+      secondCache.clearExpired({ limit: 1 }),
+    ]);
+    expect(cleared.sort()).toEqual([1, 1]);
+    await expect(cache.get('expired-one')).resolves.toBeUndefined();
+    await expect(cache.get('expired-two')).resolves.toBeUndefined();
   });
 
   it('rejects invalid scopes, keys and non-expiring entries at the boundary', async () => {

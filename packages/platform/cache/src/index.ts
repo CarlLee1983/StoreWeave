@@ -76,7 +76,7 @@ export interface PostgresMutexOptions {
   readonly url: string;
   readonly ssl?: boolean;
   readonly poolSize?: number;
-  /** Bounds an in-flight TCP/PostgreSQL connection attempt and pool shutdown. */
+  /** Bounds an in-flight TCP/PostgreSQL connection attempt. Runtime shutdown is bounded by its lifecycle deadline. */
   readonly connectionTimeoutMs?: number;
   readonly retryIntervalMs?: number;
   /** Idle backend failures must be observed; they are never allowed to become an unhandled Pool error. */

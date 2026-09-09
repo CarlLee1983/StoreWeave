@@ -19,7 +19,7 @@ import { JobRegistry } from './job-registry';
 import { McpToolRegistry } from './mcp-registry';
 import { EVENT_DELIVERY_JOB, createEventDeliveryHandler, eventDeliveryJobContract } from './event-delivery';
 import type { PlatformModule } from './module';
-import { createOpsModule } from './ops-module';
+import { createOpsModule, OPS_MODULE_NAME } from './ops-module';
 import { AuthService, createIdentityModule } from '@storeweave/identity';
 import { validateModuleGraph } from './module-graph';
 import { resolveKeyring } from './keyring';
@@ -101,7 +101,7 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
 }
 
 /** Pure composition shared by runtime and release metadata projection; no handlers execute here. */
-export function composeRuntimeModules({ modules, roles, logger, platformVersion, jobs, events, outbox, scheduler }: {
+export function composeRuntimeModules({ modules, roles, logger, platformVersion, jobs, events, outbox, scheduler, cache }: {
   modules: readonly PlatformModule[];
   roles: ReleaseRoleCatalog;
   logger: Logger;
@@ -110,6 +110,7 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
   events: EventBus;
   outbox: OutboxStore;
   scheduler: () => RecurringScheduler;
+  cache?: () => CacheScope;
 }): readonly PlatformModule[] {
   const platformModule: PlatformModule = {
     name: 'platform', version: packageJson.version, baseVersionRange: '^1.0.0',
@@ -126,7 +127,10 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
     migrations: cacheMigrations, data: { owns: ['platform_cache'] },
   };
   return validateModuleGraph(
-    [platformModule, cacheModule, createOpsModule(jobs, { events, outbox, scheduler }), createIdentityModule(roles), ...modules], platformVersion,
+    [platformModule, cacheModule, createOpsModule(jobs, {
+      events, outbox, scheduler,
+      cache: cache ?? (() => { throw new Error('Cache scope is not configured'); }),
+    }), createIdentityModule(roles), ...modules], platformVersion,
   );
 }
 
@@ -156,11 +160,16 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
   const outbox = new OutboxStore();
   // 排程器要等資料庫建立後才生得出來，但模組組裝在那之前就得完成（Release 選取需要模組清單）。
   let scheduler: RecurringScheduler | undefined;
+  let opsCache: ModuleCacheScopes | undefined;
   const allModules = composeRuntimeModules({
     modules: options.modules, roles: options.roles, logger, platformVersion, jobs, events, outbox,
     scheduler: () => {
       if (!scheduler) throw new Error('Scheduler is not ready yet');
       return scheduler;
+    },
+    cache: () => {
+      if (!opsCache) throw new Error('Cache scope is not ready yet');
+      return opsCache.cache;
     },
   });
   const enabled = config.extensions.filter(entry => entry.enabled).map(entry => {
@@ -199,7 +208,11 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     const moduleNames = new Set(allModules.map(module => module.name));
     const boundModules = new Set<string>();
     const boundNamespaces = new Set<string>();
-    for (const binding of options.cacheBindings ?? []) {
+    const cacheBindings: readonly ModuleCacheBinding[] = [
+      { module: OPS_MODULE_NAME, bind: scopes => { opsCache = scopes; } },
+      ...(options.cacheBindings ?? []),
+    ];
+    for (const binding of cacheBindings) {
       if (!moduleNames.has(binding.module)) throw PlatformError.validation(`Cache binding targets unknown module "${binding.module}"`);
       if (boundModules.has(binding.module)) throw PlatformError.validation(`Duplicate cache binding for module "${binding.module}"`);
       boundModules.add(binding.module);
