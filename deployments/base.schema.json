@@ -143,6 +143,27 @@
               "type": "integer",
               "minimum": 10,
               "default": 300
+            },
+            "completedPayloadRetentionDays": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "default": 7
+            },
+            "cancelledPayloadRetentionDays": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "default": 7
+            },
+            "dedupeHorizonDays": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "default": 30
+            },
+            "retentionCleanupBatchSize": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
             }
           },
           "additionalProperties": false,
@@ -346,6 +367,38 @@
             "file": {
               "type": "string",
               "default": "/etc/storeweave/storeweave.env"
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "security": {
+          "type": "object",
+          "properties": {
+            "signingKeys": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                  },
+                  "secretRef": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "secretRef"
+                ],
+                "additionalProperties": false
+              },
+              "default": []
+            },
+            "activeSigningKeyId": {
+              "type": "string"
             }
           },
           "additionalProperties": false,

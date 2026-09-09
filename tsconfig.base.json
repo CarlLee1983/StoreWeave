@@ -31,6 +31,8 @@
       "@storeweave/authorization": ["packages/platform/authorization/src/index.ts"],
       "@storeweave/identity": ["packages/platform/identity/src/index.ts"],
       "@storeweave/audit": ["packages/platform/audit/src/index.ts"],
+      "@storeweave/crypto": ["packages/platform/crypto/src/index.ts"],
+      "@storeweave/http-client": ["packages/platform/http-client/src/index.ts"],
       "@storeweave/extension-sdk": ["packages/platform/extension-sdk/src/index.ts"],
       "@storeweave/kernel": ["packages/platform/kernel/src/index.ts"],
       "@storeweave/bundle": ["packages/platform/bundle/src/index.ts"],

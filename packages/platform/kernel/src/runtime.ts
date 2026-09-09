@@ -22,6 +22,8 @@ import type { PlatformModule } from './module';
 import { createOpsModule } from './ops-module';
 import { AuthService, createIdentityModule } from '@storeweave/identity';
 import { validateModuleGraph } from './module-graph';
+import { resolveKeyring } from './keyring';
+import type { Keyring } from '@storeweave/crypto';
 import packageJson from '../package.json';
 import { projectModulePins, projectExtensionPin } from './release-pins';
 
@@ -44,6 +46,8 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
   readonly roles: ReleaseRoleCatalog;
   readonly config: C;
   readonly secrets: SecretProvider;
+  /** 簽章金鑰環。未設定 `security.signingKeys` 的 release 沒有這個能力。 */
+  readonly keyring?: Keyring;
   readonly logger: Logger;
   readonly database: Database;
   readonly authorization: AuthorizationService;
@@ -112,6 +116,9 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     }
   }
 
+
+  // 宣告了金鑰卻讀不到秘密要在這裡就失敗，不要等到第一個簽章請求。
+  const keyring = resolveKeyring(config, secrets);
 
   const jobs = new JobQueue();
   jobs.setRetentionPolicy({
@@ -212,7 +219,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     let activatedRelease: Readonly<{ readonly id: string; readonly version: string }> | null = null;
 
     const runtime: Runtime<C> = {
-      roles: options.roles, config, secrets, logger, database, authorization, auth, audit, outbox, jobs, jobRegistry, recurring,
+      roles: options.roles, config, secrets, keyring, logger, database, authorization, auth, audit, outbox, jobs, jobRegistry, recurring,
       events, commands, queries, providers, mcpTools, extensions, migrations, platformVersion, modules: allModules,
       get activatedRelease() { return activatedRelease; },
       actorForRole(role, id) {

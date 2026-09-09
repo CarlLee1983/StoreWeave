@@ -7,13 +7,13 @@
 Outbox 屬 B04，不在本包。
 
 依據：[計畫 §B05](../../base-implementation-plan.md)、[Spec 0009 F07](../../specs/0009-complete-modular-base.md#3-能力範圍與現況)、
-[ADR 0016](../../adr/0016-recurring-jobs-by-time-buckets.md)、[ADR 0038](../../adr/0038-cron-calculation-only-croner.md)、
+[ADR 0016](../../adr/0016-recurring-jobs-by-time-buckets.md)、[ADR 0039](../../adr/0039-cron-calculation-only-croner.md)、
 [B04 驗收](../b04/acceptance.md)。依賴只以[依賴表](../../base-implementation-plan.md#3-依賴圖與階段出口)為準。
 
 | 驗收項目 | owner | evidence | status |
 | --- | --- | --- | --- |
 | cron 套件選型有實測比較，主代理決策 | B05 | [cron-comparison.md](cron-comparison.md) 三套件、九組案例；`scripts/poc/base-b05` 四支探針 | implemented; review pending |
-| 選型寫成可檢查的決策記錄 | B05 | [ADR 0038](../../adr/0038-cron-calculation-only-croner.md) accepted，falsification 指名 `schedule-spec.ts`／`recurring.ts`／`worker.ts`／`module.ts` | implemented; review pending |
+| 選型寫成可檢查的決策記錄 | B05 | [ADR 0039](../../adr/0039-cron-calculation-only-croner.md) accepted，falsification 指名 `schedule-spec.ts`／`recurring.ts`／`worker.ts`／`module.ts` | implemented; review pending |
 | cron 宣告契約與啟動前驗證 | B05 | `register()` 驗運算式、時區、catchUp、overlap，並**正反各探一次時間運算**：`0 0 30 2 *` 這類永不發生的組合拒絕，閏日 `0 0 29 2 *` 由有界正向掃描補回 croner 回推的缺陷。有歧義縮寫與 `Etc/GMT±N` 拒絕，backward link（Japan／NZ）接受。unit 12 例 | implemented; 已修 C1／L6，複審 pending |
 | Asia/Taipei 午夜可重現 | B05 | unit：`0 0 * * *` → UTC 16:00 連三日；integration：真 PG 排出 `2026-01-04T16:00:00Z` | implemented; review pending |
 | 具 DST 時區 spring-forward 可重現 | B05 | unit＋integration：NY `30 2 * * *`，03-08 的 02:30 順延 07:30Z，當天只有一次 | implemented; review pending |
@@ -29,7 +29,7 @@ Outbox 屬 B04，不在本包。
 | 舊排程遷移不雙排、不漏接 | A + B05 | 間隔式 occurrence 身分與 payload 逐欄不變，故遷移對在途工作是 no-op；`0008` 只新增資料表，不改既有列 | implemented; review pending |
 | 排程狀態持久化 | B05 | `platform_job_schedules`＋`0008_job_schedules`；列入 platform release ownership metadata | implemented; review pending |
 | CLI／ops 註冊 | B05 | `platform.jobs.listSchedules`／`pauseSchedule`／`resumeSchedule`（權限、idempotency、audit）；CLI `schedule:list`／`pause`／`resume`，附 `--idempotency-key` 供重試同一次操作。暫停中不顯示「下一次」 | implemented; HTTP 層測試 pending |
-| 更新 ADR 0016 | B05 | 0016 標記「排程機制部分由 0038 修訂」，補記兩項限制如何解除、理由如何保留；falsification 改指 `schedule-spec.ts` 並新增「不得自我續排」 | implemented |
+| 更新 ADR 0016 | B05 | 0016 標記「排程機制部分由 0039 修訂」，補記兩項限制如何解除、理由如何保留；falsification 改指 `schedule-spec.ts` 並新增「不得自我續排」 | implemented |
 | 可控 clock 的運算測試 | B05 | `packages/platform/kernel/test/schedule-spec.test.ts` 29 passed，全部注入時間點；含單一排程失敗不拖垮整輪 | implemented; 複審 pending |
 | PG 競爭測試 | B05 | `tests/integration/scheduler.test.ts` 25 passed（真 PG，含列鎖阻塞與並行補排） | implemented; 複審 pending |
 | full checks 與 native/Docker gates | A | typecheck PASS；unit 767 passed／1 pre-existing failure；integration 738 passed／0 failed | partial（smoke 屬 A） |

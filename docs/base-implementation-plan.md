@@ -3,7 +3,7 @@
 - 規格：[Spec 0009](specs/0009-complete-modular-base.md)，能力範圍與最終驗收以該文件為準。
 - 日期／盤點基準：2026-09-07，`1f4470d`；Spec 0008 Ticket 81–90 已完成，保留已驗證的未提交工作樹。
 - 工作包 B00–B17 是本機規劃識別，不是 GitHub Issue，也不佔用既有 Ticket 92 之後的編號。
-- 執行狀態：B00–B02 `done`，見 [B00 驗證紀錄](base/b00/README.md)、[B01 紀錄](base/b01/README.md)；B02 已通過 [驗收對照](base/b02/acceptance.md)。[B03](base/b03/README.md) `in_progress`（transport、catalog artifact、CORS 與 test config 已實作；whole-B03 source review 已記錄通過；完整 integration／final-source smokes 與結案證據 pending），依 [B01–B04 派工契約](base/b00/next-work-cards.md) 執行。[B04](base/b04/README.md) `done`（五片實作與三份獨立 5b review 全部結案，P0／P1 皆已修並附量體證據；typecheck、unit、完整 integration 與 Docker／native smoke 實跑通過）。B05–B17 `planned`，依下列前置及契約審查解鎖。planned 不代表可直接丟給多位 writer 同時開工。
+- 執行狀態：B00–B04 `done`，見 [B00 驗證紀錄](base/b00/README.md)、[B01 紀錄](base/b01/README.md)、[B02 驗收對照](base/b02/acceptance.md)、[B03 紀錄](base/b03/README.md)（2026-09-08 結案，final-source gates 與獨立 review 齊備）、[B04 紀錄](base/b04/README.md)（五片實作與三份獨立 5b review 全部結案，P0／P1 皆已修並附量體證據；typecheck、unit、完整 integration 與 Docker／native smoke 實跑通過），依 [B01–B04 派工契約](base/b00/next-work-cards.md) 執行。B05 `in_progress`，由另一條工作線在獨立分支進行；本文件未核對其交付，結案證據以該線提出者為準。B12 `planned` 且已有 [派工契約與第一片派工單](base/b12/assignment.md)。其餘 B06–B17 `planned`，依下列前置及契約審查解鎖。planned 不代表可直接丟給多位 writer 同時開工。
 
 ## 1. 接手與派工方式
 
@@ -82,13 +82,13 @@
 
 #### 目前前沿與啟動條件
 
-| Session | B03 結案前可派範圍 | B03 結案後的工作線 | 交付出口 |
+| Session | 已交付 | 目前工作線 | 交付出口 |
 | --- | --- | --- | --- |
-| A：整合 owner，原 session | 完成既有 B03；依 [acceptance](base/b03/acceptance.md#待完成的最終-gates) 取得 final-source gates 與結案證據 | 持有共用接線、migration history、整合基準與重型驗證排程 | 每片整合後的 source identity、review、checks、下一個可執行前沿 |
-| B：Queue owner | 唯讀 B04 契約分析、呼叫端盤點與故障案例設計；交付給 A，不提前改 production 或跑重型測試 | B04；完成並整合驗收後接 B05 | 依 [B04 card](base/b00/next-work-cards.md#b04--同一-queue-完整可靠性) 交付完整可靠性與移轉證據，再承接 Scheduler |
-| C：共用服務 owner | 唯讀 B12 consumer／工具盤點與介面提案；交付給 A，不提前實作 | B12；完成並整合驗收後接 B09 | 共用工具含真實 consumer；其後 Storage 使用已驗收的簽章與時間契約 |
+| A：整合 owner，原 session | B03 結案；B04 整合與 gate 排程 | 持有共用接線、migration history、整合基準與重型驗證排程 | 每片整合後的 source identity、review、checks、下一個可執行前沿 |
+| B：Queue owner | B04（[紀錄](base/b04/README.md)、[驗收](base/b04/acceptance.md)） | B05 Scheduler，獨立分支 | 排程 cron／timezone／DST／misfire 與工作執行管控 |
+| C：共用服務 owner | B12 consumer／工具盤點（見[派工契約](base/b12/assignment.md)§1） | B12 片1；完成並整合驗收後接 B09 | 共用工具含真實 consumer；其後 Storage 使用已驗收的簽章與時間契約 |
 
-B03 結案前維持既有收尾 ownership。雖然 B04 的 DAG 前置只有 B02，本輪排程仍將 B04 implementation 放在 B03 結案後，避免改動驗收基準。A 確認 B03 出口後，先完成 B、C 的具體派工單與 Sol/high 契約分析，再同時開啟兩條 implementation 線。
+B03 與 B04 已依此排程結案：B04 的 DAG 前置雖只有 B02，實作仍放在 B03 結案後以免改動驗收基準。B、C 兩條 implementation 線現已同時開啟，B 承接 B05，C 承接 B12。
 
 B04 與 B09 等 B06 前置均完成後，由 A 指定一位空出的工作線 owner 接 B06。後續 B07／B08、B15／B16 可在 §3 前置全數成立且 ownership 分開後並行；B13 → B10 → B14 保持既定順序。B11 排入空出的工作線，在 B15／B16 需要它之前完成，不為它常駐第四條 implementation 線。這是優先順序，不增加或刪除 DAG 依賴。
 
@@ -289,7 +289,7 @@ B00–B12 的後端工作不必等完整 Admin UI 才能開始，但避開 Admin
 每次交付記錄：工作包／切片、HEAD、owner 與檔案、實際選用版本、完成的 F 項、
 passed／failed／not-run checks、審查與修正、migration／rollback 結果、剩餘 blocker、下一個可派工包。
 
-跨 session 接手時，使用 §3.1 的派工單格式，先指定 A／B／C 與分析或實作模式；目前入口是 B03 收尾與 B04／B12 的唯讀準備，不再使用歷史 B00 接手指令。
+跨 session 接手時，使用 §3.1 的派工單格式，先指定 A／B／C 與分析或實作模式；目前入口是 B05 排程線與 B12 片1，不再使用歷史 B00 接手指令。
 
 ## 7. 本輪規劃交付紀錄（2026-09-06）
 

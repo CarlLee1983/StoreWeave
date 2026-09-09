@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash } from 'node:crypto';
 import type { ExtensionContext, InvoiceCarrier, InvoiceIssueInput, InvoiceIssueResult, InvoiceProvider, InvoiceVoidInput, InvoiceVoidResult } from '@storeweave/extension-sdk';
-import { ECPAY_INVOICE_HASH_IV_SECRET, ECPAY_INVOICE_HASH_KEY_SECRET, ECPAY_INVOICE_MERCHANT_ID_SECRET, invoiceBaseUrl, type EcpayInvoiceConfig } from './config';
+import { ECPAY_INVOICE_ALLOWED_HOSTS, ECPAY_INVOICE_HASH_IV_SECRET, ECPAY_INVOICE_HASH_KEY_SECRET, ECPAY_INVOICE_MERCHANT_ID_SECRET, invoiceBaseUrl, type EcpayInvoiceConfig } from './config';
 
 export const ECPAY_INVOICE_PROVIDER_ID = 'ecpay';
 type ApiData = Record<string, unknown> & { RtnCode?: number | string; RtnMsg?: string };
@@ -44,9 +44,16 @@ function requiredCredentials(ctx: ExtensionContext<EcpayInvoiceConfig>) {
 }
 
 async function ecpayCall(ctx: ExtensionContext<EcpayInvoiceConfig>, credentials: { merchantId: string; hashKey: string; hashIv: string }, path: string, payload: Record<string, unknown>): Promise<ApiData> {
-  const response = await fetch(`${invoiceBaseUrl(ctx.config)}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ MerchantID: credentials.merchantId, RqHeader: { Timestamp: Math.floor(ctx.now().getTime() / 1000) }, Data: encrypt(payload, credentials) }) });
-  if (!response.ok) throw new Error(`ECPay invoice ${path} returned HTTP ${response.status}`);
-  const outer = await response.json() as { TransCode?: number | string; TransMsg?: string; Data?: string };
+  // 開立發票是有副作用的 POST：逾時與網路失敗都不自動重送，交給 job 層決定。
+  const http = ctx.http({ timeoutMs: ctx.config.timeoutMs, allowedHosts: ECPAY_INVOICE_ALLOWED_HOSTS });
+  const result = await http.requestJson<{ TransCode?: number | string; TransMsg?: string; Data?: string }>({
+    method: 'POST',
+    url: `${invoiceBaseUrl(ctx.config)}${path}`,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ MerchantID: credentials.merchantId, RqHeader: { Timestamp: Math.floor(ctx.now().getTime() / 1000) }, Data: encrypt(payload, credentials) }),
+  });
+  if (!result.ok) throw new Error(`ECPay invoice ${path} failed (${result.reason}): ${result.message}`);
+  const outer = result.body;
   if (String(outer.TransCode) !== '1' || !outer.Data) return { RtnCode: outer.TransCode, RtnMsg: outer.TransMsg ?? 'ECPay rejected invoice transport' };
   return decrypt(outer.Data, credentials);
 }

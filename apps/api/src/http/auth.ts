@@ -1,5 +1,5 @@
 import { roleFor } from '@storeweave/authorization';
-import { timingSafeEqual } from 'node:crypto';
+import { constantTimeEquals } from '@storeweave/crypto';
 import { CanActivate, ExecutionContext, Inject, Injectable, SetMetadata } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PlatformError, type Actor } from '@storeweave/contracts';
@@ -47,13 +47,6 @@ export interface AuthenticatedRequest {
   raw?: unknown;
 }
 
-function safeEquals(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
-}
-
 /**
  * 三段式解析：Bearer token → session cookie → 匿名訪客。
  * token 值只從 Secret Provider 讀取，永遠不會出現在 commerce.yaml 或 log 裡。
@@ -98,7 +91,7 @@ export class ApiTokenGuard implements CanActivate {
       for (const token of this.runtime.config.auth.tokens) {
         const expected = this.runtime.secrets.get(token.secretRef);
         if (!expected) continue;
-        if (safeEquals(presented, expected)) {
+        if (constantTimeEquals(presented, expected)) {
           const role = roleFor(this.runtime.roles, token.role);
           if (!role?.tokenAllowed) throw new PlatformError('UNAUTHENTICATED', 'Invalid API token');
           request.actor = {
@@ -183,7 +176,7 @@ export class ApiTokenGuard implements CanActivate {
     const formToken = typeof body?._csrf === 'string' ? body._csrf : undefined;
     const presented = headerToken ?? formToken;
 
-    if (!presented || !safeEquals(presented, csrfTokenFor(sessionToken))) {
+    if (!presented || !constantTimeEquals(presented, csrfTokenFor(sessionToken))) {
       throw new PlatformError('FORBIDDEN', 'Missing or invalid CSRF token');
     }
   }

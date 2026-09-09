@@ -20,7 +20,7 @@ export * from './schedule-spec';
  * 週期性工作的排程器。
  *
  * 佇列只認得「在這個時間之後執行一次」，所以排程器唯一的動作是**算出該跑的那幾次並 enqueue**；
- * 執行仍然由同一個 worker 從佇列取出，走 B04 的 occurrence fencing 與重試路徑（ADR 0038）。
+ * 執行仍然由同一個 worker 從佇列取出，走 B04 的 occurrence fencing 與重試路徑（ADR 0039）。
  * 這裡不持有任何 timer，行程重啟不會遺失狀態。
  *
  * ADR 0016 用 epoch 對齊的切片避免「自我續排的鏈斷掉就再也接不回來」。那個理由仍然成立，

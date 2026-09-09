@@ -6,7 +6,7 @@ import { PlatformError } from '@storeweave/contracts';
  *
  * 這個檔案只做「什麼時候該跑」的純計算，一次資料庫都不碰，也不持有任何 timer。
  * 「跑」這件事仍然只有一條路：算出 occurrence → enqueue → 由同一個 worker 從佇列取出執行。
- * 詳見 ADR 0038；croner 的 scheduler 面（schedule／trigger／stop／pause／name）在這裡不能出現。
+ * 詳見 ADR 0039；croner 的 scheduler 面（schedule／trigger／stop／pause／name）在這裡不能出現。
  *
  * 兩種宣告：
  * - `everyMs` 固定間隔，沿用 ADR 0016 的 epoch 對齊切片，去重鍵與遷移前完全相同。

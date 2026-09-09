@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { constantTimeEquals } from '@storeweave/extension-sdk';
 import type {
   ExtensionContext, ShippingCallbackEvent, ShippingCallbackRequest, ShippingProvider, ShippingShipmentInput, ShippingShipmentResult, ShippingShipmentStatusInput, ShippingShipmentStatusResult,
 } from '@storeweave/extension-sdk';
@@ -97,7 +98,7 @@ function parseFakeCallback(ctx: ExtensionContext<EcpayLogisticsConfig>, request:
   const hashKey = ctx.secret(ECPAY_LOGISTICS_HASH_KEY_SECRET)!;
   const canonical = new URLSearchParams(Object.entries(fields).sort(([a], [b]) => a.localeCompare(b))).toString();
   const expected = createHash('sha256').update(`fake-ecpay-logistics:${hashKey}:${canonical}`).digest('hex');
-  if (!signature || signature !== expected) throw new Error('invalid fake ECPay logistics callback signature');
+  if (!signature || !constantTimeEquals(signature, expected)) throw new Error('invalid fake ECPay logistics callback signature');
   const stage = fields.stage as ShippingCallbackEvent['stage'];
   if (stage !== undefined && stage !== 'shipped' && stage !== 'arrived' && stage !== 'completed') {
     throw new Error('invalid fake ECPay logistics callback stage');

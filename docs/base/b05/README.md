@@ -19,7 +19,7 @@
 沒有任何 in-process timer；行程重啟不遺失狀態。時間由呼叫端注入，所以測試不需要等真實時鐘。
 
 **兩種宣告，一種身分。** `{ everyMs }` 沿用 ADR 0016 的 epoch 對齊切片；
-`{ cron, timezone }` 用 croner 運算（[ADR 0038](../../adr/0038-cron-calculation-only-croner.md)）。
+`{ cron, timezone }` 用 croner 運算（[ADR 0039](../../adr/0039-cron-calculation-only-croner.md)）。
 時區是必填的 IANA 識別碼。有歧義的縮寫被擋下——Node 的 `Intl` 會照收 `CST` 並解析成
 `America/Chicago`、`EST` 解析成 `America/Panama`、`BST` 解析成 `Asia/Dhaka`、
 `IST` 解析成 `Asia/Calcutta`，靜默的錯誤位移比啟動失敗糟得多；

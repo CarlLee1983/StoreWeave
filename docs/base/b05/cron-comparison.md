@@ -4,7 +4,7 @@
 
 [ADR 0035](../../adr/0035-retain-postgres-queue-for-modular-base.md) 已定「不以自製 cron parser 取代成熟套件」，
 但沒有指定哪一個。[計畫 §1.3](../../base-implementation-plan.md#1-接手與派工方式) 要求涉及選型的包先完成指定比較，
-主代理再決策。本文件就是那份比較，結論寫入 [ADR 0038](../../adr/0038-cron-calculation-only-croner.md)。
+主代理再決策。本文件就是那份比較，結論寫入 [ADR 0039](../../adr/0039-cron-calculation-only-croner.md)。
 
 ## 範圍與方法
 
@@ -59,7 +59,7 @@ croner 零相依、164K，cron-parser 要拖 4.5M 的 luxon 進 [ADR 0007](../..
 換不到任何測得出來的正確性。
 
 代價是 croner 的公開面同時是一個 in-process scheduler，而 B05 的契約是「排程只 enqueue，由同一 worker 執行」。
-兩件事必須靠約束擋住，寫進 ADR 0038 的 falsification：只呼叫 `nextRuns`／`previousRuns`／`match`，
+兩件事必須靠約束擋住，寫進 ADR 0039 的 falsification：只呼叫 `nextRuns`／`previousRuns`／`match`，
 不呼叫 `schedule`／`trigger`／`stop`／`pause`，也不傳 `name`（避免 module 級全域註冊表）。
 `previousRun()` 與 `previousRuns()` 語意不同，本次探針已實際踩到：前者對未執行過的 job 回 `null`，
 只有後者是純運算。

@@ -2,6 +2,7 @@ export * from './event-delivery';
 export * from './extension-host';
 export * from './extension-store';
 export * from './job-registry';
+export * from './keyring';
 export * from './mcp-registry';
 export * from './logger';
 export * from './module';

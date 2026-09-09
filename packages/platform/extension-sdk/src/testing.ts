@@ -1,4 +1,5 @@
 import { noopLogger, type Logger } from '@storeweave/contracts';
+import { createHttpClient } from '@storeweave/http-client';
 import type { ExtensionContext } from './context';
 import type { ExtensionStore, ExtensionStoreEntry } from './store';
 import type { AnyProvider, ProviderKind } from './providers';
@@ -53,6 +54,8 @@ export interface TestContextOptions<TConfig> {
   providers?: Partial<Record<ProviderKind, AnyProvider>>;
   secrets?: Record<string, string>;
   now?: () => Date;
+  /** 測試用的 fetch 替身。未給則沿用當下的全域 fetch。 */
+  fetch?: typeof fetch;
 }
 
 export interface TestExtensionContext<TConfig> extends ExtensionContext<TConfig> {
@@ -82,6 +85,8 @@ export function createTestExtensionContext<TConfig>(
     platformVersion: options.platformVersion ?? '1.0.0',
     config: options.config,
     logger: options.logger ?? noopLogger,
+    // 沒給替身就沿用當下的全域 fetch，讓既有的 vi.stubGlobal('fetch', ...) 照舊生效。
+    http: (httpOptions) => createHttpClient({ ...httpOptions, ...(options.fetch ? { fetch: options.fetch } : {}) }),
     store,
     calls,
     commands: {

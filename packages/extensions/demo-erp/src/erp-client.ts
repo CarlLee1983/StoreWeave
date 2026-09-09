@@ -28,15 +28,15 @@ export function createDemoErpProvider(ctx: ExtensionContext<DemoErpConfig>): Erp
       if (config.endpoint.startsWith('mock://')) {
         return { ok: true, message: `mock endpoint ${config.endpoint}` };
       }
-      try {
-        const response = await fetchWithTimeout(`${config.endpoint.replace(/\/$/, '')}/health`, {
-          method: 'GET',
-          headers: authHeaders(ctx),
-        }, config.timeoutMs);
-        return { ok: response.ok, message: `HTTP ${response.status}` };
-      } catch (err) {
-        return { ok: false, message: (err as Error).message };
-      }
+      // health check 是 GET，重送安全，所以允許少量重試。
+      const result = await httpFor(ctx, 2).request({
+        method: 'GET',
+        url: `${config.endpoint.replace(/\/$/, '')}/health`,
+        headers: authHeaders(ctx),
+      });
+      return result.ok
+        ? { ok: true, message: `HTTP ${result.status}` }
+        : { ok: false, message: `${result.reason}: ${result.message}` };
     },
   };
 }
@@ -63,19 +63,18 @@ async function pushToMock(ctx: ExtensionContext<DemoErpConfig>, doc: ErpDocument
 }
 
 async function pushToHttp(ctx: ExtensionContext<DemoErpConfig>, doc: ErpDocument) {
-  const url = `${ctx.config.endpoint.replace(/\/$/, '')}/documents`;
-  const response = await fetchWithTimeout(url, {
+  // 推送單據會在遠端建立資料。遠端雖以 reference 去重，但那是遠端的保證，
+  // 不是這一層可以宣稱的，所以不自動重送——重試由 job 的 attempt 決定。
+  const result = await httpFor(ctx, 1).requestJson<{ remoteId?: string; id?: string }>({
     method: 'POST',
+    url: `${ctx.config.endpoint.replace(/\/$/, '')}/documents`,
     headers: { 'content-type': 'application/json', ...authHeaders(ctx) },
     // 和 Admin payload inspector 共用同一個投影，確保畫面上的 JSON 就是 HTTP body。
     body: JSON.stringify(toErpHttpPayload(doc)),
-  }, ctx.config.timeoutMs);
+  });
 
-  if (!response.ok) {
-    throw new Error(`ERP responded with HTTP ${response.status}`);
-  }
-  const json = (await response.json().catch(() => ({}))) as { remoteId?: string; id?: string };
-  return { accepted: true, remoteId: json.remoteId ?? json.id ?? doc.reference };
+  if (!result.ok) throw new Error(`ERP push failed (${result.reason}): ${result.message}`);
+  return { accepted: true, remoteId: result.body.remoteId ?? result.body.id ?? doc.reference };
 }
 
 function authHeaders(ctx: ExtensionContext<DemoErpConfig>): Record<string, string> {
@@ -83,12 +82,10 @@ function authHeaders(ctx: ExtensionContext<DemoErpConfig>): Record<string, strin
   return apiKey ? { authorization: `Bearer ${apiKey}` } : {};
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
+/**
+ * Demo ERP 的端點由營運者在設定裡指定，可能是自架的內網服務，所以允許 http
+ * 且不設 host 允許清單。這是這個 Extension 的用途決定的，不是預設政策。
+ */
+function httpFor(ctx: ExtensionContext<DemoErpConfig>, maxAttempts: number) {
+  return ctx.http({ timeoutMs: ctx.config.timeoutMs, maxAttempts, allowInsecureHttp: true });
 }
