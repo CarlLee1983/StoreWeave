@@ -1,8 +1,16 @@
 # B05 驗收追蹤：Scheduler
 
-狀態：五片實作完成；獨立審查兩輪已完成——第一輪 BLOCK（1 CRITICAL、2 HIGH、5 MEDIUM、6 LOW），
-第二輪確認 C1／H1／H2／M1／M4／M5 真的修好、**無 CRITICAL 無 HIGH**，另發現 5 MEDIUM、6 LOW。
-兩輪合計 25 項全部已修。**第三輪複審 pending**，因此 B05 尚未 accepted。
+狀態：**accepted**（2026-09-09）。五片實作完成並合併進 main（PR #29）；HTTP 入口與測試
+在分支 `ops-http-tests` 上待 A 線整合。
+
+獨立審查四輪：第一輪 BLOCK（1 CRITICAL、2 HIGH、5 MEDIUM、6 LOW）、第二輪 5 MEDIUM ＋ 6 LOW、
+第三輪 Block（1 HIGH：排程階段預算的固定起點造成無限期餓死）、第四輪 Warning 且無 HIGH。
+四輪合計 45 項，逐項處置見下方各節。HTTP 那一片另走過一輪審查（無 CRITICAL 無 HIGH，
+3 MEDIUM ＋ 3 LOW 已修）。
+
+**第五輪複審刻意不做。** 第四輪已判無 HIGH，其後的修正是兩個 MEDIUM 加測試收緊與文件，
+性質比前幾輪輕得多；再開一輪的期望產出不足以支撐它的成本。這是使用者的決定，記在這裡
+是為了讓後來的人知道停在哪一輪、以及為什麼——不是因為沒人想到要做。
 範圍為 F07 的 cron／timezone／DST、misfire、pause、overlap；occurrence 執行、fencing、重試與
 Outbox 屬 B04，不在本包。
 
@@ -12,27 +20,28 @@ Outbox 屬 B04，不在本包。
 
 | 驗收項目 | owner | evidence | status |
 | --- | --- | --- | --- |
-| cron 套件選型有實測比較，主代理決策 | B05 | [cron-comparison.md](cron-comparison.md) 三套件、九組案例；`scripts/poc/base-b05` 四支探針 | implemented; review pending |
-| 選型寫成可檢查的決策記錄 | B05 | [ADR 0039](../../adr/0039-cron-calculation-only-croner.md) accepted，falsification 指名 `schedule-spec.ts`／`recurring.ts`／`worker.ts`／`module.ts` | implemented; review pending |
-| cron 宣告契約與啟動前驗證 | B05 | `register()` 驗運算式、時區、catchUp、overlap，並**正反各探一次時間運算**：`0 0 30 2 *` 這類永不發生的組合拒絕，閏日 `0 0 29 2 *` 由有界正向掃描補回 croner 回推的缺陷。有歧義縮寫與 `Etc/GMT±N` 拒絕，backward link（Japan／NZ）接受。unit 12 例 | implemented; 已修 C1／L6，複審 pending |
-| Asia/Taipei 午夜可重現 | B05 | unit：`0 0 * * *` → UTC 16:00 連三日；integration：真 PG 排出 `2026-01-04T16:00:00Z` | implemented; review pending |
-| 具 DST 時區 spring-forward 可重現 | B05 | unit＋integration：NY `30 2 * * *`，03-08 的 02:30 順延 07:30Z，當天只有一次 | implemented; review pending |
-| 具 DST 時區 fall-back 可重現 | B05 | unit＋integration：NY `30 1 * * *`，11-01 重複的 01:30 只排一次 | implemented; review pending |
-| 非整點位移／30 分鐘 DST | B05 | unit：Australia/Lord_Howe；選型探針另涵蓋 Chatham、Tehran、Kathmandu | implemented; review pending |
-| 停機補一次 | B05 | integration：跨 5 小時停機，預設只補最近一次，`skipped_catchup = 4` | implemented; review pending |
-| 有上限追補 | B05 | integration：`catchUp: 3` 補最近三次而非最舊三次，`skipped_catchup = 2`；單次列舉硬上限 1000（unit） | implemented; review pending |
-| 暫停／恢復可重現 | B05 | integration：暫停期間不排入且 watermark 前進，恢復後從當下這一次繼續、不補積壓；暫停下一輪即生效 | implemented; review pending |
-| overlap 策略可重現 | B05 | integration：`skip` 在前一次**已到期未完成**時不排（未來筆不算重疊）；連續被擋累積 `consecutive_overlap_skips`，超過三次轉 warn，排入後歸零；`queue`（預設）照排 | implemented; 已修 M3，複審 pending |
-| 多 worker 同時補排只留一筆 | B05 | integration：另開交易握住排程列的 `FOR UPDATE`，並行的 tick 在釋放前不完成也排不進東西，釋放後才補上——**列鎖獨立於去重鍵得到證明**；另有並行 `ensureScheduled` 只留一列 | implemented; 已修審查指出的無效斷言，複審 pending |
-| 原 `everyMs` 工作照常運作 | B05 | integration：冷啟動即排當下切片；去重鍵仍為 `recurring:<type>:<bucket>`；payload 仍含 `bucket` 且通過既有 v1 strict schema。既有 `recurring-jobs`／`cart-cleanup`／`coupon-birthday`／`tier-recalculation`／`reward-expiry-notice` 回歸 | implemented; review pending |
-| 排程只 enqueue，執行走同一 worker | B05 | `worker.tick()` 呼叫 `ensureScheduled` 後由 `runJobs` 執行；croner 只在 `schedule-spec.ts` 被 import，無 `schedule`／`trigger`／`name` 呼叫 | implemented; review pending |
-| 舊排程遷移不雙排、不漏接 | A + B05 | 間隔式 occurrence 身分與 payload 逐欄不變，故遷移對在途工作是 no-op；`0008` 只新增資料表，不改既有列 | implemented; review pending |
-| 排程狀態持久化 | B05 | `platform_job_schedules`＋`0008_job_schedules`；列入 platform release ownership metadata | implemented; review pending |
-| CLI／ops 註冊 | B05 | `platform.jobs.listSchedules`／`pauseSchedule`／`resumeSchedule`（權限、idempotency、audit）；CLI `schedule:list`／`pause`／`resume`，附 `--idempotency-key` 供重試同一次操作。暫停中不顯示「下一次」 | implemented; HTTP 層測試 pending |
-| 更新 ADR 0016 | B05 | 0016 標記「排程機制部分由 0039 修訂」，補記兩項限制如何解除、理由如何保留；falsification 改指 `schedule-spec.ts` 並新增「不得自我續排」 | implemented |
-| 可控 clock 的運算測試 | B05 | `packages/platform/kernel/test/schedule-spec.test.ts` 29 passed，全部注入時間點；含單一排程失敗不拖垮整輪 | implemented; 複審 pending |
-| PG 競爭測試 | B05 | `tests/integration/scheduler.test.ts` 25 passed（真 PG，含列鎖阻塞與並行補排） | implemented; 複審 pending |
-| full checks 與 native/Docker gates | A | typecheck PASS；unit 767 passed／1 pre-existing failure；integration 738 passed／0 failed | partial（smoke 屬 A） |
+| cron 套件選型有實測比較，主代理決策 | B05 | [cron-comparison.md](cron-comparison.md) 三套件、九組案例；`scripts/poc/base-b05` 四支探針 | accepted |
+| 選型寫成可檢查的決策記錄 | B05 | [ADR 0039](../../adr/0039-cron-calculation-only-croner.md) accepted，falsification 指名 `schedule-spec.ts`／`recurring.ts`／`worker.ts`／`module.ts` | accepted |
+| cron 宣告契約與啟動前驗證 | B05 | `register()` 驗運算式、時區、catchUp、overlap，並**正反各探一次時間運算**：`0 0 30 2 *` 這類永不發生的組合拒絕，閏日 `0 0 29 2 *` 由有界正向掃描補回 croner 回推的缺陷。有歧義縮寫與 `Etc/GMT±N` 拒絕，backward link（Japan／NZ）接受。unit 12 例 | accepted（已修 C1／L6） |
+| Asia/Taipei 午夜可重現 | B05 | unit：`0 0 * * *` → UTC 16:00 連三日；integration：真 PG 排出 `2026-01-04T16:00:00Z` | accepted |
+| 具 DST 時區 spring-forward 可重現 | B05 | unit＋integration：NY `30 2 * * *`，03-08 的 02:30 順延 07:30Z，當天只有一次 | accepted |
+| 具 DST 時區 fall-back 可重現 | B05 | unit＋integration：NY `30 1 * * *`，11-01 重複的 01:30 只排一次 | accepted |
+| 非整點位移／30 分鐘 DST | B05 | unit：Australia/Lord_Howe；選型探針另涵蓋 Chatham、Tehran、Kathmandu | accepted |
+| 停機補一次 | B05 | integration：跨 5 小時停機，預設只補最近一次，`skipped_catchup = 4` | accepted |
+| 有上限追補 | B05 | integration：`catchUp: 3` 補最近三次而非最舊三次，`skipped_catchup = 2`；單次列舉硬上限 1000（unit） | accepted |
+| 暫停／恢復可重現 | B05 | integration：暫停期間不排入且 watermark 前進，恢復後從當下這一次繼續、不補積壓；暫停下一輪即生效 | accepted |
+| overlap 策略可重現 | B05 | integration：`skip` 在前一次**已到期未完成**時不排（未來筆不算重疊）；連續被擋累積 `consecutive_overlap_skips`，超過三次轉 warn，排入後歸零；`queue`（預設）照排 | accepted（已修 M3） |
+| 多 worker 同時補排只留一筆 | B05 | integration：另開交易握住排程列的 `FOR UPDATE`，並行的 tick 在釋放前不完成也排不進東西，釋放後才補上——**列鎖獨立於去重鍵得到證明**；另有並行 `ensureScheduled` 只留一列 | accepted（已修審查指出的無效斷言） |
+| 原 `everyMs` 工作照常運作 | B05 | integration：冷啟動即排當下切片；去重鍵仍為 `recurring:<type>:<bucket>`；payload 仍含 `bucket` 且通過既有 v1 strict schema。既有 `recurring-jobs`／`cart-cleanup`／`coupon-birthday`／`tier-recalculation`／`reward-expiry-notice` 回歸 | accepted |
+| 排程只 enqueue，執行走同一 worker | B05 | `worker.tick()` 呼叫 `ensureScheduled` 後由 `runJobs` 執行；croner 只在 `schedule-spec.ts` 被 import，無 `schedule`／`trigger`／`name` 呼叫 | accepted |
+| 舊排程遷移不雙排、不漏接 | A + B05 | 間隔式 occurrence 身分與 payload 逐欄不變，故遷移對在途工作是 no-op；`0008` 只新增資料表，不改既有列 | accepted |
+| 排程狀態持久化 | B05 | `platform_job_schedules`＋`0008_job_schedules`；列入 platform release ownership metadata | accepted |
+| CLI／ops 註冊 | B05 | `platform.jobs.listSchedules`／`pauseSchedule`／`resumeSchedule`（權限、idempotency、audit）；CLI `schedule:list`／`pause`／`resume`，附 `--idempotency-key` 供重試同一次操作。暫停中不顯示「下一次」 | accepted |
+| HTTP 入口與測試 | B05 | `GET /api/v1/system/schedules`、`POST /api/v1/system/schedules/:type/pause`／`/resume`（`system.controller.ts`）；`tests/integration/ops-http.test.ts` 涵蓋真實資料的 list、暫停後 `nextOccurrenceAt` 為 null、帶點的型別走 path param、缺 `Idempotency-Key` 的 400 且確認未執行、重放不寫第二列 audit、readonly 的 403、未註冊型別的 404 | accepted（2026-09-09 補；原本三個入口**沒有路由**，不只是沒測試。已走過一輪獨立審查） |
+| 更新 ADR 0016 | B05 | 0016 標記「排程機制部分由 0039 修訂」，補記兩項限制如何解除、理由如何保留；falsification 改指 `schedule-spec.ts` 並新增「不得自我續排」 | accepted |
+| 可控 clock 的運算測試 | B05 | `packages/platform/kernel/test/schedule-spec.test.ts` 32 passed，全部注入時間點；含單一排程失敗不拖垮整輪 | accepted |
+| PG 競爭測試 | B05 | `tests/integration/scheduler.test.ts` 28 passed（真 PG，含列鎖阻塞與並行補排） | accepted |
+| full checks 與 native/Docker gates | A | typecheck PASS；unit 773 passed／1 pre-existing failure（`theme-assets-http`，B04 基準上同樣紅）；integration 741 passed／0 failed | partial（smoke 屬 A） |
 
 ## 獨立審查（第一輪）
 
@@ -174,7 +183,7 @@ M1 的第二個建議（在 `worker.ts` 的時序不變式加 `databaseTimeoutMs
 
 ## 保留的缺口
 
-- 第五輪複審尚未進行：第四輪的 M1／M2 與五項 LOW 修正本身沒有被獨立看過。
+- 第四輪的 M1／M2 與五項 LOW 修正本身沒有被獨立看過（第五輪刻意不做，理由見開頭）。
 - L1（重入呼叫清掉游標）刻意不修，目前不可達；若將來同一 process 出現第二個共用
   `runtime.recurring` 的 Worker，這條就會變成真的，屆時把 order 與游標改成區域變數即可。
 - T7 的獨立計數器（`skipped_cold_start`）沒有做，冷啟動與追補上限的跳過數仍混在同一欄。
@@ -182,9 +191,18 @@ M1 的第二個建議（在 `worker.ts` 的時序不變式加 `databaseTimeoutMs
   checksum drift 會讓跑過中間版本的資料庫開機即報錯而非靜默缺欄位；
   但任何跑過中間版本的 dev／preview 資料庫必須重建。
 - `tests/unit/cli-upgrade.test.ts` 的 5 秒 timeout 餘裕過小，在負載下會 flake。不屬 B05，但值得修。
-- ops 的三個新入口只有 bus 層覆蓋，沒有帶真實資料的 HTTP 層測試——與 B04 留下的
-  `listFailures`／`redriveFailure` HTTP 缺口是同一類，建議一起補。
-- 排程狀態沒有 Admin UI（屬 B13）。
+- ~~ops 的三個新入口只有 bus 層覆蓋，沒有帶真實資料的 HTTP 層測試。~~ 2026-09-09 補完，
+  過程中發現這三個入口**根本沒有 HTTP 路由**（`apps/api` 底下零命中），所以原本的描述是誤述：
+  不是測試沒補，是功能沒做，維運當時只能透過 CLI 操作排程。路由與測試已一併補上。
+  這三個入口在補之前連 bus 層測試都沒有——`scheduler.test.ts` 全部直接呼叫
+  `runtime.recurring.setPaused`／`list`，繞過 CommandBus／QueryBus，所以 descriptor 的
+  output schema、permission 與 `toISOString()` 對映在此之前沒有任何覆蓋。
+- 排程狀態沒有 Admin UI（屬 B13）。後端三條路由已於 2026-09-09 補上，是 B13 的前置；
+  `apps/admin/src/api.ts` 刻意沒有動，它是計畫 §3.1 明列的 A 獨佔檔案。
+- **`listSchedules` 的回應形狀與同組另外三個 list 端點不齊**：它是 `{ items }`，沒有 `total`、
+  不吃 `limit`／`offset`。這是合理的——排程數量被 release 宣告的型別數綁死，不會成長到需要分頁，
+  加分頁是憑空的複雜度——但 `GET /api/v1/system/*` 四個 list 端點形狀不一致，B13 寫共用 list
+  元件時會踩到。這是 B05 原本 descriptor 就定好的形狀，交給 B13 決定要不要對齊。
 - `skipped_catchup` 在單次列舉超過 1000 個 occurrence 時是下限而非精確值。
 - 間隔式去重鍵不含 `everyMs`（L5，已補記進 ADR 0016）：微調週期時新 occurrence 可能撞上舊墓碑。
 - 時區資料來自 runtime ICU；裁減 ICU 的部署會靜默算錯，屬 B15 的部署前檢查。

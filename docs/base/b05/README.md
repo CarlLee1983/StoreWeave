@@ -1,6 +1,7 @@
 # B05 — Scheduler
 
-狀態：五片全部實作完成，full gates 實跑；獨立審查 pending。
+狀態：**accepted**（2026-09-09）。五片實作完成、四輪獨立審查、full gates 實跑；
+逐項驗收與審查紀錄見 [acceptance.md](acceptance.md)。
 分支 `b05-scheduler`，基準 `837870c`（B04）。
 依賴只以[計畫 §3](../../base-implementation-plan.md#3-依賴圖與階段出口)為準。
 
@@ -93,6 +94,9 @@ watermark；去重鍵是最後一道防線。穩定狀態下這一輪不寫任�
 `platform.jobs.listSchedules`（`jobs:read`）、`platform.jobs.pauseSchedule` 與
 `platform.jobs.resumeSchedule`（`jobs:write`，需 idempotency key，寫 audit）。
 CLI 對應 `schedule:list`、`schedule:pause <type>`、`schedule:resume <type>`。
+HTTP 對應 `GET /api/v1/system/schedules`、`POST /api/v1/system/schedules/:type/pause`
+與 `/resume`；idempotency key 走 `Idempotency-Key` header。排程型別帶點
+（`commerce.cart.cleanup`），走 path param 不會被切斷。
 未註冊的型別不能被暫停——否則狀態表會留下沒有人會讀的列。
 
 ## 檔案
