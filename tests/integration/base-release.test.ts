@@ -38,7 +38,7 @@ describe('selected release bootstrap', () => {
     runtimes.push(runtime);
     expect(result.theme).toBeUndefined();
     expect(runtime.config.store).not.toHaveProperty('currency');
-    expect(runtime.modules.map(module => module.name).sort()).toEqual(['platform', 'platform-identity', 'platform-ops']);
+    expect(runtime.modules.map(module => module.name).sort()).toEqual(['platform', 'platform-cache', 'platform-identity', 'platform-ops']);
     expect(Object.keys(runtime.roles).sort()).toEqual(['admin', 'readonly', 'staff']);
     await runtime.migrate();
     await expect(runtime.migrate()).resolves.toEqual([]);
@@ -46,7 +46,7 @@ describe('selected release bootstrap', () => {
       "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename",
     );
     expect(tables.rows.map(row => row.tablename)).toEqual([
-      'platform_audit_log', 'platform_extension_registry', 'platform_extension_state',
+      'platform_audit_log', 'platform_cache', 'platform_extension_registry', 'platform_extension_state',
       'platform_idempotency', 'platform_job_quarantine', 'platform_job_schedules', 'platform_jobs', 'platform_migration_baselines', 'platform_migrations', 'platform_outbox',
       'platform_outbox_quarantine', 'platform_outbox_quarantine_audit',
       'platform_password_resets', 'platform_release_history', 'platform_sessions', 'platform_users', 'platform_worker_heartbeat',
@@ -92,7 +92,7 @@ describe('selected release bootstrap', () => {
     runtimes.push(result.runtime);
     expect(result.theme?.id).toBe('default');
     expect(result.runtime.config.store.currency).toBe('TWD');
-    expect(result.runtime.modules).toHaveLength(17);
+    expect(result.runtime.modules).toHaveLength(18);
     expect(result.runtime.actorForRole('staff').permissions).toContain('erp:write');
     await result.runtime.migrate();
     await expect(result.runtime.migrate()).resolves.toEqual([]);

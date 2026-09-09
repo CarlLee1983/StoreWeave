@@ -8,6 +8,7 @@ import { defineModule, type PlatformModule } from './module';
 import { EVENT_DELIVERY_JOB } from './event-delivery';
 import { repairAndRedriveOutbox } from './outbox-recovery';
 import type { RecurringScheduler } from './recurring';
+import type { CacheScope } from '@storeweave/cache';
 
 /**
  * 平台自身的維運介面。這裡只碰 platform_* 資料表，對領域一無所知，
@@ -127,6 +128,8 @@ export const redriveOutboxFailureCommand = defineCommand({
 export interface OpsModuleDependencies {
   readonly events: EventBus;
   readonly outbox: OutboxStore;
+  /** Fixed `platform-ops` scope, injected by runtime composition. */
+  readonly cache: () => CacheScope;
   /**
    * 排程器要等資料庫連線建立後才存在，而模組組裝發生在那之前（Release 選取需要模組清單）。
    * 用 thunk 取代直接注入，讓這個順序留在 runtime 裡，而不是逼 ops 模組提早知道連線。
@@ -183,6 +186,16 @@ export const resumeScheduleCommand = defineCommand({
   audit: { action: 'jobs.schedule.resumed', resourceType: 'schedule', resourceId: (i) => i.type },
 });
 
+export const clearOpsCacheCommand = defineCommand({
+  name: 'platform.cache.clearOpsCache',
+  summary: '清除維運模組自己的暫存資料；不會影響其他模組的 namespace',
+  input: z.object({}).strict(),
+  output: z.object({ cleared: z.literal(true) }),
+  permission: 'jobs:write',
+  idempotency: 'required',
+  audit: { action: 'cache.ops.cleared', resourceType: 'cache', resourceId: () => OPS_MODULE_NAME },
+});
+
 export function createOpsModule(jobs: JobQueue, dependencies: OpsModuleDependencies): PlatformModule {
   return defineModule({
     name: OPS_MODULE_NAME,
@@ -224,6 +237,13 @@ export function createOpsModule(jobs: JobQueue, dependencies: OpsModuleDependenc
         handler: async (input: z.infer<typeof scheduleTypeInput>, ctx: CommandContext) => {
           await dependencies.scheduler().setPaused(ctx.tx, input.type, false);
           return { type: input.type, paused: false };
+        },
+      },
+      {
+        descriptor: clearOpsCacheCommand,
+        handler: async () => {
+          await dependencies.cache().clear();
+          return { cleared: true as const };
         },
       },
       {

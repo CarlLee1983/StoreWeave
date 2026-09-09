@@ -141,6 +141,18 @@ const commonConfigSchema = z.object({
       });
     }
   }).default({}),
+  cache: z.object({
+    /** A single cleanup call is bounded so a cache sweep cannot monopolize the DB. */
+    cleanupBatchSize: z.coerce.number().int().min(1).max(10_000).default(500),
+    /** Runs only after release activation; its timer is unref'd and never blocks shutdown. */
+    cleanupIntervalMs: z.coerce.number().int().min(1_000).max(86_400_000).default(60_000),
+    /** Advisory-lock contention is polled rather than consuming a blocked DB session. */
+    lockRetryIntervalMs: z.coerce.number().int().min(1).max(10_000).default(25),
+    /** Held advisory locks use a separate pool, avoiding self-starvation of domain transactions. */
+    mutexPoolSize: z.coerce.number().int().min(1).max(20).default(2),
+    /** Bounds half-open mutex-pool connections; runtime also caps this below shutdown budget. */
+    mutexConnectionTimeoutMs: z.coerce.number().int().min(1).max(60_000).default(5_000),
+  }).default({}),
   shutdown: z.object({ timeoutMs: z.number().int().positive().default(25_000) }).default({}),
   theme: z.object({
     id: z.string().default('default'),
