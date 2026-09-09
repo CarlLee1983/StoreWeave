@@ -1,6 +1,7 @@
 # B05 — Scheduler
 
-狀態：五片全部實作完成，full gates 實跑；獨立審查 pending。
+狀態：**accepted**（2026-09-09）。五片實作完成、四輪獨立審查、full gates 實跑；
+逐項驗收與審查紀錄見 [acceptance.md](acceptance.md)。
 分支 `b05-scheduler`，基準 `837870c`（B04）。
 依賴只以[計畫 §3](../../base-implementation-plan.md#3-依賴圖與階段出口)為準。
 
