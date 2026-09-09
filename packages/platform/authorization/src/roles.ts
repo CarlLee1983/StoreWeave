@@ -31,6 +31,11 @@ export interface ReleaseRole {
      * Commerce 的顧客不走這裡：它的註冊同時要建立 Customer，因此是 commerce 的 command。
      */
     readonly selfServiceRegistration?: boolean;
+    /**
+     * 這個角色的帳號是否必須有第二因素。`required` 的帳號在還沒註冊 TOTP 之前
+     * 仍然登得進來（否則第一個管理員永遠設定不了），但會被標記成必須先完成註冊。
+     */
+    readonly mfa?: 'required' | 'optional';
   };
 }
 
@@ -42,6 +47,8 @@ export function roleFor(catalog: ReleaseRoleCatalog, role: string): ReleaseRole 
 
 const operatorAccount = {
   actorType: 'user', sessionTtl: 'operator', minPasswordLength: 12, adminCreatable: true,
+  // 後台帳號改得了設定、看得到所有訂單：一個外洩的密碼不該就是一次完整接管。
+  mfa: 'required',
 } as const;
 
 /**

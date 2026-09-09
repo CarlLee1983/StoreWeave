@@ -69,7 +69,7 @@ describe('REST 介面', () => {
   it('retains exact selected Commerce route identities with MCP on and off', async () => {
     const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
     expect(commerceHttpAdapter.controllers(h.runtime.config)).toHaveLength(25);
-    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(161);
+    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(174);
     expect(catalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
 
     const enabled = h.runtime.config.mcp.enabled;
@@ -79,7 +79,7 @@ describe('REST 介面', () => {
     try {
       const withoutMcpCatalog = withoutMcp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
       expect(commerceHttpAdapter.controllers(h.runtime.config)).toHaveLength(24);
-      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(159);
+      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(172);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.some(route => route.path === '/mcp')).toBe(false);
     } finally {
@@ -99,7 +99,7 @@ describe('REST 介面', () => {
       corsApp = await createReleaseServer({ runtime: h.runtime, theme: defaultTheme,
         httpAdapter: commerceHttpAdapter, release: { version: 'test', configPath: '<test>' } });
       const catalog = (corsApp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier).storeweaveHttpCatalog!;
-      expect(catalog).toHaveLength(163);
+      expect(catalog).toHaveLength(176);
       expect(catalog.filter(route => route.kind === 'cors-preflight')).toEqual([expect.objectContaining({
         method: 'OPTIONS', path: '*', automaticRoute: true, auth: 'unauthenticated', request: 'headers', rateLimit: null,
         policy: expect.objectContaining({ allowedOrigins: ['https://console.example'], credentials: true }),
@@ -127,7 +127,18 @@ describe('REST 介面', () => {
       .map(route => `${route.rateLimit} ${route.method} ${route.path}`)
       .sort();
     expect(limited).toEqual([
+      'auth POST /api/v1/auth/change-email',
+      'auth POST /api/v1/auth/confirm-email-change',
+      'auth POST /api/v1/auth/forgot-password',
       'auth POST /api/v1/auth/login',
+      'auth POST /api/v1/auth/mfa/confirm',
+      'auth POST /api/v1/auth/mfa/disable',
+      'auth POST /api/v1/auth/mfa/enroll',
+      'auth POST /api/v1/auth/mfa/recovery-codes',
+      'auth POST /api/v1/auth/register',
+      'auth POST /api/v1/auth/resend-verification',
+      'auth POST /api/v1/auth/reset-password',
+      'auth POST /api/v1/auth/verify-email',
       'auth POST /api/v1/customers/register',
       'auth POST /forgot-password',
       'auth POST /login',

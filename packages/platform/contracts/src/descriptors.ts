@@ -17,6 +17,13 @@ export interface AuditSpec<I = any, O = any> {
   readonly redact?: (input: I) => Record<string, unknown>;
 }
 
+/**
+ * 從輸入指出這次操作作用在哪一個東西上。Policy 拿得到它，因此可以表達
+ * 「不能停用自己」這種與具體資源有關的規則——只有型別的話，policy 只知道
+ * 「有人要動一個 user」，不知道是哪一個。
+ */
+export type ResourceResolver<I> = (input: I) => { readonly id?: string; readonly attributes?: Record<string, unknown> };
+
 export interface CommandDescriptor<I = any, O = any> {
   readonly name: string;
   readonly version: number;
@@ -26,6 +33,7 @@ export interface CommandDescriptor<I = any, O = any> {
   readonly idempotency: IdempotencyMode;
   readonly audit?: AuditSpec<I, O>;
   readonly summary?: string;
+  readonly resource?: ResourceResolver<I>;
 }
 
 export interface QueryDescriptor<I = any, O = any> {
@@ -100,6 +108,7 @@ export function defineCommand<I, O>(d: {
   idempotency?: IdempotencyMode;
   audit?: AuditSpec<I, O>;
   summary?: string;
+  resource?: ResourceResolver<I>;
 }): CommandDescriptor<I, O> {
   return {
     name: d.name,
@@ -110,6 +119,7 @@ export function defineCommand<I, O>(d: {
     idempotency: d.idempotency ?? 'optional',
     audit: d.audit,
     summary: d.summary,
+    resource: d.resource,
   };
 }
 

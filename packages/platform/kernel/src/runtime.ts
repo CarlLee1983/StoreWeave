@@ -20,7 +20,7 @@ import { McpToolRegistry } from './mcp-registry';
 import { EVENT_DELIVERY_JOB, createEventDeliveryHandler, eventDeliveryJobContract } from './event-delivery';
 import type { PlatformModule } from './module';
 import { createOpsModule, OPS_MODULE_NAME } from './ops-module';
-import { ApiTokenService, AuthService, IdentityTokenService, createIdentityModule, type IdentityCleanupDeps } from '@storeweave/identity';
+import { ApiTokenService, AuthService, IdentityTokenService, MfaService, createIdentityModule, type IdentityCleanupDeps } from '@storeweave/identity';
 import { validateModuleGraph } from './module-graph';
 import { requireKeyring, resolveKeyring } from './keyring';
 import type { Keyring } from '@storeweave/crypto';
@@ -87,6 +87,8 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
   readonly auth: AuthService;
   /** 機器對機器的 bearer token：資料庫擁有，可到期可撤銷（ADR 0043）。 */
   readonly apiTokens: ApiTokenService;
+  /** 高權限帳號的第二因素（TOTP＋一次性復原碼，ADR 0044）。 */
+  readonly mfa: MfaService;
   readonly audit: AuditWriter;
   readonly outbox: OutboxStore;
   readonly jobs: JobQueue;
@@ -285,6 +287,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     // 重設與驗證連結是 base 一定會用到的簽發值，所以簽章金鑰不是選配（ADR 0042）。
     const identityTokens = new IdentityTokenService(requireKeyring({ keyring }, 'identity'));
     const apiTokens = new ApiTokenService(options.roles);
+    const mfa = new MfaService(requireKeyring({ keyring }, 'identity'), config.store.name);
     identityCleanupDeps = { database, tokens: identityTokens };
     const auth = new AuthService({
       operatorMs: config.auth.sessionTtlMinutes.operator * 60_000,
@@ -292,6 +295,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     }, options.roles, {
       database,
       tokens: identityTokens,
+      mfa,
       mail: mail!,
       publicUrl: config.http.publicUrl.replace(/\/+$/, ''),
       storeName: config.store.name,
@@ -352,7 +356,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     let activatedRelease: Readonly<{ readonly id: string; readonly version: string }> | null = null;
 
     const runtime: Runtime<C> = {
-      roles: options.roles, config, secrets, keyring, logger, database, authorization, auth, apiTokens, audit, outbox, jobs, jobRegistry, recurring, storage, mail,
+      roles: options.roles, config, secrets, keyring, logger, database, authorization, auth, apiTokens, mfa, audit, outbox, jobs, jobRegistry, recurring, storage, mail,
       events, commands, queries, providers, mcpTools, extensions, migrations, platformVersion, modules: allModules,
       get activatedRelease() { return activatedRelease; },
       actorForRole(role, id) {

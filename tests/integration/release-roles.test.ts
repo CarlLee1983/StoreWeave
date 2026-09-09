@@ -66,6 +66,7 @@ describe('release-owned roles', () => {
     const commerce = new AuthService({ operatorMs: 60_000, customerMs: 600_000 }, COMMERCE_ROLES, {
       database: runtime.database,
       tokens: new IdentityTokenService(runtime.keyring!),
+      mfa: runtime.mfa,
       mail: runtime.mail,
       publicUrl: 'http://localhost:3000',
       storeName: 'Base',

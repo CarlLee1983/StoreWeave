@@ -32,7 +32,12 @@ packages/platform/
   extension-sdk/        Extension 的唯一公開介面（見 extension-development.md）
   kernel/               組裝：Runtime、ExtensionHost、Worker、健康檢查、Theme 契約
                         以及平台自身的維運模組（platform.jobs.* 死信佇列，見 ADR 0011）
-  identity/             帳號、session 與密碼重設（後台操作者與顧客共用，見 ADR 0012、0014）
+  identity/             帳號、session、簽發式身分連結（重設／驗證／換信箱）、API token
+                        與後台第二因素（見 ADR 0012、0014、0041–0044）
+  crypto/               簽章、封裝與金鑰環：sw1. / swe1. 與依用途推導的子金鑰（ADR 0038）
+  cache/                PostgreSQL 快取與跨程序互斥鎖
+  storage/              物件儲存：本機與 S3 相容 adapter（見 docs/base/b09）
+  mail/                 SMTP 寄送、模板快照與佇列（見 docs/base/b06）
   bundle/               這個 Commerce Release 編進了哪些模組、Extension 與 Theme
 
 packages/commerce/      第一個產品（Commerce Core）：cart / catalog / content / coupon /
@@ -51,8 +56,8 @@ deployments/            example-store、example-store-two、systemd unit、設�
 
 以 `POST /api/v1/orders/:id/pay` 為例：
 
-1. **ApiTokenGuard** 以 Bearer token 比對 `commerce.yaml` 的 `auth.tokens`（值來自 Secret Provider），
-   解析出 Actor 與它的權限集合。
+1. **ApiTokenGuard** 以 Bearer token 查 `platform_api_tokens`（由 CLI 簽發、可到期可撤銷，
+   見 ADR 0043），解析出 Actor 與它的權限集合。
 2. **Controller** 只做一件事：把 HTTP 請求轉成 `commands.execute('commerce.order.payOrder', input, {...})`。
    它沒有 repository，也沒有資料庫。
 3. **CommandBus**

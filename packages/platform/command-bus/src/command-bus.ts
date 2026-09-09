@@ -128,6 +128,18 @@ export class CommandBus {
     }
     const input = parsed.data;
 
+    // 第二次評估帶著實際的資源。權限檢查刻意留在解析之前——沒有權限的呼叫端
+    // 不該從輸入驗證的錯誤訊息裡讀出這個 command 收什麼欄位；而 policy 要判斷
+    // 「哪一個資源」就得先有解析過的輸入。deny-overrides，所以多一次只會更嚴格。
+    if (descriptor.resource) {
+      const resource = descriptor.resource(input);
+      this.deps.authorization.assert({
+        actor: options.actor,
+        permission: descriptor.permission,
+        resource: { type: descriptor.name.split('.')[1] ?? 'unknown', ...resource },
+      });
+    }
+
     if (descriptor.idempotency === 'required' && !options.idempotencyKey) {
       throw PlatformError.validation(`Command "${name}" requires an idempotency key`);
     }

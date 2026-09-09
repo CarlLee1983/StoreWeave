@@ -149,6 +149,11 @@ describe('release transitions', () => {
       'platform/0007_ops_listing_indexes',
       'platform/0008_job_schedules',
       'platform-cache/0001_init',
+      'identity/0004_identity_tokens',
+      'identity/0005_drop_password_resets',
+      'identity/0006_api_tokens',
+      'identity/0007_mfa',
+      'identity/0008_login_lockout',
       'platform-storage/0001_init',
       'platform-mail/0001_init',
     ]);

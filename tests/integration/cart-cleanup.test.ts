@@ -111,7 +111,12 @@ describe('訪客購物車清理', () => {
     const t0 = new Date('2026-01-05T03:20:00.000Z');
     for (let i = 0; i < 3; i += 1) {
       await h.runtime.recurring.ensureScheduled(new Date(t0.getTime() + i * DAY));
-      await h.worker.runJobs();
+      // 每個切片會排進所有週期性工作，數量已經超過一次 claim 的併發上限，所以要跑到
+      // 沒事做為止。不用 drain：它會照真實時鐘再排一次，把這裡刻意的時光倒流蓋掉。
+      for (let pass = 0; pass < 5; pass += 1) {
+        const result = await h.worker.runJobs();
+        if (result.processed === 0 && result.failed === 0) break;
+      }
     }
 
     const rows = await h.runtime.database.db.execute<{ dedupe_key: string; status: string }>(sql`

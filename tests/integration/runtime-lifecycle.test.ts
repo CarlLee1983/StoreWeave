@@ -222,7 +222,12 @@ describe('runtime cleanup', () => {
     try {
       expect((await inspection.pool.query('SELECT count(*)::int AS count FROM platform_release_history')).rows).toEqual([{ count: 0 }]);
       expect((await inspection.pool.query("SELECT id FROM platform_migrations WHERE migration_owner='identity' ORDER BY id")).rows)
-        .toEqual([{ id: 'identity/0001_users_and_sessions' }, { id: 'identity/0003_password_resets' }]);
+        .toEqual([
+          { id: 'identity/0001_users_and_sessions' }, { id: 'identity/0003_password_resets' },
+          { id: 'identity/0004_identity_tokens' }, { id: 'identity/0005_drop_password_resets' },
+          { id: 'identity/0006_api_tokens' }, { id: 'identity/0007_mfa' },
+          { id: 'identity/0008_login_lockout' },
+        ]);
     } finally { await inspection.close(); }
   });
 

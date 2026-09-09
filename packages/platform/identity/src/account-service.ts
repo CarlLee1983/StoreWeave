@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { sql } from 'drizzle-orm';
 import { PlatformError, type DrizzleDb, type Tx } from '@storeweave/contracts';
 import { hashPassword } from './password';
 import { UserRepository, toUserDto, type UserDto } from './repository';
@@ -21,6 +22,26 @@ export const accountService = {
   /** 帳號標籤跟著顧客的顯示名稱走：兩邊各存一份、只改一邊，畫面就會永遠對不起來。 */
   async setDisplayName(tx: Tx, accountId: string, displayName: string): Promise<void> {
     await repository.setDisplayName(tx, accountId, displayName);
+  },
+
+  /**
+   * 啟用或停用一個帳號。停用同時撤銷所有 session——只把狀態改掉的話，
+   * 已經登入的人還握著一個有效的 session，那不是「停用」。
+   *
+   * 這是 identity 擁有的表，所以別的模組要改帳號狀態得走這裡，不是自己下 UPDATE。
+   */
+  async setStatus(tx: Tx, accountId: string, status: 'active' | 'disabled'): Promise<void> {
+    const updated = await tx.execute<{ id: string }>(sql`
+      UPDATE platform_users SET status = ${status}, updated_at = now()
+      WHERE id = ${accountId} RETURNING id
+    `);
+    if (!updated.rows[0]) throw PlatformError.notFound('Account', accountId);
+    if (status === 'disabled') {
+      await tx.execute(sql`
+        UPDATE platform_sessions SET revoked_at = now()
+        WHERE user_id = ${accountId} AND revoked_at IS NULL
+      `);
+    }
   },
 
   async createAccount(

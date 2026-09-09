@@ -8,12 +8,15 @@ import { accountService } from './account-service';
 import { DUMMY_HASH, hashPassword, verifyPassword } from './password';
 import { UserRepository, toUserDto, type UserDto } from './repository';
 import { IDENTITY_TOKEN_REJECTION, type IdentityTokenService } from './tokens';
+import type { MfaService } from './mfa';
 import { EMAIL_CHANGE_TEMPLATE, EMAIL_VERIFICATION_TEMPLATE, PASSWORD_RESET_TEMPLATE } from './mail-templates';
 
 export interface IssuedSession {
   token: string;
   expiresAt: Date;
   user: UserDto;
+  /** 角色要求第二因素，但這個帳號還沒完成註冊。UI 應該把人帶去設定流程。 */
+  mfaEnrolmentRequired?: boolean;
 }
 
 export interface ResolvedSession {
@@ -44,6 +47,19 @@ export const CUSTOMER_ROLE = 'customer';
 /** 認證失敗一律用同一句話：區分「沒這個帳號」與「密碼錯」等於送出帳號枚舉管道。 */
 const FAILED = 'Invalid email or password';
 
+/**
+ * 第二因素是登入的另一段，不是另一種失敗。訊息必須說得出「還差一步」，
+ * 否則使用者只會一直重打密碼。密碼已經對了才會走到這裡。
+ */
+export const MFA_REQUIRED = 'A multi-factor code is required';
+
+/**
+ * 連續失敗到這個次數就暫時鎖住這個帳號。限流擋的是「一個來源打很多次」，
+ * 鎖定擋的是「很多來源打同一個帳號」——兩者擋的不是同一種攻擊。
+ */
+const MAX_FAILED_LOGINS = 10;
+const LOCKOUT_MS = 15 * 60_000;
+
 const DEFAULT_RESET_TTL_MS = 60 * 60_000;
 const OPERATOR_RESET_TTL_MS = 15 * 60_000;
 const DEFAULT_VERIFICATION_TTL_MS = 24 * 60 * 60_000;
@@ -54,12 +70,14 @@ export interface IdentityMailer {
 }
 
 export interface IdentityTransactor {
+  readonly db: DrizzleDb;
   transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T>;
 }
 
 export interface IdentityServiceOptions {
   readonly database: IdentityTransactor;
   readonly tokens: IdentityTokenService;
+  readonly mfa: MfaService;
   readonly mail: IdentityMailer;
   /** 連結的來源；信裡的網址只由設定決定，不由請求的 Host 決定。 */
   readonly publicUrl: string;
@@ -102,18 +120,50 @@ export class AuthService {
 
   async authenticate(
     db: DrizzleDb,
-    input: { email: string; password: string; userAgent?: string },
+    input: { email: string; password: string; userAgent?: string; mfaCode?: string; recoveryCode?: string },
   ): Promise<IssuedSession> {
     const user = await this.users.findByEmail(db, input.email);
     // 帳號不存在時也跑一次完整的 scrypt，讓兩條路徑的耗時不會洩漏帳號是否存在。
     const hash = user?.password_hash ?? (await DUMMY_HASH);
     const passwordOk = await verifyPassword(input.password, hash);
 
-    if (!user || !passwordOk || user.status !== 'active' || !roleFor(this.roles, user.role)?.account) {
+    const account = roleFor(this.roles, user?.role ?? '')?.account;
+    if (!user || !passwordOk || user.status !== 'active' || !account) {
+      if (user) await this.recordFailedLogin(db, user.id);
+      throw new PlatformError('UNAUTHENTICATED', FAILED);
+    }
+    // 鎖定期間即使密碼正確也不放行，訊息與密碼錯誤完全一樣——
+    // 「這個帳號被鎖了」本身就是「這個帳號存在」。
+    // 這條路徑的驅動會把 timestamptz 交回字串，所以一律轉一次再比。
+    if (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) {
       throw new PlatformError('UNAUTHENTICATED', FAILED);
     }
 
-    return this.issueSession(db, user, input.userAgent);
+    let mfaEnrolmentRequired = false;
+    if (account.mfa === 'required') {
+      const status = await this.identity.mfa.statusFor(db, user.id);
+      if (status.confirmed) {
+        const passed = await this.identity.mfa.verifyForLogin(db, {
+          userId: user.id, code: input.mfaCode, recoveryCode: input.recoveryCode,
+        });
+
+          if (!passed) {
+          // 第二因素也算登入嘗試：只有密碼的攻擊者不該有無限次猜六位數的機會。
+          await this.recordFailedLogin(db, user.id);
+          throw new PlatformError('UNAUTHENTICATED', MFA_REQUIRED);
+        }
+      } else {
+        // 第一個管理員得先登得進來才設定得了第二因素；旗標讓 UI 立刻把他帶過去。
+        mfaEnrolmentRequired = true;
+      }
+    }
+
+    await db.execute(sql`
+      UPDATE platform_users SET failed_login_count = 0, locked_until = NULL
+      WHERE id = ${user.id} AND (failed_login_count <> 0 OR locked_until IS NOT NULL)
+    `);
+    const session = await this.issueSession(db, user, input.userAgent);
+    return mfaEnrolmentRequired ? { ...session, mfaEnrolmentRequired } : session;
   }
 
   /**
@@ -373,6 +423,28 @@ export class AuthService {
       },
     };
     await this.identity.mail.queue(tx, request);
+  }
+
+  /** 記一次失敗；到門檻就上鎖。計數寫在同一句 UPDATE 裡，並行的失敗不會互相覆蓋。 */
+  private async recordFailedLogin(db: DrizzleDb, userId: string): Promise<void> {
+    await db.execute(sql`
+      UPDATE platform_users
+      SET failed_login_count = failed_login_count + 1,
+          locked_until = CASE
+            WHEN failed_login_count + 1 >= ${MAX_FAILED_LOGINS}
+            THEN now() + ${`${LOCKOUT_MS} milliseconds`}::interval
+            ELSE locked_until
+          END
+      WHERE id = ${userId}
+    `);
+  }
+
+  /** 驗證某個帳號的現有密碼。關閉第二因素這類降級動作要有它，不只有 session。 */
+  async assertPassword(userId: string, password: string): Promise<void> {
+    const user = await this.users.findById(this.identity.database.db, userId);
+    if (!user || !(await verifyPassword(password, user.password_hash))) {
+      throw new PlatformError('UNAUTHENTICATED', FAILED);
+    }
   }
 
   async revokeSession(db: DrizzleDb, token: string): Promise<void> {

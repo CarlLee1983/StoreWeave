@@ -67,7 +67,8 @@ Command Bus 與 Query Bus 只認這個型別，`apps/api/src/http/auth.ts` 是�
   另外 `createUser` 允許指定 `admin` 角色，唯一的保護是只有 admin 持有 `users:write`；
   日後若把 `users:write` 給了較低角色，那會立刻變成提權路徑。
   這些不影響本決策成立，但在對外宣稱「有完整帳號驗證」之前必須補上。
-- 正式部署仍要把 `COMMERCE_ADMIN_TOKEN` 換成隨機值——它現在等於一把不會過期的萬能鑰匙。
+- ~~正式部署仍要把 `COMMERCE_ADMIN_TOKEN` 換成隨機值——它現在等於一把不會過期的萬能鑰匙。~~
+  已由 ADR 0043 取代：API token 存在資料庫，由 CLI 簽發，有到期也可個別撤銷。
 
 ## Falsified if
 

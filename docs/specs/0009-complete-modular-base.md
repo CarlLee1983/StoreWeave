@@ -56,7 +56,7 @@ Laravel／AdonisJS 是完整度參考，本規格不要求遷移 framework。HTT
 | F01 | 啟停、DI／服務註冊、環境設定驗證、secret 引用、模組相依及版本、每程序一致的組裝結果 | 部分：`kernel/src/runtime.ts`、`bundle/src/bootstrap.ts`、`config/src/schema.ts` | B01–B02 |
 | F02 | HTTP 路由／中介層、body／query 驗證、JSON／日期契約、錯誤 envelope、分頁、CORS／CSRF／限流、API 文件 | 部分：`apps/api/src`、`contracts`；meta schema 不等於完整 HTTP 文件 | B03 |
 | F03 | DB pool、query／transaction、migration／seed、順序與校驗、升級前檢查、backup／restore | 部分：`db/src/migrator.ts`、CLI；需依有效模組選取及升級驗證 | B01–B02、B15 |
-| F04 | 帳號、登入／登出、session 撤銷、密碼重設／驗證信、角色／resource policy、停用帳號、可撤銷及到期的 service token、登入防暴力嘗試 | 部分：`identity`、`authorization`、API guards；正式信件與通用使用流程待補 | B03、B08、B13 |
+| F04 | 帳號、登入／登出、session 撤銷、密碼重設／驗證信、角色／resource policy、停用帳號、可撤銷及到期的 service token、登入防暴力嘗試 | 部分：B08 已交付簽發式重設／驗證／換信箱、資料庫 API token、後台 MFA、停用與登入鎖定、帶資源的 policy；HTTP／CLI 齊備，網站與 Admin UI 待 B13 | B03、B08、B13 |
 | F05 | 通用 Mail：HTML／text 模板、收件人、附件、SMTP 正式 transport、排隊寄送、失敗分類／紀錄／人工處置、測試 transport；Notification：email 與站內通知、通道擴充 | 部分：`commerce/notification`、`extensions/mock-notification`；現有契約仍帶商務語意 | B06–B08、B13 |
 | F06 | 持久 Queue、worker、延遲工作、型別化 payload、重試／退避、逾時／取消訊號、lease／crash recovery、併發與工作隔離、DLQ／重送、保留期及監控 | 部分：`jobs/src/jobs.ts`、`kernel/src/worker.ts`；完整失敗語意需驗證 | B04 |
 | F07 | 固定間隔及 cron、時區／DST、錯過排程的 skip／補一次／有上限追補、防重疊、暫停／恢復、可查詢的執行結果 | 部分：`kernel/src/recurring.ts` 只有 everyMs time bucket | B05 |
@@ -73,6 +73,7 @@ Laravel／AdonisJS 是完整度參考，本規格不要求遷移 framework。HTT
 上述新建網站發布功能是針對形象站／Blog 的具體規劃，不擴及廣告投放、SEO 顧問或推薦系統。
 站內通知是本規劃建議的第二個正式通道；SMS／推播等可由同一契約新增，不要求首版整合每家供應商。
 高權限帳號的 MFA／復原方案列入 B08 的安全設計與交付，採現成實作，不能以自製密碼學補足。
+（已交付：TOTP 走 otplib，復原碼為一次性隨機值，見 ADR 0044。）
 
 ## 4. 擴充契約
 
@@ -178,5 +179,5 @@ Queue／Mail／Storage 行為參照：[Laravel Queues](https://laravel.com/frame
 選型來源集中在 §5，實作票需按當時版本重新驗證，不將「有文件」當作相容性測試。
 
 現況根據 source inspection，不是本輪執行結果。`docs/operations.md` 對密碼重設的描述
-與 `identity/src/auth-service.ts`／Storefront reset 路徑存在落差；B00／B08 分別核對後台、前台、
-正式寄信狀態再更新，不能把過時文字當成缺少全部身分服務的證據。
+與 `identity/src/auth-service.ts`／Storefront reset 路徑曾經存在落差；B08 已核對後台、前台
+與正式寄信狀態並更新該文件，重設信現在由 `@storeweave/mail` 寄出。

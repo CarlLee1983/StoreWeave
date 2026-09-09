@@ -34,3 +34,28 @@
 ## 驗證
 
 見 `acceptance.md`。
+
+## HTTP
+
+`/api/v1/auth` 是身分的全部入口，base 與 commerce 共用同一份 controller：
+
+| 端點 | 用途 |
+| --- | --- |
+| `POST /login` · `/logout` · `GET /me` | 登入、登出、看自己；登入接受 `mfaCode` 或 `recoveryCode` |
+| `POST /register` | 自助註冊，角色由 release 目錄的 `selfServiceRegistration` 決定 |
+| `POST /forgot-password` · `/reset-password` | 中性回應；連結來自信件 |
+| `POST /verify-email` · `/resend-verification` | 信箱驗證 |
+| `POST /change-email` · `/confirm-email-change` | 換信箱：要現有密碼，確認信只寄到新地址 |
+| `POST /change-password` · `/revoke-other-sessions` | 改密碼、登出其他裝置 |
+| `GET /mfa` · `POST /mfa/enroll` · `/mfa/confirm` · `/mfa/recovery-codes` · `/mfa/disable` | 第二因素 |
+
+CLI：`user:create`、`token:create` / `token:list` / `token:revoke`。
+
+## 安全性質
+
+- 帳號枚舉：登入、註冊、忘記密碼、換信箱衝突全部使用同一組中性訊息；帳號不存在時
+  仍跑一次完整 scrypt，兩條路徑的耗時不可分辨。
+- 重放：身分連結由 `used_at` 的原子 UPDATE 消費；TOTP 由 `last_time_step` 擋；
+  API token 由 `revoked_at` / `expires_at` 擋。
+- 停用與降權在下一個請求就生效：session 不快取權限，角色每次重讀。
+- 暴力嘗試：帳號層十次失敗鎖十五分鐘（含第二因素的失敗），來源層沿用 HTTP 限流。

@@ -11,6 +11,10 @@ export interface UserRow {
   status: string;
   created_at: Date;
   last_login_at: Date | null;
+  email_verified_at?: Date | null;
+  /** 連續登入失敗次數與暫時鎖定，成功登入即歸零。 */
+  failed_login_count?: number;
+  locked_until?: Date | string | null;
 }
 
 export interface UserDto {
@@ -50,7 +54,8 @@ export class UserRepository {
 
   async findById(db: DrizzleDb | Tx, id: string): Promise<UserRow | null> {
     const res = await db.execute<UserRow>(sql`
-      SELECT id, email, password_hash, display_name, role, status, created_at, last_login_at
+      SELECT id, email, password_hash, display_name, role, status, created_at, last_login_at,
+             email_verified_at, failed_login_count, locked_until
       FROM platform_users WHERE id = ${id}
     `);
     return res.rows[0] ?? null;
@@ -75,7 +80,8 @@ export class UserRepository {
 
   async findByEmail(db: DrizzleDb | Tx, email: string): Promise<UserRow | null> {
     const res = await db.execute<UserRow>(sql`
-      SELECT id, email, password_hash, display_name, role, status, created_at, last_login_at
+      SELECT id, email, password_hash, display_name, role, status, created_at, last_login_at,
+             email_verified_at, failed_login_count, locked_until
       FROM platform_users WHERE lower(email) = lower(${email})
     `);
     return res.rows[0] ?? null;

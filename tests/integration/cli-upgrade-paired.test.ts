@@ -72,8 +72,10 @@ it('real CLI upgrades with a paired snapshot, retries the same candidate, and re
     }
     symlinkSync(source, join(home, 'current'));
     const config = join(root, 'config.json');
+    process.env.SW_SIGNING_KEY_TEST = Buffer.alloc(32, 3).toString('base64url');
     writeFileSync(config, JSON.stringify({ version: 1, store: { id: 'paired-cli', name: 'Paired CLI' },
-      database: { url: container.getConnectionUri() }, extensions: [], logging: { level: 'error' } }));
+      database: { url: container.getConnectionUri() }, extensions: [], logging: { level: 'error' },
+      security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] } }));
     const failureHook = join(root, 'crash-hooks.cjs');
     writeFileSync(failureHook, `
       const fs = require('node:fs');

@@ -126,7 +126,6 @@ export function testConfig(url: string, options: TestRuntimeOptions = {}): Comme
     store: { id: options.storeId ?? 'test-store', name: 'Test Store', currency: 'TWD' },
     database: { url, poolSize: 5 },
     worker: { pollIntervalMs: 50, concurrency: 4 },
-    auth: { tokens: [] },
     // 明寫本機位址：cookie 的名字看它。localhost 發不出 Secure，因此測試裡的 cookie 都是
     // 裸名（`commerce_session` 而不是 `__Host-commerce_session`），其他整合測試才寫得出
     // `cookies: { [SESSION_COOKIE]: ... }`。改動這一行會讓那些檔案一起失敗——那是預期的，

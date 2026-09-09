@@ -51,9 +51,9 @@ describe('selected release bootstrap', () => {
     );
     expect(tables.rows.map(row => row.tablename)).toEqual([
       'platform_api_tokens', 'platform_audit_log', 'platform_cache', 'platform_extension_registry', 'platform_extension_state',
-      'platform_idempotency', 'platform_identity_tokens', 'platform_job_quarantine', 'platform_job_schedules', 'platform_jobs', 'platform_mail_messages', 'platform_migration_baselines', 'platform_migrations', 'platform_outbox',
+      'platform_idempotency', 'platform_identity_tokens', 'platform_job_quarantine', 'platform_job_schedules', 'platform_jobs', 'platform_mail_messages', 'platform_mfa_recovery_codes', 'platform_migration_baselines', 'platform_migrations', 'platform_outbox',
       'platform_outbox_quarantine', 'platform_outbox_quarantine_audit',
-      'platform_release_history', 'platform_sessions', 'platform_storage_objects', 'platform_users', 'platform_worker_heartbeat',
+      'platform_release_history', 'platform_sessions', 'platform_storage_objects', 'platform_user_mfa', 'platform_users', 'platform_worker_heartbeat',
     ]);
   });
 

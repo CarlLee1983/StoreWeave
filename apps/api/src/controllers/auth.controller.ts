@@ -11,7 +11,12 @@ import { zodToJsonSchema, type JsonSchema7Type } from 'zod-to-json-schema';
 import { HttpContract, type DirectHttpContract } from '../http/contract';
 import { SchemaPipe } from '../http/validation';
 
-export const loginInput = z.object({ email: z.string().min(1), password: z.string().min(1) }).strict();
+export const loginInput = z.object({
+  email: z.string().min(1), password: z.string().min(1),
+  /** 第二因素。角色要求且已註冊時才會被檢查。 */
+  mfaCode: z.string().min(1).optional(),
+  recoveryCode: z.string().min(1).optional(),
+}).strict();
 export const changePasswordInput = z.object({
   currentPassword: z.string().min(1), newPassword: z.string().min(1),
 }).strict();
@@ -25,6 +30,10 @@ export const resetPasswordInput = z.object({
 }).strict();
 export const changeEmailInput = z.object({
   currentPassword: z.string().min(1), newEmail: z.string().email(),
+}).strict();
+export const mfaCodeInput = z.object({ code: z.string().min(1) }).strict();
+export const mfaDisableInput = z.object({
+  currentPassword: z.string().min(1), code: z.string().min(1),
 }).strict();
 
 const emptyInput = { type: 'object', properties: {}, additionalProperties: false } as const satisfies JsonSchema7Type;
@@ -40,9 +49,18 @@ const accepted = {
   type: 'object', required: ['accepted'], additionalProperties: false,
   properties: { accepted: { type: 'boolean', const: true } },
 } as const satisfies JsonSchema7Type;
+const recoveryCodes = {
+  type: 'object', required: ['recoveryCodes'], additionalProperties: false,
+  properties: { recoveryCodes: { type: 'array', items: { type: 'string' } } },
+} as const satisfies JsonSchema7Type;
 const routes = {
   login: { kind: 'direct', request: 'body', rateLimit: 'auth', input: zodToJsonSchema(loginInput as never, { target: 'jsonSchema7' }), output: response({
-    ...user, required: [...user.required, 'cartNotice'], properties: { ...user.properties, cartNotice: { type: ['string', 'null'] } },
+    ...user, required: [...user.required, 'cartNotice'],
+    properties: {
+      ...user.properties, cartNotice: { type: ['string', 'null'] },
+      // 只在角色要求第二因素而帳號還沒註冊時出現：UI 據此把人帶去設定流程。
+      mfaEnrolmentRequired: { type: 'boolean', const: true },
+    },
   }) },
   logout: { kind: 'direct', request: 'none', input: emptyInput, output: response({
     type: 'object', required: ['loggedOut'], additionalProperties: false, properties: { loggedOut: { type: 'boolean', const: true } },
@@ -60,6 +78,17 @@ const routes = {
   changeEmail: { kind: 'direct', request: 'body', auth: 'session', rateLimit: 'auth', input: zodToJsonSchema(changeEmailInput as never, { target: 'jsonSchema7' }), output: response(accepted) },
   confirmEmailChange: { kind: 'direct', request: 'body', rateLimit: 'auth', input: zodToJsonSchema(tokenInput as never, { target: 'jsonSchema7' }), output: response(user) },
   revokeOtherSessions: { kind: 'direct', request: 'none', auth: 'session', input: emptyInput, output: response(accepted) },
+  mfaStatus: { kind: 'direct', request: 'none', auth: 'session', input: emptyInput, output: response({
+    type: 'object', required: ['enrolled', 'confirmed', 'recoveryCodesRemaining'], additionalProperties: false,
+    properties: { enrolled: { type: 'boolean' }, confirmed: { type: 'boolean' }, recoveryCodesRemaining: { type: 'number' } },
+  }) },
+  mfaEnroll: { kind: 'direct', request: 'none', auth: 'session', rateLimit: 'auth', input: emptyInput, output: response({
+    type: 'object', required: ['secret', 'uri'], additionalProperties: false,
+    properties: { secret: { type: 'string' }, uri: { type: 'string' } },
+  }) },
+  mfaConfirm: { kind: 'direct', request: 'body', auth: 'session', rateLimit: 'auth', input: zodToJsonSchema(mfaCodeInput as never, { target: 'jsonSchema7' }), output: response(recoveryCodes) },
+  mfaRecoveryCodes: { kind: 'direct', request: 'body', auth: 'session', rateLimit: 'auth', input: zodToJsonSchema(mfaCodeInput as never, { target: 'jsonSchema7' }), output: response(recoveryCodes) },
+  mfaDisable: { kind: 'direct', request: 'body', auth: 'session', rateLimit: 'auth', input: zodToJsonSchema(mfaDisableInput as never, { target: 'jsonSchema7' }), output: response(accepted) },
 } as const satisfies Record<string, DirectHttpContract>;
 
 /** 後台登入。認證發生在 Actor 存在之前，因此不經過 Command/Query Bus，直接呼叫 AuthService。 */
@@ -87,6 +116,8 @@ export class AuthController {
     const session = await this.runtime.auth.authenticate(this.runtime.database.db, {
       email: body.email,
       password: body.password,
+      mfaCode: body.mfaCode,
+      recoveryCode: body.recoveryCode,
       userAgent,
     });
 
@@ -99,6 +130,7 @@ export class AuthController {
       displayName: session.user.displayName,
       role: session.user.role,
       cartNotice,
+      ...(session.mfaEnrolmentRequired ? { mfaEnrolmentRequired: true } : {}),
     });
   }
 
@@ -251,6 +283,77 @@ export class AuthController {
   @HttpContract(routes.revokeOtherSessions)
   async revokeOtherSessions(@Req() req: AuthenticatedRequest) {
     const { token, resolved } = await this.sessionOf(req);
+    await this.runtime.auth.revokeAllSessions(this.runtime.database.db, resolved.user.id, token);
+    return ok({ accepted: true });
+  }
+
+  @Get('mfa')
+  @HttpContract(routes.mfaStatus)
+  async mfaStatus(@Req() req: AuthenticatedRequest) {
+    const { resolved } = await this.sessionOf(req);
+    return ok(await this.runtime.mfa.statusFor(this.runtime.database.db, resolved.user.id));
+  }
+
+  /** 開始註冊。秘密在確認之前不生效，掃描失敗的人不會把自己鎖在外面。 */
+  @Post('mfa/enroll')
+  @HttpCode(200)
+  @HttpContract(routes.mfaEnroll)
+  async mfaEnroll(@Req() req: AuthenticatedRequest) {
+    const { resolved } = await this.sessionOf(req);
+    const enrolment = await this.runtime.database.transaction(tx => this.runtime.mfa.beginEnrolment(tx, {
+      userId: resolved.user.id, accountName: resolved.user.email,
+    }));
+    return ok({ secret: enrolment.secret, uri: enrolment.uri });
+  }
+
+  /** 確認註冊，並一次發完復原碼——它們只顯示這一次。 */
+  @Post('mfa/confirm')
+  @HttpCode(200)
+  @HttpContract(routes.mfaConfirm)
+  async mfaConfirm(
+    @Req() req: AuthenticatedRequest,
+    @Body(new SchemaPipe(mfaCodeInput)) body: z.infer<typeof mfaCodeInput>,
+  ) {
+    const { resolved } = await this.sessionOf(req);
+    const codes = await this.runtime.database.transaction(tx => this.runtime.mfa.confirmEnrolment(tx, {
+      userId: resolved.user.id, code: body.code,
+    }));
+    return ok({ recoveryCodes: codes });
+  }
+
+  /** 重發復原碼。舊的一批同時作廢：兩批同時有效等於備份的備份沒有人管得動。 */
+  @Post('mfa/recovery-codes')
+  @HttpCode(200)
+  @HttpContract(routes.mfaRecoveryCodes)
+  async mfaRecoveryCodes(
+    @Req() req: AuthenticatedRequest,
+    @Body(new SchemaPipe(mfaCodeInput)) body: z.infer<typeof mfaCodeInput>,
+  ) {
+    const { resolved } = await this.sessionOf(req);
+    const passed = await this.runtime.mfa.verifyForLogin(this.runtime.database.db, {
+      userId: resolved.user.id, code: body.code,
+    });
+    if (!passed) throw new PlatformError('UNAUTHENTICATED', 'That code is not valid');
+    const codes = await this.runtime.database.transaction(tx => this.runtime.mfa.replaceRecoveryCodes(tx, resolved.user.id));
+    return ok({ recoveryCodes: codes });
+  }
+
+  /** 關閉第二因素要密碼加一組有效代碼：只有 session 的人關不掉別人的保護。 */
+  @Post('mfa/disable')
+  @HttpCode(200)
+  @HttpContract(routes.mfaDisable)
+  async mfaDisable(
+    @Req() req: AuthenticatedRequest,
+    @Body(new SchemaPipe(mfaDisableInput)) body: z.infer<typeof mfaDisableInput>,
+  ) {
+    const { token, resolved } = await this.sessionOf(req);
+    await this.runtime.auth.assertPassword(resolved.user.id, body.currentPassword);
+    const passed = await this.runtime.mfa.verifyForLogin(this.runtime.database.db, {
+      userId: resolved.user.id, code: body.code, recoveryCode: body.code.includes('-') ? body.code : undefined,
+    });
+    if (!passed) throw new PlatformError('UNAUTHENTICATED', 'That code is not valid');
+    await this.runtime.database.transaction(tx => this.runtime.mfa.disable(tx, resolved.user.id));
+    // 關掉第二因素是安全性下降的動作：其他裝置一律重新登入。
     await this.runtime.auth.revokeAllSessions(this.runtime.database.db, resolved.user.id, token);
     return ok({ accepted: true });
   }

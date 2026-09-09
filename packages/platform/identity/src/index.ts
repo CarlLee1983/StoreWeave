@@ -4,6 +4,7 @@ export * from './migrations';
 export type { UserDto } from './repository';
 export * from './tokens';
 export * from './api-tokens';
+export * from './mfa';
 export * from './jobs';
 export * from './mail-templates';
 export * from './auth-service';

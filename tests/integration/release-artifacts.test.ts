@@ -135,7 +135,7 @@ describe('release process artifacts', () => {
         database: { url }, worker: { enabled: false }, logging: { level: 'error' }, extensions: [],
         security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
       }));
-      const env = { ...process.env, STOREWEAVE_CONFIG: config, B02_SMOKE_TOKEN: 'isolated-artifact-smoke-token',
+      const env = { ...process.env, STOREWEAVE_CONFIG: config,
         SW_SIGNING_KEY_TEST: Buffer.alloc(32, 3).toString('base64url') };
       const seedFile = join(output, 'app/seed.js');
       const first = await exec(process.execPath, [seedFile], { env, timeout: 15_000 });
@@ -172,10 +172,30 @@ describe('release process artifacts', () => {
               'platform/0008_job_schedules',
               'platform-cache/0001_init',
               'platform-storage/0001_init',
-              'platform-mail/0001_init'
+              'platform-mail/0001_init',
+              'identity/0004_identity_tokens',
+              'identity/0005_drop_password_resets',
+              'identity/0006_api_tokens',
+              'identity/0007_mfa',
+              'identity/0008_login_lockout'
             );
             DROP TABLE public.platform_storage_objects;
             DROP TABLE public.platform_mail_messages;
+            DROP TABLE public.platform_mfa_recovery_codes;
+            DROP TABLE public.platform_user_mfa;
+            DROP TABLE public.platform_api_tokens;
+            DROP TABLE public.platform_identity_tokens;
+            ALTER TABLE public.platform_users
+              DROP COLUMN email_verified_at, DROP COLUMN failed_login_count, DROP COLUMN locked_until;
+            -- 舊 release 擁有這張表；把它放回去，倒帶才是完整的。
+            CREATE TABLE public.platform_password_resets (
+              id uuid PRIMARY KEY,
+              user_id uuid NOT NULL REFERENCES public.platform_users(id) ON DELETE CASCADE,
+              token_hash text NOT NULL UNIQUE,
+              expires_at timestamptz NOT NULL,
+              used_at timestamptz,
+              created_at timestamptz NOT NULL DEFAULT now()
+            );
             DROP TABLE platform_release_history;
             ALTER TABLE platform_migrations DROP COLUMN checksum, DROP COLUMN migration_order,
               DROP COLUMN legacy_baseline_id, DROP COLUMN migration_owner, DROP COLUMN migration_id,
@@ -226,10 +246,13 @@ describe('release process artifacts', () => {
         version: 1, store: { id: 'artifact-test', name: 'Artifact test' },
         database: { url }, extensions: [], logging: { level: 'info' },
         http: { host: '127.0.0.1', port }, worker: { enabled: true, pollIntervalMs: 50 },
-        auth: { tokens: [{ name: 'smoke', role: 'admin', secretRef: 'B02_SMOKE_TOKEN' }] },
         shutdown: { timeoutMs: 2_000 },
         security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
       }));
+      // Token 由 CLI 現場簽發，設定檔裡不再有它（ADR 0043）。
+      const issued = JSON.parse((await exec(process.execPath,
+        [join(output, 'app/cli.js'), 'token:create', '--name', 'smoke', '--role', 'admin', '--json'],
+        { env, timeout: 20_000 })).stdout) as { secret: string };
       const api = join(output, 'app/api.js');
       await processSmoke(api, env, 'api listening', async () => {
         const response = await fetch(`http://127.0.0.1:${port}/health/live`);
@@ -241,7 +264,7 @@ describe('release process artifacts', () => {
           expect((await fetch(`http://127.0.0.1:${port}/health/live`)).status).toBe(200);
           if (releaseId === 'base') {
             await exec('bash', ['scripts/smoke-base.sh'], {
-              env: { ...env, BASE_URL: `http://127.0.0.1:${port}`, ADMIN_TOKEN: env.B02_SMOKE_TOKEN }, timeout: 15_000,
+              env: { ...env, BASE_URL: `http://127.0.0.1:${port}`, ADMIN_TOKEN: issued.secret }, timeout: 15_000,
             });
           }
         });
