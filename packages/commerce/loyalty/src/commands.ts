@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext } from '@storeweave/contracts';
-import type { NotificationProvider, ProviderRegistry } from '@storeweave/extension-sdk';
+import type { NotificationsPort } from '@storeweave/notifications';
 import { customerService } from '@storeweave/customer';
 import {
   adjustRewardsInput,
@@ -13,11 +13,14 @@ import {
 import { LoyaltyRepository } from './repository';
 import { deriveRewardBalance } from './balance';
 import { rewardService, tierService, toRewardEntry } from './service';
+import { REWARD_EXPIRING_TEMPLATE } from './templates';
 
 export interface LoyaltyModuleDeps {
-  providers: ProviderRegistry;
+  /** Base 通知能力；loyalty 只知道對應到哪個模板，不知道怎麼寄。 */
+  readonly notifications: () => NotificationsPort;
   /** 金額要說得出幣別。後台硬編一個 'TWD' 只是在等第二個幣別的商店出現。 */
   currency: string;
+  locale: string;
 }
 
 const repository = new LoyaltyRepository();
@@ -386,17 +389,16 @@ async function sendExpiryNotice(
     const customer = await customerService.contactFor(ctx.tx, input.customerId);
     // 收件人不存在不是暫時性失敗，重試也沒用——佔位留著。
     if (!customer) return true;
-    const provider = deps.providers.get<NotificationProvider>('notification');
-    const result = await provider.send({
-      template: 'customer.reward-expiring',
-      to: { email: customer.email, name: customer.displayName },
-      variables: { amountCents: input.amountCents, expiresAt: input.expiresAt.toISOString() },
+    // 這裡回傳的是「已經交給 base 通知能力」，不是「信已經寄出去」——
+    // 建立通知紀錄是同一筆交易裡的持久事實，後續投遞由 base 自己重試。
+    await deps.notifications().send(ctx.tx, {
       reference: `reward-expiry:${input.entryId}`,
-    });
-    if (result.status !== 'sent') {
-      ctx.logger.warn({ customerId: input.customerId, message: result.message }, 'reward expiry notice not delivered');
-      return false;
-    }
+      channels: ['email'],
+      locale: deps.locale,
+      recipient: { email: customer.email, name: customer.displayName },
+      template: { id: REWARD_EXPIRING_TEMPLATE.id, version: REWARD_EXPIRING_TEMPLATE.version, email: REWARD_EXPIRING_TEMPLATE.email },
+      variables: { amountCents: String(input.amountCents), expiresAt: input.expiresAt.toISOString() },
+    }, job => ctx.enqueue(job), ctx.now);
     return true;
   } catch (err) {
     ctx.logger.error({ error: (err as Error).message, customerId: input.customerId }, 'reward expiry notice failed');

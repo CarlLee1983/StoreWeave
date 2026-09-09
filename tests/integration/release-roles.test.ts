@@ -41,7 +41,7 @@ describe('release-owned roles', () => {
     const { email } = await create('readonly');
     const issued = await runtime.auth.authenticate(runtime.database.db, { email, password });
     const session = await runtime.auth.resolveSession(runtime.database.db, issued.token);
-    expect(session?.actor).toMatchObject({ type: 'user', permissions: ['users:read', 'jobs:read', 'storage:read'] });
+    expect(session?.actor).toMatchObject({ type: 'user', permissions: ['users:read', 'jobs:read', 'storage:read', 'notifications:read', 'notifications:inbox'] });
     expect(runtime.actorForRole('staff').permissions).not.toContain('order:read');
     for (const role of ['customer', 'storefront', 'mcp', 'constructor']) {
       expect(() => runtime.actorForRole(role)).toThrow('Unknown role');

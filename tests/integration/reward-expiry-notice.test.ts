@@ -30,13 +30,12 @@ async function grantExpiring(customerId: string, amountCents: number, expiresInD
   return id;
 }
 
-/** 開發用通知實作把寄出的內容留在自己的儲存裡。 */
+/** 通知是 base 能力：紀錄留在 platform_notifications，不在 Extension 的儲存裡。 */
 async function sentTo(email: string): Promise<any[]> {
-  const rows = await h.runtime.database.db.execute<{ value: any }>(sql`
-    SELECT value FROM platform_extension_state
-    WHERE extension_id = 'mock-notification' AND key LIKE 'sent:%'
+  const rows = await h.runtime.database.db.execute<{ template_id: string; variables: any }>(sql`
+    SELECT template_id, variables FROM platform_notifications WHERE recipient_email = ${email}
   `);
-  return rows.rows.map((r) => r.value).filter((n) => n.to.email === email);
+  return rows.rows.map((row) => ({ template: row.template_id, variables: row.variables }));
 }
 
 describe('到期通知', () => {
@@ -95,7 +94,8 @@ describe('到期通知', () => {
     await notify();
 
     const sent = await sentTo(customer.email);
-    expect(sent[0].variables.amountCents).toBe(3_000);
+    // 模板變數一律是字串：{amountCents} 進到信件內容時本來就是文字。
+    expect(sent[0].variables.amountCents).toBe('3000');
   });
 
   it('邊界由注入的時刻決定：同一批在不同的時點通知或不通知', async () => {
@@ -128,42 +128,25 @@ describe('到期通知', () => {
 });
 
 /**
- * 寄不出去的那條路。用另一個 harness（`deliver: false` 的通知實作），
- * 因為那是啟動時的設定，不能中途改。
+ * 交出去之後的那條路。通知已經是 base 能力的持久紀錄，投遞由它自己重試，
+ * 因此「有沒有通知過」看的是紀錄成立與否，不是 SMTP 當下的回應。
  */
-describe('寄不出去時', () => {
-  let broken: TestHarness;
+describe('交給 base 通知能力之後', () => {
+  it('佔位與通知紀錄在同一筆交易裡成立，重跑不會再建一份', async () => {
+    const customer = await buyer('handoff');
+    const entryId = await grantExpiring(customer.customerId, 5_000, 3);
 
-  beforeAll(async () => {
-    broken = await createHarness({
-      extensions: {
-        'mock-payment': { autoApprove: true },
-        'mock-notification': { deliver: false, retainSensitiveVariables: true },
-        'demo-erp': { endpoint: 'mock://demo-erp' },
-        mcp: {},
-      },
-    });
-  }, 300_000);
-
-  afterAll(async () => { await broken?.close(); });
-
-  it('不佔住那一批：下一輪還會再遇到它', async () => {
-    const customer = await createCustomer(broken.runtime, { email: `exp-fail-${randomUUID()}@example.test` });
-    const id = randomUUID();
-    await broken.runtime.database.db.execute(sql`
-      INSERT INTO loyalty_reward_entries (id, customer_id, amount_cents, source, effective_at, expires_at, created_at)
-      VALUES (${id}, ${customer.customerId}, 5000, 'manual', now() - interval '1 day',
-              now() + interval '3 days', now() - interval '1 day')
+    const first = await notify();
+    expect(first.notified).toBeGreaterThan(0);
+    const held = await h.runtime.database.db.execute<{ count: string }>(sql`
+      SELECT count(*)::text AS count FROM loyalty_reward_expiry_notices WHERE entry_id = ${entryId}
     `);
+    expect(held.rows[0].count).toBe('1');
 
-    const first = await broken.runtime.commands.execute<any>('commerce.loyalty.notifyExpiringRewards', {},
-      { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
-
-    // 沒有寄出去就不能算成已通知，佔位也要放掉。
-    expect(first.notified).toBe(0);
-    const rows = await broken.runtime.database.db.execute<{ count: string }>(sql`
-      SELECT count(*)::text AS count FROM loyalty_reward_expiry_notices WHERE entry_id = ${id}
+    await notify();
+    const notifications = await h.runtime.database.db.execute<{ count: string }>(sql`
+      SELECT count(*)::text AS count FROM platform_notifications WHERE reference = ${`reward-expiry:${entryId}`}
     `);
-    expect(rows.rows[0].count).toBe('0');
+    expect(notifications.rows[0].count).toBe('1');
   });
 });

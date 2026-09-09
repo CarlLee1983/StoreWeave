@@ -40,7 +40,7 @@ describe('selected release bootstrap', () => {
     runtimes.push(runtime);
     expect(result.theme).toBeUndefined();
     expect(runtime.config.store).not.toHaveProperty('currency');
-    expect(runtime.modules.map(module => module.name).sort()).toEqual(['platform', 'platform-cache', 'platform-identity', 'platform-mail', 'platform-ops', 'platform-storage']);
+    expect(runtime.modules.map(module => module.name).sort()).toEqual(['platform', 'platform-cache', 'platform-identity', 'platform-mail', 'platform-notifications', 'platform-ops', 'platform-storage']);
     expect(Object.keys(runtime.roles).sort()).toEqual(['admin', 'readonly', 'staff']);
     await runtime.migrate();
     await expect(runtime.migrate()).resolves.toEqual([]);
@@ -49,7 +49,8 @@ describe('selected release bootstrap', () => {
     );
     expect(tables.rows.map(row => row.tablename)).toEqual([
       'platform_audit_log', 'platform_cache', 'platform_extension_registry', 'platform_extension_state',
-      'platform_idempotency', 'platform_job_quarantine', 'platform_job_schedules', 'platform_jobs', 'platform_mail_messages', 'platform_migration_baselines', 'platform_migrations', 'platform_outbox',
+      'platform_idempotency', 'platform_job_quarantine', 'platform_job_schedules', 'platform_jobs', 'platform_mail_messages', 'platform_migration_baselines', 'platform_migrations',
+      'platform_notification_deliveries', 'platform_notifications', 'platform_outbox',
       'platform_outbox_quarantine', 'platform_outbox_quarantine_audit',
       'platform_password_resets', 'platform_release_history', 'platform_sessions', 'platform_storage_objects', 'platform_users', 'platform_worker_heartbeat',
     ]);
@@ -117,7 +118,7 @@ describe('selected release bootstrap', () => {
     runtimes.push(result.runtime);
     expect(result.theme?.id).toBe('default');
     expect(result.runtime.config.store.currency).toBe('TWD');
-    expect(result.runtime.modules).toHaveLength(20);
+    expect(result.runtime.modules).toHaveLength(21);
     expect(result.runtime.actorForRole('staff').permissions).toContain('erp:write');
     await result.runtime.migrate();
     await expect(result.runtime.migrate()).resolves.toEqual([]);

@@ -250,7 +250,6 @@ describe('startup HTTP catalog artifact', () => {
         http: { cors: { allowedOrigins: ['https://console.example'], credentials: true } },
         extensions: [
           { id: 'mock-payment', config: { autoApprove: true } },
-          { id: 'mock-notification', config: { deliver: true, retainSensitiveVariables: true } },
           { id: 'demo-erp', config: { endpoint: 'mock://artifact-erp' } },
           { id: 'mcp', config: {} },
         ],

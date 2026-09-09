@@ -17,7 +17,8 @@ Application         Command Bus · Query Bus  -- 授權 / Zod 驗證 / Idempoten
                               |
 Domain              catalog · inventory · order · cart · promotion ⋯     <- Commerce Core
                               |  版本化 Domain Event
-Integration         Transactional Outbox -> Worker -> Extension（金流 / 物流 / 發票 / 通知 / ERP / MCP）
+Integration         Transactional Outbox -> Worker -> Extension（金流 / 物流 / 發票 / ERP / MCP）
+                              |  通知是 base 能力（mail + 站內收件匣），不是 Extension
                               |
 Infrastructure      PostgreSQL（唯一必要依賴；Redis 選配）
 ```

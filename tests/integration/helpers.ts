@@ -116,8 +116,6 @@ export function testSecretProvider(values: Record<string, string>): SecretProvid
 export function testConfig(url: string, options: TestRuntimeOptions = {}): CommerceConfig {
   const extensionEntries = options.extensions ?? {
     'mock-payment': { autoApprove: true },
-    // 測試要斷言信件內容，因此明確打開留存；正式設定預設是關的。
-    'mock-notification': { deliver: true, retainSensitiveVariables: true },
     'demo-erp': { endpoint: 'mock://demo-erp' },
     mcp: {},
   };

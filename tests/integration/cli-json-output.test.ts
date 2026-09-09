@@ -49,7 +49,7 @@ it('migrate --status --json reports activation without applying SQL or mounting 
   const pending = runCli(databaseUrl, ['migrate', '--status', '--json']);
   expect(pending.status, pending.stderr).toBe(0);
   expect(JSON.parse(pending.stdout)).toMatchObject({ releaseCurrent: false, applied: [] });
-  expect(JSON.parse(pending.stdout).pending).toHaveLength(58);
+  expect(JSON.parse(pending.stdout).pending).toHaveLength(59);
   expect(pending.stderr).not.toContain('extension mounted');
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();

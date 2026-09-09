@@ -20,6 +20,7 @@ import { RefundController } from '../controllers/refund.controller';
 import { InvoiceController } from '../controllers/invoice.controller';
 import { LoyaltyController } from '../controllers/loyalty.controller';
 import { NotificationController } from '../controllers/notification.controller';
+import { NotificationsController } from '../controllers/notifications.controller';
 import { ContentArticleController, ContentContactController } from '../controllers/content.controller';
 import { RmaController } from '../controllers/rma.controller';
 import { McpController } from '../mcp/mcp.controller';
@@ -31,7 +32,7 @@ export const httpAdapter: ReleaseHttpAdapter = {
   controllers(config) {
     const controllers: Type[] = [
       HealthController, MetaController, AuthController, CatalogController, InventoryController, SystemController, StorageController,
-      OrderController, PromotionController, CouponController, CustomerController, CartController, ShippingController, RefundController, RmaController, InvoiceController, LoyaltyController, NotificationController, CallbackController, AnalyticsController, ContentArticleController, ContentContactController, ExtensionsController, StorefrontController,
+      OrderController, PromotionController, CouponController, CustomerController, CartController, ShippingController, RefundController, RmaController, InvoiceController, LoyaltyController, NotificationController, NotificationsController, CallbackController, AnalyticsController, ContentArticleController, ContentContactController, ExtensionsController, StorefrontController,
     ];
     if (config.mcp.enabled) controllers.push(McpController);
 

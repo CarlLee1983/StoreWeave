@@ -7,7 +7,7 @@ import type { FastifyReply } from 'fastify';
 import { PlatformError, SYSTEM_ACTOR, type Actor } from '@storeweave/contracts';
 import { csrfTokenFor } from '@storeweave/identity';
 import type { StorefrontTheme, ThemeArticleView, ThemeContext } from '@storeweave/kernel';
-import type { NotificationProvider, PaymentProvider, ShippingProvider } from '@storeweave/extension-sdk';
+import type { PaymentProvider, ShippingProvider } from '@storeweave/extension-sdk';
 import { customerService } from '@storeweave/customer';
 import { Anonymous, ExternalCallback, Public, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
 import { clearSessionCookies, sessionTokenOf } from '../http/session-cookies';
@@ -17,6 +17,7 @@ import { HttpContract } from '../http/contract';
 import { resolveThemeAssetsDir } from '../theme-assets';
 import { RELEASE, RUNTIME, THEME, type ReleaseInfo, type Runtime } from '../tokens';
 import { storefrontAssetContract, storefrontContracts, WOVEN_DAY_ARTWORK } from './storefront.contract';
+import { PASSWORD_RESET_TEMPLATE } from './password-reset-template';
 
 const WOVEN_DAY_ARTWORK_SET = new Set<string>(WOVEN_DAY_ARTWORK);
 
@@ -1159,16 +1160,17 @@ export class StorefrontController {
         ttlMs: RESET_TTL_MS,
       });
       if (created) {
-        const provider = this.runtime.providers.get<NotificationProvider>('notification');
-        await provider.send({
-          template: 'customer.password-reset',
-          to: { email: created.user.email, name: created.user.displayName },
+        await this.runtime.notifications.dispatch({
+          // reference 會被持久記錄，因此用不可逆的值——明文 token 只該出現在信裡。
+          reference: `password-reset:${createHash('sha256').update(created.token).digest('base64url').slice(0, 32)}`,
+          channels: ['email'],
+          locale: this.runtime.config.store.locale,
+          recipient: { email: created.user.email, name: created.user.displayName },
+          template: PASSWORD_RESET_TEMPLATE,
           variables: {
             resetUrl: `${this.runtime.config.http.publicUrl.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(created.token)}`,
-            expiresInMinutes: RESET_TTL_MS / 60_000,
+            expiresInMinutes: String(RESET_TTL_MS / 60_000),
           },
-          // reference 會被 Provider 留存，因此用不可逆的值——明文 token 只該出現在信裡。
-          reference: `password-reset:${createHash('sha256').update(created.token).digest('base64url').slice(0, 32)}`,
         });
       }
     } catch (err) {
