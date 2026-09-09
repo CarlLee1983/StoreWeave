@@ -28,7 +28,7 @@ it('real CLI upgrades with a paired snapshot, retries the same candidate, and re
       if (${JSON.stringify(tool)} === 'pg_dump' && require('node:fs').existsSync(${JSON.stringify(join(root, 'fail-dump'))})) process.exit(24);
       const passfile = process.env.PGPASSFILE;
       const credentials = passfile ? ['--env', 'PGPASSFILE=' + passfile, '--mount', 'type=bind,source=' + require('node:path').dirname(passfile) + ',target=' + require('node:path').dirname(passfile) + ',readonly'] : [];
-      try { require('node:child_process').execFileSync('docker', ['run', '--rm', ...credentials,
+      try { require('node:child_process').execFileSync('docker', ['run', '--rm', '--add-host', 'host.docker.internal:host-gateway', ...credentials,
         '--mount', ${JSON.stringify(`type=bind,source=${root},target=${root}`)}, '--entrypoint', ${JSON.stringify(tool)}, 'postgres:17-alpine', ...args], { stdio: 'inherit' }); }
       catch (error) { process.exitCode = error.status || 1; }
     `, { mode: 0o755 });
