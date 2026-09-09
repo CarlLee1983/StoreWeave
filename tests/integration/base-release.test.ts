@@ -47,7 +47,7 @@ describe('selected release bootstrap', () => {
     );
     expect(tables.rows.map(row => row.tablename)).toEqual([
       'platform_audit_log', 'platform_extension_registry', 'platform_extension_state',
-      'platform_idempotency', 'platform_job_quarantine', 'platform_jobs', 'platform_migration_baselines', 'platform_migrations', 'platform_outbox',
+      'platform_idempotency', 'platform_job_quarantine', 'platform_job_schedules', 'platform_jobs', 'platform_migration_baselines', 'platform_migrations', 'platform_outbox',
       'platform_outbox_quarantine', 'platform_outbox_quarantine_audit',
       'platform_password_resets', 'platform_release_history', 'platform_sessions', 'platform_users', 'platform_worker_heartbeat',
     ]);

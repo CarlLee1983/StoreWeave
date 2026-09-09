@@ -1,0 +1,11 @@
+{
+  "name": "storeweave-base-b05-scheduler-poc",
+  "private": true,
+  "type": "module",
+  "description": "Isolated B05 cron/timezone comparison; not a production workspace package",
+  "dependencies": {
+    "cron-parser": "^5.10.0",
+    "croner": "^10.0.1",
+    "cronosjs": "^1.7.1"
+  }
+}

@@ -1,7 +1,7 @@
 # 0016. 週期性工作用時間切片，不用自我續排的鏈
 
-- 狀態：accepted
-- 日期：2026-08-22
+- 狀態：accepted，排程機制部分由 [ADR 0039](0039-cron-calculation-only-croner.md) 修訂（B05）
+- 日期：2026-08-22（2026-09-09 補記修訂）
 
 ## 背景
 
@@ -33,6 +33,27 @@
 - **交給作業系統的 cron / systemd timer。** 否決：與 ADR 0007 的單一 artifact 部署相衝，
   且會讓「這個 Release 有哪些週期性工作」離開程式碼、變成主機設定。
 
+## 被 0039 修訂的部分（2026-09-09）
+
+B05 為了 Spec 0009 F07 引進 cron 與時區，本篇的**理由全部保留**，兩個「後果」被解除：
+
+- 「切片邊界對齊 Unix epoch 而非本地時間」不再是唯一選項。模組可以改宣告
+  `{ cron, timezone }`，台北午夜就真的是台北午夜。`everyMs` 宣告照舊，
+  連去重鍵 `recurring:<type>:<bucket>` 與 payload 欄位都刻意保持不變，遷移沒有雙排也沒有漏接。
+- 「停機期間跨過的切片不會被追補」改成有上限的追補。`platform_job_schedules` 記住
+  已經排到哪一次，預設仍然只補最近的一次（與本篇行為相同），`catchUp` 可以放寬。
+
+一併補記一個一直隱含、但從沒寫下來的前提：**切片編號只在同一個 `everyMs` 下有意義。**
+去重鍵 `recurring:<type>:<bucket>` 不含週期長度，所以同一個工作型別改了 `everyMs` 之後，
+新舊編號共用同一個命名空間。位移夠小時（1 小時週期改成 59 分 55 秒，差約 0.15%），
+新的 occurrence 會撞上舊 occurrence 還在 30 天保留期內的去重墓碑而被靜默吃掉。
+改鍵格式會破壞 B05 的遷移 no-op 前提，所以這裡選擇記下限制而不是改格式：
+要改 `everyMs`，就當成換一個排程宣告來處理。
+
+本篇最核心的主張——**不要有一條可以斷掉的鏈**——沒有改變，而且是 0039 要求 croner
+只做時間運算、不持有 timer 的直接理由。行程內快取被資料庫狀態列取代，
+因為暫停／恢復要立即生效，而快取會讓它等到下一個切片。
+
 ## 後果
 
 - **停機期間跨過的切片不會被追補。** 醒來時只排當下這一個。需要追補的工作
@@ -46,7 +67,8 @@
 
 ## Falsified if
 
-`packages/platform/kernel/src/recurring.ts` 的 `occurrenceKeyFor` 不再把切片編號放進去重鍵，
+`packages/platform/kernel/src/schedule-spec.ts` 的 `occurrenceKeyFor` 不再把切片編號放進去重鍵，
 或 `RecurringScheduler.ensureScheduled` 不再由 `packages/platform/kernel/src/worker.ts` 的 `tick()`
-每一輪呼叫，或 `packages/platform/kernel/src/module.ts` 的 `PlatformModule.jobs` 不再帶 `schedule`
+每一輪呼叫，或 `packages/platform/kernel/src/module.ts` 的 `PlatformModule.jobs` 不再帶 `schedule`，
+或 `packages/platform/kernel/src/recurring.ts` 開始讓工作在 handler 結束時排下一次（自我續排的鏈）
 —— 任一項成立，代表週期性工作換了別的機制，這篇記的理由要重新檢視。

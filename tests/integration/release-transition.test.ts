@@ -144,6 +144,7 @@ describe('release transitions', () => {
       'platform/0005_outbox_subscriber_snapshot_quarantine',
       'platform/0006_job_retention_dedupe_horizon',
       'platform/0007_ops_listing_indexes',
+      'platform/0008_job_schedules',
     ]);
     expect(prepared.manifest.owners.filter(entry => entry.state === 'active')).toHaveLength(3);
     expect(prepared.manifest.owners.filter(entry => entry.state === 'disabled')).toHaveLength(22);

@@ -17,7 +17,7 @@
 | [0013](0013-marketing-is-a-commerce-module.md) | 行銷功能是 Commerce 模組，不是 Extension | accepted |
 | [0014](0014-customer-identity.md) | 顧客身分：認證共用平台，顧客資料歸 Commerce | accepted |
 | [0015](0015-order-money-model.md) | 訂單金額模型：Adjustment 必定分攤到 line，金額欄位一次補齊 | accepted |
-| [0016](0016-recurring-jobs-by-time-buckets.md) | 週期性工作用時間切片，不用自我續排的鏈 | accepted |
+| [0016](0016-recurring-jobs-by-time-buckets.md) | 週期性工作用時間切片，不用自我續排的鏈 | accepted（排程機制部分由 0038 修訂） |
 | [0017](0017-legacy-order-events-carry-net-total.md) | 舊版訂單事件在過渡期帶折扣後金額 | obsolete |
 | [0018](0018-csrf-on-anonymous-write-endpoints.md) | 強制匿名的寫入端點以 Origin 檢查代替 CSRF token | accepted |
 | [0019](0019-ledger-derived-balances.md) | 購物金與等級積分是分批帳本，餘額與等級是推導值 | accepted |
@@ -40,6 +40,7 @@
 | [0036](0036-validate-module-composition-before-runtime.md) | 啟動前驗證模組組裝，分開初始化與操作相依 | accepted（B01） |
 | [0037](0037-release-selection-and-history.md) | Release 統一選取模組，歷史驗證與啟用分開 | accepted（B02） |
 | [0038](0038-signed-values-carry-a-key-id.md) | 簽發值帶 key id，金鑰依用途推導 | accepted（B12） |
+| [0039](0039-cron-calculation-only-croner.md) | cron 時間運算用 croner，而且只用它的運算函式 | accepted（B05） |
 
 寫法：每篇結尾用 `## Falsified if` 這個標題起一段，段落裡以反引號標出這個決策所依賴的檔案；
 那些檔案就是這個決策的邊界清單，條件本身要寫成某個東西可以檢查的形式。

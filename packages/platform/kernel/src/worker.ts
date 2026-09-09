@@ -25,6 +25,11 @@ export interface WorkerOptions {
 
 export interface WorkerTickResult {
   recurringScheduled: number;
+  recurringSkipped: number;
+  recurringDeduped: number;
+  recurringFailed: number;
+  /** 預算不夠、留到下一輪的排程數。與 recurringFailed 分開，見 EnsureScheduledResult。 */
+  recurringDeferred: number;
   relayed: number;
   deliveriesEnqueued: number;
   jobsProcessed: number;
@@ -342,17 +347,22 @@ export class Worker {
     await this.heartbeat();
     await this.database('reclaim stale jobs', tx => this.runtime.jobs.reclaimStale(tx));
     await this.database('cleanup expired jobs', tx => this.runtime.jobs.cleanupExpired(tx, this.runtime.config.worker.retentionCleanupBatchSize));
-    const recurring = await this.runtime.recurring.ensureScheduled();
+    // 排程跑在 worker 的 tick 裡，所以用 worker 自己的資料庫預算，而不是另一個獨立設定。
+    const recurring = await this.runtime.recurring.ensureScheduled(new Date(), this.databaseTimeoutMs);
     const relay = await this.relayOutbox();
     const jobs = await this.runJobs();
-    return { recurringScheduled: recurring.enqueued, relayed: relay.relayed, deliveriesEnqueued: relay.enqueued, jobsProcessed: jobs.processed, jobsFailed: jobs.failed };
+    return { recurringScheduled: recurring.enqueued, recurringSkipped: recurring.skipped, recurringDeduped: recurring.deduped, recurringFailed: recurring.failed, recurringDeferred: recurring.deferred, relayed: relay.relayed, deliveriesEnqueued: relay.enqueued, jobsProcessed: jobs.processed, jobsFailed: jobs.failed };
   }
 
   async drain(maxRounds = 50): Promise<WorkerTickResult> {
-    const total: WorkerTickResult = { recurringScheduled: 0, relayed: 0, deliveriesEnqueued: 0, jobsProcessed: 0, jobsFailed: 0 };
+    const total: WorkerTickResult = { recurringScheduled: 0, recurringSkipped: 0, recurringDeduped: 0, recurringFailed: 0, recurringDeferred: 0, relayed: 0, deliveriesEnqueued: 0, jobsProcessed: 0, jobsFailed: 0 };
     for (let i = 0; i < maxRounds; i += 1) {
       const result = await this.tick();
       total.recurringScheduled += result.recurringScheduled;
+      total.recurringSkipped += result.recurringSkipped;
+      total.recurringDeduped += result.recurringDeduped;
+      total.recurringFailed += result.recurringFailed;
+      total.recurringDeferred += result.recurringDeferred;
       total.relayed += result.relayed;
       total.deliveriesEnqueued += result.deliveriesEnqueued;
       total.jobsProcessed += result.jobsProcessed;

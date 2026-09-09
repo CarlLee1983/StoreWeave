@@ -1,4 +1,4 @@
-import { integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const outbox = pgTable('platform_outbox', {
   id: uuid('id').primaryKey(),
@@ -80,6 +80,22 @@ export const jobQuarantine = pgTable('platform_job_quarantine', {
   payloadVersion: integer('payload_version').notNull(),
   reason: text('reason').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** 排程狀態：哪一次已經排過、有沒有被暫停。佇列只認得「這一次」，watermark 讓追補有界且可重現。 */
+export const jobSchedules = pgTable('platform_job_schedules', {
+  type: text('type').primaryKey(),
+  fingerprint: text('fingerprint').notNull(),
+  paused: boolean('paused').notNull().default(false),
+  pausedAt: timestamp('paused_at', { withTimezone: true }),
+  lastOccurrenceAt: timestamp('last_occurrence_at', { withTimezone: true }),
+  lastEnqueuedAt: timestamp('last_enqueued_at', { withTimezone: true }),
+  skippedCatchup: bigint('skipped_catchup', { mode: 'number' }).notNull().default(0),
+  skippedPaused: bigint('skipped_paused', { mode: 'number' }).notNull().default(0),
+  skippedOverlap: bigint('skipped_overlap', { mode: 'number' }).notNull().default(0),
+  consecutiveOverlapSkips: integer('consecutive_overlap_skips').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const idempotency = pgTable('platform_idempotency', {

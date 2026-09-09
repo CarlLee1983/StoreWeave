@@ -46,4 +46,17 @@ typecheck PASS、`pnpm test:unit` 61 files／752 PASS、`pnpm test:integration` 
 
 5b 共取得三份獨立 review，最高等級 finding 是 `listFailures` 在生產規模下不會回應（兩位 reviewer 各自以 200k／400k 級資料實測，一位判 P0、一位判 P1），以及 `Worker.repairAndRedriveOutbox` 這條免授權、不寫 audit 的第二個 redrive 入口。兩者都已修：查詢改為兩個候選集合 UNION 並補 `platform/0007_ops_listing_indexes`，同資料量上由「60 秒 timeout 被取消」變成 135 ms（`/tmp/b04-5b-listfailures-scale.log`），並以 `tests/integration/outbox-failures-scale.test.ts` 常設回歸；worker 入口刪除，測試全改由公開 command 驅動，順帶把 subscriber 驗證、frozen snapshot 拒絕與 NULL repair 三條契約的證明從內部路徑移到公開路徑。其餘 P2 與補測見 [B04 README 的 5b 獨立 review 段落](README.md)。
 
-仍未補的缺口：HTTP 層只驗到狀態碼形狀，沒有帶真實資料的 list 與 redrive happy path，也沒有多列資料下的分頁與排序測試；`platform.outbox.redriveFailure` 缺 HTTP 層 FORBIDDEN 案例。Bus 層對應行為都已有真 PG 覆蓋。
+HTTP 層缺口已補（2026-09-09，`tests/integration/ops-http.test.ts`）：`listFailures` 有帶真實資料的
+list happy path、多列下的排序（`occurred_at DESC, id DESC`）與分頁（`total` 是整個結果集而非當頁），
+`redriveFailure` 有缺 `Idempotency-Key` 的 400、未知 outboxId 的 404、非 uuid 的 400。
+原本記載的「缺 HTTP 層 FORBIDDEN 案例」是誤記——`tests/integration/base-http.test.ts` 的
+readonly token 迴圈已經涵蓋這條。
+
+`redriveFailure` 的 HTTP happy path 也補了：重現 frozen snapshot 後重送成功並斷言
+`outbox.failure.redriven` 恰好一列 audit，以及 snapshot 對不上時回 400 且 outbox 狀態
+原封不動——後者證明「什麼都沒寫」是靠先驗後寫，不是靠交易回滾。
+
+`repairAndRedriveOutbox` 會先驗事件名稱與版本已註冊，而 base release 的 `createModules()`
+回空陣列，所以測試在 runtime 的 EventBus 上直接註冊一個合成事件與訂閱者
+（`registerEvent`／`subscribe` 就是模組系統底下走的同兩支公開 API）。這個端點與領域無關，
+不需要為它拉一整套 commerce harness。

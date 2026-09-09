@@ -79,7 +79,7 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
 }
 
 /** Pure composition shared by runtime and release metadata projection; no handlers execute here. */
-export function composeRuntimeModules({ modules, roles, logger, platformVersion, jobs, events, outbox }: {
+export function composeRuntimeModules({ modules, roles, logger, platformVersion, jobs, events, outbox, scheduler }: {
   modules: readonly PlatformModule[];
   roles: ReleaseRoleCatalog;
   logger: Logger;
@@ -87,6 +87,7 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
   jobs: JobQueue;
   events: EventBus;
   outbox: OutboxStore;
+  scheduler: () => RecurringScheduler;
 }): readonly PlatformModule[] {
   const platformModule: PlatformModule = {
     name: 'platform', version: packageJson.version, baseVersionRange: '^1.0.0',
@@ -94,12 +95,12 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
     data: { owns: [
       'platform_migrations', 'platform_migration_baselines', 'platform_release_history', 'platform_outbox', 'platform_jobs', 'platform_idempotency',
       'platform_audit_log', 'platform_extension_state', 'platform_extension_registry', 'platform_worker_heartbeat', 'platform_job_quarantine',
-      'platform_outbox_quarantine', 'platform_outbox_quarantine_audit',
+      'platform_outbox_quarantine', 'platform_outbox_quarantine_audit', 'platform_job_schedules',
     ] },
     jobs: [{ type: EVENT_DELIVERY_JOB, handler: createEventDeliveryHandler(events, logger), jobContractV1: eventDeliveryJobContract }],
   };
   return validateModuleGraph(
-    [platformModule, createOpsModule(jobs, { events, outbox }), createIdentityModule(roles), ...modules], platformVersion,
+    [platformModule, createOpsModule(jobs, { events, outbox, scheduler }), createIdentityModule(roles), ...modules], platformVersion,
   );
 }
 
@@ -127,7 +128,15 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
   });
   const events = new EventBus();
   const outbox = new OutboxStore();
-  const allModules = composeRuntimeModules({ modules: options.modules, roles: options.roles, logger, platformVersion, jobs, events, outbox });
+  // 排程器要等資料庫建立後才生得出來，但模組組裝在那之前就得完成（Release 選取需要模組清單）。
+  let scheduler: RecurringScheduler | undefined;
+  const allModules = composeRuntimeModules({
+    modules: options.modules, roles: options.roles, logger, platformVersion, jobs, events, outbox,
+    scheduler: () => {
+      if (!scheduler) throw new Error('Scheduler is not ready yet');
+      return scheduler;
+    },
+  });
   const enabled = config.extensions.filter(entry => entry.enabled).map(entry => {
     const definition = options.availableExtensions[entry.id];
     if (!definition || definition.manifest.id !== entry.id) {
@@ -157,7 +166,8 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     }, options.roles);
     const audit = new AuditWriter();
     const jobRegistry = new JobRegistry();
-    const recurring = new RecurringScheduler({ jobs, database, logger });
+    const recurring = new RecurringScheduler({ jobs, database, logger, pollIntervalMs: config.worker.pollIntervalMs });
+    scheduler = recurring;
     const providers = options.providers ?? new ProviderRegistry(logger);
     const mcpTools = new McpToolRegistry();
 
@@ -177,7 +187,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       for (const q of mod.queries ?? []) queries.register(q.descriptor, q.handler, mod.name);
       for (const j of mod.jobs ?? []) {
         jobRegistry.register(j.type, j.handler, mod.name, j.jobContractV1);
-        if (j.schedule) recurring.register({ type: j.type, everyMs: j.schedule.everyMs });
+        if (j.schedule) recurring.register(j.type, j.schedule);
       }
       for (const p of mod.policies ?? []) authorization.policies.register(p);
       for (const sub of mod.subscribers ?? []) {

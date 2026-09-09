@@ -165,7 +165,8 @@ describe('release process artifacts', () => {
               'platform/0004_job_payload_quarantine',
               'platform/0005_outbox_subscriber_snapshot_quarantine',
               'platform/0006_job_retention_dedupe_horizon',
-              'platform/0007_ops_listing_indexes'
+              'platform/0007_ops_listing_indexes',
+              'platform/0008_job_schedules'
             );
             DROP TABLE platform_release_history;
             ALTER TABLE platform_migrations DROP COLUMN checksum, DROP COLUMN migration_order,
