@@ -1,4 +1,5 @@
 import type { ThemeContext } from '@storeweave/kernel';
+import { escapeHtml } from '@storeweave/i18n';
 
 /**
  * Google Fonts 的樣式表位址。字重範圍要與 `--font-sans` 的用法一致：
@@ -7,23 +8,7 @@ import type { ThemeContext } from '@storeweave/kernel';
 export const GOOGLE_FONTS_HREF =
   'https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400..700&display=swap';
 
-export function escapeHtml(value: unknown): string {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-export function formatMoney(cents: number, currency: string, locale: string): string {
-  try {
-    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(cents / 100);
-  } catch {
-    // fallback 也要轉義：currency 現在來自設定，但它會被插進 HTML。
-    return `${(cents / 100).toFixed(2)} ${escapeHtml(currency)}`;
-  }
-}
+export { escapeHtml, formatMoney } from '@storeweave/i18n';
 
 export interface LayoutOptions {
   title: string;

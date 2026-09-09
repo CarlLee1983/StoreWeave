@@ -54,7 +54,7 @@ export interface TestContextOptions<TConfig> {
   providers?: Partial<Record<ProviderKind, AnyProvider>>;
   secrets?: Record<string, string>;
   now?: () => Date;
-  /** 測試用的 fetch 替身。未給則沿用當下的全域 fetch。 */
+  /** 測試用的 fetch 替身。未給時對外 HTTP 一律失敗，測試不會打到真實端點。 */
   fetch?: typeof fetch;
 }
 
@@ -85,8 +85,14 @@ export function createTestExtensionContext<TConfig>(
     platformVersion: options.platformVersion ?? '1.0.0',
     config: options.config,
     logger: options.logger ?? noopLogger,
-    // 沒給替身就沿用當下的全域 fetch，讓既有的 vi.stubGlobal('fetch', ...) 照舊生效。
-    http: (httpOptions) => createHttpClient({ ...httpOptions, ...(options.fetch ? { fetch: options.fetch } : {}) }),
+    // 測試替身必須 fail-closed：忘了給替身時要明確失敗，而不是靜靜地打真實網路
+    // ——那會讓 CI 無網路時變成隨機失敗，也可能真的送出 provider 請求。
+    http: (httpOptions) => createHttpClient({
+      ...httpOptions,
+      fetch: options.fetch ?? (() => {
+        throw new Error('This test context has no fetch stub. Pass `fetch` to createTestExtensionContext.');
+      }),
+    }),
     store,
     calls,
     commands: {

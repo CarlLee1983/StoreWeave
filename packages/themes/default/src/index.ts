@@ -3,6 +3,7 @@ import type {
   StorefrontTheme, ThemeAccountCouponsView, ThemeArticleView, ThemeAuthView, ThemeCartView, ThemeCatalogView, ThemeContext, ThemeHomeView, ThemeOrderView,
 } from '@storeweave/kernel';
 import { escapeHtml, formatMoney, layout } from './layout';
+import { formatDate, formatDateTime } from '@storeweave/i18n';
 import { EDITORIAL_IMAGE_KEYS, renderStorefrontArtwork, renderWovenDayEditorialImage, renderWovenDayProductImage, type WovenDayEditorialImage } from './artwork';
 
 type AccountSection = 'orders' | 'coupons' | 'rewards' | 'profile';
@@ -899,7 +900,7 @@ export const defaultTheme: StorefrontTheme = {
 
   renderAccountRewards(ctx, { currency, balance, entries, tier }) {
     const money = (cents: number) => formatMoney(cents, currency, ctx.locale);
-    const day = (at: Date) => escapeHtml(at.toLocaleDateString(ctx.locale));
+    const day = (at: Date) => escapeHtml(formatDate(at, { locale: ctx.locale, timeZone: ctx.timeZone }));
 
     const rows = entries.map((entry) => `
       <tr class="data-table__row">
@@ -960,7 +961,7 @@ export const defaultTheme: StorefrontTheme = {
       <tr class="data-table__row ${coupon.expiringSoon ? 'expiring' : ''}">
         <td data-label="折扣碼"><code>${escapeHtml(coupon.code)}</code></td>
         <td data-label="優惠">${escapeHtml(coupon.promotionName)}<br><span class="muted">${escapeHtml(coupon.description)}</span></td>
-        <td data-label="使用期限">${coupon.endsAt ? escapeHtml(coupon.endsAt.toLocaleDateString(ctx.locale)) : '無期限'}</td>
+        <td data-label="使用期限">${coupon.endsAt ? escapeHtml(formatDate(coupon.endsAt, { locale: ctx.locale, timeZone: ctx.timeZone })) : '無期限'}</td>
         <td data-label="狀態">${couponStateText(coupon)}</td>
       </tr>`).join('');
 
@@ -999,7 +1000,7 @@ export const defaultTheme: StorefrontTheme = {
       ? `<section class="account-panel" aria-labelledby="payment-title">
           <div class="section-heading"><h2 id="payment-title">付款資訊</h2><p>${escapeHtml(order.payment.method)}</p></div>
           <p>付款狀態：${escapeHtml(order.payment.status)}</p>
-          ${order.payment.status === 'awaiting_payment' && order.payment.expiresAt ? `<p class="muted">請於 ${escapeHtml(order.payment.expiresAt.toLocaleString(ctx.locale))} 前完成付款。</p>` : ''}
+          ${order.payment.status === 'awaiting_payment' && order.payment.expiresAt ? `<p class="muted">請於 ${escapeHtml(formatDateTime(order.payment.expiresAt, { locale: ctx.locale, timeZone: ctx.timeZone }))} 前完成付款。</p>` : ''}
           ${order.payment.status === 'failed' ? feedback('付款未完成，請重新選擇付款方式後再試。', 'error') : ''}
           ${order.payment.status === 'awaiting_payment' && order.payment.instructions
             ? `<dl>${order.payment.instructions.map((instruction) => `<div class="order-summary__row"><dt>${escapeHtml(instruction.label)}</dt><dd>${escapeHtml(instruction.value)}</dd></div>`).join('')}</dl>`
@@ -1125,7 +1126,7 @@ export const defaultTheme: StorefrontTheme = {
         <td data-label="狀態">${orderStatus(o.status)}</td>
         <td data-label="件數">${o.lineCount}</td>
         <td data-label="總計">${formatMoney(o.totalCents, o.currency, ctx.locale)}</td>
-        <td data-label="下單時間" class="muted">${escapeHtml(o.placedAt.toLocaleDateString(ctx.locale))}</td>
+        <td data-label="下單時間" class="muted">${escapeHtml(formatDate(o.placedAt, { locale: ctx.locale, timeZone: ctx.timeZone }))}</td>
       </tr>`).join('');
 
     const previous = offset > 0

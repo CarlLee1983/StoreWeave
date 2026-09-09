@@ -65,7 +65,7 @@ async function pushToMock(ctx: ExtensionContext<DemoErpConfig>, doc: ErpDocument
 async function pushToHttp(ctx: ExtensionContext<DemoErpConfig>, doc: ErpDocument) {
   // 推送單據會在遠端建立資料。遠端雖以 reference 去重，但那是遠端的保證，
   // 不是這一層可以宣稱的，所以不自動重送——重試由 job 的 attempt 決定。
-  const result = await httpFor(ctx, 1).requestJson<{ remoteId?: string; id?: string }>({
+  const result = await httpFor(ctx, 1).request({
     method: 'POST',
     url: `${ctx.config.endpoint.replace(/\/$/, '')}/documents`,
     headers: { 'content-type': 'application/json', ...authHeaders(ctx) },
@@ -74,7 +74,19 @@ async function pushToHttp(ctx: ExtensionContext<DemoErpConfig>, doc: ErpDocument
   });
 
   if (!result.ok) throw new Error(`ERP push failed (${result.reason}): ${result.message}`);
-  return { accepted: true, remoteId: result.body.remoteId ?? result.body.id ?? doc.reference };
+  // 2xx 就是遠端已經收下了。回 204、空主體或非 JSON 都不能當成失敗——單據已建立，
+  // 把它變成 throw 會讓 job 重試，於是同一張單開兩次。
+  const acknowledged = parseAcknowledgement(result.body);
+  return { accepted: true, remoteId: acknowledged.remoteId ?? acknowledged.id ?? doc.reference };
+}
+
+function parseAcknowledgement(body: string): { remoteId?: string; id?: string } {
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    return parsed && typeof parsed === 'object' ? parsed as { remoteId?: string; id?: string } : {};
+  } catch {
+    return {};
+  }
 }
 
 function authHeaders(ctx: ExtensionContext<DemoErpConfig>): Record<string, string> {
@@ -87,5 +99,10 @@ function authHeaders(ctx: ExtensionContext<DemoErpConfig>): Record<string, strin
  * 且不設 host 允許清單。這是這個 Extension 的用途決定的，不是預設政策。
  */
 function httpFor(ctx: ExtensionContext<DemoErpConfig>, maxAttempts: number) {
-  return ctx.http({ timeoutMs: ctx.config.timeoutMs, maxAttempts, allowInsecureHttp: true });
+  return ctx.http({
+    timeoutMs: ctx.config.timeoutMs, maxAttempts,
+    // 這個 Extension 的用途就是連內網自架 ERP，所以明確打開明文 http 與私有位址。
+    // 代價是 endpoint 設定的寫入權等同對內網發請求的能力，須以後台權限控管。
+    allowInsecureHttp: true, allowPrivateAddresses: true,
+  });
 }

@@ -17,6 +17,7 @@
     "types": [],
     "baseUrl": "../..",
     "paths": {
+      "@storeweave/i18n": ["packages/platform/i18n/src/index.ts"],
       "@storeweave/order/http": ["packages/commerce/order/src/http.ts"],
       "@storeweave/shipping": ["packages/commerce/shipping/src/dto.ts"]
     }

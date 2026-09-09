@@ -7,6 +7,7 @@ const context = (overrides: Partial<ThemeContext> = {}): ThemeContext => ({
   storeId: 'example-store',
   currency: 'TWD',
   locale: 'zh-TW',
+  timeZone: 'Asia/Taipei',
   publicUrl: 'https://woven-day.example.test',
   supportEmail: 'hello@woven-day.example.test',
   options: { accentColor: '#8C3E28', tagline: '日常用品，認真挑選。', showSku: true },

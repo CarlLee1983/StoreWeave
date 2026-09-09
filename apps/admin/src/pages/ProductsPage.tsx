@@ -262,7 +262,7 @@ export function ProductsPage() {
           <div className="pagination-bar">
             <div className="pagination-bar__info">
               <span>
-                {t('paginationInfo').replace('{start}', String((page - 1) * pageSize + 1)).replace('{end}', String(Math.min(page * pageSize, total))).replace('{total}', String(total))}
+                {t('paginationInfo', { start: (page - 1) * pageSize + 1, end: Math.min(page * pageSize, total), total })}
               </span>
             </div>
             <div className="pagination-bar__controls">
@@ -275,7 +275,7 @@ export function ProductsPage() {
                 <Icon name="arrow-left" /> {t('previousPage')}
               </button>
               <span className="pagination-page-badge">
-                {t('paginationPage').replace('{page}', String(page)).replace('{total}', String(totalPages))}
+                {t('paginationPage', { page, total: totalPages })}
               </span>
               <button
                 type="button"
@@ -493,9 +493,13 @@ function AdjustStockModal({
     else if (mode === 'set') calculatedDelta = parsed - currentOnHand!;
   }
 
-  // 預測調整後的現有庫存與可售庫存
-  const predictedOnHand = calculatedDelta !== null ? currentOnHand! + calculatedDelta : currentOnHand;
-  const predictedAvailable = calculatedDelta !== null ? predictedOnHand! - currentReserved! : currentAvailable;
+  // 預測調整後的現有庫存與可售庫存。沒有庫存快照就沒有預測值可言，
+  // 用 undefined 表示「算不出來」，由畫面決定不顯示，而不是印出 NaN。
+  const hasSnapshot = currentOnHand !== undefined && currentReserved !== undefined;
+  const predictedOnHand = calculatedDelta !== null && hasSnapshot ? currentOnHand + calculatedDelta : currentOnHand;
+  const predictedAvailable = calculatedDelta !== null && hasSnapshot && predictedOnHand !== undefined
+    ? predictedOnHand - currentReserved
+    : currentAvailable;
   const isNegativeStock = predictedOnHand !== undefined && predictedOnHand < 0;
 
   const handleApplyPreset = (text: string) => {
@@ -622,7 +626,7 @@ function AdjustStockModal({
               step="1"
               autoFocus
               className="stock-number-input mono"
-              placeholder={t('stockQuantityExample').replace('{count}', String(mode === 'set' && currentOnHand !== undefined ? currentOnHand : 10))}
+              placeholder={t('stockQuantityExample', { count: mode === 'set' && currentOnHand !== undefined ? currentOnHand : 10 })}
               value={qtyInput}
               disabled={!!recovered}
               onChange={(e) => setQtyInput(e.target.value)}
@@ -630,20 +634,22 @@ function AdjustStockModal({
           </div>
 
           {/* 實時試算預覽 */}
-          {calculatedDelta !== null && calculatedDelta !== 0 ? (
+          {/* 沒有庫存快照就算不出預估值。舊寫法用 String(undefined) 會直接把
+              「undefined 件」顯示給操作者，型別檢查在這次遷移時抓到。 */}
+          {calculatedDelta !== null && calculatedDelta !== 0 && hasSnapshot && predictedOnHand !== undefined && predictedAvailable !== undefined ? (
             <div className={`stock-forecast-box ${isNegativeStock ? 'stock-forecast-box--danger' : ''}`}>
               <div className="forecast-delta-line">
                 <span>{t('stockChange')}</span>
                 <strong className={`delta-tag ${calculatedDelta > 0 ? 'delta-tag--pos' : 'delta-tag--neg'}`}>
-                  {t('stockQuantity').replace('{count}', String(calculatedDelta > 0 ? `+${calculatedDelta}` : calculatedDelta))}
+                  {t('stockQuantity', { count: calculatedDelta > 0 ? `+${calculatedDelta}` : calculatedDelta })}
                 </strong>
               </div>
               <div className="forecast-result-line">
                 <span>{t('stockForecastOnHand')}</span>
                 <strong>
-                  {t('stockQuantity').replace('{count}', String(currentOnHand))} → <span className="mono">{t('stockQuantity').replace('{count}', String(predictedOnHand))}</span>
+                  {t('stockQuantity', { count: currentOnHand })} → <span className="mono">{t('stockQuantity', { count: predictedOnHand })}</span>
                 </strong>
-                <span className="forecast-avail-sub">{t('stockForecastAvailable').replace('{count}', String(predictedAvailable))}</span>
+                <span className="forecast-avail-sub">{t('stockForecastAvailable', { count: predictedAvailable })}</span>
               </div>
               {isNegativeStock ? (
                 <p className="danger-text"><Icon name="alert" /> {t('stockCannotBeNegative')}</p>
@@ -802,7 +808,7 @@ function EditProductDrawer({
             <div className="form-field">
               <label htmlFor="edit-product-price">
                 <span className="field-label-text">{t('priceCents')} <b className="required-star">*</b></span>
-                <span className="price-preview-badge">{t('pricePreview').replace('{value}', previewFormatted)}</span>
+                <span className="price-preview-badge">{t('pricePreview', { value: previewFormatted })}</span>
               </label>
               <input
                 id="edit-product-price"
@@ -946,7 +952,7 @@ function CreateProductDrawer({ onClose, onRunOperation, recovery }: { onClose: (
             <div className="form-field">
               <label htmlFor="create-product-price">
                 <span className="field-label-text">{t('priceCents')} <b className="required-star">*</b></span>
-                {pricePreview ? <span className="price-preview-badge">{t('pricePreview').replace('{value}', pricePreview)}</span> : null}
+                {pricePreview ? <span className="price-preview-badge">{t('pricePreview', { value: pricePreview })}</span> : null}
               </label>
               <input
                 id="create-product-price"

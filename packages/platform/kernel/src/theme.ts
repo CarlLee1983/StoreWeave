@@ -298,6 +298,8 @@ export interface ThemeContext {
   storeId: string;
   currency: string;
   locale: string;
+  /** IANA 時區，來自 `store.timezone`。日期一律以它顯示，不用主機時區。 */
+  timeZone: string;
   publicUrl: string;
   supportEmail?: string;
   /** 由 commerce.yaml 的 theme.options 提供，已通過 optionsSchema 驗證。 */

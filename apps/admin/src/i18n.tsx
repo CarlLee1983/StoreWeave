@@ -1,5 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { formatDate as formatDateIn, formatDateTime as formatDateTimeIn, formatMessage, formatMoney as formatMoneyIn, type MessageParams } from '@storeweave/i18n';
 import { setDisplayLocale } from './api';
+
+/**
+ * 後台顯示用的時區。後台操作者與門市在同一地，時間欄位以此顯示，
+ * 而不是各自瀏覽器的時區——對帳時大家看到的必須是同一個時刻寫法。
+ */
+const DISPLAY_TIME_ZONE = 'Asia/Taipei';
 
 export const LOCALES = ['zh-TW', 'en-US', 'ja-JP'] as const;
 export type Locale = (typeof LOCALES)[number];
@@ -113,7 +120,7 @@ const jaJP: Messages = {
 const catalog: Record<Locale, Messages> = { 'zh-TW': zhTW, 'en-US': enUS, 'ja-JP': jaJP };
 const statusKeys: Record<string, MessageKey> = { succeeded: 'succeeded', draft: 'draft', active: 'active', running: 'running', archived: 'archived', disabled: 'disabled', pending: 'pending', payment_processing: 'payment_processing', awaiting_payment: 'awaiting_payment', paid: 'paid', cancelled: 'cancelled', expired: 'expired', sent: 'sent', failed: 'failed', requested: 'requested', needs_information: 'needs_information', approved: 'approved', rejected: 'rejected', received: 'received', refund_pending: 'refund_pending', refund_failed: 'refund_failed', completed: 'completed', issued: 'issued', issue_failed: 'issue_failed', void_pending: 'void_pending', voided: 'voided', void_failed: 'void_failed', created: 'created', shipped: 'shipped', arrived: 'arrived' };
 
-type I18n = { locale: Locale; setLocale: (locale: Locale) => void; t: (key: MessageKey) => string; formatMoney: (cents: number, currency: string) => string; formatDateTime: (value: string | Date) => string; formatDate: (value: string | Date) => string; statusLabel: (value: string) => string };
+type I18n = { locale: Locale; setLocale: (locale: Locale) => void; t: (key: MessageKey, params?: MessageParams) => string; formatMoney: (cents: number, currency: string) => string; formatDateTime: (value: string | Date) => string; formatDate: (value: string | Date) => string; statusLabel: (value: string) => string };
 const I18nContext = createContext<I18n | null>(null);
 
 function initialLocale(): Locale {
@@ -125,11 +132,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocale] = useState<Locale>(initialLocale);
   useEffect(() => { document.documentElement.lang = locale; localStorage.setItem(STORAGE_KEY, locale); setDisplayLocale(locale); }, [locale]);
   const value = useMemo<I18n>(() => ({
-    locale, setLocale, t: (key) => catalog[locale][key],
-    formatMoney: (cents, currency) => new Intl.NumberFormat(locale, { style: 'currency', currency }).format(cents / 100),
-    formatDateTime: (date) => new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(date)),
+    locale, setLocale,
+    // 沒有參數時不走樣板：整份字典大多數 key 本來就沒有佔位符。
+    t: (key, params) => (params ? formatMessage(catalog[locale][key], params) : catalog[locale][key]),
+    formatMoney: (cents, currency) => formatMoneyIn(cents, currency, locale),
+    formatDateTime: (date) => formatDateTimeIn(date, { locale, timeZone: DISPLAY_TIME_ZONE }),
     // 清單欄位只給日期：短欄寬放不下時間，會折成兩行把整列撐高。
-    formatDate: (date) => new Intl.DateTimeFormat(locale, { dateStyle: 'short' }).format(new Date(date)),
+    formatDate: (date) => formatDateIn(date, { locale, timeZone: DISPLAY_TIME_ZONE }),
     statusLabel: (status) => { const key = statusKeys[status.toLowerCase()]; return key ? catalog[locale][key] : status; },
   }), [locale]);
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

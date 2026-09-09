@@ -13,5 +13,7 @@ export interface ExtensionHttpFactory {
     readonly allowedHosts?: readonly string[];
     readonly maxAttempts?: number;
     readonly allowInsecureHttp?: boolean;
+    readonly allowPrivateAddresses?: boolean;
+    readonly maxResponseBytes?: number;
   }): import('@storeweave/http-client').HttpClient;
 }

@@ -200,6 +200,7 @@ export class StorefrontController {
       storeId: store.id,
       currency: store.currency,
       locale: store.locale,
+      timeZone: store.timezone,
       publicUrl: this.runtime.config.http.publicUrl,
       supportEmail: store.supportEmail,
       options: this.runtime.config.theme.options,

@@ -42,6 +42,7 @@ const context = (overrides: Partial<ThemeContext> = {}): ThemeContext => ({
   storeId: 'woven-day',
   currency: 'TWD',
   locale: 'zh-TW',
+  timeZone: 'Asia/Taipei',
   publicUrl: 'https://woven-day.example.test',
   supportEmail: PROBE,
   options: { accentColor: '#8C3E28', tagline: PROBE, showSku: true },
