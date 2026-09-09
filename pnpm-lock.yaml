@@ -306,6 +306,8 @@ importers:
 
   packages/platform/crypto: {}
 
+  packages/platform/http-client: {}
+
   packages/platform/db: {}
 
   packages/platform/event-bus: {}
