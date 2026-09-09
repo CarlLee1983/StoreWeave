@@ -23,6 +23,10 @@ export function toIsoString(value: Date | string | number): string {
 }
 
 function format(value: Date | string | number, options: TimeFormatOptions, style: Intl.DateTimeFormatOptions): string {
+  // Intl 對 timeZone: undefined 不丟例外，直接用主機時區——那正好抵銷這一層的
+  // 目的。型別要求它必填，但跨套件邊界（ThemeContext、測試替身）進來的物件
+  // 可能沒有，所以在這裡明確擋下。
+  if (!options.timeZone) throw new Error('A time zone is required to format a date');
   const instant = instantOf(value);
   try {
     return new Intl.DateTimeFormat(options.locale, { ...style, timeZone: options.timeZone }).format(instant);

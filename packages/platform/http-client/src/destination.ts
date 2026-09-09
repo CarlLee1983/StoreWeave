@@ -22,6 +22,33 @@ export type DestinationVerdict =
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 
 /**
+ * 把 IPv4 目的地包進 IPv6 的四種前綴：IPv4-mapped（`::ffff:`）、SIIT（`::ffff:0:`）、
+ * 已淘汰的 IPv4-compatible（`::`）與 NAT64（`64:ff9b::`）。URL parser 會把點分寫法
+ * 正規化成十六進位（`[::ffff:127.0.0.1]` → `[::ffff:7f00:1]`），所以比對的是後者，
+ * 最後兩個 hextet 就是那個 IPv4 位址。
+ */
+const IPV4_IN_IPV6 = /^(?:::ffff:0:|::ffff:|::|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/;
+
+function isPrivateIpv4(host: string): boolean {
+  const match = IPV4.exec(host);
+  if (!match) return false;
+  const [a, b] = match.slice(1).map(Number);
+  if (a === 127 || a === 0 || a === 10) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 192 && b === 0) return true;
+  if (a === 198 && (b === 18 || b === 19)) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  return false;
+}
+
+function ipv4FromHextets(high: string, low: string): string {
+  const value = (parseInt(high, 16) << 16) + parseInt(low, 16);
+  return [value >>> 24, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff].join('.');
+}
+
+/**
  * 判斷 hostname 是否指向本機或內網。只看字面位址：主機名稱要靠 DNS 才知道，
  * 而先查再連仍然擋不住 rebinding，所以那不是這一層宣稱能提供的保證。
  * 真正需要嚴格隔離的部署應同時在網路層限制出站。
@@ -33,33 +60,41 @@ function isPrivateHost(hostname: string): boolean {
   if (host.startsWith('[') && host.endsWith(']')) {
     const address = host.slice(1, -1);
     // ::1 迴環、fe80:: link-local、fc00::/7 unique local。
-    return address === '::1' || address === '::' || address.startsWith('fe80:') || /^f[cd]/.test(address);
+    if (address === '::1' || address === '::' || address.startsWith('fe80:') || /^f[cd]/.test(address)) return true;
+    // IPv4 位址包成 IPv6 仍然連得到那個 IPv4 目的地，必須套用同一組規則。
+    const embedded = IPV4_IN_IPV6.exec(address);
+    if (embedded) return isPrivateIpv4(ipv4FromHextets(embedded[1], embedded[2]));
+    return false;
   }
 
-  const match = IPV4.exec(host);
-  if (!match) return false;
-  const [a, b] = match.slice(1).map(Number);
-  if (match.slice(1).some((part) => Number(part) > 255)) return true;
-  if (a === 127 || a === 0 || a === 10) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  return false;
+  return isPrivateIpv4(host);
 }
 
 /** 允許清單條目正規化成 `hostname` 或 `hostname:port`，讓 Unicode 網域也比得中。 */
 function normaliseEntry(entry: string): string {
-  try {
-    const url = new URL(`https://${entry}`);
-    return url.port ? `${url.hostname}:${url.port}` : url.hostname;
-  } catch {
-    return entry.toLowerCase();
+  // 條目寫成 URL 或萬用字元時直接拒絕：`https://example.com` 會被解析成主機名
+  // `https`，`*.example.com` 不會展開，兩者都會永遠比不中而難以除錯。
+  if (entry.includes('/') || entry.includes('*')) {
+    throw new Error(`Invalid allowlist entry "${entry}": write a host or host:port, not a URL or wildcard`);
   }
+  let url: URL;
+  try {
+    url = new URL(`https://${entry}`);
+  } catch {
+    throw new Error(`Invalid allowlist entry "${entry}": not a host`);
+  }
+  if (url.hostname === '' || url.pathname !== '/' || url.username || url.password) {
+    throw new Error(`Invalid allowlist entry "${entry}": write a host or host:port`);
+  }
+  return url.port ? `${url.hostname}:${url.port}` : url.hostname;
 }
 
-function authorityOf(url: URL): string[] {
-  return url.port ? [`${url.hostname}:${url.port}`, url.hostname] : [url.hostname];
+/** 該協定的預設 port。條目與 URL 都正規化到「不寫」的形式再比對。 */
+const DEFAULT_PORTS: Record<string, string> = { 'http:': '80', 'https:': '443' };
+
+function authorityOf(url: URL): string {
+  const port = url.port && url.port !== DEFAULT_PORTS[url.protocol] ? `:${url.port}` : '';
+  return `${url.hostname}${port}`;
 }
 
 /**
@@ -90,13 +125,15 @@ export function checkDestination(raw: string | URL, policy: DestinationPolicy): 
 
   if (policy.allowedHosts) {
     // 完全比對：字尾比對會讓 notexample.com 混進 example.com 的清單，
-    // 子網域也必須逐一列出，不從父網域繼承。
-    const entries = new Set(policy.allowedHosts.map(normaliseEntry));
-    // 條目沒寫 port 時，只有預設 port 的 URL 算數；URL 帶了非預設 port 就必須
-    // 有對應的 `host:port` 條目，否則同一台機器上的其他服務也會被放行。
-    const candidates = url.port ? [`${url.hostname}:${url.port}`] : authorityOf(url);
-    if (!candidates.some((candidate) => entries.has(candidate.toLowerCase()))) {
-      return { ok: false, message: `The destination ${candidates[0]} is not on the allowlist` };
+    // 子網域也必須逐一列出，不從父網域繼承。寫明預設 port 與省略視為同一件事。
+    const entries = new Set(policy.allowedHosts.map((entry) => {
+      const normalised = normaliseEntry(entry);
+      const [host, port] = normalised.split(':');
+      return port && port === DEFAULT_PORTS[url.protocol] ? host : normalised;
+    }));
+    const authority = authorityOf(url);
+    if (!entries.has(authority)) {
+      return { ok: false, message: `The destination ${authority} is not on the allowlist` };
     }
   }
 

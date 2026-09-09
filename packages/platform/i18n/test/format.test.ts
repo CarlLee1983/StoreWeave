@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { escapeHtml } from '../src/escape';
+import { escapeHtml, safeUrlAttribute } from '../src/escape';
 import { formatMoney } from '../src/money';
 import { formatDate, formatDateTime, toIsoString } from '../src/time';
 
@@ -75,5 +75,31 @@ describe('time', () => {
 
   it('refuses to format an unparseable value', () => {
     expect(() => formatDate('yesterday', { locale: 'en-US', timeZone: 'UTC' })).toThrow(/date/i);
+  });
+});
+
+describe('time zone is not optional', () => {
+  it('refuses to fall back to the host time zone when none is supplied', () => {
+    expect(() => formatDate(new Date(), { locale: 'en-US' } as never)).toThrow(/time zone/i);
+    expect(() => formatDateTime(new Date(), { locale: 'en-US', timeZone: '' })).toThrow(/time zone/i);
+  });
+});
+
+describe('safeUrlAttribute', () => {
+  it('passes through ordinary links', () => {
+    expect(safeUrlAttribute('https://pay.example.com/redirect?a=1&b=2')).toBe('https://pay.example.com/redirect?a=1&amp;b=2');
+    expect(safeUrlAttribute('/orders/1')).toBe('/orders/1');
+    expect(safeUrlAttribute('mailto:support@example.com')).toBe('mailto:support@example.com');
+  });
+
+  it('drops schemes that execute', () => {
+    for (const value of ['javascript:alert(1)', 'JavaScript:alert(1)', ' javascript:alert(1)', 'data:text/html,<script>x</script>', 'vbscript:msgbox']) {
+      expect(safeUrlAttribute(value)).toBe('');
+    }
+  });
+
+  it('renders an absent value as an empty attribute', () => {
+    expect(safeUrlAttribute(null)).toBe('');
+    expect(safeUrlAttribute('   ')).toBe('');
   });
 });

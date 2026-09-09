@@ -156,3 +156,65 @@ describe('json responses without a body', () => {
       .toMatchObject({ ok: false, reason: 'invalid_json' });
   });
 });
+
+describe('private address policy covers IPv6 spellings of IPv4', () => {
+  it('blocks IPv4-mapped IPv6 forms of loopback and metadata addresses', () => {
+    for (const url of [
+      'https://[::ffff:127.0.0.1]/x',
+      'https://[::ffff:169.254.169.254]/latest/meta-data/',
+      'https://[::ffff:10.0.0.1]/x',
+      'https://[::ffff:192.168.1.1]/x',
+      'https://[::ffff:0:127.0.0.1]/x',
+      'https://[::127.0.0.1]/x',
+    ]) {
+      expect(checkDestination(url, {})).toMatchObject({ ok: false });
+    }
+  });
+
+  it('blocks the hexadecimal spelling the URL parser normalises to', () => {
+    // WHATWG URL 把 [::ffff:169.254.169.254] 正規化成 [::ffff:a9fe:a9fe]。
+    expect(checkDestination('https://[::ffff:a9fe:a9fe]/x', {})).toMatchObject({ ok: false });
+    expect(checkDestination('https://[::ffff:7f00:1]/x', {})).toMatchObject({ ok: false });
+  });
+
+  it('blocks NAT64 and IETF reserved ranges', () => {
+    expect(checkDestination('https://[64:ff9b::a9fe:a9fe]/x', {})).toMatchObject({ ok: false });
+    expect(checkDestination('http://198.18.0.1/x', { allowInsecureHttp: true })).toMatchObject({ ok: false });
+    expect(checkDestination('http://192.0.0.1/x', { allowInsecureHttp: true })).toMatchObject({ ok: false });
+  });
+
+  it('still allows ordinary public IPv6', () => {
+    expect(checkDestination('https://[2001:db8::1]/x', {}).ok).toBe(true);
+    expect(checkDestination('https://[2606:4700::1111]/x', {}).ok).toBe(true);
+  });
+});
+
+describe('allowlist entry hygiene', () => {
+  it('rejects an entry that was written as a URL instead of a host', () => {
+    expect(() => checkDestination('https://example.com/x', { allowedHosts: ['https://example.com'] }))
+      .toThrow(/allowlist entry/i);
+  });
+
+  it('rejects a wildcard entry rather than silently never matching', () => {
+    expect(() => checkDestination('https://a.example.com/x', { allowedHosts: ['*.example.com'] }))
+      .toThrow(/allowlist entry/i);
+  });
+
+  it('matches an explicit default port on either side', () => {
+    expect(checkDestination('http://example.com/x', { allowInsecureHttp: true, allowedHosts: ['example.com:80'] }).ok).toBe(true);
+    expect(checkDestination('http://example.com:80/x', { allowInsecureHttp: true, allowedHosts: ['example.com'] }).ok).toBe(true);
+  });
+});
+
+describe('a reused response is a caller bug, not a transport failure', () => {
+  it('does not retry when the body has already been consumed', async () => {
+    const response = new Response('busy', { status: 503 });
+    const fetchImpl = vi.fn(async () => response) as unknown as typeof fetch;
+    const client = createHttpClient({ timeoutMs: 100, maxAttempts: 3, fetch: fetchImpl, sleep: async () => {} });
+    // 第一次嘗試合法地讀完了 503 的主體，所以第二次才發現主體已被消耗；
+    // 重點是它在那裡停手，而不是把程式錯誤當成傳輸失敗一路重試到上限。
+    const result = await client.request({ method: 'GET', url: 'https://api.example.com/a' });
+    expect(result).toMatchObject({ ok: false, reason: 'invalid_request', attempts: 2 });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+});

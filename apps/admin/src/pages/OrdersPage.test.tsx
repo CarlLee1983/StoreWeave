@@ -4,7 +4,7 @@ import { render as baseRender, screen, waitFor, within } from '@testing-library/
 import { QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import { OrdersPage } from './OrdersPage';
-import { I18nProvider } from '../i18n';
+import { I18nProvider, DISPLAY_TIME_ZONE } from '../i18n';
 import { ApiError, api, type Order, type Refund } from '../api';
 import { createAdminQueryClient } from '../query';
 import { AdminOperationProvider, createAdminOperationStore } from '../admin-operations';
@@ -260,7 +260,7 @@ describe('OrdersPage', () => {
 
     const orderRow = (await screen.findByText('SW-1001')).closest('tr')!;
     expect(within(orderRow).getByText(label)).toBeInTheDocument();
-    expect(within(orderRow).getByText(new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(awaitingPaymentOrder.placedAt)))).toBeInTheDocument();
+    expect(within(orderRow).getByText(new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short', timeZone: DISPLAY_TIME_ZONE }).format(new Date(awaitingPaymentOrder.placedAt)))).toBeInTheDocument();
   });
 
   it('顯示等待付款的購物金折抵，將它算進待處理並可篩選', async () => {

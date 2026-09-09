@@ -58,7 +58,7 @@ function isProductOperationEntry(entry: ProductOperationEntry): entry is Product
 }
 
 export function ProductsPage() {
-  const { t, formatMoney } = useI18n();
+  const { t, tCount, formatMoney } = useI18n();
   const queryClient = useQueryClient();
   const productOperations = useProductOperations();
   const operationEntries = useProductOperationEntries().filter(isProductOperationEntry);
@@ -355,7 +355,7 @@ function ProductRow({
   canAdjustStock: boolean;
   onRunOperation: RunProductOperation;
 }) {
-  const { t, formatMoney } = useI18n();
+  const { t, tCount, formatMoney } = useI18n();
   const [statusError, setStatusError] = useState<unknown>(null);
 
   const changeStatus = async (to: Product['status']) => {
@@ -458,7 +458,7 @@ function AdjustStockModal({
   onRunOperation: RunProductOperation;
   recovery: ProductOperationEntry<ProductOperation> | null;
 }) {
-  const { t } = useI18n();
+  const { t, tCount } = useI18n();
   const recovered = recoveryFor(recovery, 'stock');
   const [mode, setMode] = useState<'add' | 'deduct' | 'set'>(recovered?.operation.draft.mode ?? 'add');
   const [qtyInput, setQtyInput] = useState(recovered?.operation.draft.quantity ?? '');
@@ -641,13 +641,13 @@ function AdjustStockModal({
               <div className="forecast-delta-line">
                 <span>{t('stockChange')}</span>
                 <strong className={`delta-tag ${calculatedDelta > 0 ? 'delta-tag--pos' : 'delta-tag--neg'}`}>
-                  {t('stockQuantity', { count: calculatedDelta > 0 ? `+${calculatedDelta}` : calculatedDelta })}
+                  {tCount('stockQuantity', calculatedDelta, { count: calculatedDelta > 0 ? `+${calculatedDelta}` : calculatedDelta })}
                 </strong>
               </div>
               <div className="forecast-result-line">
                 <span>{t('stockForecastOnHand')}</span>
                 <strong>
-                  {t('stockQuantity', { count: currentOnHand })} → <span className="mono">{t('stockQuantity', { count: predictedOnHand })}</span>
+                  {tCount('stockQuantity', currentOnHand)} → <span className="mono">{tCount('stockQuantity', predictedOnHand)}</span>
                 </strong>
                 <span className="forecast-avail-sub">{t('stockForecastAvailable', { count: predictedAvailable })}</span>
               </div>
@@ -714,7 +714,7 @@ function EditProductDrawer({
   onRunOperation: RunProductOperation;
   recovery: ProductOperationEntry<ProductOperation> | null;
 }) {
-  const { t, formatMoney } = useI18n();
+  const { t, tCount, formatMoney } = useI18n();
   const recovered = recoveryFor(recovery, 'edit');
   const [name, setName] = useState(recovered?.operation.draft.name ?? product.name);
   const [description, setDescription] = useState(recovered?.operation.draft.description ?? product.description ?? '');
@@ -855,7 +855,7 @@ function EditProductDrawer({
 
 /** 建立商品抽屜：與編輯共用同一套版型，避免建立表單常駐佔掉清單上方一整塊。 */
 function CreateProductDrawer({ onClose, onRunOperation, recovery }: { onClose: () => void; onRunOperation: RunProductOperation; recovery: ProductOperationEntry<ProductOperation> | null }) {
-  const { t, formatMoney } = useI18n();
+  const { t, tCount, formatMoney } = useI18n();
   const recovered = recoveryFor(recovery, 'create');
   const [sku, setSku] = useState(recovered?.operation.draft.sku ?? '');
   const [name, setName] = useState(recovered?.operation.draft.name ?? '');

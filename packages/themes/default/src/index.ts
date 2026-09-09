@@ -3,7 +3,7 @@ import type {
   StorefrontTheme, ThemeAccountCouponsView, ThemeArticleView, ThemeAuthView, ThemeCartView, ThemeCatalogView, ThemeContext, ThemeHomeView, ThemeOrderView,
 } from '@storeweave/kernel';
 import { escapeHtml, formatMoney, layout } from './layout';
-import { formatDate, formatDateTime } from '@storeweave/i18n';
+import { formatDate, formatDateTime, safeUrlAttribute } from '@storeweave/i18n';
 import { EDITORIAL_IMAGE_KEYS, renderStorefrontArtwork, renderWovenDayEditorialImage, renderWovenDayProductImage, type WovenDayEditorialImage } from './artwork';
 
 type AccountSection = 'orders' | 'coupons' | 'rewards' | 'profile';
@@ -108,7 +108,7 @@ function paymentContinuation(payment: NonNullable<ThemeOrderView['payment']>): s
   if (payment.action.type === 'redirect') {
     return `<section class="checkout-submit" aria-label="繼續付款">
       <p>付款頁面已準備完成，請主動前往繼續付款。</p>
-      <a class="cta" href="${escapeHtml(url)}" rel="noopener noreferrer">前往付款</a>
+      <a class="cta" href="${safeUrlAttribute(url)}" rel="noopener noreferrer">前往付款</a>
     </section>`;
   }
 
@@ -1054,7 +1054,7 @@ export const defaultTheme: StorefrontTheme = {
       ? `<section class="account-panel" aria-labelledby="tracking-title">
           <div class="section-heading"><h2 id="tracking-title">配送進度</h2><p>${shipmentStatus(order.shipment.status)}</p></div>
           ${order.shipment.trackingNumber ? `<p>追蹤號碼：${escapeHtml(order.shipment.trackingNumber)}</p>` : '<p>物流單已建立，等待配送進度更新。</p>'}
-          ${order.shipment.trackingUrl ? `<p><a href="${escapeHtml(order.shipment.trackingUrl)}" rel="noopener noreferrer" target="_blank">查看物流追蹤</a></p>` : ''}
+          ${order.shipment.trackingUrl ? `<p><a href="${safeUrlAttribute(order.shipment.trackingUrl)}" rel="noopener noreferrer" target="_blank">查看物流追蹤</a></p>` : ''}
         </section>`
       : '';
     const refunds = order.refunds.length > 0

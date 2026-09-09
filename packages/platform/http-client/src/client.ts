@@ -246,6 +246,16 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
         continue;
       }
 
+      if (response.bodyUsed) {
+        // 只有替身或呼叫端重複使用同一個 Response 才會這樣。那是程式錯誤，
+        // 包裝成可重試的傳輸失敗會讓我們對外部端點多打好幾次。
+        return {
+          kind: 'failed',
+          failure: { ok: false, reason: 'invalid_request', message: 'The response body has already been consumed' },
+          retryable: false,
+        };
+      }
+
       const contentType = response.headers.get('content-type');
       const responseHeaders = headersToObject(response.headers);
       let body: { ok: true; text: string } | { ok: false };
@@ -253,7 +263,8 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
         body = await readWithinBudget(response);
       } catch (error) {
         // 主體讀到一半逾時是最典型的慢速端點樣態，分類必須跟連線逾時一致，
-        // 才會走同一條重試路徑。
+        // 才會走同一條重試路徑。讀取已中斷，reader 仍持有 stream，明確歸還。
+        await discard(response);
         const reason = timeout.aborted ? 'timeout' : 'network';
         return {
           kind: 'failed',

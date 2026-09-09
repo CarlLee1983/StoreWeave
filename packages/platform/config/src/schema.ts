@@ -80,13 +80,27 @@ const securityConfigSchema = z.object({
     : {}),
 }));
 
+/**
+ * 時區名稱要真的能用。打錯一個字會讓 `Intl.DateTimeFormat` 丟 RangeError，而顯示層
+ * 的回退是輸出 UTC ISO——結果是全站每個日期悄悄變成另一種寫法，沒有任何 log。
+ * 寧可在啟動時就掛掉。
+ */
+const timeZoneSchema = z.string().refine((timeZone) => {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}, { message: 'Must be a valid IANA time zone name, for example Asia/Taipei' });
+
 const commonConfigSchema = z.object({
   version: z.literal(1),
   store: z.object({
     id: z.string().regex(/^[a-z0-9][a-z0-9-]{1,63}$/),
     name: z.string().min(1),
     locale: z.string().default('zh-TW'),
-    timezone: z.string().default('Asia/Taipei'),
+    timezone: timeZoneSchema.default('Asia/Taipei'),
     supportEmail: z.string().email().optional(),
   }),
   http: z.object({
@@ -188,7 +202,7 @@ export const commerceConfigSchema = commonConfigSchema.extend({
 
 export const baseConfigSchema = commonConfigSchema.extend({
   store: commonConfigSchema.shape.store.extend({
-    locale: z.string().default('en'), timezone: z.string().default('UTC'),
+    locale: z.string().default('en'), timezone: timeZoneSchema.default('UTC'),
   }).strict(),
   theme: commonConfigSchema.shape.theme.removeDefault().extend({ id: z.string().default('none') }).default({}),
   admin: commonConfigSchema.shape.admin.removeDefault().extend({ enabled: z.boolean().default(false) }).default({}),

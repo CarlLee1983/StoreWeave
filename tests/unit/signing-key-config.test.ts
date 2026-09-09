@@ -60,3 +60,16 @@ describe('signing key configuration', () => {
     })).success).toBe(false);
   });
 });
+
+describe('store time zone', () => {
+  it('rejects a name Intl cannot use, instead of silently rendering ISO everywhere', () => {
+    for (const timezone of ['Mars/Olympus', 'GMT+8', 'Asia/Taipei ', '']) {
+      expect(baseConfigSchema.safeParse({ ...base, store: { ...base.store, timezone } }).success).toBe(false);
+    }
+  });
+
+  it('accepts a real IANA name', () => {
+    expect(baseConfigSchema.parse({ ...base, store: { ...base.store, timezone: 'Asia/Taipei' } }).store.timezone)
+      .toBe('Asia/Taipei');
+  });
+});
