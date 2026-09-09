@@ -1,7 +1,8 @@
 # B05 驗收追蹤：Scheduler
 
-狀態：五片實作完成；獨立審查一輪已完成（BLOCK：1 CRITICAL、2 HIGH、5 MEDIUM、6 LOW，全部已修），
-**修正後的複審 pending**，因此 B05 尚未 accepted。
+狀態：五片實作完成；獨立審查兩輪已完成——第一輪 BLOCK（1 CRITICAL、2 HIGH、5 MEDIUM、6 LOW），
+第二輪確認 C1／H1／H2／M1／M4／M5 真的修好、**無 CRITICAL 無 HIGH**，另發現 5 MEDIUM、6 LOW。
+兩輪合計 25 項全部已修。**第三輪複審 pending**，因此 B05 尚未 accepted。
 範圍為 F07 的 cron／timezone／DST、misfire、pause、overlap；occurrence 執行、fencing、重試與
 Outbox 屬 B04，不在本包。
 
@@ -29,9 +30,9 @@ Outbox 屬 B04，不在本包。
 | 排程狀態持久化 | B05 | `platform_job_schedules`＋`0008_job_schedules`；列入 platform release ownership metadata | implemented; review pending |
 | CLI／ops 註冊 | B05 | `platform.jobs.listSchedules`／`pauseSchedule`／`resumeSchedule`（權限、idempotency、audit）；CLI `schedule:list`／`pause`／`resume`，附 `--idempotency-key` 供重試同一次操作。暫停中不顯示「下一次」 | implemented; HTTP 層測試 pending |
 | 更新 ADR 0016 | B05 | 0016 標記「排程機制部分由 0038 修訂」，補記兩項限制如何解除、理由如何保留；falsification 改指 `schedule-spec.ts` 並新增「不得自我續排」 | implemented |
-| 可控 clock 的運算測試 | B05 | `packages/platform/kernel/test/schedule-spec.test.ts` 26 passed，全部注入時間點；含單一排程失敗不拖垮整輪 | implemented; 複審 pending |
-| PG 競爭測試 | B05 | `tests/integration/scheduler.test.ts` 22 passed（真 PG，含列鎖阻塞與並行補排） | implemented; 複審 pending |
-| full checks 與 native/Docker gates | A | typecheck PASS；unit 767 passed／1 pre-existing failure；integration 735 passed／0 failed | partial（smoke 屬 A） |
+| 可控 clock 的運算測試 | B05 | `packages/platform/kernel/test/schedule-spec.test.ts` 29 passed，全部注入時間點；含單一排程失敗不拖垮整輪 | implemented; 複審 pending |
+| PG 競爭測試 | B05 | `tests/integration/scheduler.test.ts` 25 passed（真 PG，含列鎖阻塞與並行補排） | implemented; 複審 pending |
+| full checks 與 native/Docker gates | A | typecheck PASS；unit 767 passed／1 pre-existing failure；integration 738 passed／0 failed | partial（smoke 屬 A） |
 
 ## 獨立審查（第一輪）
 
@@ -58,14 +59,37 @@ Sol／high 等級的獨立審查回報 **BLOCK**：1 CRITICAL、2 HIGH、5 MEDIU
 insert 競爭由 `DO NOTHING` 等待對方 xid 後重讀解決、enqueue 與 advance 同交易原子），跨排程不可能 deadlock，
 `setPaused` 與 `ensureOne` 不會互相覆寫，遷移 no-op 的主張逐欄成立，時間運算沒有 off-by-one。
 
-## full gates（修正後實跑）
+## 獨立審查（第二輪）
+
+複審確認第一輪的修復不是搬家，並回答了兩個我特別問的問題：`boundedTransaction` 中途逾時
+**不會**留下壞狀態（連線銷毀後 PG 端 rollback，watermark 前進與 enqueue 在同一交易所以一起消失，
+最壞是下一輪被去重的重試）；惰性 anchor 對值**沒有行為差異**，只改變何時付出代價、何時丟例外。
+三個不同意見（L2／L5／L6）複審皆同意我的處置，L2 明確認為原建議是錯的。
+
+| 編號 | 內容 | 處置 |
+| --- | --- | --- |
+| N1 | M3 的 `run_at <= now` 過濾讓「重試退避中」的工作在 `overlap: skip` 下變成看不見；退避上限 600 秒，週期短於此且 handler 失敗時同型別會愈堆愈多 | 判準改為 `run_at <= now OR attempts > 0`；原註解的理由是假的（排程器只取 `(watermark, now]`，不可能擋住自己），已改寫 |
+| N2 | H1 把 fail-loud 換成 fail-silent：`ensureScheduled` 永不丟，持續失敗的排程只會每秒印一行而無人察覺 | 加 `failed` 進 `EnsureScheduledResult`／`WorkerTickResult`；連續失敗 warn→error，成功歸零 |
+| N3 | `timeoutMs` 是接不到設定的死欄位（runtime 沒傳），production 永遠 5000 且比 worker 自己的界限寬；且 N 個排程序列執行最長 N×5 秒，會拖垮 heartbeat 與佇列 | 預算改由 worker 呼叫時傳入自己的 `databaseTimeoutMs`；整個排程階段另設總預算 |
+| N4 | 稀疏 cron 冷啟動會立刻跑一次陳年 occurrence（閏日排程 2026 年首次部署 → 跑 2024-02-29 那一期），而單元測試把它斷言成正確行為 | 加七天冷啟動陳舊界限，只約束冷啟動與宣告變更；既有排程週期最長一天，行為不變 |
+| N5 | 縮寫黑名單漏掉最歧義的兩個：實測 `BST` → `Asia/Dhaka`、`IST` → `Asia/Calcutta` | 補入名單；`CET`／`EET`／`WET`／`JST`／`PRC` 實測後刻意放行並寫明理由 |
+| N6 | fallback 視窗 8 年對 `count = 2` 不夠（閏日最大間距 8 年，2100 非閏年） | 放寬到 24 年，並記下「必須涵蓋 count+1 個間距」的規則 |
+| N7 | fallback 的 `nextRuns(1000)` 實測 78 ms，且每輪都在持有寫鎖的交易內執行 | 按日快取 |
+| N8 | `setPaused` 仍 eager 算 anchor，與 M5 不一致 | 改惰性，已存在的列不算 |
+| N9 | migration `0008` 就地修改：安全，drift 偵測會讓開機報錯而非靜默缺欄位 | 無需改碼；README 補上「跑過中間版本的 dev／preview 資料庫必須重建」 |
+| N10 | CLI 的型別宣告夾在 import 區塊中間 | 移到 import 之後 |
+| N11 | README 的測試數字與 acceptance 不一致 | README 不再自己維護一份，改為指向本檔 |
+
+## full gates（第二輪修正後實跑）
 
 - `pnpm typecheck`：PASS。
-- `pnpm test:unit`：61 files、768 tests、767 passed、1 failed。唯一失敗是
-  `tests/unit/theme-assets-http.test.ts`，**在 B04 基準 `837870c` 上以完全相同的方式失敗**
-  （以 detached worktree 實測比對），依賴已建置的靜態資產，與 B05 無關。
-  不能因為「本包沒動它」就當成通過——它現在確實是紅的。
-- `pnpm test:integration`：**86 files／735 tests 全數 passed**（`--maxWorkers=2`，真 PG testcontainers）。
+- `pnpm test:unit`：61 files、771 tests、769 passed、2 failed。
+  `tests/unit/theme-assets-http.test.ts` **在 B04 基準 `837870c` 上以完全相同的方式失敗**
+  （以 detached worktree 實測比對），依賴已建置的靜態資產。
+  `tests/unit/cli-upgrade.test.ts` 是 5 秒 timeout，而它每個 case 本身要 1.6 秒——
+  單獨重跑 6 passed，在整批負載下超時。兩者都不是 B05 的程式碼問題，
+  但完整跑時它們確實是紅的，不當成通過。
+- `pnpm test:integration`：**86 files／738 tests 全數 passed**（`--maxWorkers=2`，真 PG testcontainers）。
   修正前的第一輪是 731 tests／5 failed，五項全是新 migration `0008` 造成的預期變更
   （migration 清單、資料表清單、pending 計數），更新後那五個檔案重跑 46 passed；
   第二輪完整跑曾被系統以記憶體不足中止（testcontainers 與本機其他資料庫容器並存），
@@ -74,7 +98,8 @@ insert 競爭由 `DO NOTHING` 等待對方 xid 後重讀解決、enqueue 與 adv
 
 ## 保留的缺口
 
-- 修正後的複審尚未進行。第一輪審查的 14 項都已修，但修正本身沒有被獨立看過。
+- 第三輪複審尚未進行。第二輪的 11 項都已修，但這批修正本身沒有被獨立看過。
+- `tests/unit/cli-upgrade.test.ts` 的 5 秒 timeout 餘裕過小，在負載下會 flake。不屬 B05，但值得修。
 - ops 的三個新入口只有 bus 層覆蓋，沒有帶真實資料的 HTTP 層測試——與 B04 留下的
   `listFailures`／`redriveFailure` HTTP 缺口是同一類，建議一起補。
 - 排程狀態沒有 Admin UI（屬 B13）。

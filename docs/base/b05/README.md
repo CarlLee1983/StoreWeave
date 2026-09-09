@@ -21,7 +21,9 @@
 **兩種宣告，一種身分。** `{ everyMs }` 沿用 ADR 0016 的 epoch 對齊切片；
 `{ cron, timezone }` 用 croner 運算（[ADR 0038](../../adr/0038-cron-calculation-only-croner.md)）。
 時區是必填的 IANA 識別碼。有歧義的縮寫被擋下——Node 的 `Intl` 會照收 `CST` 並解析成
-`America/Chicago`、`EST` 解析成 `America/Panama`，靜默的錯誤位移比啟動失敗糟得多；
+`America/Chicago`、`EST` 解析成 `America/Panama`、`BST` 解析成 `Asia/Dhaka`、
+`IST` 解析成 `Asia/Calcutta`，靜默的錯誤位移比啟動失敗糟得多；
+`CET`／`EET`／`WET`／`JST`／`PRC` 這類有真實 DST 規則或只對應一個國家的 legacy 區名照收；
 `Etc/GMT±N` 也擋，它的正負號與直覺相反。`Japan`、`Singapore`、`NZ` 這類 backward link 照收。
 運算式除了語法，還會在註冊時正反各探一次：`0 0 30 2 *` 這種永遠不會發生的組合直接拒絕，
 而 croner 回推不了的閏日排程（`0 0 29 2 *`，實測 `previousRuns` 丟 TypeError）由有界的
@@ -34,7 +36,10 @@ payload 仍然是 `{ bucket, scheduledFor }`——四個 commerce 模組的 `job
 
 **watermark 決定追補。** `platform_job_schedules.last_occurrence_at` 記住已經排到哪一次。
 冷啟動時把它設成「當下這一次的前一次」，於是第一輪剛好補上當下這一次——與 ADR 0016 相同，
-不會因為重啟而少跑一次。停機後 `(watermark, now]` 之間的 occurrence 全部算出來，
+不會因為重啟而少跑一次。**但冷啟動不補超過七天前的 occurrence**：ADR 0016 的「補當下這一次」
+對日排程最多陳舊一天，外推到稀疏排程就不對了——一個閏日排程在 2026 年第一次部署，
+「當下這一次」是 2024-02-29，補下去等於立刻跑一次兩年半前的作業。既有排程週期最長一天，
+行為完全不變。這個界限只約束冷啟動與宣告變更；已在跑的排程遇到停機走的是 watermark 與 `catchUp`。停機後 `(watermark, now]` 之間的 occurrence 全部算出來，
 取最靠近現在的 `catchUp` 個（預設 1），其餘計入 `skipped_catchup`。單次列舉上限 1000。
 宣告的頻率高過 worker 輪詢頻率時，註冊會留 warn——那代表多數 occurrence 會被無聲丟棄。
 
@@ -55,9 +60,13 @@ watermark；去重鍵是最後一道防線。穩定狀態下這一輪不寫任�
 去重不算跳過（那一次會執行，只是別的 worker 排的）。混成一個數字就沒有人能從它推斷
 「這個排程正在出事」——健康的多 worker 叢集本來就會一直去重。
 
-**單一排程的失敗不會拖垮整輪。** 每個排程一個 `boundedTransaction`（有 statement_timeout，
-`FOR UPDATE` 不會被長交易無限期擋住），呼叫端逐一 catch 並記 error log。排程是「確保」不是
+**單一排程的失敗不會拖垮整輪。** 每個排程一個 `boundedTransaction`（預算由 worker 傳入自己的
+資料庫界限，`FOR UPDATE` 不會被長交易無限期擋住），呼叫端逐一 catch。排程是「確保」不是
 「執行」：這一輪沒排到，下一輪會再算一次同一個 occurrence，去重鍵讓重試不會變重複。
+整個排程階段另有總預算——它排在 heartbeat 之後、`relayOutbox`／`runJobs` 之前，
+拖久了 heartbeat 會停更、佇列一起停擺。連續失敗會從 warn 升級成 error，成功歸零，
+並計入 `WorkerTickResult.recurringFailed`；只記 log 不計數的話，一個從週五開始每輪逾時的
+排程沒有人會發現。
 
 ## 維運介面
 
@@ -82,12 +91,7 @@ CLI 對應 `schedule:list`、`schedule:pause <type>`、`schedule:resume <type>`�
 ## 本片檢查
 
 - `pnpm typecheck`：passed。
-- `pnpm exec vitest run --project unit packages/platform/kernel/test/schedule-spec.test.ts`：26 passed。
-- `pnpm exec vitest run --project integration tests/integration/scheduler.test.ts`：22 passed（真 PG）。
-- `pnpm test:unit`：762 tests，1 failed。該失敗是 `tests/unit/theme-assets-http.test.ts`，
-  **在 B04 基準 `837870c` 上以同樣方式失敗**（另開 detached worktree 實測），與本包無關；
-  它依賴已建置的 admin／theme 靜態資產，B04 的 gates 是在 build 之後跑的。
-- `pnpm test:integration`：見下方 gates 段落。
+測試數字以 [acceptance.md](acceptance.md) 的 gates 段落為準，這裡不重複維護第二份。
 
 ## 保留的缺口
 
@@ -97,6 +101,9 @@ CLI 對應 `schedule:list`、`schedule:pause <type>`、`schedule:resume <type>`�
   新 occurrence 可能撞上舊 occurrence 的去重墓碑而被靜默吃掉；要改就當成換一個排程宣告處理。
   已補記進 ADR 0016。
 - 時區資料來自 runtime ICU；裁減 ICU 的 Node 會靜默算錯，屬 B15 的部署前檢查。
+- migration `0008` 在提交前被就地修改過（拆計數器欄位）。checksum drift 偵測會讓跑過中間版本的
+  資料庫**開機即報錯**而不是靜默缺欄位，但任何跑過中間版本 0008 的 dev／preview 資料庫必須重建：
+  `CREATE TABLE IF NOT EXISTS` 不會補欄位。正式環境未曾套用過，不受影響。
 - **滾動部署期間改變排程宣告會真的跑兩套時間表。** fingerprint 翻動的唯一原因就是新舊版本
   宣告不同，而不同宣告算出的是不同時刻、不同去重鍵——去重鍵擋不住它們，兩套都會執行。
   對「每日發券」這種工作就是同一天發兩輪。要改排程宣告，必須先停掉舊版本再上新版本，

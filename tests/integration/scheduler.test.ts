@@ -98,6 +98,26 @@ describe('冷啟動與固定間隔（ADR 0016 行為保留）', () => {
   });
 });
 
+describe('冷啟動的陳舊界限', () => {
+  it('第一次見到稀疏排程時不補一次陳年的 occurrence', async () => {
+    // 閏日排程在 2026 年第一次部署：「當下這一次」是 2024-02-29。補下去等於立刻跑一次
+    // 兩年半前的作業，而 handler 多半照 scheduledFor 決定資料區間。
+    const type = registerSchedule({ cron: '0 0 29 2 *', timezone: 'UTC' }, true);
+    const result = await h.runtime.recurring.ensureScheduled(new Date('2026-09-09T00:00:00.000Z'));
+
+    expect(await scheduledRunAts(type)).toEqual([]);
+    expect(result.failed).toBe(0);
+    // watermark 仍然前進，所以下一個真正的 occurrence 會照常排
+    expect((await scheduleRow(type)).last_occurrence_at).not.toBeNull();
+  });
+
+  it('週期在界限內的排程，冷啟動照樣補當下這一次（ADR 0016 行為保留）', async () => {
+    const type = registerSchedule({ cron: '0 0 * * *', timezone: 'UTC' }, true);
+    await h.runtime.recurring.ensureScheduled(new Date('2026-01-05T12:00:00.000Z'));
+    expect(await scheduledRunAts(type)).toEqual(['2026-01-05T00:00:00.000Z']);
+  });
+});
+
 describe('cron 與時區', () => {
   it('Asia/Taipei 午夜排在 UTC 16:00', async () => {
     const type = registerSchedule({ cron: '0 0 * * *', timezone: 'Asia/Taipei' }, true);
@@ -229,6 +249,22 @@ describe('重疊策略', () => {
       sql`SELECT run_at FROM platform_jobs WHERE type = ${type}`,
     )).rows;
     expect(new Date(row.run_at).toISOString()).toBe('2026-01-05T00:00:00.000Z');
+  });
+
+  it('overlap=skip 把重試退避中的工作算成重疊，即使它的 run_at 在未來', async () => {
+    const type = registerSchedule({ everyMs: HOUR, overlap: 'skip' });
+    await h.runtime.recurring.ensureScheduled(new Date('2026-01-05T00:10:00.000Z'));
+
+    // 模擬一次失敗後的退避：仍是 pending，但 run_at 被推到未來。退避上限 600 秒，
+    // 對週期短的排程來說只看 run_at 會讓失敗中的工作被當成不存在而愈堆愈多。
+    await h.runtime.database.db.execute(sql`
+      UPDATE platform_jobs SET attempts = 1, run_at = now() + interval '10 minutes'
+      WHERE type = ${type}
+    `);
+
+    await h.runtime.recurring.ensureScheduled(new Date('2026-01-05T01:10:00.000Z'));
+    expect(await scheduledRunAts(type)).toHaveLength(1);
+    expect(Number((await scheduleRow(type)).skipped_overlap)).toBe(1);
   });
 
   it('連續被 overlap 擋下會累積計數，排入後歸零', async () => {

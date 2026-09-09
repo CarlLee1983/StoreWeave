@@ -44,6 +44,18 @@ describe('parseScheduleSpec', () => {
     expect(() => parseScheduleSpec('bad', { cron: '0 0 * * *', timezone: 'EST' })).toThrow(/ambiguous/);
   });
 
+  it('IST 與 BST 被擋下——它們是世界上最歧義的兩個縮寫', () => {
+    // 實測 Node：BST → Asia/Dhaka（不是英國夏令，孟加拉還沒有 DST）、IST → Asia/Calcutta
+    expect(() => parseScheduleSpec('bad', { cron: '0 2 * * *', timezone: 'BST' })).toThrow(/ambiguous/);
+    expect(() => parseScheduleSpec('bad', { cron: '0 2 * * *', timezone: 'IST' })).toThrow(/ambiguous/);
+  });
+
+  it('有真實 DST 規則、或只對應一個國家的 legacy 區名照收', () => {
+    for (const timezone of ['CET', 'EET', 'WET', 'JST', 'PRC']) {
+      expect(() => parseScheduleSpec('ok', { cron: '0 0 * * *', timezone })).not.toThrow();
+    }
+  });
+
   it('Etc/GMT±N 被擋下，因為正負號與直覺相反', () => {
     expect(() => parseScheduleSpec('bad', { cron: '0 0 * * *', timezone: 'Etc/GMT+8' })).toThrow(/inverted/);
   });
@@ -216,5 +228,44 @@ describe('單一排程的失敗不會拖垮整輪', () => {
 
     expect(enqueued).toEqual(['healthy']);
     expect(result.enqueued).toBe(1);
+    // 失敗必須被算進去：只記 log 而不計數，一個從週五開始每輪逾時的排程沒有人會發現
+    expect(result.failed).toBe(1);
+  });
+
+  it('連續失敗會從 warn 升級成 error，成功後歸零', async () => {
+    const levels: string[] = [];
+    const logger = {
+      ...noopLogger,
+      warn: (..._args: unknown[]) => { levels.push('warn'); },
+      error: (..._args: unknown[]) => { levels.push('error'); },
+    };
+    let broken = true;
+    const scheduler = new RecurringScheduler({
+      jobs: { enqueue: async () => ({ id: 'x', deduped: false }) } as never,
+      database: {
+        boundedTransaction: async (_ms: number, _op: string, fn: (tx: never) => Promise<unknown>) => {
+          if (broken) throw new Error('deadlock detected');
+          const row = {
+            type: 'x', fingerprint: 'interval:3600000', paused: false, paused_at: null,
+            last_occurrence_at: new Date('2026-01-05T02:00:00.000Z'),
+            last_enqueued_at: null, skipped_catchup: 0, skipped_paused: 0, skipped_overlap: 0,
+            consecutive_overlap_skips: 0,
+          };
+          return fn({ execute: async () => ({ rows: [row] }) } as never);
+        },
+      } as never,
+      logger: logger as never,
+    });
+    scheduler.register('flaky', { everyMs: HOUR });
+
+    const at = new Date('2026-01-05T03:10:00.000Z');
+    for (let i = 0; i < 3; i += 1) await scheduler.ensureScheduled(at);
+    expect(levels).toEqual(['warn', 'warn', 'error']);
+
+    broken = false;
+    await scheduler.ensureScheduled(at);
+    broken = true;
+    await scheduler.ensureScheduled(at);
+    expect(levels.at(-1)).toBe('warn');
   });
 });

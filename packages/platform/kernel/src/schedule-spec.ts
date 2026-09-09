@@ -67,9 +67,15 @@ function isCronDeclaration(declaration: ScheduleDeclaration): declaration is Cro
  * 這種靜默的錯誤位移比啟動失敗糟得多，所以明確擋掉。
  */
 const AMBIGUOUS_TIMEZONE_ABBREVIATIONS = new Set([
+  // 北美
   'CST', 'EST', 'MST', 'HST', 'PST', 'EDT', 'CDT', 'MDT', 'PDT',
   'EST5EDT', 'CST6CDT', 'MST7MDT', 'PST8PDT',
+  // 世界上最歧義的兩個。實測：`BST` → `Asia/Dhaka`（不是英國夏令，而且孟加拉沒有 DST）、
+  // `IST` → `Asia/Calcutta`（印度、愛爾蘭、以色列共用這個縮寫，Intl 選了印度）。
+  'IST', 'BST',
 ]);
+// 刻意放行：`CET`／`EET`／`WET`／`MET` 是有真實 DST 規則的 legacy 區名（→ Europe/*），
+// `JST`／`ROK`／`PRC` 只對應一個國家，不歧義。
 
 function assertValidTimezone(type: string, timezone: unknown): asserts timezone is string {
   if (typeof timezone !== 'string' || timezone.length === 0) {
@@ -157,8 +163,21 @@ export function parseScheduleSpec(type: string, declaration: ScheduleDeclaration
   };
 }
 
-/** 正向掃描回推時，最多往前看這麼久。夠涵蓋閏日（4 年）與整年的排程。 */
-const BACKWARD_FALLBACK_WINDOW_MS = 8 * 366 * 24 * 60 * 60 * 1_000;
+/**
+ * 正向掃描回推時，最多往前看這麼久。
+ *
+ * 規則是「必須涵蓋 `count + 1` 個間距」，不是 `count` 個：要拿到最近兩次，視窗得跨過三個邊界。
+ * 閏日的最大間距是 8 年（2096 → 2104，因為 2100 不是閏年），所以 `count = 2` 需要 24 年才安全。
+ */
+const BACKWARD_FALLBACK_WINDOW_MS = 24 * 366 * 24 * 60 * 60 * 1_000;
+
+/**
+ * fallback 的結果快取。
+ *
+ * `occurrencesBetween` 每一輪 tick 都會呼叫，而 fallback 的 `nextRuns(1000, …)` 對閏日排程
+ * 實測要 78 ms——那是在持有排程列寫鎖的交易之內。答案只隨「哪一天」變化，所以按日快取。
+ */
+const backwardFallbackCache = new Map<string, Date[]>();
 
 /**
  * 不晚於 `at` 的最近 `count` 次，由新到舊。
@@ -181,6 +200,9 @@ function cronRunsAtOrBefore(spec: CronSchedule, at: Date, count: number): Date[]
 }
 
 function backwardByForwardScan(cron: Cron, spec: CronSchedule, at: Date, count: number): Date[] {
+  const key = `${spec.fingerprint}|${count}|${at.toISOString().slice(0, 10)}`;
+  const hit = backwardFallbackCache.get(key);
+  if (hit) return hit;
   const windowStart = new Date(at.getTime() - BACKWARD_FALLBACK_WINDOW_MS);
   const forward = cron.nextRuns(MAX_OCCURRENCES_PER_SCAN, windowStart);
   const upTo = forward.filter((run) => run.getTime() <= at.getTime());
@@ -191,7 +213,11 @@ function backwardByForwardScan(cron: Cron, spec: CronSchedule, at: Date, count: 
       `Cron expression "${spec.cron}" cannot be enumerated backwards within the supported window`,
     );
   }
-  return upTo.slice(-count).reverse();
+  const result = upTo.slice(-count).reverse();
+  // 快取只在同一天內有意義；跨日就讓它重算，順便避免無界成長。
+  if (backwardFallbackCache.size > 256) backwardFallbackCache.clear();
+  backwardFallbackCache.set(key, result);
+  return result;
 }
 
 /** 不晚於 `at` 的最近一次預定時刻；還沒有任何一次就回 undefined。 */

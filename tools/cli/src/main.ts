@@ -15,21 +15,6 @@ import { parsePgUrl } from './pg-tool';
 import { withTransitionLock } from './transition-lock';
 import { randomUUID } from 'node:crypto';
 
-interface ScheduleListItem {
-  type: string;
-  kind: 'interval' | 'cron';
-  expression: string;
-  timezone: string | null;
-  catchUp: number;
-  overlap: string;
-  paused: boolean;
-  lastOccurrenceAt: string | null;
-  nextOccurrenceAt: string | null;
-  skippedCatchup: number;
-  skippedPaused: number;
-  skippedOverlap: number;
-  consecutiveOverlapSkips: number;
-}
 import { baselineMigrations, catalogDigest, readSnapshotDatabase } from '@storeweave/db';
 import 'reflect-metadata';
 import { execFileSync } from 'node:child_process';
@@ -48,6 +33,22 @@ import { resolvePaths } from './paths';
 import { installReleaseArchive, validateLegacyB01Directory, validateReleaseDirectory } from './release-validation';
 import { runPgTool, writePgBackup } from './pg-tool';
 import { SERVICES, serviceManager, startServices, statusServices, stopServices } from './service';
+
+interface ScheduleListItem {
+  type: string;
+  kind: 'interval' | 'cron';
+  expression: string;
+  timezone: string | null;
+  catchUp: number;
+  overlap: string;
+  paused: boolean;
+  lastOccurrenceAt: string | null;
+  nextOccurrenceAt: string | null;
+  skippedCatchup: number;
+  skippedPaused: number;
+  skippedOverlap: number;
+  consecutiveOverlapSkips: number;
+}
 
 const RELEASE_VERSION = process.env.STOREWEAVE_RELEASE_VERSION ?? process.env.COMMERCE_RELEASE_VERSION ?? release.version;
 
