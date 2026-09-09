@@ -28,6 +28,8 @@ export interface WorkerTickResult {
   recurringSkipped: number;
   recurringDeduped: number;
   recurringFailed: number;
+  /** 預算不夠、留到下一輪的排程數。與 recurringFailed 分開，見 EnsureScheduledResult。 */
+  recurringDeferred: number;
   relayed: number;
   deliveriesEnqueued: number;
   jobsProcessed: number;
@@ -349,17 +351,18 @@ export class Worker {
     const recurring = await this.runtime.recurring.ensureScheduled(new Date(), this.databaseTimeoutMs);
     const relay = await this.relayOutbox();
     const jobs = await this.runJobs();
-    return { recurringScheduled: recurring.enqueued, recurringSkipped: recurring.skipped, recurringDeduped: recurring.deduped, recurringFailed: recurring.failed, relayed: relay.relayed, deliveriesEnqueued: relay.enqueued, jobsProcessed: jobs.processed, jobsFailed: jobs.failed };
+    return { recurringScheduled: recurring.enqueued, recurringSkipped: recurring.skipped, recurringDeduped: recurring.deduped, recurringFailed: recurring.failed, recurringDeferred: recurring.deferred, relayed: relay.relayed, deliveriesEnqueued: relay.enqueued, jobsProcessed: jobs.processed, jobsFailed: jobs.failed };
   }
 
   async drain(maxRounds = 50): Promise<WorkerTickResult> {
-    const total: WorkerTickResult = { recurringScheduled: 0, recurringSkipped: 0, recurringDeduped: 0, recurringFailed: 0, relayed: 0, deliveriesEnqueued: 0, jobsProcessed: 0, jobsFailed: 0 };
+    const total: WorkerTickResult = { recurringScheduled: 0, recurringSkipped: 0, recurringDeduped: 0, recurringFailed: 0, recurringDeferred: 0, relayed: 0, deliveriesEnqueued: 0, jobsProcessed: 0, jobsFailed: 0 };
     for (let i = 0; i < maxRounds; i += 1) {
       const result = await this.tick();
       total.recurringScheduled += result.recurringScheduled;
       total.recurringSkipped += result.recurringSkipped;
       total.recurringDeduped += result.recurringDeduped;
       total.recurringFailed += result.recurringFailed;
+      total.recurringDeferred += result.recurringDeferred;
       total.relayed += result.relayed;
       total.deliveriesEnqueued += result.deliveriesEnqueued;
       total.jobsProcessed += result.jobsProcessed;

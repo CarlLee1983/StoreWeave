@@ -80,6 +80,29 @@ insert 競爭由 `DO NOTHING` 等待對方 xid 後重讀解決、enqueue 與 adv
 | N10 | CLI 的型別宣告夾在 import 區塊中間 | 移到 import 之後 |
 | N11 | README 的測試數字與 acceptance 不一致 | README 不再自己維護一份，改為指向本檔 |
 
+## 獨立審查（第三輪）
+
+範圍是第二輪的 11 項修正本身（`git diff e4a6a5d..HEAD`）。結論是 **Block**，唯一的阻斷項
+是 T1；三個特別提問的疑慮，一項成立、一項不成立、一項成立但需補文件。
+
+不成立的那一項值得記下來：**`attempts > 0` 不會讓永遠失敗的工作把排程永久擋住**。
+`hasActiveJob` 只看 `status IN ('pending','running')`，而 `jobs.ts:422` 在
+`attempts >= max_attempts` 時寫 `dead`，`reclaimStale` 對逾期租約同樣判 `dead`。
+預設 `max_attempts = 5`、退避 `2^attempts`，擋住的時間上界約 62 秒；`requeue`／`retryDead`
+與 deferred 置換都把 `attempts` 歸零，不會留下永久的未完成列。
+
+| 編號 | 內容 | 處置 |
+| --- | --- | --- |
+| T1 (HIGH) | N3 的排程階段預算：`registered` 是插入順序、每輪起點固定，預算用完即 `break`，順序靠後的排程**無限期**排不到；而它們既不計入 `failed` 也只有邊界那一個進 log，外面只看到「一個排程偶爾抖動」。審查以假 DB 實跑三輪重現 | 起點輪替（`resumeFrom`：這一輪停在誰身上，下一輪從誰開始）；被延後的全部列進同一行 warn，並新增 `deferred`／`recurringDeferred` 與 `failed` 分開計。單元測試釘住三輪後每個排程都輪得到 |
+| T2 (MEDIUM) | 只要 `remaining > 0` 就進場，交易預算 `Math.max(1, …)`——剩 3 ms 會開一個必定逾時的交易，而 `boundedTransaction` 逾時走 `client.release(error)`，等於每輪毀一條連線 | 加 `MIN_SCHEDULE_SLICE_MS = 250` 下限，不足即延後到下一輪 |
+| T3 (MEDIUM) | N7 的按日快取：鍵是 UTC 日，但答案隨「有沒有跨過那一次」變化，而 occurrence 落在當地時區。實測 `0 0 29 2 *` @ `Asia/Taipei` 遲到約 8 小時（上界一天） | 快取改記真正的有效區間 `[validFrom, validUntil)`；掃描視窗內找不到下一次就不快取。順帶回傳複本，不再把快取裡的陣列交出去 |
+| T4 (MEDIUM) | `hasActiveJob` 加上 `OR attempts > 0` 後 `platform_jobs_ready_idx` 完全接不住（狀態含 `running`，`run_at` 不再是範圍條件），實質是每個 skip 排程每輪一次全表掃描 | migration `0008` 補 `platform_jobs_active_type_idx ON platform_jobs (type) WHERE status IN ('pending','running')` |
+| T5 (LOW) | 七天界限對「宣告變更」的後果沒寫進文件：改一個月排程的運算式會讓它最久一個月才第一次跑 | README 明說「改宣告 = 從下一次開始」；補整合測試釘住 |
+| T6 (LOW) | `recurringFailed` 在 production 沒有消費者——`start()` 的迴圈丟棄 tick 回傳值 | README 改為據實描述：實際告警訊號是 warn→error 升級，計數只有 `drain()` 與測試讀得到 |
+| T7 (LOW) | 冷啟動跳過的次數併入 `skipped_catchup`，維運分不出是停機太久還是政策決定 | 這一輪只在 README 註明兩種來源；獨立計數器留待有人真的需要時再加 |
+| T8 (LOW) | 新行為缺測試：預算耗盡的 `break`、`fingerprint` 變更走冷啟動、`setPaused` 惰性 anchor | 三項各補一個測試（前者單元，後兩者整合） |
+| T9 (LOW) | `backwardFallbackCache` 是模組層可變全域，且回傳快取內的陣列本身 | 併入 T3 一起改成回傳複本；清空入口未加 |
+
 ## full gates（第二輪修正後實跑）
 
 - `pnpm typecheck`：PASS。
@@ -96,9 +119,25 @@ insert 競爭由 `DO NOTHING` 等待對方 xid 後重讀解決、enqueue 與 adv
   降低並行度後重跑取得上述結果。
 - `smoke:docker`／`smoke:native`：未跑，屬 A 的 gate。
 
+## full gates（第三輪修正後實跑）
+
+- `pnpm typecheck`：PASS。
+- `pnpm exec vitest run --project unit packages/platform/kernel/test/schedule-spec.test.ts`：31 passed
+  （新增的兩個先確認過紅：餓死那個回 `Set {}`，快取那個回 `[]`）。
+- `pnpm exec vitest run --project integration tests/integration/scheduler.test.ts`：28 passed。
+- `pnpm exec vitest run --project integration --maxWorkers=2`：**86 files／741 tests 全數 passed**。
+- `pnpm exec vitest run --project unit`：61 files、773 tests、772 passed、**1 failed**。
+  只剩 `tests/unit/theme-assets-http.test.ts`（B04 基準 `837870c` 上同樣紅，依賴已建置的靜態資產）；
+  `cli-upgrade` 這一次通過，印證它是負載相關的 flake 而非固定失敗。
+
 ## 保留的缺口
 
-- 第三輪複審尚未進行。第二輪的 11 項都已修，但這批修正本身沒有被獨立看過。
+- 第四輪複審尚未進行：第三輪的 9 項修正本身沒有被獨立看過（T1 的輪替公平性、T3 的
+  快取有效區間邊界，是最值得再看一次的兩處）。
+- T7 的獨立計數器（`skipped_cold_start`）沒有做，冷啟動與追補上限的跳過數仍混在同一欄。
+- migration `0008` 這一輪再次就地修改（補索引）。理由與前次相同——它尚未部署，
+  checksum drift 會讓跑過中間版本的資料庫開機即報錯而非靜默缺欄位；
+  但任何跑過中間版本的 dev／preview 資料庫必須重建。
 - `tests/unit/cli-upgrade.test.ts` 的 5 秒 timeout 餘裕過小，在負載下會 flake。不屬 B05，但值得修。
 - ops 的三個新入口只有 bus 層覆蓋，沒有帶真實資料的 HTTP 層測試——與 B04 留下的
   `listFailures`／`redriveFailure` HTTP 缺口是同一類，建議一起補。

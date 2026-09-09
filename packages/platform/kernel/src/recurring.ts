@@ -62,9 +62,16 @@ export interface EnsureScheduledResult {
   readonly deduped: number;
   /** 這一輪算不出結果的排程數。連續累積代表有東西壞了，不是偶發抖動。 */
   readonly failed: number;
+  /**
+   * 這一輪預算不夠、留到下一輪的排程數。
+   *
+   * 與 `failed` 分開：延後是預算切太碎的資源問題，失敗是這個排程本身算不出結果，
+   * 混在一起會讓「有東西壞了」的訊號被慢排程的雜訊蓋掉。
+   */
+  readonly deferred: number;
 }
 
-const EMPTY: EnsureScheduledResult = { enqueued: 0, skipped: 0, deduped: 0, failed: 0 };
+const EMPTY: EnsureScheduledResult = { enqueued: 0, skipped: 0, deduped: 0, failed: 0, deferred: 0 };
 
 /** 連續這麼多輪被 overlap 擋下就示警：多半代表上一次卡住了，而不是它真的很忙。 */
 const OVERLAP_SKIP_WARN_THRESHOLD = 3;
@@ -130,10 +137,28 @@ export interface RecurringSchedulerDeps {
 /** 直接呼叫（測試、維運）時的預設；worker 會傳自己的資料庫預算進來。 */
 const DEFAULT_SCHEDULE_TIMEOUT_MS = 5_000;
 
+/**
+ * 預算剩不到這個數字就不再開新交易。
+ *
+ * `boundedTransaction` 逾時會 `client.release(error)` 把連線移出連線池，所以拿剩下的
+ * 3 毫秒去開一個必定逾時的交易，代價是每輪毀一條連線——而它本來就排不完，
+ * 直接留到下一輪即可。
+ */
+const MIN_SCHEDULE_SLICE_MS = 250;
+
 export class RecurringScheduler {
   private readonly registered = new Map<string, ScheduleSpec>();
   /** 每個排程連續失敗幾輪。成功就歸零。 */
   private readonly consecutiveFailures = new Map<string, number>();
+  /**
+   * 下一輪要從哪個排程開始。
+   *
+   * `registered` 是插入順序（也就是啟動時 `register()` 的順序），每一輪都一樣；預算是
+   * **整個階段**的總額，第一個排程在列鎖久等時就能自己吃滿。固定起點加上用完即 break，
+   * 會讓順序靠後的排程無限期排不到，而外面只看到「一個排程偶爾抖動」。所以起點要輪替：
+   * 這一輪停在誰身上，下一輪就從誰開始，跑完一整圈才回到頭。
+   */
+  private resumeFrom: string | undefined;
 
   constructor(private readonly deps: RecurringSchedulerDeps) {}
 
@@ -191,15 +216,23 @@ export class RecurringScheduler {
     // 也違反 worker 的 `heartbeat + database + grace < lease` 不變式。
     const budget = timeoutMs ?? DEFAULT_SCHEDULE_TIMEOUT_MS;
     const deadline = Date.now() + budget;
-    for (const [type, spec] of this.registered) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) {
-        this.deps.logger.warn({ jobType: type }, 'scheduling phase ran out of budget; deferred to the next tick');
+    const order = this.rotatedOrder();
+    let deferred: string[] = [];
+    for (const [index, [type, spec]] of order.entries()) {
+      if (deadline - Date.now() < MIN_SCHEDULE_SLICE_MS) {
+        // 被延後的**全部**都要進 log：只記邊界那一個，看 log 的人無從知道還有誰沒排到。
+        deferred = order.slice(index).map(([deferredType]) => deferredType);
+        this.resumeFrom = type;
+        this.deps.logger.warn(
+          { jobTypes: deferred, count: deferred.length },
+          'scheduling phase ran out of budget; deferred to the next tick',
+        );
         break;
       }
+      this.resumeFrom = undefined;
       try {
         const result = await this.deps.database.boundedTransaction(
-          Math.max(1, Math.min(budget, deadline - Date.now())),
+          Math.max(MIN_SCHEDULE_SLICE_MS, Math.min(budget, deadline - Date.now())),
           `ensure schedule ${type}`,
           (tx) => this.ensureOne(tx, type, spec, now),
         );
@@ -224,7 +257,21 @@ export class RecurringScheduler {
         );
       }
     }
-    return { enqueued, skipped, deduped, failed };
+    return { enqueued, skipped, deduped, failed, deferred: deferred.length };
+  }
+
+  /**
+   * 這一輪的排程順序：從 `resumeFrom` 開始繞一圈回到原點。
+   *
+   * `resumeFrom` 已經被移除註冊（熱重載）時退回插入順序——輪替是公平性機制，
+   * 找不到起點不該讓整輪排不出來。
+   */
+  private rotatedOrder(): [string, ScheduleSpec][] {
+    const entries = [...this.registered.entries()];
+    if (!this.resumeFrom) return entries;
+    const start = entries.findIndex(([type]) => type === this.resumeFrom);
+    if (start <= 0) return entries;
+    return [...entries.slice(start), ...entries.slice(0, start)];
   }
 
   /** 一個排程一個有界交易；呼叫端逐一 catch，所以某個排程的錯誤不會讓其他排程整輪停擺。 */
@@ -245,7 +292,7 @@ export class RecurringScheduler {
         { jobType: type, staleOccurrence: newest.toISOString(), skipped: all.length },
         'cold start skipped a stale occurrence; the schedule starts from the next one',
       );
-      return { enqueued: 0, skipped: all.length, deduped: 0, failed: 0 };
+      return { enqueued: 0, skipped: all.length, deduped: 0, failed: 0, deferred: 0 };
     }
     // 追補有上限：停機太久時補最近的那幾次，不是最舊的那幾次。
     const due = all.slice(Math.max(0, all.length - spec.catchUp));
@@ -254,7 +301,7 @@ export class RecurringScheduler {
     if (row.paused) {
       // 暫停期間的 occurrence 是「跳過」不是「延後」：恢復時不該一次湧出整段積壓。
       await this.advance(tx, type, newest, { catchup, paused: due.length, overlap: 0 }, false, 0);
-      return { enqueued: 0, skipped: catchup + due.length, deduped: 0, failed: 0 };
+      return { enqueued: 0, skipped: catchup + due.length, deduped: 0, failed: 0, deferred: 0 };
     }
 
     if (spec.overlap === 'skip' && (await this.hasActiveJob(tx, type, now))) {
@@ -266,7 +313,7 @@ export class RecurringScheduler {
       // log 的數字與回傳值、與 skipped_* 欄位必須是同一個，否則排查時對不起來。
       log.call(this.deps.logger, { jobType: type, skipped: catchup + due.length, consecutive },
         'schedule occurrence skipped by overlap policy');
-      return { enqueued: 0, skipped: catchup + due.length, deduped: 0, failed: 0 };
+      return { enqueued: 0, skipped: catchup + due.length, deduped: 0, failed: 0, deferred: 0 };
     }
 
     let enqueued = 0;
@@ -287,7 +334,7 @@ export class RecurringScheduler {
     if (enqueued > 0) {
       this.deps.logger.debug({ jobType: type, enqueued, upTo: newest.toISOString() }, 'schedule occurrences enqueued');
     }
-    return { enqueued, skipped: catchup, deduped, failed: 0 };
+    return { enqueued, skipped: catchup, deduped, failed: 0, deferred: 0 };
   }
 
   /**

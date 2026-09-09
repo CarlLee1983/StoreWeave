@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { noopLogger } from '@storeweave/contracts';
 import { RecurringScheduler } from '../src/recurring';
 import {
@@ -198,6 +198,20 @@ describe('occurrencesBetween', () => {
   });
 });
 
+describe('回推 fallback 的快取不會讓 occurrence 遲到', () => {
+  it('同一個 UTC 日內跨過 occurrence 之後，下一輪 tick 就排得出來', () => {
+    // croner 對「指定月＋該月不一定存在的日」回推會丟例外，所以這個樣式走正向掃描 fallback。
+    // Asia/Taipei 的 2028-02-29 00:00 是 2028-02-28T16:00Z，與 UTC 日界不對齊——按 UTC 日
+    // 快取會讓這一次遲到八小時，時區偏移愈大愈久，上界是一整天。
+    const spec = parseScheduleSpec('leap', { cron: '0 0 29 2 *', timezone: 'Asia/Taipei' });
+    const watermark = new Date('2028-02-28T00:00:00.000Z');
+
+    expect(occurrencesBetween(spec, watermark, new Date('2028-02-28T06:00:00.000Z'))).toEqual([]);
+    const after = occurrencesBetween(spec, watermark, new Date('2028-02-28T17:00:00.000Z'));
+    expect(after.map((d) => d.toISOString())).toEqual(['2028-02-28T16:00:00.000Z']);
+  });
+});
+
 describe('單一排程的失敗不會拖垮整輪', () => {
   it('某個排程的交易丟例外時，其他排程照常排入，且 ensureScheduled 不往外丟', async () => {
     const enqueued: string[] = [];
@@ -267,5 +281,51 @@ describe('單一排程的失敗不會拖垮整輪', () => {
     broken = true;
     await scheduler.ensureScheduled(at);
     expect(levels.at(-1)).toBe('warn');
+  });
+});
+
+describe('排程階段的預算不會餓死順序靠後的排程', () => {
+  /** 假的排程狀態列：watermark 落後一小時，所以每個排程剛好有一次到期。 */
+  const dueRow = () => ({
+    type: 'x', fingerprint: 'interval:3600000', paused: false, paused_at: null,
+    last_occurrence_at: new Date('2026-01-05T02:00:00.000Z'),
+    last_enqueued_at: null, skipped_catchup: 0, skipped_paused: 0, skipped_overlap: 0,
+    consecutive_overlap_skips: 0,
+  });
+
+  it('第一個排程每輪吃光預算時，後面的排程仍然輪得到', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-05T03:10:00.000Z'));
+    try {
+      const enqueued: string[] = [];
+      const scheduler = new RecurringScheduler({
+        jobs: { enqueue: async (_tx: never, input: { type: string }) => {
+          enqueued.push(input.type);
+          return { id: 'x', deduped: false };
+        } } as never,
+        database: {
+          boundedTransaction: async (_ms: number, operation: string, fn: (tx: never) => Promise<unknown>) => {
+            if (operation.includes('slow')) {
+              // 這一個排程把整份預算耗光才逾時——不需要有 bug，列鎖久等就會這樣。
+              vi.advanceTimersByTime(6000);
+              throw new Error('statement timeout');
+            }
+            return fn({ execute: async () => ({ rows: [dueRow()] }) } as never);
+          },
+        } as never,
+        logger: noopLogger,
+      });
+      scheduler.register('slow', { everyMs: HOUR });
+      scheduler.register('later-a', { everyMs: HOUR });
+      scheduler.register('later-b', { everyMs: HOUR });
+
+      const at = new Date('2026-01-05T03:10:00.000Z');
+      for (let i = 0; i < 3; i += 1) await scheduler.ensureScheduled(at);
+
+      // 起點固定時 later-a／later-b 一次都排不到，而 failed 恆為 1，看起來只像偶爾抖動。
+      expect(new Set(enqueued)).toEqual(new Set(['later-a', 'later-b']));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

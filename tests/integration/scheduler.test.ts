@@ -358,4 +358,58 @@ describe('宣告變更', () => {
     expect(after.length).toBe(before.length + 1);
     expect(after.at(-1)).toBe('2026-01-05T03:00:00.000Z');
   });
+
+  it('稀疏排程改了宣告之後從下一次開始，不補一次陳年的 occurrence', async () => {
+    // 宣告變更走的是冷啟動分支，所以七天陳舊界限一併適用：改一個月排程的運算式，
+    // 被重設的「當下這一次」若已經過了七天以上就不補，最久要等一個月才第一次跑。
+    const type = 'test.schedule.changed.sparse';
+    h.runtime.jobRegistry.register(type, vi.fn(async () => {}), 'test', {
+      currentVersion: 1, versions: { 1: cronPayload },
+    });
+    h.runtime.recurring.register(type, { cron: '0 0 1 * *', timezone: 'UTC' });
+    await h.runtime.recurring.ensureScheduled(new Date('2026-03-01T00:30:00.000Z'));
+    expect(await scheduledRunAts(type)).toEqual(['2026-03-01T00:00:00.000Z']);
+
+    const restarted = new (h.runtime.recurring.constructor as typeof import('@storeweave/kernel').RecurringScheduler)({
+      jobs: h.runtime.jobs, database: h.runtime.database, logger: h.runtime.logger,
+    });
+    restarted.register(type, { cron: '0 12 1 * *', timezone: 'UTC' });
+    // 新宣告的「當下這一次」是 3/1 12:00，距離現在已經三週
+    const result = await restarted.ensureScheduled(new Date('2026-03-22T00:00:00.000Z'));
+
+    expect(await scheduledRunAts(type)).toEqual(['2026-03-01T00:00:00.000Z']);
+    expect(result.enqueued).toBe(0);
+    // watermark 仍然前進，4/1 12:00 會照常排
+    expect((await scheduleRow(type)).last_occurrence_at).not.toBeNull();
+  });
+});
+
+describe('setPaused 的惰性 anchor', () => {
+  it('列已經存在時不重算 anchor，watermark 原封不動', async () => {
+    const type = registerSchedule({ everyMs: HOUR });
+    await h.runtime.recurring.ensureScheduled(new Date('2026-01-05T00:10:00.000Z'));
+    const before = (await scheduleRow(type)).last_occurrence_at;
+    expect(before).not.toBeNull();
+
+    await h.runtime.database.transaction((tx) => h.runtime.recurring.setPaused(tx, type, true));
+    await h.runtime.database.transaction((tx) => h.runtime.recurring.setPaused(tx, type, false));
+
+    const after = (await scheduleRow(type)).last_occurrence_at;
+    expect(new Date(after!).toISOString()).toBe(new Date(before!).toISOString());
+  });
+
+  it('列還不存在時就地建立並帶上 anchor，恢復後不會湧出整段積壓', async () => {
+    const type = registerSchedule({ everyMs: HOUR });
+    const now = new Date('2026-01-05T03:10:00.000Z');
+    await h.runtime.database.transaction((tx) => h.runtime.recurring.setPaused(tx, type, true, now));
+
+    const row = await scheduleRow(type);
+    expect(row.paused).toBe(true);
+    // anchor 是「當下這一次的前一次」，不是 epoch——否則恢復時會補上幾十年的積壓
+    expect(new Date(row.last_occurrence_at!).toISOString()).toBe('2026-01-05T02:00:00.000Z');
+
+    await h.runtime.database.transaction((tx) => h.runtime.recurring.setPaused(tx, type, false, now));
+    await h.runtime.recurring.ensureScheduled(now);
+    expect(await scheduledRunAts(type)).toEqual(['2026-01-05T03:00:00.000Z']);
+  });
 });

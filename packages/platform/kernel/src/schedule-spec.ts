@@ -175,9 +175,20 @@ const BACKWARD_FALLBACK_WINDOW_MS = 24 * 366 * 24 * 60 * 60 * 1_000;
  * fallback 的結果快取。
  *
  * `occurrencesBetween` 每一輪 tick 都會呼叫，而 fallback 的 `nextRuns(1000, …)` 對閏日排程
- * 實測要 78 ms——那是在持有排程列寫鎖的交易之內。答案只隨「哪一天」變化，所以按日快取。
+ * 實測要 78 ms——那是在持有排程列寫鎖的交易之內。
+ *
+ * 有效期不是「同一天」而是「還沒跨過下一次」：答案只在 `at` 跨過某一次 occurrence 時才變，
+ * 而 occurrence 落在當地時區，跟 UTC 日界不對齊。按 UTC 日快取會讓 Asia/Taipei 的閏日
+ * occurrence 遲到八小時才排得出來（偏移愈大愈久，上界一整天），所以改記真正的有效區間。
  */
-const backwardFallbackCache = new Map<string, Date[]>();
+interface BackwardFallbackEntry {
+  readonly result: Date[];
+  /** 這份答案在 `[validFrom, validUntil)` 內都成立。 */
+  readonly validFrom: number;
+  readonly validUntil: number;
+}
+
+const backwardFallbackCache = new Map<string, BackwardFallbackEntry>();
 
 /**
  * 不晚於 `at` 的最近 `count` 次，由新到舊。
@@ -200,9 +211,9 @@ function cronRunsAtOrBefore(spec: CronSchedule, at: Date, count: number): Date[]
 }
 
 function backwardByForwardScan(cron: Cron, spec: CronSchedule, at: Date, count: number): Date[] {
-  const key = `${spec.fingerprint}|${count}|${at.toISOString().slice(0, 10)}`;
+  const key = `${spec.fingerprint}|${count}`;
   const hit = backwardFallbackCache.get(key);
-  if (hit) return hit;
+  if (hit && at.getTime() >= hit.validFrom && at.getTime() < hit.validUntil) return hit.result.slice();
   const windowStart = new Date(at.getTime() - BACKWARD_FALLBACK_WINDOW_MS);
   const forward = cron.nextRuns(MAX_OCCURRENCES_PER_SCAN, windowStart);
   const upTo = forward.filter((run) => run.getTime() <= at.getTime());
@@ -214,10 +225,18 @@ function backwardByForwardScan(cron: Cron, spec: CronSchedule, at: Date, count: 
     );
   }
   const result = upTo.slice(-count).reverse();
-  // 快取只在同一天內有意義；跨日就讓它重算，順便避免無界成長。
-  if (backwardFallbackCache.size > 256) backwardFallbackCache.clear();
-  backwardFallbackCache.set(key, result);
-  return result;
+  // 有效區間的下界是這份答案裡最新的那一次（再早就會少一次），上界是還沒被納入的下一次。
+  // 掃描視窗內找不到下一次時不快取：與其猜一個上界，不如下一輪重算。
+  const nextRun = forward[upTo.length];
+  if (nextRun) {
+    if (backwardFallbackCache.size > 256) backwardFallbackCache.clear();
+    backwardFallbackCache.set(key, {
+      result,
+      validFrom: result[0]?.getTime() ?? Number.NEGATIVE_INFINITY,
+      validUntil: nextRun.getTime(),
+    });
+  }
+  return result.slice();
 }
 
 /** 不晚於 `at` 的最近一次預定時刻；還沒有任何一次就回 undefined。 */
