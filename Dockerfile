@@ -22,6 +22,7 @@ COPY packages/platform/bundle/package.json packages/platform/bundle/
 COPY packages/platform/command-bus/package.json packages/platform/command-bus/
 COPY packages/platform/config/package.json packages/platform/config/
 COPY packages/platform/contracts/package.json packages/platform/contracts/
+COPY packages/platform/crypto/package.json packages/platform/crypto/
 COPY packages/platform/db/package.json packages/platform/db/
 COPY packages/platform/identity/package.json packages/platform/identity/
 COPY packages/platform/event-bus/package.json packages/platform/event-bus/

@@ -5,5 +5,6 @@ export * from './manifest';
 export * from './mcp';
 export * from './providers';
 export * from './registration';
+export * from './security';
 export * from './store';
 export * from './testing';

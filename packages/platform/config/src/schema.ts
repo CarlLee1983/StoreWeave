@@ -39,6 +39,47 @@ const corsConfigSchema = z.object({
   }
 });
 
+/**
+ * 簽章金鑰。key id 會直接出現在已簽發的值裡（短效下載連結、密碼重設連結），
+ * 所以字集必須能安全通過 URL 與 token 的分隔符號，而且發行後不能改指到別的秘密。
+ * 秘密本身一律走 secretRef，設定檔裡永遠只有名稱。
+ */
+const signingKeyConfigSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+  secretRef: z.string().min(1),
+}).strict();
+
+const securityConfigSchema = z.object({
+  signingKeys: z.array(signingKeyConfigSchema).default([]),
+  /** 新值用哪一把簽。只有一把時可省略；多把時必須明說，避免輪替期間簽錯。 */
+  activeSigningKeyId: z.string().optional(),
+}).superRefine((security, context) => {
+  const ids = security.signingKeys.map((key) => key.id);
+  if (new Set(ids).size !== ids.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['signingKeys'], message: 'Signing key ids must be unique' });
+  }
+  if (security.activeSigningKeyId === undefined) {
+    if (ids.length > 1) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom, path: ['activeSigningKeyId'],
+        message: 'activeSigningKeyId is required once more than one signing key is configured',
+      });
+    }
+    return;
+  }
+  if (!ids.includes(security.activeSigningKeyId)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom, path: ['activeSigningKeyId'],
+      message: 'activeSigningKeyId must name a configured signing key',
+    });
+  }
+}).transform((security) => ({
+  signingKeys: security.signingKeys,
+  ...(security.activeSigningKeyId ?? security.signingKeys[0]?.id
+    ? { activeSigningKeyId: security.activeSigningKeyId ?? security.signingKeys[0].id }
+    : {}),
+}));
+
 const commonConfigSchema = z.object({
   version: z.literal(1),
   store: z.object({
@@ -133,6 +174,7 @@ const commonConfigSchema = z.object({
     provider: z.enum(['env', 'file']).default('env'),
     file: z.string().default('/etc/commerce/commerce.env'),
   }).default({}),
+  security: securityConfigSchema.default({}),
 });
 
 export const commerceConfigSchema = commonConfigSchema.extend({
