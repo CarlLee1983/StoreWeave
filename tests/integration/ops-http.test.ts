@@ -194,12 +194,28 @@ describe('POST /api/v1/system/schedules/:type/pause 與 /resume', () => {
   });
 
   it('未註冊的型別是 404，而不是在狀態表留下沒有人會讀的列', async () => {
+    const type = 'ops.http.never.registered';
     const response = await app.inject({
-      method: 'POST', url: '/api/v1/system/schedules/ops.http.never.registered/pause',
+      method: 'POST', url: `/api/v1/system/schedules/${type}/pause`,
       headers: { ...admin, 'idempotency-key': randomUUID() },
     });
     expect(response.statusCode).toBe(404);
     expect(response.json().error.code).toBe('NOT_FOUND');
+    const rows = await runtime.database.db.execute<{ count: string }>(sql`
+      SELECT count(*)::text AS count FROM platform_job_schedules WHERE type = ${type}
+    `);
+    expect(rows.rows).toEqual([{ count: '0' }]);
+  });
+
+  it('空的 type 區段被 descriptor 擋下——擋它的是 min(1) 而不是路由', async () => {
+    // 實測 `POST /api/v1/system/schedules//pause` 會 match 成功並帶 `type: ''`，
+    // 所以 `scheduleTypeInput` 的 `min(1)` 是承重的。放寬它會讓空 type 走到 setPaused。
+    const response = await app.inject({
+      method: 'POST', url: '/api/v1/system/schedules//pause',
+      headers: { ...admin, 'idempotency-key': randomUUID() },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe('VALIDATION_ERROR');
   });
 });
 
@@ -223,27 +239,37 @@ describe('GET /api/v1/system/outbox/failures', () => {
     const response = await app.inject({ url: '/api/v1/system/outbox/failures', headers: readonly });
     expect(response.statusCode).toBe(200);
     const { items, total } = response.json().data as { items: Array<Record<string, unknown>>; total: number };
-    expect(total).toBe(2);
-    // ORDER BY occurred_at DESC, id DESC
-    expect(items.map((item) => item.id)).toEqual([newer, older]);
-    expect(items[0]).toMatchObject({
+    expect(total).toBeGreaterThanOrEqual(2);
+    // ORDER BY occurred_at DESC, id DESC——只斷這兩列的相對順序，不斷資料庫裡共有幾列，
+    // 否則這一例會隨其他 describe 的 seed 而紅，而它想證的事跟列數無關。
+    const seeded = items.map((item) => item.id).filter((id) => id === newer || id === older);
+    expect(seeded).toEqual([newer, older]);
+    const row = items.find((item) => item.id === newer);
+    expect(row).toMatchObject({
       id: newer, eventName: 'ops.http.seeded', eventVersion: 1, status: 'quarantined',
       attempts: 3, subscriberIds: null, snapshotState: 'legacy_unknown', reason: 'seeded quarantined',
     });
-    expect(items[0]).not.toHaveProperty('payload');
-    expect(typeof items[0]?.occurredAt).toBe('string');
+    expect(row).not.toHaveProperty('payload');
+    expect(typeof row?.occurredAt).toBe('string');
   });
 
   it('分頁真的切在同一組排序上，limit 與 offset 不會各自為政', async () => {
+    // 自己 seed，且斷言全部綁在同一次的全量結果上，不綁「資料庫裡剛好有幾列」——
+    // 兩者少一個，這一例就會隨執行順序而紅，而它想證的事跟順序、列數都無關。
+    await seedFailure('2026-04-01T00:00:00.000Z', 'dead');
+    await seedFailure('2026-04-03T00:00:00.000Z', 'dead');
+
+    const all = await app.inject({ url: '/api/v1/system/outbox/failures', headers: readonly });
+    const ids = (all.json().data as { items: Array<{ id: string }> }).items.map((item) => item.id);
+    const total = (all.json().data as { total: number }).total;
+    expect(ids.length).toBeGreaterThan(1);
+
     const response = await app.inject({ url: '/api/v1/system/outbox/failures?limit=1&offset=1', headers: readonly });
     expect(response.statusCode).toBe(200);
     const page = response.json().data as { items: Array<{ id: string }>; total: number };
     expect(page.items).toHaveLength(1);
     // total 是整個結果集而不是這一頁——否則維運看到的數字會隨翻頁跳動
-    expect(page.total).toBe(2);
-
-    const all = await app.inject({ url: '/api/v1/system/outbox/failures', headers: readonly });
-    const ids = (all.json().data as { items: Array<{ id: string }> }).items.map((item) => item.id);
+    expect(page.total).toBe(total);
     expect(page.items[0]?.id).toBe(ids[1]);
   });
 });
@@ -286,7 +312,15 @@ describe('POST /api/v1/system/outbox/failures/:outboxId/redrive', () => {
       payload: { subscriberIds: [SUBSCRIBER], evidence: 'subscriber restored in ops-http test' },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json().data).toMatchObject({ outboxId, status: expect.stringMatching(/^(pending|relayed)$/) });
+    // 只斷 status 屬於 pending|relayed 是恆真的——CommandBus 已經用 descriptor 的
+    // `z.enum(['pending','relayed'])` 驗過 output，能回 200 就必然滿足。要斷的是副作用。
+    expect(response.json().data.outboxId).toBe(outboxId);
+    const after = await runtime.database.db.execute<{ status: string; subscriber_ids: unknown }>(sql`
+      SELECT status, subscriber_ids FROM platform_outbox WHERE id = ${outboxId}
+    `);
+    expect(after.rows[0]?.status).not.toBe('dead');
+    // frozen snapshot 不該被重送改寫——它是這次重送的唯一真實來源。
+    expect(after.rows[0]?.subscriber_ids).toEqual([SUBSCRIBER]);
 
     // audit 是這個端點存在的理由：重送必須留下是誰、為什麼。
     const audit = await runtime.database.db.execute<{ count: string }>(sql`

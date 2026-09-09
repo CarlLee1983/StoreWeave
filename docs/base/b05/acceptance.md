@@ -1,8 +1,9 @@
 # B05 驗收追蹤：Scheduler
 
-狀態：五片實作完成；獨立審查兩輪已完成——第一輪 BLOCK（1 CRITICAL、2 HIGH、5 MEDIUM、6 LOW），
-第二輪確認 C1／H1／H2／M1／M4／M5 真的修好、**無 CRITICAL 無 HIGH**，另發現 5 MEDIUM、6 LOW。
-兩輪合計 25 項全部已修。**第三輪複審 pending**，因此 B05 尚未 accepted。
+狀態：五片實作完成並合併進 main（PR #29）。獨立審查四輪：第一輪 BLOCK（1 CRITICAL、2 HIGH、
+5 MEDIUM、6 LOW）、第二輪 5 MEDIUM ＋ 6 LOW、第三輪 Block（1 HIGH：排程階段預算的固定起點
+造成無限期餓死）、第四輪 Warning 且無 HIGH。四輪合計 45 項，逐項處置見下方各節。
+其後另補了 HTTP 入口與測試（見「HTTP 入口與測試」列），已走過一輪獨立審查。
 範圍為 F07 的 cron／timezone／DST、misfire、pause、overlap；occurrence 執行、fencing、重試與
 Outbox 屬 B04，不在本包。
 
@@ -29,7 +30,7 @@ Outbox 屬 B04，不在本包。
 | 舊排程遷移不雙排、不漏接 | A + B05 | 間隔式 occurrence 身分與 payload 逐欄不變，故遷移對在途工作是 no-op；`0008` 只新增資料表，不改既有列 | implemented; review pending |
 | 排程狀態持久化 | B05 | `platform_job_schedules`＋`0008_job_schedules`；列入 platform release ownership metadata | implemented; review pending |
 | CLI／ops 註冊 | B05 | `platform.jobs.listSchedules`／`pauseSchedule`／`resumeSchedule`（權限、idempotency、audit）；CLI `schedule:list`／`pause`／`resume`，附 `--idempotency-key` 供重試同一次操作。暫停中不顯示「下一次」 | implemented |
-| HTTP 入口與測試 | B05 | `GET /api/v1/system/schedules`、`POST /api/v1/system/schedules/:type/pause`／`/resume`（`system.controller.ts`）；`tests/integration/ops-http.test.ts` 13 例涵蓋真實資料的 list、暫停後 `nextOccurrenceAt` 為 null、帶點的型別走 path param、缺 `Idempotency-Key` 的 400 且確認未執行、重放不寫第二列 audit、readonly 的 403、未註冊型別的 404 | implemented（2026-09-09 補；原本三個入口**沒有路由**，不只是沒測試） |
+| HTTP 入口與測試 | B05 | `GET /api/v1/system/schedules`、`POST /api/v1/system/schedules/:type/pause`／`/resume`（`system.controller.ts`）；`tests/integration/ops-http.test.ts` 涵蓋真實資料的 list、暫停後 `nextOccurrenceAt` 為 null、帶點的型別走 path param、缺 `Idempotency-Key` 的 400 且確認未執行、重放不寫第二列 audit、readonly 的 403、未註冊型別的 404 | implemented（2026-09-09 補；原本三個入口**沒有路由**，不只是沒測試） |
 | 更新 ADR 0016 | B05 | 0016 標記「排程機制部分由 0039 修訂」，補記兩項限制如何解除、理由如何保留；falsification 改指 `schedule-spec.ts` 並新增「不得自我續排」 | implemented |
 | 可控 clock 的運算測試 | B05 | `packages/platform/kernel/test/schedule-spec.test.ts` 29 passed，全部注入時間點；含單一排程失敗不拖垮整輪 | implemented; 複審 pending |
 | PG 競爭測試 | B05 | `tests/integration/scheduler.test.ts` 25 passed（真 PG，含列鎖阻塞與並行補排） | implemented; 複審 pending |
@@ -189,7 +190,12 @@ M1 的第二個建議（在 `worker.ts` 的時序不變式加 `databaseTimeoutMs
   這三個入口在補之前連 bus 層測試都沒有——`scheduler.test.ts` 全部直接呼叫
   `runtime.recurring.setPaused`／`list`，繞過 CommandBus／QueryBus，所以 descriptor 的
   output schema、permission 與 `toISOString()` 對映在此之前沒有任何覆蓋。
-- 排程狀態沒有 Admin UI（屬 B13）。
+- 排程狀態沒有 Admin UI（屬 B13）。後端三條路由已於 2026-09-09 補上，是 B13 的前置；
+  `apps/admin/src/api.ts` 刻意沒有動，它是計畫 §3.1 明列的 A 獨佔檔案。
+- **`listSchedules` 的回應形狀與同組另外三個 list 端點不齊**：它是 `{ items }`，沒有 `total`、
+  不吃 `limit`／`offset`。這是合理的——排程數量被 release 宣告的型別數綁死，不會成長到需要分頁，
+  加分頁是憑空的複雜度——但 `GET /api/v1/system/*` 四個 list 端點形狀不一致，B13 寫共用 list
+  元件時會踩到。這是 B05 原本 descriptor 就定好的形狀，交給 B13 決定要不要對齊。
 - `skipped_catchup` 在單次列舉超過 1000 個 occurrence 時是下限而非精確值。
 - 間隔式去重鍵不含 `everyMs`（L5，已補記進 ADR 0016）：微調週期時新 occurrence 可能撞上舊墓碑。
 - 時區資料來自 runtime ICU；裁減 ICU 的部署會靜默算錯，屬 B15 的部署前檢查。
