@@ -103,3 +103,14 @@ describe('safeUrlAttribute', () => {
     expect(safeUrlAttribute('   ')).toBe('');
   });
 });
+
+describe('safeUrlAttribute rejects control characters', () => {
+  it('drops a value carrying NUL or other C0 controls', () => {
+    expect(safeUrlAttribute('java\u0000script:alert(1)')).toBe('');
+    expect(safeUrlAttribute('https://ok.example/\u0007')).toBe('');
+  });
+
+  it('still accepts an ordinary link', () => {
+    expect(safeUrlAttribute('https://ok.example/a')).toBe('https://ok.example/a');
+  });
+});

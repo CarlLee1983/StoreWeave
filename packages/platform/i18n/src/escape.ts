@@ -28,6 +28,9 @@ const SAFE_URL_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
 export function safeUrlAttribute(value: unknown, base = 'https://invalid.example'): string {
   const raw = String(value ?? '').trim();
   if (raw === '') return '';
+  // 回傳的是原字串而不是解析後的 href，所以控制字元會原封不動進到屬性裡。
+  // URL parser 只會剝掉 tab/CR/LF，其餘 C0 控制字元照樣留著，一律拒絕。
+  if (/[\u0000-\u001F\u007F]/.test(raw)) return '';
   try {
     const url = new URL(raw, base);
     if (!SAFE_URL_SCHEMES.has(url.protocol)) return '';

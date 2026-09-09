@@ -145,13 +145,20 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     // 沒有參數時不走樣板：整份字典大多數 key 本來就沒有佔位符。
     // 查不到就沿 fallback chain 找，最後才顯示 key 本身——少一句翻譯不該是空白。
     t: (key, params) => {
-      const message = resolveMessage(catalog, [locale, ...FALLBACK_LOCALES], key) ?? key;
+      const message = resolveMessage(catalog, [locale, ...FALLBACK_LOCALES], key);
+      // 整條 chain 都沒有時顯示 key。此時它不含佔位符，再走 formatMessage 只會
+      // 因為「多餘參數」丟例外——少一句翻譯該是難看，不該是白畫面。
+      if (message === undefined) return key;
       return params ? formatMessage(message, params) : message;
     },
-    tCount: (key, count, params) => pluralize(locale, count, {
-      one: resolveMessage(catalog, [locale, ...FALLBACK_LOCALES], `${key}_one`),
-      other: resolveMessage(catalog, [locale, ...FALLBACK_LOCALES], `${key}_other`) ?? key,
-    }, params),
+    tCount: (key, count, params) => {
+      const other = resolveMessage(catalog, [locale, ...FALLBACK_LOCALES], `${key}_other`);
+      if (other === undefined) return key;
+      return pluralize(locale, count, {
+        one: resolveMessage(catalog, [locale, ...FALLBACK_LOCALES], `${key}_one`),
+        other,
+      }, params);
+    },
     formatMoney: (cents, currency) => formatMoneyIn(cents, currency, locale),
     formatDateTime: (date) => formatDateTimeIn(date, { locale, timeZone: DISPLAY_TIME_ZONE }),
     // 清單欄位只給日期：短欄寬放不下時間，會折成兩行把整列撐高。

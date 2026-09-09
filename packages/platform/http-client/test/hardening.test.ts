@@ -218,3 +218,29 @@ describe('a reused response is a caller bug, not a transport failure', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('remaining IPv4-in-IPv6 encodings', () => {
+  it('blocks 6to4 and the local-use NAT64 prefix', () => {
+    for (const url of ['https://[2002:a9fe:a9fe::]/x', 'https://[2002:7f00:1::]/x', 'https://[64:ff9b:1::a9fe:a9fe]/x']) {
+      expect(checkDestination(url, {})).toMatchObject({ ok: false });
+    }
+  });
+
+  it('does not over-block 6to4 that wraps a public address', () => {
+    // 2002:0808:0808:: 包的是 8.8.8.8。
+    expect(checkDestination('https://[2002:808:808::]/x', {}).ok).toBe(true);
+  });
+
+  it('blocks multicast, reserved and broadcast IPv4', () => {
+    for (const url of ['http://224.0.0.1/x', 'http://240.0.0.1/x', 'http://255.255.255.255/x']) {
+      expect(checkDestination(url, { allowInsecureHttp: true })).toMatchObject({ ok: false });
+    }
+  });
+
+  it('blocks only TEST-NET-1 and IETF protocol assignments inside 192.0.0.0/16', () => {
+    expect(checkDestination('http://192.0.0.1/x', { allowInsecureHttp: true })).toMatchObject({ ok: false });
+    expect(checkDestination('http://192.0.2.1/x', { allowInsecureHttp: true })).toMatchObject({ ok: false });
+    // 192.0.78.0 是一般可路由位址，不該被擋。
+    expect(checkDestination('http://192.0.78.1/x', { allowInsecureHttp: true }).ok).toBe(true);
+  });
+});

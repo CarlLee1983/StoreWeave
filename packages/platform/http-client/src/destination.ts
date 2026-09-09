@@ -29,17 +29,30 @@ const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
  */
 const IPV4_IN_IPV6 = /^(?:::ffff:0:|::ffff:|::|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/;
 
+/**
+ * 6to4（`2002::/16`）把 IPv4 放在第二、三個 hextet，位置與上面那一族不同，
+ * 所以另外一條規則。RFC 7526 已淘汰公共 relay，但設了 6to4 通道的主機仍會路由。
+ */
+const SIXTOFOUR = /^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4}):/;
+
+/** RFC 8215 的 local-use NAT64 前綴，與 `64:ff9b::/96` 同一族。 */
+const NAT64_LOCAL = /^64:ff9b:1:(?:.*:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/;
+
 function isPrivateIpv4(host: string): boolean {
   const match = IPV4.exec(host);
   if (!match) return false;
-  const [a, b] = match.slice(1).map(Number);
+  const [a, b, c] = match.slice(1).map(Number);
   if (a === 127 || a === 0 || a === 10) return true;
   if (a === 169 && b === 254) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
-  if (a === 192 && b === 0) return true;
+  // 192.0.0.0/24 是 IETF protocol assignments，192.0.2.0/24 是 TEST-NET-1；
+  // 192.0.78.0 之類的其餘 192.0.0.0/16 是一般可路由位址，不能一起擋。
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return true;
   if (a === 198 && (b === 18 || b === 19)) return true;
   if (a === 100 && b >= 64 && b <= 127) return true;
+  // multicast、reserved 與 broadcast 都不會是合法的 webhook 目的地。
+  if (a >= 224) return true;
   return false;
 }
 
@@ -62,8 +75,10 @@ function isPrivateHost(hostname: string): boolean {
     // ::1 迴環、fe80:: link-local、fc00::/7 unique local。
     if (address === '::1' || address === '::' || address.startsWith('fe80:') || /^f[cd]/.test(address)) return true;
     // IPv4 位址包成 IPv6 仍然連得到那個 IPv4 目的地，必須套用同一組規則。
-    const embedded = IPV4_IN_IPV6.exec(address);
-    if (embedded) return isPrivateIpv4(ipv4FromHextets(embedded[1], embedded[2]));
+    for (const pattern of [IPV4_IN_IPV6, SIXTOFOUR, NAT64_LOCAL]) {
+      const embedded = pattern.exec(address);
+      if (embedded) return isPrivateIpv4(ipv4FromHextets(embedded[1], embedded[2]));
+    }
     return false;
   }
 

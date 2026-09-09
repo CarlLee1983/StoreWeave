@@ -84,6 +84,10 @@ const securityConfigSchema = z.object({
  * 時區名稱要真的能用。打錯一個字會讓 `Intl.DateTimeFormat` 丟 RangeError，而顯示層
  * 的回退是輸出 UTC ISO——結果是全站每個日期悄悄變成另一種寫法，沒有任何 log。
  * 寧可在啟動時就掛掉。
+ *
+ * 條件就是「ICU 認得」，所以除了 IANA 名稱，`UTC` 與 `+08:00` 這類固定位移也會
+ * 通過。固定位移沒有日光節約，跨時區營運請寫 IANA 名稱。前後空白一律拒絕，
+ * 不默默修剪。
  */
 const timeZoneSchema = z.string().refine((timeZone) => {
   try {
@@ -92,7 +96,7 @@ const timeZoneSchema = z.string().refine((timeZone) => {
   } catch {
     return false;
   }
-}, { message: 'Must be a valid IANA time zone name, for example Asia/Taipei' });
+}, { message: 'Must be a time zone ICU recognises, for example Asia/Taipei' });
 
 const commonConfigSchema = z.object({
   version: z.literal(1),

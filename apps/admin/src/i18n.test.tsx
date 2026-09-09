@@ -36,3 +36,16 @@ describe('admin translator', () => {
     expect(i18n().formatDate('2026-09-09T16:30:00.000Z')).toContain('10');
   });
 });
+
+describe('missing translations degrade instead of crashing', () => {
+  it('shows the key rather than throwing when a key is absent and params are passed', () => {
+    // 字典一致性測試讓這件事今天不會發生，但 t() 不該是「少一句就白畫面」。
+    const { t } = i18n();
+    expect(t('notAKey' as never, { count: 3 })).toBe('notAKey');
+  });
+
+  it('shows the key for a plural lookup with no forms at all', () => {
+    const { tCount } = i18n();
+    expect(tCount('notAKey' as never, 3)).toBe('notAKey');
+  });
+});
