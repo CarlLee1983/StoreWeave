@@ -37,21 +37,23 @@ function archive(releaseId = 'commerce') {
 }
 function unsafeArchive(entries: { name: string; type?: string; link?: string; mode?: number }[]) {
   const file = join(directory, 'unsafe.tar.gz');
+  const entriesFile = join(directory, 'unsafe-entries.json');
   const source = join(directory, 'commerce-1.0.0');
   writeNativeRelease(source);
+  writeFileSync(entriesFile, JSON.stringify(entries));
   // Python's standard tarfile writer creates precise hostile fixtures; production uses system tar.
   execFileSync('python3', ['-c', `
 import io,json,sys,tarfile
 with tarfile.open(sys.argv[1], 'w:gz') as archive:
  archive.add(sys.argv[3], arcname='commerce-1.0.0')
- for entry in json.loads(sys.argv[2]):
+ for entry in json.load(open(sys.argv[2])):
   info=tarfile.TarInfo(entry['name']); info.mode=entry.get('mode', 0o755)
   info.type={'file':tarfile.REGTYPE,'symlink':tarfile.SYMTYPE,'hardlink':tarfile.LNKTYPE,'fifo':tarfile.FIFOTYPE,'device':tarfile.CHRTYPE,'directory':tarfile.DIRTYPE}[entry.get('type','file')]
   info.linkname=entry.get('link','')
   if info.type==tarfile.REGTYPE:
    info.size=6; archive.addfile(info,io.BytesIO(b'unsafe'))
   else: archive.addfile(info)
-`, file, JSON.stringify(entries), source]);
+`, file, entriesFile, source]);
   return file;
 }
 function expectNoPromotion() {
