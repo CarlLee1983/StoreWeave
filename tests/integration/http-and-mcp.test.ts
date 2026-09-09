@@ -73,7 +73,7 @@ describe('REST 介面', () => {
   it('retains exact selected Commerce route identities with MCP on and off', async () => {
     const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
     expect(commerceHttpAdapter.controllers(h.runtime.config)).toHaveLength(24);
-    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(152);
+    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(155);
     expect(catalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
 
     const enabled = h.runtime.config.mcp.enabled;
@@ -83,7 +83,7 @@ describe('REST 介面', () => {
     try {
       const withoutMcpCatalog = withoutMcp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
       expect(commerceHttpAdapter.controllers(h.runtime.config)).toHaveLength(23);
-      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(150);
+      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(153);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.some(route => route.path === '/mcp')).toBe(false);
     } finally {
@@ -103,7 +103,7 @@ describe('REST 介面', () => {
       corsApp = await createReleaseServer({ runtime: h.runtime, theme: defaultTheme,
         httpAdapter: commerceHttpAdapter, release: { version: 'test', configPath: '<test>' } });
       const catalog = (corsApp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier).storeweaveHttpCatalog!;
-      expect(catalog).toHaveLength(154);
+      expect(catalog).toHaveLength(157);
       expect(catalog.filter(route => route.kind === 'cors-preflight')).toEqual([expect.objectContaining({
         method: 'OPTIONS', path: '*', automaticRoute: true, auth: 'unauthenticated', request: 'headers', rateLimit: null,
         policy: expect.objectContaining({ allowedOrigins: ['https://console.example'], credentials: true }),
@@ -175,7 +175,7 @@ describe('REST 介面', () => {
       RefundController, InvoiceController, NotificationController, ShippingController,
       OrderController, PromotionController, CouponController, RmaController, LoyaltyController,
       ContentContactController, ContentArticleController, CustomerController, CartController]);
-    expect(routes).toHaveLength(93);
+    expect(routes).toHaveLength(96);
     for (const route of routes) {
       expect(app.getHttpAdapter().getInstance().hasRoute({ method: route.method, url: route.path })).toBe(true);
     }

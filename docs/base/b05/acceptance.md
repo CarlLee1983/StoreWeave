@@ -28,7 +28,8 @@ Outbox 屬 B04，不在本包。
 | 排程只 enqueue，執行走同一 worker | B05 | `worker.tick()` 呼叫 `ensureScheduled` 後由 `runJobs` 執行；croner 只在 `schedule-spec.ts` 被 import，無 `schedule`／`trigger`／`name` 呼叫 | implemented; review pending |
 | 舊排程遷移不雙排、不漏接 | A + B05 | 間隔式 occurrence 身分與 payload 逐欄不變，故遷移對在途工作是 no-op；`0008` 只新增資料表，不改既有列 | implemented; review pending |
 | 排程狀態持久化 | B05 | `platform_job_schedules`＋`0008_job_schedules`；列入 platform release ownership metadata | implemented; review pending |
-| CLI／ops 註冊 | B05 | `platform.jobs.listSchedules`／`pauseSchedule`／`resumeSchedule`（權限、idempotency、audit）；CLI `schedule:list`／`pause`／`resume`，附 `--idempotency-key` 供重試同一次操作。暫停中不顯示「下一次」 | implemented; HTTP 層測試 pending |
+| CLI／ops 註冊 | B05 | `platform.jobs.listSchedules`／`pauseSchedule`／`resumeSchedule`（權限、idempotency、audit）；CLI `schedule:list`／`pause`／`resume`，附 `--idempotency-key` 供重試同一次操作。暫停中不顯示「下一次」 | implemented |
+| HTTP 入口與測試 | B05 | `GET /api/v1/system/schedules`、`POST /api/v1/system/schedules/:type/pause`／`/resume`（`system.controller.ts`）；`tests/integration/ops-http.test.ts` 13 例涵蓋真實資料的 list、暫停後 `nextOccurrenceAt` 為 null、帶點的型別走 path param、缺 `Idempotency-Key` 的 400 且確認未執行、重放不寫第二列 audit、readonly 的 403、未註冊型別的 404 | implemented（2026-09-09 補；原本三個入口**沒有路由**，不只是沒測試） |
 | 更新 ADR 0016 | B05 | 0016 標記「排程機制部分由 0039 修訂」，補記兩項限制如何解除、理由如何保留；falsification 改指 `schedule-spec.ts` 並新增「不得自我續排」 | implemented |
 | 可控 clock 的運算測試 | B05 | `packages/platform/kernel/test/schedule-spec.test.ts` 29 passed，全部注入時間點；含單一排程失敗不拖垮整輪 | implemented; 複審 pending |
 | PG 競爭測試 | B05 | `tests/integration/scheduler.test.ts` 25 passed（真 PG，含列鎖阻塞與並行補排） | implemented; 複審 pending |
@@ -182,8 +183,12 @@ M1 的第二個建議（在 `worker.ts` 的時序不變式加 `databaseTimeoutMs
   checksum drift 會讓跑過中間版本的資料庫開機即報錯而非靜默缺欄位；
   但任何跑過中間版本的 dev／preview 資料庫必須重建。
 - `tests/unit/cli-upgrade.test.ts` 的 5 秒 timeout 餘裕過小，在負載下會 flake。不屬 B05，但值得修。
-- ops 的三個新入口只有 bus 層覆蓋，沒有帶真實資料的 HTTP 層測試——與 B04 留下的
-  `listFailures`／`redriveFailure` HTTP 缺口是同一類，建議一起補。
+- ~~ops 的三個新入口只有 bus 層覆蓋，沒有帶真實資料的 HTTP 層測試。~~ 2026-09-09 補完，
+  過程中發現這三個入口**根本沒有 HTTP 路由**（`apps/api` 底下零命中），所以原本的描述是誤述：
+  不是測試沒補，是功能沒做，維運當時只能透過 CLI 操作排程。路由與測試已一併補上。
+  這三個入口在補之前連 bus 層測試都沒有——`scheduler.test.ts` 全部直接呼叫
+  `runtime.recurring.setPaused`／`list`，繞過 CommandBus／QueryBus，所以 descriptor 的
+  output schema、permission 與 `toISOString()` 對映在此之前沒有任何覆蓋。
 - 排程狀態沒有 Admin UI（屬 B13）。
 - `skipped_catchup` 在單次列舉超過 1000 個 occurrence 時是下限而非精確值。
 - 間隔式去重鍵不含 `everyMs`（L5，已補記進 ADR 0016）：微調週期時新 occurrence 可能撞上舊墓碑。

@@ -93,6 +93,9 @@ watermark；去重鍵是最後一道防線。穩定狀態下這一輪不寫任�
 `platform.jobs.listSchedules`（`jobs:read`）、`platform.jobs.pauseSchedule` 與
 `platform.jobs.resumeSchedule`（`jobs:write`，需 idempotency key，寫 audit）。
 CLI 對應 `schedule:list`、`schedule:pause <type>`、`schedule:resume <type>`。
+HTTP 對應 `GET /api/v1/system/schedules`、`POST /api/v1/system/schedules/:type/pause`
+與 `/resume`；idempotency key 走 `Idempotency-Key` header。排程型別帶點
+（`commerce.cart.cleanup`），走 path param 不會被切斷。
 未註冊的型別不能被暫停——否則狀態表會留下沒有人會讀的列。
 
 ## 檔案
