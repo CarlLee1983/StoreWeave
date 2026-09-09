@@ -26,6 +26,20 @@ export type VerifiedSignedValue =
   | { readonly ok: false; readonly reason: SignedValueFailure };
 
 /**
+ * base64url 解碼會靜默略過字母表以外的字元，所以 `token + '='` 解出同一組位元組。
+ * 若不擋，同一份授權就有無限多種字串寫法，任何以 token 字串記帳的下游——一次性
+ * 重設連結的已使用表、下載 nonce 撤銷清單、replay 快取——都能被加個尾料繞過。
+ */
+function isCanonicalBase64Url(value: string): boolean {
+  return Buffer.from(value, 'base64url').toString('base64url') === value;
+}
+
+/** 同理：`0123` 與 `123` 數值相同，但只有一種寫法算數。 */
+function isCanonicalInteger(value: string): boolean {
+  return /^-?\d+$/.test(value) && String(Number(value)) === value;
+}
+
+/**
  * MAC 的輸入。每一段都已限定字集或經 base64url 編碼，換行不可能出現在段落內，
  * 所以不同欄位組合不會產生同一個字串。
  */
@@ -57,7 +71,10 @@ export function verifySignedValue(keyring: Keyring, input: VerifySignedValueInpu
   if (parts.length !== PART_COUNT) return { ok: false, reason: 'malformed' };
   const [version, keyId, expiresAtRaw, encodedPayload, presentedMac] = parts;
   if (version !== VERSION) return { ok: false, reason: 'malformed' };
-  if (!/^-?\d+$/.test(expiresAtRaw)) return { ok: false, reason: 'malformed' };
+  if (!isCanonicalInteger(expiresAtRaw)) return { ok: false, reason: 'malformed' };
+  if (!isCanonicalBase64Url(encodedPayload) || !isCanonicalBase64Url(presentedMac)) {
+    return { ok: false, reason: 'malformed' };
+  }
   if (!keyring.has(keyId)) return { ok: false, reason: 'unknown_key' };
 
   const expiresAtSeconds = Number(expiresAtRaw);

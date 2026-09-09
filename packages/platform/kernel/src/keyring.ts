@@ -26,7 +26,7 @@ export function resolveKeyring(config: BaseConfig, secrets: SecretProvider): Key
     return createKeyring({ activeKeyId: activeSigningKeyId!, keys });
   } catch (error) {
     // createKeyring 的訊息只提到 key id 與長度需求，不含秘密本身。
-    throw new Error(`Invalid signing key configuration: ${(error as Error).message}`);
+    throw new Error(`Invalid signing key configuration: ${(error as Error).message}`, { cause: error });
   }
 }
 

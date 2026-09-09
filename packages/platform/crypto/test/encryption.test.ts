@@ -3,8 +3,8 @@ import { createKeyring } from '../src/keyring';
 import { decryptString, encryptString } from '../src/encryption';
 
 const keys = [
-  { id: 'k1', secret: 'secret-one-secret-one-secret-one' },
-  { id: 'k2', secret: 'secret-two-secret-two-secret-two' },
+  { id: 'k1', secret: '11'.repeat(32) },
+  { id: 'k2', secret: '22'.repeat(32) },
 ];
 const keyring = createKeyring({ activeKeyId: 'k1', keys });
 
@@ -53,5 +53,29 @@ describe('symmetric encryption', () => {
     for (const sealed of ['', 'swe1', 'swe1.k1.a.b', 'nope.k1.a.b.c']) {
       expect(decryptString(keyring, { purpose: 'provider-credential', sealed })).toEqual({ ok: false, reason: 'malformed' });
     }
+  });
+});
+
+describe('sealed values are a canonical encoding', () => {
+  const sealed = () => encryptString(keyring, { purpose: 'provider-credential', plaintext: 'secret' });
+
+  it('rejects trailing junk on any segment', () => {
+    const [v, keyId, iv, ct, tag] = sealed().split('.');
+    const variants = [
+      [v, keyId, `${iv}=`, ct, tag],
+      [v, keyId, iv, `${ct}=`, tag],
+      [v, keyId, iv, ct, `${tag}=`],
+    ];
+    for (const parts of variants) {
+      expect(decryptString(keyring, { purpose: 'provider-credential', sealed: parts.join('.') }))
+        .toEqual({ ok: false, reason: 'malformed' });
+    }
+  });
+
+  it('gives one sealed value exactly one spelling', () => {
+    const value = sealed();
+    const accepted = ['', '=', '\n'].filter((suffix) =>
+      decryptString(keyring, { purpose: 'provider-credential', sealed: value + suffix }).ok);
+    expect(accepted).toEqual(['']);
   });
 });

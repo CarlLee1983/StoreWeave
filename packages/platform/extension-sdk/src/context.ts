@@ -1,3 +1,4 @@
+import type { ExtensionHttpFactory } from './http';
 import type { DomainEvent, Logger } from '@storeweave/contracts';
 import type { ExtensionStore } from './store';
 import type { AnyProvider, ProviderKind } from './providers';
@@ -44,6 +45,8 @@ export interface ExtensionContext<TConfig = unknown> {
   getProvider<T extends AnyProvider>(kind: ProviderKind, id?: string): T;
   /** 機密只從環境變數／Secret Provider 取得，永遠不會出現在 manifest 或設定檔。 */
   secret(name: string): string | undefined;
+  /** 對外 HTTP。Extension 不自己呼叫 fetch。 */
+  readonly http: ExtensionHttpFactory;
   now(): Date;
 }
 

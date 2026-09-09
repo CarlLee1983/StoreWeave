@@ -22,12 +22,23 @@ export type DecryptedString =
   | { readonly ok: true; readonly plaintext: string; readonly keyId: string }
   | { readonly ok: false; readonly reason: DecryptFailure };
 
+/** 與簽發值同樣的理由：一份密文只能有一種字串寫法。 */
+function isCanonicalBase64Url(value: string): boolean {
+  return Buffer.from(value, 'base64url').toString('base64url') === value;
+}
+
 /** AAD 綁住版本、金鑰與用途，換掉任何一項都會讓 GCM tag 驗不過。 */
 function associatedData(keyId: string, purpose: string): Buffer {
   return Buffer.from([VERSION, keyId, purpose].join('\n'), 'utf8');
 }
 
-/** 以 active key 的 purpose 子金鑰做 AES-256-GCM 封裝。 */
+/**
+ * 以 active key 的 purpose 子金鑰做 AES-256-GCM 封裝。
+ *
+ * IV 每次隨機 12 bytes。NIST SP 800-38D 對隨機 IV 的上限是每把金鑰 2^32 次加密，
+ * 而子金鑰的壽命綁在 key id 上（ADR 0038：發行後不重指派）。要用在會產生數十億
+ * 筆密文的場景之前，先安排該 purpose 的金鑰輪替，不要沿用同一把。
+ */
 export function encryptString(keyring: Keyring, input: EncryptStringInput): string {
   assertPurpose(input.purpose);
   const keyId = keyring.activeKeyId;
@@ -45,6 +56,7 @@ export function decryptString(keyring: Keyring, input: DecryptStringInput): Decr
   if (parts.length !== PART_COUNT) return { ok: false, reason: 'malformed' };
   const [version, keyId, ivRaw, ciphertextRaw, tagRaw] = parts;
   if (version !== VERSION) return { ok: false, reason: 'malformed' };
+  if (![ivRaw, ciphertextRaw, tagRaw].every(isCanonicalBase64Url)) return { ok: false, reason: 'malformed' };
   if (!keyring.has(keyId)) return { ok: false, reason: 'unknown_key' };
 
   const iv = Buffer.from(ivRaw, 'base64url');

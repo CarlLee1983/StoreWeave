@@ -1,6 +1,7 @@
 export * from './compat';
 export * from './context';
 export * from './contract-test';
+export * from './http';
 export * from './manifest';
 export * from './mcp';
 export * from './providers';

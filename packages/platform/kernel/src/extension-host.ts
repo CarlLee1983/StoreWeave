@@ -10,6 +10,7 @@ import type { EventBus } from '@storeweave/event-bus';
 import type { JobQueue } from '@storeweave/jobs';
 import type { AuthorizationService } from '@storeweave/authorization';
 import type { SecretProvider } from '@storeweave/config';
+import { createHttpClient } from '@storeweave/http-client';
 import {
   assertPlatformCompatibility,
   ProviderRegistry,
@@ -327,6 +328,7 @@ export class ExtensionHost {
         }
         return deps.secrets.get(name);
       },
+      http: (httpOptions) => createHttpClient(httpOptions),
       now: () => new Date(),
     };
   }

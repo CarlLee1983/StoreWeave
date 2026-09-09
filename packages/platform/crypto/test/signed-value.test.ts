@@ -3,8 +3,8 @@ import { createKeyring } from '../src/keyring';
 import { signValue, verifySignedValue } from '../src/signed-value';
 
 const keys = [
-  { id: 'k1', secret: 'secret-one-secret-one-secret-one' },
-  { id: 'k2', secret: 'secret-two-secret-two-secret-two' },
+  { id: 'k1', secret: '11'.repeat(32) },
+  { id: 'k2', secret: '22'.repeat(32) },
 ];
 const keyring = createKeyring({ activeKeyId: 'k1', keys });
 const expiresAt = new Date('2026-09-09T12:00:00.000Z');
@@ -85,8 +85,45 @@ describe('signed values', () => {
       .toMatchObject({ ok: true, keyId: 'k1' });
   });
 
-  it('refuses to sign without an expiry in the future of the caller-supplied clock', () => {
+  it('refuses to sign when the expiry is not a real instant', () => {
     expect(() => signValue(keyring, { purpose: 'storage-download', payload: 'x', expiresAt: new Date('invalid') }))
       .toThrow(/expiry/i);
+  });
+});
+
+describe('signed values are a canonical encoding', () => {
+  it('rejects trailing junk on the mac segment', () => {
+    const token = sign();
+    for (const suffix of ['=', '!!!', ' ', '\n', '~~~~~']) {
+      expect(verifySignedValue(keyring, { purpose: 'storage-download', token: token + suffix, now: before }))
+        .toEqual({ ok: false, reason: 'malformed' });
+    }
+  });
+
+  it('rejects a non-canonical expiry that normalises to the signed one', () => {
+    const [version, keyId, exp, payload, mac] = sign().split('.');
+    for (const variant of [`0${exp}`, `000${exp}`, `+${exp}`]) {
+      expect(verifySignedValue(keyring, { purpose: 'storage-download', token: [version, keyId, variant, payload, mac].join('.'), now: before }))
+        .toEqual({ ok: false, reason: 'malformed' });
+    }
+  });
+
+  it('rejects a non-canonical payload segment', () => {
+    const [version, keyId, exp, payload, mac] = sign().split('.');
+    expect(verifySignedValue(keyring, { purpose: 'storage-download', token: [version, keyId, exp, `${payload}=`, mac].join('.'), now: before }))
+      .toEqual({ ok: false, reason: 'malformed' });
+  });
+
+  it('accepts negative zero only in its canonical spelling', () => {
+    const [version, keyId, , payload, mac] = sign().split('.');
+    expect(verifySignedValue(keyring, { purpose: 'storage-download', token: [version, keyId, '-0', payload, mac].join('.'), now: before }))
+      .toEqual({ ok: false, reason: 'malformed' });
+  });
+
+  it('gives one token exactly one spelling', () => {
+    const token = sign();
+    const accepted = ['', '=', '==', '\n'].filter((suffix) =>
+      verifySignedValue(keyring, { purpose: 'storage-download', token: token + suffix, now: before }).ok);
+    expect(accepted).toEqual(['']);
   });
 });

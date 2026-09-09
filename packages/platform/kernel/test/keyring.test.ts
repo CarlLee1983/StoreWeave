@@ -3,7 +3,7 @@ import { baseConfigSchema } from '@storeweave/config';
 import type { SecretProvider } from '@storeweave/config';
 import { resolveKeyring, requireKeyring } from '../src/keyring';
 
-const LONG = 'x'.repeat(32);
+const LONG = 'ab'.repeat(32);
 
 function secretsFrom(values: Record<string, string>): SecretProvider {
   return {
@@ -26,7 +26,7 @@ describe('resolveKeyring', () => {
   it('builds a keyring from the configured references', () => {
     const keyring = resolveKeyring(
       config({ activeSigningKeyId: 'k2', signingKeys: [{ id: 'k1', secretRef: 'A' }, { id: 'k2', secretRef: 'B' }] }),
-      secretsFrom({ A: LONG, B: `${LONG}2` }),
+      secretsFrom({ A: LONG, B: 'cd'.repeat(32) }),
     );
     expect(keyring?.activeKeyId).toBe('k2');
     expect(keyring?.keyIds()).toEqual(['k1', 'k2']);
@@ -40,10 +40,10 @@ describe('resolveKeyring', () => {
   it('fails at startup when a declared secret is too weak', () => {
     let thrown: unknown;
     try {
-      resolveKeyring(config({ signingKeys: [{ id: 'k1', secretRef: 'A' }] }), secretsFrom({ A: 'short' }));
+      resolveKeyring(config({ signingKeys: [{ id: 'k1', secretRef: 'A' }] }), secretsFrom({ A: 'ab'.repeat(8) }));
     } catch (error) { thrown = error; }
-    expect(String(thrown)).toMatch(/32/);
-    expect(String(thrown)).not.toContain('short');
+    expect(String(thrown)).toMatch(/32 bytes/);
+    expect(String(thrown)).not.toContain('abababab');
   });
 });
 

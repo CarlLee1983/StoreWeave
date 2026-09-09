@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createKeyring } from '../src/keyring';
+import { createKeyring, generateSigningKeySecret } from '../src/keyring';
 
 const keys = [
-  { id: 'k1', secret: 'secret-one-secret-one-secret-one' },
-  { id: 'k2', secret: 'secret-two-secret-two-secret-two' },
+  { id: 'k1', secret: '11'.repeat(32) },
+  { id: 'k2', secret: '22'.repeat(32) },
 ];
 
 describe('keyring', () => {
@@ -26,8 +26,14 @@ describe('keyring', () => {
   });
 
   it('rejects a secret that is too short to carry the advertised strength', () => {
+    // 16 個 hex 字元只有 8 bytes 的材料。
+    expect(() => createKeyring({ activeKeyId: 'k1', keys: [{ id: 'k1', secret: 'ab'.repeat(8) }] }))
+      .toThrow(/32 bytes/);
+  });
+
+  it('rejects a secret that is not encoded key material at all', () => {
     expect(() => createKeyring({ activeKeyId: 'k1', keys: [{ id: 'k1', secret: 'short' }] }))
-      .toThrow(/32/);
+      .toThrow(/base64url|hex/i);
   });
 
   it('derives different material per purpose so one purpose cannot forge another', () => {
@@ -61,7 +67,36 @@ describe('keyring', () => {
   });
 
   it('rejects a key id outside the allowed shape', () => {
-    expect(() => createKeyring({ activeKeyId: 'BAD', keys: [{ id: 'BAD', secret: 'x'.repeat(32) }] }))
+    expect(() => createKeyring({ activeKeyId: 'BAD', keys: [{ id: 'BAD', secret: 'ab'.repeat(32) }] }))
       .toThrow(/key id/i);
+  });
+});
+
+describe('keyring hardening', () => {
+  it('returns a copy so a caller cannot wipe the cached key material', () => {
+    const keyring = createKeyring({ activeKeyId: 'k1', keys });
+    const first = keyring.derive('storage-download', 'k1');
+    first.fill(0);
+    expect(keyring.derive('storage-download', 'k1').equals(first)).toBe(false);
+  });
+
+  it('names the real problem when a key id is not a string', () => {
+    const keyring = createKeyring({ activeKeyId: 'k1', keys });
+    expect(() => keyring.derive('storage-download', undefined as unknown as string)).toThrow(/key id/i);
+  });
+
+  it('requires the secret to decode to real key material, not just be long', () => {
+    // 32 個字元的 hex 只有 16 bytes 的材料，正是最容易誤用的一種寫法。
+    expect(() => createKeyring({ activeKeyId: 'k1', keys: [{ id: 'k1', secret: 'a'.repeat(32) }] })).toThrow(/32 bytes/);
+    expect(() => createKeyring({ activeKeyId: 'k1', keys: [{ id: 'k1', secret: 'please-change-me-please-change-me' }] })).toThrow();
+  });
+
+  it('accepts a secret produced by the documented generator', () => {
+    const secret = generateSigningKeySecret();
+    expect(() => createKeyring({ activeKeyId: 'k1', keys: [{ id: 'k1', secret }] })).not.toThrow();
+  });
+
+  it('accepts hex key material of the required length', () => {
+    expect(() => createKeyring({ activeKeyId: 'k1', keys: [{ id: 'k1', secret: 'ab'.repeat(32) }] })).not.toThrow();
   });
 });
