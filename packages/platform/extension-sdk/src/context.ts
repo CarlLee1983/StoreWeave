@@ -2,6 +2,7 @@ import type { ExtensionHttpFactory } from './http';
 import type { DomainEvent, Logger } from '@storeweave/contracts';
 import type { ExtensionStore } from './store';
 import type { AnyProvider, ProviderKind } from './providers';
+import type { MailDiagnostic, MailRecipient, MailTemplate } from '@storeweave/mail';
 
 export interface ExtensionCommandApi {
   /**
@@ -28,6 +29,25 @@ export interface ExtensionJobApi {
 }
 
 /**
+ * Base-mail capability for extensions. A sender still must declare `mail:send`
+ * in its manifest; queued sends retain an immutable rendered template snapshot.
+ */
+export interface ExtensionMailApi {
+  /** Local reference; the host prefixes it with the extension id. */
+  send(input: ExtensionMailSendRequest): Promise<MailDiagnostic>;
+  enqueue(input: ExtensionMailSendRequest): Promise<MailDiagnostic>;
+}
+
+/** Extensions cannot attach arbitrary platform-storage objects to outgoing mail. */
+export interface ExtensionMailSendRequest {
+  readonly reference: string;
+  readonly to: readonly MailRecipient[];
+  readonly template: MailTemplate;
+  readonly variables?: Readonly<Record<string, unknown>>;
+  readonly locale?: string;
+}
+
+/**
  * Extension 唯一能拿到的執行環境。
  * 這裡刻意沒有：資料庫連線、交易物件、其他模組的 repository、全域 registry 的寫入權。
  */
@@ -40,6 +60,7 @@ export interface ExtensionContext<TConfig = unknown> {
   readonly commands: ExtensionCommandApi;
   readonly queries: ExtensionQueryApi;
   readonly jobs: ExtensionJobApi;
+  readonly mail: ExtensionMailApi;
   readonly store: ExtensionStore;
   /** 只讀取 manifest 宣告過的 provider kind。 */
   getProvider<T extends AnyProvider>(kind: ProviderKind, id?: string): T;

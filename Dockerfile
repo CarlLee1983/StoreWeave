@@ -32,6 +32,7 @@ COPY packages/platform/event-bus/package.json packages/platform/event-bus/
 COPY packages/platform/extension-sdk/package.json packages/platform/extension-sdk/
 COPY packages/platform/jobs/package.json packages/platform/jobs/
 COPY packages/platform/kernel/package.json packages/platform/kernel/
+COPY packages/platform/mail/package.json packages/platform/mail/
 COPY packages/platform/outbox/package.json packages/platform/outbox/
 COPY packages/platform/query-bus/package.json packages/platform/query-bus/
 COPY packages/platform/storage/package.json packages/platform/storage/

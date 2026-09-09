@@ -3,6 +3,8 @@ import { createHttpClient } from '@storeweave/http-client';
 import type { ExtensionContext } from './context';
 import type { ExtensionStore, ExtensionStoreEntry } from './store';
 import type { AnyProvider, ProviderKind } from './providers';
+import type { MailDiagnostic } from '@storeweave/mail';
+import type { ExtensionMailSendRequest } from './context';
 
 /** 記憶體版 ExtensionStore，供 contract test 與單元測試使用。 */
 export class InMemoryExtensionStore implements ExtensionStore {
@@ -56,6 +58,7 @@ export interface TestContextOptions<TConfig> {
   now?: () => Date;
   /** 測試用的 fetch 替身。未給時對外 HTTP 一律失敗，測試不會打到真實端點。 */
   fetch?: typeof fetch;
+  mail?: { send(input: ExtensionMailSendRequest): Promise<MailDiagnostic>; enqueue(input: ExtensionMailSendRequest): Promise<MailDiagnostic> };
 }
 
 export interface TestExtensionContext<TConfig> extends ExtensionContext<TConfig> {
@@ -132,6 +135,10 @@ export function createTestExtensionContext<TConfig>(
         // production counterpart is status-guarded by JobQueue.retryDead().
         existing.attempts = 0;
       },
+    },
+    mail: options.mail ?? {
+      async send() { throw new Error('This test context has no mail stub. Pass `mail` to createTestExtensionContext.'); },
+      async enqueue() { throw new Error('This test context has no mail stub. Pass `mail` to createTestExtensionContext.'); },
     },
     getProvider<T extends AnyProvider>(kind: ProviderKind, _id?: string): T {
       const p = options.providers?.[kind];

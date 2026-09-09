@@ -39,6 +39,8 @@ export interface TestRuntimeOptions {
   logger?: Logger;
   storageRoot?: string;
   storageMaxUploadBytes?: number;
+  /** Passed through the real config parser; mail integration tests use a local SMTP sink. */
+  mail?: Record<string, unknown>;
 }
 
 export interface TestHarness {
@@ -134,6 +136,7 @@ export function testConfig(url: string, options: TestRuntimeOptions = {}): Comme
       ...(options.storageRoot ? { localRoot: options.storageRoot } : {}),
       ...(options.storageMaxUploadBytes ? { maxUploadBytes: options.storageMaxUploadBytes } : {}),
     },
+    ...(options.mail ? { mail: options.mail } : {}),
     extensions: Object.entries(extensionEntries).map(([id, config]) => ({ id, enabled: true, config })),
     logging: { level: 'error' },
   });

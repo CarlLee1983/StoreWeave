@@ -22,6 +22,10 @@ storage:
   driver: local
   maxUploadBytes: 20971520
   signedUrlTtlSeconds: 300
+# Mail is off until SMTP is intentionally configured.  There is no production
+# mock fallback: a failed SMTP send is recorded for operator handling.
+mail:
+  transport: disabled
 auth:
   tokens: []
 extensions: []

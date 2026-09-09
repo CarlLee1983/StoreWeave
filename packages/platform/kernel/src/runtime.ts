@@ -27,6 +27,7 @@ import type { Keyring } from '@storeweave/crypto';
 import { createHash } from 'node:crypto';
 import { cacheMigrations, PostgresCacheManager, PostgresMutexManager, type CacheScope, type MutexScope } from '@storeweave/cache';
 import { LocalObjectStore, S3ObjectStore, StorageManager, storageMigrations, type StorageScope } from '@storeweave/storage';
+import { MailService, createMailJob, MAIL_SEND_JOB, mailMigrations, mailSendJobPayload } from '@storeweave/mail';
 import packageJson from '../package.json';
 import { projectModulePins, projectExtensionPin } from './release-pins';
 import { join } from 'node:path';
@@ -97,6 +98,8 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
   readonly mcpTools: McpToolRegistry;
   readonly extensions: ExtensionHost;
   readonly storage: StorageManager;
+  /** Base mail capability. SMTP is disabled unless explicitly configured. */
+  readonly mail: MailService;
   readonly migrations: readonly MigrationSet[];
   readonly platformVersion: string;
   readonly modules: readonly PlatformModule[];
@@ -111,7 +114,7 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
 }
 
 /** Pure composition shared by runtime and release metadata projection; no handlers execute here. */
-export function composeRuntimeModules({ modules, roles, logger, platformVersion, jobs, events, outbox, scheduler, cache }: {
+export function composeRuntimeModules({ modules, roles, logger, platformVersion, jobs, events, outbox, scheduler, cache, mail }: {
   modules: readonly PlatformModule[];
   roles: ReleaseRoleCatalog;
   logger: Logger;
@@ -121,6 +124,8 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
   outbox: OutboxStore;
   scheduler: () => RecurringScheduler;
   cache?: () => CacheScope;
+  /** Deferred because module metadata is composed before runtime resources exist. */
+  mail?: () => MailService | undefined;
 }): readonly PlatformModule[] {
   const platformModule: PlatformModule = {
     name: 'platform', version: packageJson.version, baseVersionRange: '^1.0.0',
@@ -147,8 +152,16 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
       { key: 'storage:publish', description: 'Publish objects for unauthenticated download', owner: 'platform-storage' },
     ],
   };
+  const mailModule: PlatformModule = {
+    name: 'platform-mail', version: packageJson.version, baseVersionRange: '^1.0.0',
+    dependencies: { required: [{ name: 'platform', versionRange: '^0.1.0' }, { name: 'platform-storage', versionRange: '^0.1.0' }] },
+    migrations: mailMigrations, data: { owns: ['platform_mail_messages'] },
+    permissions: [{ key: 'mail:send', description: 'Send mail through the configured base transport', owner: 'platform-mail' }],
+    jobs: [{ type: MAIL_SEND_JOB, handler: createMailJob(mail ?? (() => undefined)),
+      jobContractV1: { currentVersion: 1, versions: { 1: mailSendJobPayload }, execution: { timeoutMs: 60_000, concurrencyKey: 'platform-mail-smtp', concurrencyLimit: 4 } } }],
+  };
   return validateModuleGraph(
-    [platformModule, cacheModule, storageModule, createOpsModule(jobs, {
+    [platformModule, cacheModule, storageModule, mailModule, createOpsModule(jobs, {
       events, outbox, scheduler,
       cache: cache ?? (() => { throw new Error('Cache scope is not configured'); }),
     }), createIdentityModule(roles), ...modules], platformVersion,
@@ -182,6 +195,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
   // 排程器要等資料庫建立後才生得出來，但模組組裝在那之前就得完成（Release 選取需要模組清單）。
   let scheduler: RecurringScheduler | undefined;
   let opsCache: ModuleCacheScopes | undefined;
+  let mail: MailService | undefined;
   const allModules = composeRuntimeModules({
     modules: options.modules, roles: options.roles, logger, platformVersion, jobs, events, outbox,
     scheduler: () => {
@@ -192,6 +206,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       if (!opsCache) throw new Error('Cache scope is not ready yet');
       return opsCache.cache;
     },
+    mail: () => mail,
   });
   const enabled = config.extensions.filter(entry => entry.enabled).map(entry => {
     const definition = options.availableExtensions[entry.id];
@@ -231,6 +246,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       });
     })();
   const storage = new StorageManager(database.pool, objectStore, config.storage.maxUploadBytes);
+  mail = new MailService(database, jobs, storage, config, secrets, logger);
   const mutex = new PostgresMutexManager({
     url: config.database.url, ssl: config.database.ssl, poolSize: config.cache.mutexPoolSize,
     connectionTimeoutMs: Math.min(config.cache.mutexConnectionTimeoutMs, Math.max(1, Math.floor(config.shutdown.timeoutMs / 2))),
@@ -240,7 +256,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
   let extensions: ExtensionHost | undefined;
   let closing: Promise<void> | undefined;
   const close = () => closing ??= withCleanupDeadline(config.shutdown.timeoutMs,
-    () => closeInReverse([() => database.close(), () => cache.close(), () => storage.close(), () => mutex.close(), () => extensions?.close()]));
+    () => closeInReverse([() => database.close(), () => cache.close(), () => storage.close(), () => mail?.close(), () => mutex.close(), () => extensions?.close()]));
   try {
     const moduleNames = new Set(allModules.map(module => module.name));
     const boundModules = new Set<string>();
@@ -316,7 +332,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
 
     extensions = new ExtensionHost({
       database, commandBus: commands, queryBus: queries, eventBus: events,
-      jobs, jobRegistry, providers, mcpTools, authorization, secrets, logger, platformVersion,
+      jobs, jobRegistry, providers, mcpTools, authorization, secrets, logger, platformVersion, mail,
     });
     jobs.setPayloadVersionResolver((type) => jobRegistry.currentVersion(type));
 
@@ -325,7 +341,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     let activatedRelease: Readonly<{ readonly id: string; readonly version: string }> | null = null;
 
     const runtime: Runtime<C> = {
-      roles: options.roles, config, secrets, keyring, logger, database, authorization, auth, audit, outbox, jobs, jobRegistry, recurring, storage,
+      roles: options.roles, config, secrets, keyring, logger, database, authorization, auth, audit, outbox, jobs, jobRegistry, recurring, storage, mail,
       events, commands, queries, providers, mcpTools, extensions, migrations, platformVersion, modules: allModules,
       get activatedRelease() { return activatedRelease; },
       actorForRole(role, id) {

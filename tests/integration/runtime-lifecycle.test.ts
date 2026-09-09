@@ -14,7 +14,7 @@ import { BASE_ROLES } from '@storeweave/authorization';
 import { baseConfigSchema } from '@storeweave/config';
 import { noopLogger } from '@storeweave/contracts';
 import { Database, platformMigrations, runMigrations } from '@storeweave/db';
-import { defineExtension, type ExtensionDefinition, type ExtensionRegistration } from '@storeweave/extension-sdk';
+import { defineExtension, type ExtensionContext, type ExtensionDefinition, type ExtensionRegistration } from '@storeweave/extension-sdk';
 import { createRuntime, type Runtime } from '@storeweave/kernel';
 import { createTestDatabase, testSecretProvider } from './helpers';
 
@@ -23,9 +23,9 @@ afterEach(async () => {
   await Promise.allSettled(runtimes.splice(0).map(runtime => runtime.close()));
   vi.restoreAllMocks();
 });
-function extension(id: string, setup: ExtensionDefinition['setup']) {
+function extension(id: string, setup: ExtensionDefinition['setup'], permissions: readonly string[] = []) {
   return defineExtension({
-    manifest: { id, name: id, version: '1.0.0', platformVersion: '^1.0.0', permissions: [],
+    manifest: { id, name: id, version: '1.0.0', platformVersion: '^1.0.0', permissions,
       configuration: z.object({}), subscribedEvents: [], registeredCommands: [], registeredQueries: [], registeredProviders: [] },
     setup,
   });
@@ -170,6 +170,33 @@ describe('runtime cleanup', () => {
       logger: noopLogger, attempt: 2, jobId: randomUUID(), occurrenceId, idempotencyKey: occurrenceId, signal: controller.signal,
     });
     expect(seen).toEqual({ occurrenceId, idempotencyKey: occurrenceId, signal: controller.signal });
+  });
+
+  it('authorizes extension mail and namespaces its local references', async () => {
+    let firstContext: ExtensionContext | undefined;
+    let secondContext: ExtensionContext | undefined;
+    let deniedContext: ExtensionContext | undefined;
+    const first = extension('mail-first', context => { firstContext = context; return {}; }, ['mail:send']);
+    const second = extension('mail-second', context => { secondContext = context; return {}; }, ['mail:send']);
+    const denied = extension('mail-denied', context => { deniedContext = context; return {}; });
+    const runtime = await createRuntime(await options([first, second, denied]));
+    runtimes.push(runtime);
+    await runtime.migrate();
+    const request = {
+      reference: 'shared-report', to: [{ email: 'recipient@example.test' }],
+      template: { id: 'report-ready', version: 1, subject: 'Report', text: 'Ready', html: '<p>Ready</p>' },
+    };
+    const [firstResult, secondResult] = await Promise.all([
+      firstContext!.mail.enqueue(request), secondContext!.mail.enqueue(request),
+    ]);
+    expect(firstResult.reference).toBe('ext:mail-first:shared-report');
+    expect(secondResult.reference).toBe('ext:mail-second:shared-report');
+    await expect(deniedContext!.mail.enqueue(request)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const persisted = await runtime.database.pool.query('SELECT reference FROM public.platform_mail_messages ORDER BY reference');
+    expect(persisted.rows).toEqual([
+      { reference: 'ext:mail-first:shared-report' },
+      { reference: 'ext:mail-second:shared-report' },
+    ]);
   });
 
   it('cleans mounted extensions in reverse order after a later setup failure, then closes the live DB pool', async () => {
