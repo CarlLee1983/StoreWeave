@@ -64,10 +64,6 @@ extensions:
     config:
       autoApprove: true
       declineAboveCents: 0
-  - id: mock-notification
-    enabled: true
-    config:
-      deliver: true
   - id: demo-erp
     enabled: true
     config:
@@ -96,6 +92,11 @@ storage:
   driver: local
   maxUploadBytes: 20971520
   signedUrlTtlSeconds: 300
+
+# Enable only with a real SMTP account. Keep credentials in commerce.env; the
+# shipped demo remains disabled so it starts without SMTP credentials.
+mail:
+  transport: disabled
 
 paths:
   dataDir: /var/lib/commerce

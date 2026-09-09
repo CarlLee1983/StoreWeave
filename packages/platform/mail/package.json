@@ -1,5 +1,5 @@
 {
-  "name": "@storeweave/ext-mock-notification",
+  "name": "@storeweave/mail",
   "version": "0.1.0",
   "private": true,
   "main": "dist/index.js",

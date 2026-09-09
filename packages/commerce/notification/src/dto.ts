@@ -3,11 +3,18 @@ import { z } from 'zod';
 export const lifecycleTemplate = z.enum([
   'customer.order-placed', 'customer.order-paid', 'customer.shipment-shipped', 'customer.shipment-arrived',
 ]);
+export type LifecycleTemplate = z.infer<typeof lifecycleTemplate>;
+
+/**
+ * `skipped` 是「這個部署沒有設定寄信管道」，`unknown` 是「SMTP 收下了但沒有確認」。
+ * 兩者都不是失敗，也都不該自動重送——B07 之後投遞狀態由 base 通知能力供給。
+ */
+export const deliveryStatus = z.enum(['pending', 'sent', 'failed', 'skipped', 'unknown']);
 
 export const lifecycleDeliveryDto = z.object({
   id: z.string().uuid(), eventId: z.string().uuid(), orderId: z.string().uuid(), template: lifecycleTemplate,
   reference: z.string(), recipientEmail: z.string().email(), variables: z.record(z.unknown()),
-  status: z.enum(['pending', 'sent', 'failed']), providerRef: z.string().nullable(), attempts: z.number().int().nonnegative(),
+  status: deliveryStatus, providerRef: z.string().nullable(), attempts: z.number().int().nonnegative(),
   lastError: z.string().nullable(), sentAt: z.coerce.date().nullable(), createdAt: z.coerce.date(), updatedAt: z.coerce.date(),
 });
 export type LifecycleDeliveryDto = z.infer<typeof lifecycleDeliveryDto>;
@@ -17,15 +24,8 @@ export const queueLifecycleDeliveryInput = z.object({
   variables: z.record(z.unknown()),
 }).strict();
 
-export const recordLifecycleDeliveryInput = z.object({
-  id: z.string().uuid(), status: z.enum(['sent', 'failed']), providerRef: z.string().min(1).max(200),
-  error: z.string().min(1).max(2000).optional(),
-}).strict().superRefine((value, ctx) => {
-  if (value.status === 'failed' && !value.error) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['error'], message: 'required for failed delivery' });
-});
-
 export const listLifecycleDeliveriesInput = z.object({
-  orderId: z.string().uuid().optional(), status: z.enum(['pending', 'sent', 'failed']).optional(),
+  orderId: z.string().uuid().optional(), status: deliveryStatus.optional(),
   limit: z.number().int().min(1).max(100).default(50), offset: z.number().int().min(0).default(0),
 }).strict();
 /**

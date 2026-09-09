@@ -443,6 +443,65 @@ for (const [verb, commandName, description] of [
     });
 }
 
+interface InboxItem {
+  id: string;
+  reference: string;
+  templateId: string;
+  title: string;
+  body: string;
+  createdAt: string;
+  readAt: string | null;
+}
+
+/**
+ * 收件匣屬於某一個帳號，而 CLI 沒有登入的人。因此收件人是必填的：
+ * 操作者明講要看誰的信箱，那筆讀取才有一個可稽核的對象。
+ */
+function inboxActor(recipient: string) {
+  return { id: recipient, type: 'user' as const, displayName: `cli:${recipient}`, permissions: ['notifications:inbox'] };
+}
+
+program
+  .command('notifications:list <recipient>')
+  .description('讀取某個帳號的站內通知')
+  .option('--unread', '只列出未讀')
+  .option('--limit <n>', '筆數上限', '50')
+  .option('--json', '以 JSON 輸出')
+  .action(async (recipient: string, options: { unread?: boolean; limit: string; json?: boolean }) => {
+    await withRuntime(async (runtime) => {
+      await runtime.activateRelease('require-current');
+      const result = await runtime.queries.execute<{ items: InboxItem[]; total: number; unread: number }>(
+        'platform.notifications.listInbox',
+        { unreadOnly: Boolean(options.unread), limit: Number(options.limit) },
+        { actor: inboxActor(recipient) },
+      );
+      if (options.json) {
+        line(JSON.stringify(result, null, 2));
+        return;
+      }
+      heading(`站內通知（${result.total}，未讀 ${result.unread}）`);
+      for (const item of result.items) {
+        line(`  ${item.readAt ? dim('read  ') : bold('unread')} ${bold(item.title)} ${dim(`${item.templateId} ${item.createdAt}`)}`);
+        line(`      ${dim(item.id)}`);
+      }
+    });
+  });
+
+program
+  .command('notifications:read <recipient> <ids...>')
+  .description('把某個帳號的站內通知標記為已讀')
+  .action(async (recipient: string, ids: string[]) => {
+    await withRuntime(async (runtime) => {
+      await runtime.activateRelease('require-current');
+      const result = await runtime.commands.execute<{ updated: number }>(
+        'platform.notifications.markRead', { ids },
+        { actor: inboxActor(recipient), idempotencyKey: `cli-notifications-read-${randomUUID()}` },
+      );
+      heading('已標記為已讀');
+      line(`  ${bold(String(result.updated))} 筆`);
+    });
+  });
+
 program
   .command('extension:list')
   .description('列出這個 Release 內建、且已在設定中啟用的 Extension')

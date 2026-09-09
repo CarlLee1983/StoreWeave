@@ -296,6 +296,68 @@
           "additionalProperties": false,
           "default": {}
         },
+        "mail": {
+          "type": "object",
+          "properties": {
+            "transport": {
+              "type": "string",
+              "enum": [
+                "disabled",
+                "smtp"
+              ],
+              "default": "disabled"
+            },
+            "from": {
+              "type": "string",
+              "format": "email"
+            },
+            "smtp": {
+              "type": "object",
+              "properties": {
+                "host": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "port": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535,
+                  "default": 587
+                },
+                "secure": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "usernameRef": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "passwordRef": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "connectionTimeoutMs": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 55000,
+                  "default": 10000
+                },
+                "socketTimeoutMs": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 55000,
+                  "default": 30000
+                }
+              },
+              "required": [
+                "host"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
         "shutdown": {
           "type": "object",
           "properties": {

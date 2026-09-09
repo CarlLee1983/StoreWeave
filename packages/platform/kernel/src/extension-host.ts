@@ -23,6 +23,7 @@ import {
 import { DbExtensionStore } from './extension-store';
 import type { JobRegistry } from './job-registry';
 import type { McpToolRegistry } from './mcp-registry';
+import type { MailService } from '@storeweave/mail';
 
 export interface MountedExtension {
   id: string;
@@ -55,6 +56,7 @@ export interface ExtensionHostDeps {
   secrets: SecretProvider;
   logger: Logger;
   platformVersion: string;
+  mail: MailService;
 }
 
 /**
@@ -313,6 +315,16 @@ export class ExtensionHost {
         },
         async retryDead(jobId) {
           await deps.jobs.retryDead(deps.database.db, jobId, `ext.${manifest.id}.`);
+        },
+      },
+      mail: {
+        async send(input) {
+          deps.authorization.assert({ actor, permission: 'mail:send', resource: { type: 'mail-template', id: input.template.id } });
+          return deps.mail.sendNow({ ...input, reference: `ext:${manifest.id}:${input.reference}` });
+        },
+        async enqueue(input) {
+          deps.authorization.assert({ actor, permission: 'mail:send', resource: { type: 'mail-template', id: input.template.id } });
+          return deps.mail.enqueue({ ...input, reference: `ext:${manifest.id}:${input.reference}` });
         },
       },
       getProvider<T extends AnyProvider>(kind: ProviderKind, id?: string): T {

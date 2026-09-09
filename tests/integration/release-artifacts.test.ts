@@ -107,7 +107,7 @@ describe('release process artifacts', () => {
       const manifest = JSON.parse(readFileSync(join(output, 'release-manifest.json'), 'utf8'));
       expect(manifest).toMatchObject({ schemaVersion: 1, releaseId, releaseVersion: '0.1.2-test' });
       expect(info.manifestChecksum).toBe(catalogDigest(manifest));
-      expect(manifest.modules).toHaveLength(releaseId === 'base' ? 5 : 19);
+      expect(manifest.modules).toHaveLength(releaseId === 'base' ? 7 : 21);
       if (releaseId === 'base') {
         expect(manifest.availableExtensions).toEqual([]);
         for (const file of ['release-manifest.js.meta.json', 'scripts/validate-release.js.meta.json']) {
@@ -168,9 +168,14 @@ describe('release process artifacts', () => {
               'platform/0007_ops_listing_indexes',
               'platform/0008_job_schedules',
               'platform-cache/0001_init',
-              'platform-storage/0001_init'
+              'platform-storage/0001_init',
+              'platform-mail/0001_init',
+              'platform-notifications/0001_init'
             );
+            DROP TABLE public.platform_notification_deliveries;
+            DROP TABLE public.platform_notifications;
             DROP TABLE public.platform_storage_objects;
+            DROP TABLE public.platform_mail_messages;
             DROP TABLE platform_release_history;
             ALTER TABLE platform_migrations DROP COLUMN checksum, DROP COLUMN migration_order,
               DROP COLUMN legacy_baseline_id, DROP COLUMN migration_owner, DROP COLUMN migration_id,

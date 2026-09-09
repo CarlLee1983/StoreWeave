@@ -39,9 +39,12 @@ packages/commerce/      第一個產品（Commerce Core）：cart / catalog / co
                         customer / inventory / invoice / loyalty / notification /
                         order / promotion / refund / rma / shipping
 packages/extensions/    金流（mock-payment / ecpay）、物流（ecpay-logistics）、
-                        發票（mock-invoice / ecpay-invoice）、通知（mock-notification）、
+                        發票（mock-invoice / ecpay-invoice）、
                         ERP（demo-erp）與 mcp。哪些真的編進這份 release，
-                        以 packages/platform/bundle/src/modules.ts 為準（ADR 0002）
+                        以 packages/platform/bundle/src/modules.ts 為準（ADR 0002）。
+                        通知不是 Extension——是 base capability
+                        `@storeweave/notifications`（module `platform-notifications`），
+                        見 `packages/platform/notifications`
 packages/themes/default 預設 Storefront Theme（純 SSR 表單，不載入 JavaScript）
 tools/cli/              commerce CLI
 deployments/            example-store、example-store-two、systemd unit、設定 JSON Schema

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext } from '@storeweave/contracts';
-import type { NotificationProvider, ProviderRegistry } from '@storeweave/extension-sdk';
+import type { NotificationsPort } from '@storeweave/notifications';
 import { customerService } from '@storeweave/customer';
 import { couponPromotionService } from '@storeweave/promotion';
 import { birthdayMonthDaysFor, storeDateParts } from './birthday';
@@ -19,11 +19,13 @@ import {
 } from './dto';
 import { CouponRepository, toCouponDto } from './repository';
 import { issueCouponTo } from './service';
+import { COUPON_TEMPLATES } from './templates';
 
 const repository = new CouponRepository();
 
 export interface CouponModuleDeps {
-  providers: ProviderRegistry;
+  /** Base 通知能力；coupon 只知道對應到哪個模板，不知道怎麼寄。 */
+  readonly notifications: () => NotificationsPort;
   /** 「生日當天」是店鋪時區的當天，不是 UTC 的當天。 */
   timezone: string;
   /** 券的面額要說給顧客聽，因此需要幣別與地區格式。 */
@@ -282,7 +284,7 @@ export function createIssueBirthdayCouponsHandler(deps: CouponModuleDeps) {
 }
 
 /**
- * 通知走 Provider。寄不出去不該讓發券回滾——券已經在他的帳號裡，
+ * 通知走 base 通知能力。寄不出去不該讓發券回滾——券已經在他的帳號裡，
  * 而通知可以補寄；反過來把券吞掉才是真的損失。
  */
 async function notify(
@@ -294,13 +296,15 @@ async function notify(
   try {
     const customer = await customerService.contactFor(ctx.tx, input.customerId);
     if (!customer) return;
-    const provider = deps.providers.get<NotificationProvider>('notification');
-    await provider.send({
-      template: `customer.coupon-${input.trigger}`,
-      to: { email: customer.email, name: customer.displayName },
-      variables: { codes, count: codes.length },
+    const template = COUPON_TEMPLATES[input.trigger];
+    await deps.notifications().send(ctx.tx, {
       reference: `coupon-${input.trigger}:${input.customerId}:${input.occurrence}`,
-    });
+      channels: ['email'],
+      locale: deps.locale,
+      recipient: { email: customer.email, name: customer.displayName },
+      template: { id: template.id, version: template.version, email: template.email },
+      variables: { codes: codes.join(', '), count: codes.length },
+    }, job => ctx.enqueue(job), ctx.now);
   } catch (err) {
     ctx.logger.error({ error: (err as Error).message, customerId: input.customerId }, 'coupon notification failed');
   }

@@ -38,14 +38,12 @@ const requestReset = (email: string) =>
     payload: `email=${encodeURIComponent(email)}`,
   });
 
-/** 開發用通知實作把寄出的內容留在自己的儲存裡，測試直接讀它。 */
+/** 重設信走 base 通知能力；內容與收件人留在 platform_notifications。 */
 async function sentNotifications(): Promise<any[]> {
-  const rows = await h.runtime.database.db.execute<{ value: any }>(sql`
-    SELECT value FROM platform_extension_state
-    WHERE extension_id = 'mock-notification' AND key LIKE 'sent:%'
-    ORDER BY updated_at
+  const rows = await h.runtime.database.db.execute<{ template_id: string; recipient_email: string; variables: any }>(sql`
+    SELECT template_id, recipient_email, variables FROM platform_notifications ORDER BY created_at
   `);
-  return rows.rows.map((r) => r.value);
+  return rows.rows.map((row) => ({ template: row.template_id, to: { email: row.recipient_email }, variables: row.variables }));
 }
 
 async function resetTokenFor(email: string): Promise<string> {
@@ -69,7 +67,7 @@ describe('請求重設密碼', () => {
     expect(missing.body).toContain('若這個電子郵件存在');
   });
 
-  it('信經由通知 Provider 寄出，樣板與收件者正確', async () => {
+  it('信經由 base 通知能力寄出，樣板與收件者正確', async () => {
     await signUp('reset2@example.com');
     await requestReset('reset2@example.com');
 

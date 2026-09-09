@@ -41,6 +41,7 @@
 | [0037](0037-release-selection-and-history.md) | Release 統一選取模組，歷史驗證與啟用分開 | accepted（B02） |
 | [0038](0038-signed-values-carry-a-key-id.md) | 簽發值帶 key id，金鑰依用途推導 | accepted（B12） |
 | [0039](0039-cron-calculation-only-croner.md) | cron 時間運算用 croner，而且只用它的運算函式 | accepted（B05） |
+| [0040](0040-notifications-are-a-base-capability.md) | 通知是 Base 能力，模組以 bindPorts 取得它 | accepted（B07） |
 
 寫法：每篇結尾用 `## Falsified if` 這個標題起一段，段落裡以反引號標出這個決策所依賴的檔案；
 那些檔案就是這個決策的邊界清單，條件本身要寫成某個東西可以檢查的形式。

@@ -187,7 +187,9 @@ check "重送缺 Idempotency-Key 會被拒" "$(api POST /api/v1/system/jobs/dead
 say "自省與 Extension 清單"
 check "/api/v1/extensions" "$(api GET /api/v1/extensions)" "200"
 # 這兩個數字是 release 的表面，改了就要一起改——它們的作用正是讓「多掛了一個」被看見。
-check "掛載 4 個 Extension" "$(jqr 'j.data.items.length' < /tmp/smoke_body)" "4"
+# 3 個現行 Extension：mock-payment、demo-erp、mcp。通知已經是 base 能力，
+# mock-notification 隨 ADR 0040 刪除，所以這裡從 4 降為 3。
+check "掛載 3 個 Extension" "$(jqr 'j.data.items.length' < /tmp/smoke_body)" "3"
 check "/api/v1/meta/events" "$(api GET /api/v1/meta/events)" "200"
 # 19 個現行事件：order 4、shipping 4、refund 3、RMA 2、catalog 2、content 2、inventory 1、customer 1。
 check "19 個版本化事件" "$(jqr 'j.data.items.length' < /tmp/smoke_body)" "19"

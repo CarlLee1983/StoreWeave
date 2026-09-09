@@ -6,6 +6,8 @@ import { baselineMigrations, catalogDigest, legacyBaselineSelection, migrationCa
 import { identityMigrations } from '@storeweave/identity';
 import { cacheMigrations } from '@storeweave/cache';
 import { storageMigrations } from '@storeweave/storage';
+import { mailMigrations } from '@storeweave/mail';
+import { notificationsMigrations } from '@storeweave/notifications';
 import { buildReleaseManifest } from '../../packages/platform/bundle/src/release-manifest';
 import { release as base } from '../../packages/platform/bundle/src/releases/base';
 import { release as commerce } from '../../packages/platform/bundle/src/releases/commerce';
@@ -22,7 +24,7 @@ async function database() {
 }
 const foundations: ModulePin[] = buildReleaseManifest(base).modules.map(({ baseVersionRange: _range,
   requiredDependencies: _required, optionalDependencies: _optional, ...pin }) => pin);
-const baseSets = [platformMigrations, cacheMigrations, identityMigrations, storageMigrations];
+const baseSets = [platformMigrations, cacheMigrations, identityMigrations, storageMigrations, mailMigrations, notificationsMigrations];
 const featureSet: MigrationSet = { module: 'feature', migrations: [
   sqlMigration('0001', 'expand', 'CREATE TABLE feature_rows(id integer PRIMARY KEY); INSERT INTO feature_rows VALUES (1)'),
 ] };
@@ -149,8 +151,10 @@ describe('release transitions', () => {
       'platform/0008_job_schedules',
       'platform-cache/0001_init',
       'platform-storage/0001_init',
+      'platform-mail/0001_init',
+      'platform-notifications/0001_init',
     ]);
-    expect(prepared.manifest.owners.filter(entry => entry.state === 'active')).toHaveLength(5);
+    expect(prepared.manifest.owners.filter(entry => entry.state === 'active')).toHaveLength(7);
     expect(prepared.manifest.owners.filter(entry => entry.state === 'disabled')).toHaveLength(22);
     expect(JSON.stringify(prepared.manifest)).not.toContain('CREATE TABLE');
     await recordEffectiveRelease(pool, prepared, prepared.manifest);

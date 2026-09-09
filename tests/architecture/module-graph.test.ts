@@ -228,6 +228,8 @@ describe('module graph', () => {
   it('accepts the real commerce assembly, including reciprocal shipping/refund capabilities', () => {
     const modules = [
       platform(), identityModule, createOpsModule({} as never, {} as never),
+      // 商務模組宣告依賴 base 通知能力；真實組裝由 createRuntime 補上它。
+      module('platform-notifications', { version: '0.1.0', data: { owns: ['platform_notifications'] } }),
       ...coreModules({ providers: { list: () => [] } as never, defaultCurrency: 'TWD', orderNumberPrefix: 'SW', timezone: 'Asia/Taipei', locale: 'zh-TW' }),
     ];
     const validated = validateModuleGraph(modules, BASE);

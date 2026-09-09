@@ -176,6 +176,33 @@ const commonConfigSchema = z.object({
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['s3'], message: 's3 configuration is required when storage.driver is s3' });
     }
   }).default({}),
+  /**
+   * Mail is deliberately disabled until an SMTP transport is explicitly
+   * configured.  A production release must never turn an SMTP outage into a
+   * successful-looking mock delivery.
+   */
+  mail: z.object({
+    transport: z.enum(['disabled', 'smtp']).default('disabled'),
+    from: z.string().email().optional(),
+    smtp: z.object({
+      host: z.string().min(1),
+      port: z.coerce.number().int().min(1).max(65535).default(587),
+      secure: z.boolean().default(false),
+      usernameRef: z.string().min(1).optional(),
+      passwordRef: z.string().min(1).optional(),
+      // Mail jobs are leased for 60 seconds. Keep SMTP I/O below that lease so
+      // a timed-out worker cannot leave a later worker racing the same send.
+      connectionTimeoutMs: z.coerce.number().int().min(100).max(55_000).default(10_000),
+      socketTimeoutMs: z.coerce.number().int().min(100).max(55_000).default(30_000),
+    }).strict().optional(),
+  }).superRefine((mail, context) => {
+    if (mail.transport !== 'smtp') return;
+    if (!mail.from) context.addIssue({ code: z.ZodIssueCode.custom, path: ['from'], message: 'mail.from is required when mail.transport is smtp' });
+    if (!mail.smtp) context.addIssue({ code: z.ZodIssueCode.custom, path: ['smtp'], message: 'mail.smtp is required when mail.transport is smtp' });
+    if (mail.smtp && Boolean(mail.smtp.usernameRef) !== Boolean(mail.smtp.passwordRef)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['smtp'], message: 'SMTP usernameRef and passwordRef must be configured together' });
+    }
+  }).default({}),
   shutdown: z.object({ timeoutMs: z.number().int().positive().default(25_000) }).default({}),
   theme: z.object({
     id: z.string().default('default'),

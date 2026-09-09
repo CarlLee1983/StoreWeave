@@ -34,13 +34,12 @@ afterEach(async () => {
 const couponsOf = (customerId: string) =>
   h.runtime.queries.execute<any>('commerce.coupon.listCoupons', { customerId }, { actor: ADMIN_ACTOR });
 
-/** 開發用通知實作把寄出的內容留在自己的儲存裡，測試直接讀它。 */
+/** 通知是 base 能力：寄給誰、用哪個模板、帶什麼變數都留在 platform_notifications。 */
 async function sentTo(email: string): Promise<any[]> {
-  const rows = await h.runtime.database.db.execute<{ value: any }>(sql`
-    SELECT value FROM platform_extension_state
-    WHERE extension_id = 'mock-notification' AND key LIKE 'sent:%'
+  const rows = await h.runtime.database.db.execute<{ template_id: string; variables: any; reference: string }>(sql`
+    SELECT template_id, variables, reference FROM platform_notifications WHERE recipient_email = ${email}
   `);
-  return rows.rows.map((r) => r.value).filter((n) => n.to.email === email);
+  return rows.rows.map((row) => ({ template: row.template_id, variables: row.variables, reference: row.reference }));
 }
 
 describe('註冊自動發券', () => {

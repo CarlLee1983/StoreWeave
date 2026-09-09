@@ -62,6 +62,7 @@ export async function dependencies(runtime: Runtime): Promise<DependencyHealth> 
   if (!ping.ok) return summarize(checks);
 
   checks.push(await storageHealthCheck(runtime, 'warn'));
+  checks.push(await mailHealthCheck(runtime, 'warn'));
 
   const outbox = await runtime.outbox.stats(runtime.database.db);
   checks.push({
@@ -152,6 +153,7 @@ export async function doctor(runtime: Runtime, options: { releaseVersion: string
     checks.push(directoryCheck(dir));
   }
   checks.push(await storageHealthCheck(runtime, 'fail'));
+  checks.push(await mailHealthCheck(runtime, 'fail'));
 
   for (const ext of runtime.extensions.list()) {
     const compat = checkPlatformCompatibility(ext.definition.manifest, runtime.platformVersion);
@@ -170,6 +172,10 @@ export async function doctor(runtime: Runtime, options: { releaseVersion: string
   if (runtime.config.storage.driver === 's3') {
     requiredSecrets.add(runtime.config.storage.s3!.accessKeyIdRef);
     requiredSecrets.add(runtime.config.storage.s3!.secretAccessKeyRef);
+  }
+  if (runtime.config.mail?.transport === 'smtp') {
+    if (runtime.config.mail.smtp!.usernameRef) requiredSecrets.add(runtime.config.mail.smtp!.usernameRef);
+    if (runtime.config.mail.smtp!.passwordRef) requiredSecrets.add(runtime.config.mail.smtp!.passwordRef);
   }
   for (const name of [...requiredSecrets].sort()) {
     checks.push({
@@ -217,6 +223,17 @@ async function storageHealthCheck(runtime: Runtime, unhealthyStatus: Extract<Che
   } catch (error) {
     runtime.logger.warn({ error: (error as Error).message, driver: runtime.config.storage.driver }, 'object storage health check failed');
     return { name: 'object storage', status: unhealthyStatus, detail: 'unavailable; see server logs' };
+  }
+}
+
+async function mailHealthCheck(runtime: Runtime, unhealthyStatus: Extract<CheckStatus, 'warn' | 'fail'>): Promise<Check> {
+  if (!runtime.mail) return { name: 'mail transport', status: 'pass', detail: 'not present on test double' };
+  try {
+    const result = await runtime.mail.healthCheck();
+    return { name: 'mail transport', status: 'pass', detail: result.enabled ? 'smtp configured and verified' : 'disabled by configuration' };
+  } catch (error) {
+    runtime.logger.warn({ error: (error as Error).message }, 'mail transport health check failed');
+    return { name: 'mail transport', status: unhealthyStatus, detail: 'unavailable; see server logs' };
   }
 }
 
