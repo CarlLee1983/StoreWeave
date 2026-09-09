@@ -27,7 +27,7 @@ services:
         condition: service_healthy
     environment:
       STOREWEAVE_DATABASE_URL: postgres://storeweave:${POSTGRES_PASSWORD:-base-dev-password}@postgres:5432/storeweave
-      STOREWEAVE_ADMIN_TOKEN: ${STOREWEAVE_ADMIN_TOKEN:-}
+      STOREWEAVE_SIGNING_KEY_K1: ${STOREWEAVE_SIGNING_KEY_K1:-}
       STOREWEAVE_AUTO_MIGRATE: "true"
     volumes:
       - ${STOREWEAVE_CONFIG_PATH:-./deployments/storeweave.example.yaml}:/etc/storeweave/storeweave.yaml:ro
@@ -49,7 +49,7 @@ services:
         condition: service_healthy
     environment:
       STOREWEAVE_DATABASE_URL: postgres://storeweave:${POSTGRES_PASSWORD:-base-dev-password}@postgres:5432/storeweave
-      STOREWEAVE_ADMIN_TOKEN: ${STOREWEAVE_ADMIN_TOKEN:-}
+      STOREWEAVE_SIGNING_KEY_K1: ${STOREWEAVE_SIGNING_KEY_K1:-}
     volumes:
       - ${STOREWEAVE_CONFIG_PATH:-./deployments/storeweave.example.yaml}:/etc/storeweave/storeweave.yaml:ro
       - storeweave-data:/var/lib/storeweave

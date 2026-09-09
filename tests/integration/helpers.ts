@@ -137,6 +137,8 @@ export function testConfig(url: string, options: TestRuntimeOptions = {}): Comme
       ...(options.storageMaxUploadBytes ? { maxUploadBytes: options.storageMaxUploadBytes } : {}),
     },
     ...(options.mail ? { mail: options.mail } : {}),
+    // 身分連結（重設、驗證、換信箱）是簽發值，沒有金鑰就沒有這些流程（ADR 0042）。
+    security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
     extensions: Object.entries(extensionEntries).map(([id, config]) => ({ id, enabled: true, config })),
     logging: { level: 'error' },
   });
@@ -145,7 +147,11 @@ export function testConfig(url: string, options: TestRuntimeOptions = {}): Comme
 export async function createHarness(options: TestRuntimeOptions = {}): Promise<TestHarness> {
   const url = await createTestDatabase();
   const config = testConfig(url, options);
-  const secrets = testSecretProvider({ DEMO_ERP_API_KEY: 'test-key', ...options.secrets });
+  const secrets = testSecretProvider({
+    DEMO_ERP_API_KEY: 'test-key',
+    SW_SIGNING_KEY_TEST: Buffer.alloc(32, 7).toString('base64url'),
+    ...options.secrets,
+  });
   const logger = options.logger ?? noopLogger;
   const providers = new ProviderRegistry(logger);
 

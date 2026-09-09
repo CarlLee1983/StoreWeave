@@ -15,6 +15,17 @@ export const loginInput = z.object({ email: z.string().min(1), password: z.strin
 export const changePasswordInput = z.object({
   currentPassword: z.string().min(1), newPassword: z.string().min(1),
 }).strict();
+export const registerInput = z.object({
+  email: z.string().email(), password: z.string().min(1), displayName: z.string().min(1).max(120).optional(),
+}).strict();
+export const tokenInput = z.object({ token: z.string().min(1) }).strict();
+export const forgotPasswordInput = z.object({ email: z.string().min(1) }).strict();
+export const resetPasswordInput = z.object({
+  token: z.string().min(1), newPassword: z.string().min(1),
+}).strict();
+export const changeEmailInput = z.object({
+  currentPassword: z.string().min(1), newEmail: z.string().email(),
+}).strict();
 
 const emptyInput = { type: 'object', properties: {}, additionalProperties: false } as const satisfies JsonSchema7Type;
 const response = (data: JsonSchema7Type) => ({
@@ -24,6 +35,10 @@ const response = (data: JsonSchema7Type) => ({
 const user = {
   type: 'object', required: ['id', 'email', 'displayName', 'role'], additionalProperties: false,
   properties: { id: { type: 'string' }, email: { type: 'string' }, displayName: { type: 'string' }, role: { type: 'string' } },
+} as const satisfies JsonSchema7Type;
+const accepted = {
+  type: 'object', required: ['accepted'], additionalProperties: false,
+  properties: { accepted: { type: 'boolean', const: true } },
 } as const satisfies JsonSchema7Type;
 const routes = {
   login: { kind: 'direct', request: 'body', rateLimit: 'auth', input: zodToJsonSchema(loginInput as never, { target: 'jsonSchema7' }), output: response({
@@ -36,6 +51,15 @@ const routes = {
   changePassword: { kind: 'direct', request: 'body', auth: 'session', input: zodToJsonSchema(changePasswordInput as never, { target: 'jsonSchema7' }), output: response({
     type: 'object', required: ['changed'], additionalProperties: false, properties: { changed: { type: 'boolean', const: true } },
   }) },
+  register: { kind: 'direct', request: 'body', rateLimit: 'auth', input: zodToJsonSchema(registerInput as never, { target: 'jsonSchema7' }), output: response(user) },
+  // 中性回應：這支端點不告訴呼叫者這個地址存不存在，成功與否都是同一個形狀。
+  forgotPassword: { kind: 'direct', request: 'body', rateLimit: 'auth', input: zodToJsonSchema(forgotPasswordInput as never, { target: 'jsonSchema7' }), output: response(accepted) },
+  resetPassword: { kind: 'direct', request: 'body', rateLimit: 'auth', input: zodToJsonSchema(resetPasswordInput as never, { target: 'jsonSchema7' }), output: response(accepted) },
+  verifyEmail: { kind: 'direct', request: 'body', rateLimit: 'auth', input: zodToJsonSchema(tokenInput as never, { target: 'jsonSchema7' }), output: response(user) },
+  resendVerification: { kind: 'direct', request: 'none', auth: 'session', rateLimit: 'auth', input: emptyInput, output: response(accepted) },
+  changeEmail: { kind: 'direct', request: 'body', auth: 'session', rateLimit: 'auth', input: zodToJsonSchema(changeEmailInput as never, { target: 'jsonSchema7' }), output: response(accepted) },
+  confirmEmailChange: { kind: 'direct', request: 'body', rateLimit: 'auth', input: zodToJsonSchema(tokenInput as never, { target: 'jsonSchema7' }), output: response(user) },
+  revokeOtherSessions: { kind: 'direct', request: 'none', auth: 'session', input: emptyInput, output: response(accepted) },
 } as const satisfies Record<string, DirectHttpContract>;
 
 /** 後台登入。認證發生在 Actor 存在之前，因此不經過 Command/Query Bus，直接呼叫 AuthService。 */
@@ -121,6 +145,114 @@ export class AuthController {
       keepToken: token,
     });
     return ok({ changed: true });
+  }
+
+  /**
+   * 自助註冊。角色由 release 的目錄決定（`selfServiceRegistration`），不由請求指定——
+   * 讓呼叫端選角色等於把權限決策搬到 HTTP 層。
+   */
+  @Public()
+  @Anonymous()
+  @Post('register')
+  @HttpCode(200)
+  @HttpContract(routes.register)
+  async register(
+    @Body(new SchemaPipe(registerInput)) body: z.infer<typeof registerInput>,
+    @Req() req: AuthenticatedRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const header = req.headers['user-agent'];
+    const session = await this.runtime.auth.register({
+      email: body.email,
+      password: body.password,
+      displayName: body.displayName,
+      userAgent: Array.isArray(header) ? header[0] : header,
+    });
+    await this.http.startSession(this.runtime, req, reply, session);
+    return ok({
+      id: session.user.id, email: session.user.email,
+      displayName: session.user.displayName, role: session.user.role,
+    });
+  }
+
+  /** 忘記密碼。永遠回同一個形狀，寄信失敗也一樣——差異就是帳號枚舉管道。 */
+  @Public()
+  @Anonymous()
+  @Post('forgot-password')
+  @HttpCode(200)
+  @HttpContract(routes.forgotPassword)
+  async forgotPassword(@Body(new SchemaPipe(forgotPasswordInput)) body: z.infer<typeof forgotPasswordInput>) {
+    try {
+      await this.runtime.auth.requestPasswordReset({ email: body.email });
+    } catch (error) {
+      this.runtime.logger.error({ error: (error as Error).message }, 'password reset delivery failed');
+    }
+    return ok({ accepted: true });
+  }
+
+  @Public()
+  @Anonymous()
+  @Post('reset-password')
+  @HttpCode(200)
+  @HttpContract(routes.resetPassword)
+  async resetPassword(@Body(new SchemaPipe(resetPasswordInput)) body: z.infer<typeof resetPasswordInput>) {
+    await this.runtime.auth.resetPassword({ token: body.token, newPassword: body.newPassword });
+    return ok({ accepted: true });
+  }
+
+  // 連結是從信裡點進來的，當下不一定有 session。證據是簽章，不是 cookie。
+  @Public()
+  @Anonymous()
+  @Post('verify-email')
+  @HttpCode(200)
+  @HttpContract(routes.verifyEmail)
+  async verifyEmail(@Body(new SchemaPipe(tokenInput)) body: z.infer<typeof tokenInput>) {
+    const verified = await this.runtime.auth.verifyEmail({ token: body.token });
+    return ok({ id: verified.id, email: verified.email, displayName: verified.displayName, role: verified.role });
+  }
+
+  @Post('resend-verification')
+  @HttpCode(200)
+  @HttpContract(routes.resendVerification)
+  async resendVerification(@Req() req: AuthenticatedRequest) {
+    const { resolved } = await this.sessionOf(req);
+    await this.runtime.auth.requestEmailVerification({ userId: resolved.user.id });
+    return ok({ accepted: true });
+  }
+
+  /** 換信箱要現有密碼，確認信只寄到新地址；舊地址在確認之前一直有效。 */
+  @Post('change-email')
+  @HttpCode(200)
+  @HttpContract(routes.changeEmail)
+  async changeEmail(
+    @Req() req: AuthenticatedRequest,
+    @Body(new SchemaPipe(changeEmailInput)) body: z.infer<typeof changeEmailInput>,
+  ) {
+    const { resolved } = await this.sessionOf(req);
+    await this.runtime.auth.requestEmailChange({
+      userId: resolved.user.id, currentPassword: body.currentPassword, newEmail: body.newEmail,
+    });
+    return ok({ accepted: true });
+  }
+
+  @Public()
+  @Anonymous()
+  @Post('confirm-email-change')
+  @HttpCode(200)
+  @HttpContract(routes.confirmEmailChange)
+  async confirmEmailChange(@Body(new SchemaPipe(tokenInput)) body: z.infer<typeof tokenInput>) {
+    const changed = await this.runtime.auth.confirmEmailChange({ token: body.token });
+    return ok({ id: changed.id, email: changed.email, displayName: changed.displayName, role: changed.role });
+  }
+
+  /** 「登出其他所有裝置」。留下自己這一台，否則按下去的人也被踢出去。 */
+  @Post('revoke-other-sessions')
+  @HttpCode(200)
+  @HttpContract(routes.revokeOtherSessions)
+  async revokeOtherSessions(@Req() req: AuthenticatedRequest) {
+    const { token, resolved } = await this.sessionOf(req);
+    await this.runtime.auth.revokeAllSessions(this.runtime.database.db, resolved.user.id, token);
+    return ok({ accepted: true });
   }
 
   /**

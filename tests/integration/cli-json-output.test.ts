@@ -24,6 +24,7 @@ function runCli(databaseUrl: string, args: string[]) {
       COMMERCE_ADMIN_TOKEN: 'test-admin-token-0123456789',
       COMMERCE_MCP_TOKEN: 'test-mcp-token-0123456789',
       DEMO_ERP_API_KEY: 'test-erp-key',
+      COMMERCE_SIGNING_KEY_K1: Buffer.alloc(32, 3).toString('base64url'),
     },
   });
 }
@@ -49,7 +50,7 @@ it('migrate --status --json reports activation without applying SQL or mounting 
   const pending = runCli(databaseUrl, ['migrate', '--status', '--json']);
   expect(pending.status, pending.stderr).toBe(0);
   expect(JSON.parse(pending.stdout)).toMatchObject({ releaseCurrent: false, applied: [] });
-  expect(JSON.parse(pending.stdout).pending).toHaveLength(58);
+  expect(JSON.parse(pending.stdout).pending).toHaveLength(61);
   expect(pending.stderr).not.toContain('extension mounted');
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();

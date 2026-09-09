@@ -217,27 +217,19 @@ const commonConfigSchema = z.object({
     path: z.string().startsWith('/').default('/mcp'),
   }).default({}),
   auth: z.object({
-    /** API token 對應到角色；token 值一律來自環境變數，不寫在設定檔。 */
-    tokens: z.array(z.object({
-      name: z.string().min(1),
-      /**
-       * 機器對機器的 token 不能扮成顧客或匿名訪客：那兩個角色的資料範圍是由
-       * `Actor.type` 決定的，而 token 產生的 actor 一律是 service ——
-       * 指成 customer 會得到一個「看得到全部訂單的顧客」。
-       */
-      role: z.string().min(1),
-      /** 讀取 token 值的環境變數名稱。 */
-      secretRef: z.string().min(1),
-    })).default([]),
     /**
      * Session 存活時間。前台會員與後台操作者分開：購物站被每 12 小時踢出去會很痛，
      * 而後台是操作者帳號，暴露窗口短一點合理。
+     *
+     * 機器對機器的 token 不在設定檔裡：它們存在資料庫，由 CLI 簽發，可到期可撤銷（ADR 0043）。
      */
     sessionTtlMinutes: z.object({
       operator: z.number().int().min(5).max(60 * 24 * 30).default(12 * 60),
       customer: z.number().int().min(5).max(60 * 24 * 365).default(30 * 24 * 60),
     }).default({}),
-  }).default({}),
+    // strict：升級時帶著舊的 `auth.tokens` 會直接失敗，而不是安靜地被忽略——
+    // 安靜忽略等於讓一批以為還有效的 token 在下次部署後突然全部失效（ADR 0043）。
+  }).strict().default({}),
   extensions: z.array(extensionConfigSchema).default([]),
   logging: z.object({
     level: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
@@ -259,11 +251,6 @@ const commonConfigSchema = z.object({
 
 export const commerceConfigSchema = commonConfigSchema.extend({
   store: commonConfigSchema.shape.store.extend({ currency: z.string().length(3).default('TWD') }),
-  auth: commonConfigSchema.shape.auth.removeDefault().extend({
-    tokens: z.array(commonConfigSchema.shape.auth.removeDefault().shape.tokens.removeDefault().element.extend({
-      role: z.enum(['admin', 'staff', 'readonly', 'mcp']),
-    })).default([]),
-  }).default({}),
 });
 
 export const baseConfigSchema = commonConfigSchema.extend({

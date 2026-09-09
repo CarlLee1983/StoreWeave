@@ -35,8 +35,12 @@ async function createWorkerRuntime(name: string, jobs: PlatformModule['jobs']) {
   const runtime = await createRuntime({
     release: { id: name, version: '1.0.0', buildManifestChecksum: `sha256:${'4'.repeat(64)}` },
     roles: BASE_ROLES,
-    config: baseConfigSchema.parse({ version: 1, store: { id: name, name }, database: { url }, logging: { level: 'error' } }),
-    secrets: { get: () => undefined, has: () => false, listNames: () => [] }, logger: noopLogger, availableExtensions: {},
+    config: baseConfigSchema.parse({ version: 1, store: { id: name, name }, database: { url }, logging: { level: 'error' },
+      security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] } }),
+    secrets: {
+      get: (key: string) => key === 'SW_SIGNING_KEY_TEST' ? Buffer.alloc(32, 3).toString('base64url') : undefined,
+      has: (key: string) => key === 'SW_SIGNING_KEY_TEST', listNames: () => ['SW_SIGNING_KEY_TEST'],
+    }, logger: noopLogger, availableExtensions: {},
     modules: [{ name, version: '1.0.0', baseVersionRange: '^1.0.0', jobs }],
   });
   runtimes.push(runtime);

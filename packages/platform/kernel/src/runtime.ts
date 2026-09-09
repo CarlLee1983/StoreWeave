@@ -20,9 +20,9 @@ import { McpToolRegistry } from './mcp-registry';
 import { EVENT_DELIVERY_JOB, createEventDeliveryHandler, eventDeliveryJobContract } from './event-delivery';
 import type { PlatformModule } from './module';
 import { createOpsModule, OPS_MODULE_NAME } from './ops-module';
-import { AuthService, createIdentityModule } from '@storeweave/identity';
+import { ApiTokenService, AuthService, IdentityTokenService, createIdentityModule, type IdentityCleanupDeps } from '@storeweave/identity';
 import { validateModuleGraph } from './module-graph';
-import { resolveKeyring } from './keyring';
+import { requireKeyring, resolveKeyring } from './keyring';
 import type { Keyring } from '@storeweave/crypto';
 import { createHash } from 'node:crypto';
 import { cacheMigrations, PostgresCacheManager, PostgresMutexManager, type CacheScope, type MutexScope } from '@storeweave/cache';
@@ -85,6 +85,8 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
   readonly authorization: AuthorizationService;
   /** 後台操作者的登入與 session 解析。認證發生在 Actor 存在之前，因此不走 Command Bus。 */
   readonly auth: AuthService;
+  /** 機器對機器的 bearer token：資料庫擁有，可到期可撤銷（ADR 0043）。 */
+  readonly apiTokens: ApiTokenService;
   readonly audit: AuditWriter;
   readonly outbox: OutboxStore;
   readonly jobs: JobQueue;
@@ -114,7 +116,7 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
 }
 
 /** Pure composition shared by runtime and release metadata projection; no handlers execute here. */
-export function composeRuntimeModules({ modules, roles, logger, platformVersion, jobs, events, outbox, scheduler, cache, mail }: {
+export function composeRuntimeModules({ modules, roles, logger, platformVersion, jobs, events, outbox, scheduler, cache, mail, identityCleanup }: {
   modules: readonly PlatformModule[];
   roles: ReleaseRoleCatalog;
   logger: Logger;
@@ -126,6 +128,7 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
   cache?: () => CacheScope;
   /** Deferred because module metadata is composed before runtime resources exist. */
   mail?: () => MailService | undefined;
+  identityCleanup?: () => IdentityCleanupDeps | undefined;
 }): readonly PlatformModule[] {
   const platformModule: PlatformModule = {
     name: 'platform', version: packageJson.version, baseVersionRange: '^1.0.0',
@@ -164,7 +167,7 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
     [platformModule, cacheModule, storageModule, mailModule, createOpsModule(jobs, {
       events, outbox, scheduler,
       cache: cache ?? (() => { throw new Error('Cache scope is not configured'); }),
-    }), createIdentityModule(roles), ...modules], platformVersion,
+    }), createIdentityModule(roles, identityCleanup ?? (() => undefined)), ...modules], platformVersion,
   );
 }
 
@@ -174,11 +177,6 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
 export async function createRuntime<C extends BaseConfig>(options: RuntimeOptions<C>): Promise<Runtime<C>> {
   const { config, logger, secrets } = options;
   const platformVersion = options.platformVersion ?? PLATFORM_VERSION;
-  for (const token of config.auth.tokens) {
-    if (!roleFor(options.roles, token.role)?.tokenAllowed) {
-      throw PlatformError.validation(`Role "${token.role}" cannot be used by an API token in this release`);
-    }
-  }
 
 
   // 宣告了金鑰卻讀不到秘密要在這裡就失敗，不要等到第一個簽章請求。
@@ -196,6 +194,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
   let scheduler: RecurringScheduler | undefined;
   let opsCache: ModuleCacheScopes | undefined;
   let mail: MailService | undefined;
+  let identityCleanupDeps: IdentityCleanupDeps | undefined;
   const allModules = composeRuntimeModules({
     modules: options.modules, roles: options.roles, logger, platformVersion, jobs, events, outbox,
     scheduler: () => {
@@ -207,6 +206,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       return opsCache.cache;
     },
     mail: () => mail,
+    identityCleanup: () => identityCleanupDeps,
   });
   const enabled = config.extensions.filter(entry => entry.enabled).map(entry => {
     const definition = options.availableExtensions[entry.id];
@@ -282,10 +282,21 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       binding.bind(storage.forNamespace(cacheNamespaceForModule(binding.module)));
     }
     const authorization = new AuthorizationService();
+    // 重設與驗證連結是 base 一定會用到的簽發值，所以簽章金鑰不是選配（ADR 0042）。
+    const identityTokens = new IdentityTokenService(requireKeyring({ keyring }, 'identity'));
+    const apiTokens = new ApiTokenService(options.roles);
+    identityCleanupDeps = { database, tokens: identityTokens };
     const auth = new AuthService({
       operatorMs: config.auth.sessionTtlMinutes.operator * 60_000,
       customerMs: config.auth.sessionTtlMinutes.customer * 60_000,
-    }, options.roles);
+    }, options.roles, {
+      database,
+      tokens: identityTokens,
+      mail: mail!,
+      publicUrl: config.http.publicUrl.replace(/\/+$/, ''),
+      storeName: config.store.name,
+      locale: config.store.locale,
+    });
     const audit = new AuditWriter();
     const jobRegistry = new JobRegistry();
     const recurring = new RecurringScheduler({ jobs, database, logger, pollIntervalMs: config.worker.pollIntervalMs });
@@ -341,7 +352,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     let activatedRelease: Readonly<{ readonly id: string; readonly version: string }> | null = null;
 
     const runtime: Runtime<C> = {
-      roles: options.roles, config, secrets, keyring, logger, database, authorization, auth, audit, outbox, jobs, jobRegistry, recurring, storage, mail,
+      roles: options.roles, config, secrets, keyring, logger, database, authorization, auth, apiTokens, audit, outbox, jobs, jobRegistry, recurring, storage, mail,
       events, commands, queries, providers, mcpTools, extensions, migrations, platformVersion, modules: allModules,
       get activatedRelease() { return activatedRelease; },
       actorForRole(role, id) {

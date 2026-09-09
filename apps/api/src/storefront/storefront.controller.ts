@@ -1154,23 +1154,8 @@ export class StorefrontController {
     // 回應一律中性：區分「寄了」與「沒這個帳號」等於送出帳號枚舉管道。
     const neutral = '若這個電子郵件存在，我們已經把重設連結寄出去了。';
     try {
-      const created = await this.runtime.auth.createPasswordReset(this.runtime.database.db, {
-        email: body.email ?? '',
-        ttlMs: RESET_TTL_MS,
-      });
-      if (created) {
-        const provider = this.runtime.providers.get<NotificationProvider>('notification');
-        await provider.send({
-          template: 'customer.password-reset',
-          to: { email: created.user.email, name: created.user.displayName },
-          variables: {
-            resetUrl: `${this.runtime.config.http.publicUrl.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(created.token)}`,
-            expiresInMinutes: RESET_TTL_MS / 60_000,
-          },
-          // reference 會被 Provider 留存，因此用不可逆的值——明文 token 只該出現在信裡。
-          reference: `password-reset:${createHash('sha256').update(created.token).digest('base64url').slice(0, 32)}`,
-        });
-      }
+      // 簽發、加密暫存與寄信都在 identity 的同一個交易裡完成（B08）。
+      await this.runtime.auth.requestPasswordReset({ email: body.email ?? '', ttlMs: RESET_TTL_MS });
     } catch (err) {
       // 寄信失敗也不改變對外的訊息，只留在 log 裡——否則它就是那條枚舉管道。
       this.runtime.logger.error({ error: (err as Error).message }, 'password reset delivery failed');
@@ -1194,10 +1179,7 @@ export class StorefrontController {
   @Post('reset-password')
   async resetPassword(@Body() body: Record<string, string>, @Res() reply: FastifyReply) {
     try {
-      await this.runtime.auth.resetPassword(this.runtime.database.db, {
-        token: body.token ?? '',
-        newPassword: body.password ?? '',
-      });
+      await this.runtime.auth.resetPassword({ token: body.token ?? '', newPassword: body.password ?? '' });
       void reply.status(303).header('location', '/login').send();
     } catch (err) {
       const message = err instanceof PlatformError && err.httpStatus < 500 ? err.message : '設定新密碼失敗，請重新申請一次。';

@@ -76,17 +76,54 @@ service: commerce-api/worker  行程是否在跑
   跨過這條界線會讓既有的 session 與訪客購物車全部失效一次**——大家要重新登入，
   這是預期行為，不是故障。
 
-- **機器用靜態 token**。`commerce.yaml` 的 `auth.tokens` 那組 bearer token 維持原樣，
-  給 MCP 客戶端與 ERP 這類非瀏覽器呼叫端使用。它們不套用 CSRF 檢查，
-  但也因此**沒有到期、不能個別撤銷**——`COMMERCE_ADMIN_TOKEN` 等於一把萬能鑰匙，
-  正式環境務必換成隨機值並限制知悉範圍。
+- **機器用 API token**。給 MCP 客戶端與 ERP 這類非瀏覽器呼叫端使用，不套用 CSRF 檢查。
+  Token 存在資料庫，由 CLI 簽發，**秘密只在簽發的當下顯示一次**（ADR 0043）：
 
-  **沒有任何自動檢查會擋下你**：`commerce doctor` 只確認 secret「有沒有設」
-  （`packages/platform/kernel/src/health.ts` 的 `secret present`），不看它的值，
-  所以帶著 `dev-admin-token-change-me-please` 上線是通得過的。換掉它是人的責任。
+  ```bash
+  sudo -u commerce commerce token:create --name mcp-client --role mcp --expires-in-days 90
+  sudo -u commerce commerce token:list
+  sudo -u commerce commerce token:revoke mcp-client
+  ```
 
-尚未實作的部分：密碼重設、後台的帳號停用介面、登入失敗鎖定、二階段驗證。
+  撤銷是立即的：下一個請求就不通過，不必改設定也不必重啟。每一把都必須有到期日
+  （預設 90 天），`token:list` 的 `last-used` 讓你看得出哪一把已經沒有人在用。
+
+  **設定檔裡不再有 `auth.tokens`**。升級舊部署時，先用 `token:create` 換發一把新的、
+  更新呼叫端，再把設定檔裡的 `auth.tokens` 區塊刪掉——留著會讓設定驗證失敗，
+  這是刻意的，安靜忽略等於讓一批以為還有效的 token 在下次部署後突然失效。
+
+密碼重設、信箱驗證與信箱變更都已實作，連結由平台簽發並寄出（見下一節與 ADR 0042）。
+尚未實作的部分：後台的帳號停用介面、登入失敗鎖定、二階段驗證。
 需要停用某個帳號時，目前只能直接改資料庫的 `platform_users.status`。
+
+## 簽章金鑰
+
+密碼重設信、信箱驗證信與短效下載連結都是「離開行程之後還要驗得回來」的值，
+一律簽發成 `sw1.<key id>.<到期>.<內容>.<簽章>`（ADR 0038）。**沒有金鑰的部署會啟動失敗**
+（ADR 0042），這是刻意的：一個不能重設密碼的商店不是精簡設定。
+
+```yaml
+security:
+  signingKeys:
+    - id: k1
+      secretRef: COMMERCE_SIGNING_KEY_K1
+```
+
+秘密至少 32 bytes，base64url 或 hex：`openssl rand -base64 32`。設定檔裡永遠只有名稱。
+
+輪替不需要停機，順序是**加一把 → 改 `activeSigningKeyId` → 等舊連結到期 → 再移除舊的**：
+
+```yaml
+security:
+  signingKeys:
+    - { id: k1, secretRef: COMMERCE_SIGNING_KEY_K1 }
+    - { id: k2, secretRef: COMMERCE_SIGNING_KEY_K2 }
+  activeSigningKeyId: k2
+```
+
+兩把以上時 `activeSigningKeyId` 必填——輪替期間簽錯金鑰是無聲的錯誤。
+**從設定移除一把金鑰，等同立即作廢它簽過而尚未到期的所有連結**；這是疑似外洩時
+唯一夠快的手段，但不是清理設定的順手動作。key id 一旦發行也不能改指到另一個秘密。
 
 ## CORS
 

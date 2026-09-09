@@ -37,8 +37,12 @@ async function setup() {
   const instance = await createRuntime({
     release: { id: 'outbox-delivery', version: '1.0.0', buildManifestChecksum: `sha256:${'4'.repeat(64)}` },
     roles: BASE_ROLES,
-    config: baseConfigSchema.parse({ version: 1, store: { id: 'outbox-delivery', name: 'Outbox delivery' }, database: { url }, logging: { level: 'error' } }),
-    secrets: { get: () => undefined, has: () => false, listNames: () => [] }, logger: noopLogger, availableExtensions: {},
+    config: baseConfigSchema.parse({ version: 1, store: { id: 'outbox-delivery', name: 'Outbox delivery' }, database: { url }, logging: { level: 'error' },
+      security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] } }),
+    secrets: {
+      get: (name: string) => name === 'SW_SIGNING_KEY_TEST' ? Buffer.alloc(32, 3).toString('base64url') : undefined,
+      has: (name: string) => name === 'SW_SIGNING_KEY_TEST', listNames: () => ['SW_SIGNING_KEY_TEST'],
+    }, logger: noopLogger, availableExtensions: {},
     modules: [
       module('publisher'),
       module('alpha', async (_event, ctx) => {

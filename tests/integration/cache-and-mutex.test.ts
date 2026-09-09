@@ -119,8 +119,9 @@ describe('PostgreSQL cache', () => {
     const runtime = await createRuntime({
       roles: COMMERCE_ROLES,
       release: { id: 'cache-binding', version: '1.0.0', buildManifestChecksum: `sha256:${'0'.repeat(64)}` },
-      config: commerceConfigSchema.parse({ version: 1, store: { id: 'cache-binding', name: 'Cache Binding', currency: 'TWD' }, database: { url }, extensions: [] }),
-      secrets: testSecretProvider({}), logger: noopLogger, modules: [], availableExtensions: {},
+      config: commerceConfigSchema.parse({ version: 1, store: { id: 'cache-binding', name: 'Cache Binding', currency: 'TWD' }, database: { url }, extensions: [],
+        security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] } }),
+      secrets: testSecretProvider({ SW_SIGNING_KEY_TEST: Buffer.alloc(32, 3).toString('base64url') }), logger: noopLogger, modules: [], availableExtensions: {},
       cacheBindings: ['platform', 'platform-cache'].map(module => ({ module, bind: scopes => bindings.set(module, scopes) })),
     });
     runtimes.push(runtime);

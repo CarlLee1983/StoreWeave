@@ -31,26 +31,22 @@ import { McpController } from '../../apps/api/src/mcp/mcp.controller';
 import { StorefrontController } from '../../apps/api/src/storefront/storefront.controller';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
-const ADMIN_TOKEN = 'test-admin-token-abcdefghijklmnop';
-const MCP_TOKEN = 'test-mcp-token-abcdefghijklmnop';
-const RESTRICTED_MCP_TOKEN = 'test-restricted-mcp-token-abcdefghijklmnop';
+let ADMIN_TOKEN: string;
+let MCP_TOKEN: string;
+let RESTRICTED_MCP_TOKEN: string;
 
 let h: TestHarness;
 let app: NestFastifyApplication;
 
 beforeAll(async () => {
   h = await createHarness();
-  // 直接把 token 設定注入 runtime，模擬 commerce.yaml 的 auth.tokens
-  (h.runtime.config.auth.tokens as unknown[]).push(
-    { name: 'admin', role: 'admin', secretRef: 'ADMIN_TOKEN' },
-    { name: 'mcp', role: 'mcp', secretRef: 'MCP_TOKEN' },
-    { name: 'mcp-restricted', role: 'readonly', secretRef: 'RESTRICTED_MCP_TOKEN' },
-  );
-  (h.runtime as { secrets: any }).secrets = {
-    get: (n: string) => ({ ADMIN_TOKEN, MCP_TOKEN, RESTRICTED_MCP_TOKEN, DEMO_ERP_API_KEY: 'test-key' } as Record<string, string>)[n],
-    has: (n: string) => Boolean(({ ADMIN_TOKEN, MCP_TOKEN, RESTRICTED_MCP_TOKEN, DEMO_ERP_API_KEY: 'k' } as Record<string, string>)[n]),
-    listNames: () => [],
-  };
+  // 真的簽發資料庫 API token，模擬 commerce.yaml 過去用設定檔驅動 auth.tokens 的效果（ADR 0043）。
+  ADMIN_TOKEN = (await h.runtime.database.transaction(tx => h.runtime.apiTokens.issue(tx,
+    { name: 'admin', role: 'admin', ttlMs: 60 * 60_000 }))).secret;
+  MCP_TOKEN = (await h.runtime.database.transaction(tx => h.runtime.apiTokens.issue(tx,
+    { name: 'mcp', role: 'mcp', ttlMs: 60 * 60_000 }))).secret;
+  RESTRICTED_MCP_TOKEN = (await h.runtime.database.transaction(tx => h.runtime.apiTokens.issue(tx,
+    { name: 'mcp-restricted', role: 'readonly', ttlMs: 60 * 60_000 }))).secret;
   app = await createServer({
     runtime: h.runtime,
     theme: defaultTheme,
@@ -1086,7 +1082,7 @@ describe('死信佇列 HTTP 端點', () => {
 });
 
 describe('工單 69：發票的 HTTP 營運介面', () => {
-  const auth = { authorization: `Bearer ${ADMIN_TOKEN}` };
+  const auth = { get authorization() { return `Bearer ${ADMIN_TOKEN}`; } };
 
   it('lists invoices for an operator token', async () => {
     const res = await inject({ method: 'GET', url: '/api/v1/invoices?limit=5', headers: auth });
@@ -1112,8 +1108,8 @@ describe('工單 69：發票的 HTTP 營運介面', () => {
 });
 
 describe('工單 72：會員等級與購物金設定的營運介面', () => {
-  const auth = { authorization: `Bearer ${ADMIN_TOKEN}` };
-  const mcp = { authorization: `Bearer ${MCP_TOKEN}` };
+  const auth = { get authorization() { return `Bearer ${ADMIN_TOKEN}`; } };
+  const mcp = { get authorization() { return `Bearer ${MCP_TOKEN}`; } };
 
   it('讀得到購物金設定，並且改得動累積比例', async () => {
     const before = await inject({ method: 'GET', url: '/api/v1/loyalty/settings', headers: auth });
@@ -1163,8 +1159,8 @@ describe('工單 72：會員等級與購物金設定的營運介面', () => {
 });
 
 describe('工單 73／74：通知紀錄與生日更正的 HTTP 面', () => {
-  const auth = { authorization: `Bearer ${ADMIN_TOKEN}` };
-  const mcp = { authorization: `Bearer ${MCP_TOKEN}` };
+  const auth = { get authorization() { return `Bearer ${ADMIN_TOKEN}`; } };
+  const mcp = { get authorization() { return `Bearer ${MCP_TOKEN}`; } };
 
   it('通知紀錄讀得到，limit 不是數字時回 400 而不是 500', async () => {
     const res = await inject({ method: 'GET', url: '/api/v1/notification-deliveries?limit=5', headers: auth });

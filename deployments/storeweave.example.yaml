@@ -26,8 +26,13 @@ storage:
 # mock fallback: a failed SMTP send is recorded for operator handling.
 mail:
   transport: disabled
-auth:
-  tokens: []
+# 密碼重設與信箱驗證連結是簽發值，沒有金鑰就沒有這些流程（ADR 0038、ADR 0042）。
+# 產生一把：openssl rand -base64 32
+security:
+  signingKeys:
+    - id: k1
+      secretRef: STOREWEAVE_SIGNING_KEY_K1
+# API token 由 `storeweave token:create` 簽發，設定檔裡沒有它們（ADR 0043）。
 extensions: []
 secrets:
   provider: file

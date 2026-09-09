@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { runPgTool, writePgBackup } from '../../tools/cli/src/pg-tool';
 
+const SIGNING_SECRET = Buffer.alloc(32, 9).toString('base64url');
+
 let directory: string;
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), 'storeweave-pg-tool-test-'));
@@ -68,10 +70,11 @@ it('CLI backup uses private publication without activating the application runti
   const config = join(directory, 'commerce.json');
   writeFileSync(config, JSON.stringify({ version: 1, store: { id: 'backup', name: 'Backup' },
     database: { url: 'postgres://user:fixture-secret@127.0.0.1:1/unreachable' }, extensions: [],
+    security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
     paths: { backupDir: join(directory, 'backups'), dataDir: join(directory, 'data') } }));
   const target = join(directory, 'published.dump');
   const output = execFileSync(join(process.cwd(), 'node_modules/.bin/tsx'), [join(process.cwd(), 'tools/cli/src/main.ts'), 'backup', '--out', target],
-    { encoding: 'utf8', env: { ...process.env, STOREWEAVE_CONFIG: config }, timeout: 10_000 });
+    { encoding: 'utf8', env: { ...process.env, STOREWEAVE_CONFIG: config, SW_SIGNING_KEY_TEST: SIGNING_SECRET }, timeout: 10_000 });
   expect(output).toContain('備份完成');
   expect(output).not.toContain('fixture-secret');
   expect(readFileSync(target, 'utf8')).toBe('PGDMPfixture');
@@ -82,6 +85,7 @@ it('CLI refuses a missing pg_restore before running pg_dump', () => {
   const config = join(directory, 'commerce.json');
   writeFileSync(config, JSON.stringify({ version: 1, store: { id: 'backup', name: 'Backup' },
     database: { url: 'postgres://user:secret@127.0.0.1:1/unreachable' }, extensions: [],
+    security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
     paths: { backupDir: join(directory, 'backups'), dataDir: join(directory, 'data') } }));
   writeFileSync(join(directory, 'bin', 'sh'), `#!/usr/bin/env node
     process.exit(process.argv[3] === 'command -v pg_dump' ? 0 : 1);
@@ -89,7 +93,7 @@ it('CLI refuses a missing pg_restore before running pg_dump', () => {
   let failure = '';
   try {
     execFileSync(join(process.cwd(), 'node_modules/.bin/tsx'), [join(process.cwd(), 'tools/cli/src/main.ts'), 'backup'],
-      { encoding: 'utf8', env: { ...process.env, STOREWEAVE_CONFIG: config }, timeout: 10_000, stdio: 'pipe' });
+      { encoding: 'utf8', env: { ...process.env, STOREWEAVE_CONFIG: config, SW_SIGNING_KEY_TEST: SIGNING_SECRET }, timeout: 10_000, stdio: 'pipe' });
   } catch (error) { failure = String((error as { stderr: string }).stderr); }
   expect(failure).toContain('找不到 pg_restore');
   expect(existsSync(join(directory, 'observed-passfile'))).toBe(false);

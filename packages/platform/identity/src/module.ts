@@ -5,6 +5,7 @@ import { COMMERCE_ROLES, roleFor, type ReleaseRoleCatalog } from '@storeweave/au
 // 只取型別：kernel 會在執行期匯入這個模組，反向的執行期相依會形成循環。
 import type { PlatformModule } from '@storeweave/kernel';
 import { identityMigrations } from './migrations';
+import { IDENTITY_CLEANUP_JOB, createIdentityCleanupJob, identityCleanupPayload, type IdentityCleanupDeps } from './jobs';
 import { accountService } from './account-service';
 import { UserRepository, toUserDto } from './repository';
 
@@ -56,17 +57,30 @@ export const listUsersQuery = defineQuery({
   permission: 'users:read',
 });
 
-export function createIdentityModule(roles: ReleaseRoleCatalog): PlatformModule {
+export function createIdentityModule(
+  roles: ReleaseRoleCatalog,
+  /** Deferred：模組在 runtime 資源存在之前就要組好，清理工作的相依只能晚一步取。 */
+  cleanup: () => IdentityCleanupDeps | undefined = () => undefined,
+): PlatformModule {
   return {
     name: IDENTITY_MODULE_NAME,
     version: packageJson.version,
     baseVersionRange: '^1.0.0',
     dependencies: { required: [{ name: 'platform', versionRange: '^0.1.0' }] },
-    data: { owns: ['platform_users', 'platform_sessions', 'platform_password_resets'] },
+    data: { owns: ['platform_users', 'platform_sessions', 'platform_identity_tokens', 'platform_api_tokens'] },
     migrations: identityMigrations,
     permissions: [
       { key: 'users:read', description: '檢視後台操作者帳號', owner: IDENTITY_MODULE_NAME },
       { key: 'users:write', description: '建立與停用後台操作者帳號', owner: IDENTITY_MODULE_NAME },
+    ],
+    jobs: [
+      {
+        type: IDENTITY_CLEANUP_JOB,
+        handler: createIdentityCleanupJob(cleanup),
+        jobContractV1: { currentVersion: 1, versions: { 1: identityCleanupPayload } },
+        // 一天一次：保留期以週計，晚幾小時清掉沒有人會察覺。
+        schedule: { everyMs: 24 * 60 * 60 * 1000 },
+      },
     ],
     commands: [
       {

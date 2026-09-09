@@ -38,7 +38,9 @@ it.each(['paired', 'raw'] as const)('real B02 CLI recovers B01 through %s snapsh
     const port = address.port;
     await new Promise<void>(resolve => socket.close(() => resolve()));
     const configPath = join(root, 'config.json');
-    writeFileSync(configPath, JSON.stringify({ version: 1, store: { id: 'legacy-cli', name: 'Legacy CLI' }, database: { url: container.getConnectionUri() }, http: { host: '127.0.0.1', port }, extensions: [], logging: { level: 'error' } }));
+    process.env.SW_SIGNING_KEY_TEST = Buffer.alloc(32, 3).toString('base64url');
+    writeFileSync(configPath, JSON.stringify({ version: 1, store: { id: 'legacy-cli', name: 'Legacy CLI' }, database: { url: container.getConnectionUri() }, http: { host: '127.0.0.1', port }, extensions: [], logging: { level: 'error' },
+      security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] } }));
     const { runtime } = await bootstrapRelease(release, { configPath, loggerName: 'legacy-cli-fixture', logDestination: 'stderr' });
     try {
       // Real pinned B01 SQL with its historical metadata shape; source executables are structural fixtures.

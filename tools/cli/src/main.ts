@@ -387,7 +387,71 @@ program
       );
       heading('已建立帳號');
       line(`  ${bold(user.email)} ${dim(`role=${user.role} id=${user.id}`)}`);
-      line(dim('  用這組帳密登入管理後台；靜態 API token 仍可供機器對機器使用。'));
+      line(dim('  用這組帳密登入管理後台；機器對機器請用 token:create 簽發。'));
+    });
+  });
+
+program
+  .command('token:create')
+  .description('簽發機器對機器的 API token（秘密只顯示這一次）')
+  .requiredOption('--name <name>', 'token 的名字，撤銷時用它指認')
+  .requiredOption('--role <role>', '角色：必須是這個 release 允許給 token 的角色')
+  .option('--expires-in-days <days>', '有效天數', '90')
+  .option('--json', '以 JSON 輸出（部署腳本用）')
+  .action(async (options: { name: string; role: string; expiresInDays: string; json?: boolean }) => {
+    const days = Number(options.expiresInDays);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) {
+      fail('--expires-in-days 必須是 1 到 3650 之間的整數');
+      return;
+    }
+    await withRuntime(async (runtime) => {
+      await runtime.activateRelease('require-current');
+      const issued = await runtime.database.transaction(tx => runtime.apiTokens.issue(tx, {
+        name: options.name, role: options.role, ttlMs: days * 24 * 60 * 60 * 1000, createdBy: 'cli',
+      }));
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify(issued)}\n`);
+        return;
+      }
+      heading('已簽發 API token');
+      line(`  ${bold(issued.name)} ${dim(`role=${issued.role} expires=${issued.expiresAt.toISOString()}`)}`);
+      line(`  ${issued.secret}`);
+      // 只存雜湊，所以這是唯一一次看得到它。抄不到就只能撤銷重發。
+      line(dim('  這串秘密不會再顯示。請立刻存進部署的 secret 管理，不要寫進設定檔。'));
+    });
+  });
+
+program
+  .command('token:list')
+  .description('列出 API token 的狀態（不含秘密）')
+  .option('--json', '以 JSON 輸出')
+  .action(async (options: { json?: boolean }) => {
+    await withRuntime(async (runtime) => {
+      await runtime.activateRelease('require-current');
+      const tokens = await runtime.apiTokens.list(runtime.database.db);
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify(tokens, null, 2)}\n`);
+        return;
+      }
+      heading('API token');
+      if (tokens.length === 0) line(dim('  （沒有任何 token）'));
+      for (const token of tokens) {
+        const state = token.revokedAt ? 'revoked' : token.expiresAt.getTime() < Date.now() ? 'expired' : 'active';
+        line(`  ${bold(token.name)} ${dim(`role=${token.role} ${state} expires=${token.expiresAt.toISOString()} last-used=${token.lastUsedAt?.toISOString() ?? 'never'}`)}`);
+      }
+    });
+  });
+
+program
+  .command('token:revoke <name>')
+  .description('立即撤銷一把 API token')
+  .action(async (name: string) => {
+    await withRuntime(async (runtime) => {
+      await runtime.activateRelease('require-current');
+      const revoked = await runtime.database.transaction(tx => runtime.apiTokens.revoke(tx, name));
+      heading('已撤銷');
+      line(`  ${bold(revoked.name)} ${dim(`role=${revoked.role}`)}`);
+      line(dim('  下一個請求就不會通過，不需要重啟。'));
     });
   });
 

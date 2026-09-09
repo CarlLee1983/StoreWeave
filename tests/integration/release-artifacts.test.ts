@@ -59,8 +59,9 @@ describe('release process artifacts', () => {
     writeFileSync(config, JSON.stringify({
       version: 1, store: { id: 'migrationless', name: 'Migrationless' }, database: { url, autoMigrate: false },
       worker: { enabled: true }, http: { host: '127.0.0.1', port: await availablePort() }, logging: { level: 'error' }, extensions: [],
+      security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
     }));
-    const env = { ...process.env, STOREWEAVE_CONFIG: config };
+    const env = { ...process.env, STOREWEAVE_CONFIG: config, SW_SIGNING_KEY_TEST: Buffer.alloc(32, 3).toString('base64url') };
     const oldCli = join(builds[0]!.output, 'app/cli.js');
     const nextCli = join(builds[1]!.output, 'app/cli.js');
     await exec(process.execPath, [oldCli, 'migrate'], { env, timeout: 15_000 });
@@ -132,8 +133,10 @@ describe('release process artifacts', () => {
       writeFileSync(config, JSON.stringify({
         version: 1, store: { id: 'artifact-test', name: 'Artifact test' },
         database: { url }, worker: { enabled: false }, logging: { level: 'error' }, extensions: [],
+        security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
       }));
-      const env = { ...process.env, STOREWEAVE_CONFIG: config, B02_SMOKE_TOKEN: 'isolated-artifact-smoke-token' };
+      const env = { ...process.env, STOREWEAVE_CONFIG: config, B02_SMOKE_TOKEN: 'isolated-artifact-smoke-token',
+        SW_SIGNING_KEY_TEST: Buffer.alloc(32, 3).toString('base64url') };
       const seedFile = join(output, 'app/seed.js');
       const first = await exec(process.execPath, [seedFile], { env, timeout: 15_000 });
       expect(JSON.parse(first.stdout)).toMatchObject({ release: releaseId, demo: false });
@@ -225,6 +228,7 @@ describe('release process artifacts', () => {
         http: { host: '127.0.0.1', port }, worker: { enabled: true, pollIntervalMs: 50 },
         auth: { tokens: [{ name: 'smoke', role: 'admin', secretRef: 'B02_SMOKE_TOKEN' }] },
         shutdown: { timeoutMs: 2_000 },
+        security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
       }));
       const api = join(output, 'app/api.js');
       await processSmoke(api, env, 'api listening', async () => {

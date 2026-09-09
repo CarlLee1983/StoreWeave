@@ -4,19 +4,17 @@ import { SESSION_COOKIE, createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
 import { ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
 
-const ADMIN_TOKEN = 'test-admin-token-abcdefghijklmnop';
+let ADMIN_TOKEN: string;
 
 let h: TestHarness;
 let app: NestFastifyApplication;
 
 beforeAll(async () => {
   h = await createHarness();
-  (h.runtime.config.auth.tokens as unknown[]).push({ name: 'admin', role: 'admin', secretRef: 'ADMIN_TOKEN' });
-  (h.runtime as { secrets: any }).secrets = {
-    get: (n: string) => ({ ADMIN_TOKEN, DEMO_ERP_API_KEY: 'test-key' } as Record<string, string>)[n],
-    has: (n: string) => Boolean(({ ADMIN_TOKEN, DEMO_ERP_API_KEY: 'k' } as Record<string, string>)[n]),
-    listNames: () => [],
-  };
+  const issued = await h.runtime.database.transaction(tx => h.runtime.apiTokens.issue(tx, {
+    name: 'admin', role: 'admin', ttlMs: 60 * 60_000,
+  }));
+  ADMIN_TOKEN = issued.secret;
   app = await createServer({
     runtime: h.runtime,
     theme: defaultTheme,

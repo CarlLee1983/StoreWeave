@@ -67,11 +67,13 @@ it('authenticates real pg_dump/pg_restore through private passfiles and retains 
       } catch (error) { process.exitCode = error.status || 1; }
     `, { mode: 0o755 });
     vi.stubEnv('PATH', `${bin}:${process.env.PATH}`);
+    vi.stubEnv('SW_SIGNING_KEY_TEST', Buffer.alloc(32, 3).toString('base64url'));
     const url = new URL(container.getConnectionUri());
     url.password = password;
     const config = join(directory, 'base.json');
     writeFileSync(config, JSON.stringify({ version: 1, store: { id: 'snapshot', name: 'Snapshot' },
-      database: { url: url.toString() }, extensions: [], logging: { level: 'error' } }));
+      database: { url: url.toString() }, extensions: [], logging: { level: 'error' },
+      security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] } }));
     runtime = (await bootstrapRelease(release, { configPath: config, loggerName: 'paired-snapshot-test' })).runtime;
     await runtime.migrate();
     await runtime.database.pool.query(`
