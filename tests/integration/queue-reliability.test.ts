@@ -234,9 +234,9 @@ CREATE TABLE IF NOT EXISTS platform_worker_heartbeat (
       expect(await runMigrations(database.pool, [platformMigrations])).toEqual([
         'platform/0003_job_occurrence_fencing', 'platform/0004_job_payload_quarantine',
         'platform/0005_outbox_subscriber_snapshot_quarantine', 'platform/0006_job_retention_dedupe_horizon',
-        'platform/0007_ops_listing_indexes',
+        'platform/0007_ops_listing_indexes', 'platform/0008_job_schedules',
       ]);
-      const after = await database.pool.query("SELECT id, checksum FROM platform_migrations WHERE id IN ('platform/0001_init', 'platform/0002_worker_heartbeat', 'platform/0003_job_occurrence_fencing', 'platform/0004_job_payload_quarantine', 'platform/0005_outbox_subscriber_snapshot_quarantine', 'platform/0006_job_retention_dedupe_horizon', 'platform/0007_ops_listing_indexes') ORDER BY id");
+      const after = await database.pool.query("SELECT id, checksum FROM platform_migrations WHERE id IN ('platform/0001_init', 'platform/0002_worker_heartbeat', 'platform/0003_job_occurrence_fencing', 'platform/0004_job_payload_quarantine', 'platform/0005_outbox_subscriber_snapshot_quarantine', 'platform/0006_job_retention_dedupe_horizon', 'platform/0007_ops_listing_indexes', 'platform/0008_job_schedules') ORDER BY id");
       expect(after.rows.slice(0, 2)).toEqual(before.rows);
       expect(after.rows.slice(2)).toEqual([
         { id: 'platform/0003_job_occurrence_fencing', checksum: expect.any(String) },
@@ -244,6 +244,7 @@ CREATE TABLE IF NOT EXISTS platform_worker_heartbeat (
         { id: 'platform/0005_outbox_subscriber_snapshot_quarantine', checksum: expect.any(String) },
         { id: 'platform/0006_job_retention_dedupe_horizon', checksum: expect.any(String) },
         { id: 'platform/0007_ops_listing_indexes', checksum: expect.any(String) },
+        { id: 'platform/0008_job_schedules', checksum: expect.any(String) },
       ]);
       const rows = await database.pool.query<{ id: string; payload: { state: string }; status: string; attempts: number; payload_version: number; occurrence_id: string }>(
         'SELECT id, payload, status, attempts, payload_version, occurrence_id FROM platform_jobs ORDER BY attempts',

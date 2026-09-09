@@ -39,6 +39,7 @@
     "@radix-ui/react-popover": "^1.1.23",
     "@tanstack/react-query": "5.102.8",
     "commander": "^12.1.0",
+    "croner": "10.0.1",
     "drizzle-orm": "^0.38.0",
     "pg": "^8.13.0",
     "pino": "^9.5.0",

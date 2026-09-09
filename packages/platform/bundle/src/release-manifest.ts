@@ -26,6 +26,8 @@ export function projectReleaseManifest<C extends BaseConfig>(
   const modules = projectModules(composeRuntimeModules({
     modules: releaseModules, roles: release.roles, platformVersion: release.baseVersion,
     jobs: new JobQueue(), events: new EventBus(), outbox: new OutboxStore(), logger: noopLogger,
+    // manifest 投影只讀模組的宣告，不會執行任何 handler，所以這條路上沒有排程器。
+    scheduler: () => { throw new Error('Release manifest projection has no scheduler'); },
   }));
   const availableExtensions = Object.entries(release.availableExtensions).map(([id, definition]): BuildExtensionManifest => {
     if (id !== definition.manifest.id) throw new Error(`Extension catalog key does not match manifest id: ${id}`);

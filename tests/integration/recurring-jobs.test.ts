@@ -47,7 +47,7 @@ describe('週期性工作', () => {
   it('確保當下切片後，工作會被執行；同一個切片不會再排第二次', async () => {
     const handler = vi.fn(async () => {});
     h.runtime.jobRegistry.register('test.recurring.basic', handler, 'test', { currentVersion: 1, versions: { 1: recurringPayload } });
-    h.runtime.recurring.register({ type: 'test.recurring.basic', everyMs: HOUR });
+    h.runtime.recurring.register('test.recurring.basic', { everyMs: HOUR });
 
     await h.runtime.recurring.ensureScheduled(T0);
     // 一輪只認領 concurrency 筆，而這個資料庫裡還有其他模組宣告的週期性工作。
@@ -79,7 +79,7 @@ describe('週期性工作', () => {
   it('連續數個切片各跑一次', async () => {
     const handler = vi.fn(async () => {});
     h.runtime.jobRegistry.register('test.recurring.many', handler, 'test', { currentVersion: 1, versions: { 1: recurringPayload } });
-    h.runtime.recurring.register({ type: 'test.recurring.many', everyMs: HOUR });
+    h.runtime.recurring.register('test.recurring.many', { everyMs: HOUR });
 
     for (let i = 0; i < 4; i += 1) {
       await h.runtime.recurring.ensureScheduled(new Date(T0.getTime() + i * HOUR));
@@ -93,7 +93,7 @@ describe('週期性工作', () => {
   it('某一次進了死信不會讓後續的切片停擺', async () => {
     const handler = vi.fn(async () => { throw new PermanentJobError('故意失敗'); });
     h.runtime.jobRegistry.register('test.recurring.dead', handler, 'test', { currentVersion: 1, versions: { 1: recurringPayload } });
-    h.runtime.recurring.register({ type: 'test.recurring.dead', everyMs: HOUR });
+    h.runtime.recurring.register('test.recurring.dead', { everyMs: HOUR });
 
     await h.runtime.recurring.ensureScheduled(T0);
     await h.worker.runJobs();
@@ -114,7 +114,7 @@ describe('週期性工作', () => {
   it('worker tick 會自己確保週期性工作已排入', async () => {
     const handler = vi.fn(async () => {});
     h.runtime.jobRegistry.register('test.recurring.tick', handler, 'test', { currentVersion: 1, versions: { 1: recurringPayload } });
-    h.runtime.recurring.register({ type: 'test.recurring.tick', everyMs: HOUR });
+    h.runtime.recurring.register('test.recurring.tick', { everyMs: HOUR });
 
     const first = await h.worker.tick();
     expect(first.recurringScheduled).toBeGreaterThanOrEqual(1);
