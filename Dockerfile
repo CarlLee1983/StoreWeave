@@ -19,6 +19,7 @@ COPY apps/worker/package.json apps/worker/
 COPY packages/platform/audit/package.json packages/platform/audit/
 COPY packages/platform/authorization/package.json packages/platform/authorization/
 COPY packages/platform/bundle/package.json packages/platform/bundle/
+COPY packages/platform/cache/package.json packages/platform/cache/
 COPY packages/platform/command-bus/package.json packages/platform/command-bus/
 COPY packages/platform/config/package.json packages/platform/config/
 COPY packages/platform/contracts/package.json packages/platform/contracts/

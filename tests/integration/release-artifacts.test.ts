@@ -107,7 +107,7 @@ describe('release process artifacts', () => {
       const manifest = JSON.parse(readFileSync(join(output, 'release-manifest.json'), 'utf8'));
       expect(manifest).toMatchObject({ schemaVersion: 1, releaseId, releaseVersion: '0.1.2-test' });
       expect(info.manifestChecksum).toBe(catalogDigest(manifest));
-      expect(manifest.modules).toHaveLength(releaseId === 'base' ? 3 : 17);
+      expect(manifest.modules).toHaveLength(releaseId === 'base' ? 4 : 18);
       if (releaseId === 'base') {
         expect(manifest.availableExtensions).toEqual([]);
         for (const file of ['release-manifest.js.meta.json', 'scripts/validate-release.js.meta.json']) {
@@ -165,7 +165,8 @@ describe('release process artifacts', () => {
               'platform/0004_job_payload_quarantine',
               'platform/0005_outbox_subscriber_snapshot_quarantine',
               'platform/0006_job_retention_dedupe_horizon',
-              'platform/0007_ops_listing_indexes'
+              'platform/0007_ops_listing_indexes',
+              'platform-cache/0001_init'
             );
             DROP TABLE platform_release_history;
             ALTER TABLE platform_migrations DROP COLUMN checksum, DROP COLUMN migration_order,

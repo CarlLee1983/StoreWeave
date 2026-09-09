@@ -32,11 +32,13 @@ describe('release build manifest', () => {
       registeredQueries: [], registeredProviders: [], registeredJobs: ['ext.manifest-probe.run'],
     }, setup });
     const manifest = buildReleaseManifest({ ...base, availableExtensions: { 'manifest-probe': extension } });
-    expect(manifest.modules.map(module => module.id)).toEqual(['platform', 'platform-identity', 'platform-ops']);
+    expect(manifest.modules.map(module => module.id)).toEqual(['platform', 'platform-cache', 'platform-identity', 'platform-ops']);
     expect(manifest.modules.find(module => module.id === 'platform')?.dataRelations)
       .toContain('platform_job_quarantine');
     expect(manifest.modules.find(module => module.id === 'platform')?.dataRelations)
       .toContain('platform_outbox_quarantine');
+    expect(manifest.modules.find(module => module.id === 'platform-cache')?.dataRelations)
+      .toEqual(['platform_cache']);
     expect(manifest.modules.find(module => module.id === 'platform-ops')?.migrations).toEqual([]);
     expect(manifest.availableExtensions[0]?.work.jobTypes).toEqual(['ext.manifest-probe.run']);
     expect(manifest.availableExtensions[0]).not.toHaveProperty('enabled');
@@ -55,7 +57,7 @@ describe('release build manifest', () => {
     const modules = commerce.createModules({ config, providers });
     const actual = projectReleaseManifest(commerce, [...modules].reverse());
     expect(catalogDigest(actual)).toBe(catalogDigest(expected));
-    expect(expected.modules).toHaveLength(17);
+    expect(expected.modules).toHaveLength(18);
   });
 
   it('rejects config-dependent job metadata before constructing a database', async () => {
