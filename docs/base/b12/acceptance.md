@@ -28,11 +28,33 @@
 | --- | --- |
 | 片1 crypto | 一份獨立審查。HIGH：簽發值與密文接受非正規編碼（`token + '='`、前導零到期秒數皆能通過驗證），使同一份授權有多種字串寫法。已修並補 canonical 回歸。MEDIUM：金鑰秘密以字元長度衡量強度、一個測試名稱與斷言不符。LOW：derive 回傳快取參照、型別檢查、錯誤 cause、GCM 訊息數上限。全部已處理 |
 | 片2 http-client | 一份獨立審查，結論 Block。五項 HIGH：跨 origin 只丟三個寫死 header、無私網位址防線、`safeUrl` 保留 path、測試情境會打真實網路、demo-erp 推單 204 會被當成失敗而重複建單。八項 MEDIUM 含逾時是每跳而非每次嘗試、可重試回應主體未釋放、GET 帶 body 被誤重試。全部已修 |
-| 片3 i18n | 進行中 |
+| 片3 i18n | 一份獨立審查，結論 Block。CRITICAL：私網防線可用 IPv4-mapped IPv6 繞過（`[::ffff:127.0.0.1]` 被 URL parser 正規化成 `[::ffff:7f00:1]`，既不是 `::1` 也不匹配 `fc00::/7`）。HIGH：OrdersPage 測試綁死主機時區，UTC 機器必定失敗。另有 store.timezone 未驗證、`timeZone: undefined` 會退回主機時區、escapeHtml 被用於 URL 屬性、重用 Response 被誤判為可重試等。全部已修 |
+
+## Gates evidence
+
+在 `570c89f` 之後、`pnpm-lock.yaml` 補上三個新 workspace importer 的 source 上實跑：
+
+| gate | 結果 |
+| --- | --- |
+| `pnpm typecheck` | PASS |
+| `pnpm typecheck:admin` | PASS |
+| `pnpm test`（unit） | 73 files／920 PASS |
+| `pnpm test:admin` | 28 files／322 PASS，於 `TZ=UTC` 下取得 |
+| `pnpm test:integration` | 85 files／713 PASS |
+| `pnpm build` | PASS |
+| `pnpm build:admin` | PASS |
+| Docker smoke commerce | 66 通過／0 失敗 |
+| Docker smoke base | PASS（含 commerce 路徑不存在的檢查） |
+| native smoke commerce | 65 通過／0 失敗 |
+| native smoke base | PASS |
+
+Docker smoke 第一次失敗於 `pnpm install --frozen-lockfile`：三個新 workspace 套件沒有進 `pnpm-lock.yaml` 的 importers。本機 `pnpm install` 判定 lockfile 已是最新而不重寫，最後以三筆 `{}` importer 補上，diff 僅此三行。
+
+## 已知不穩定
+
+`tests/integration/worker-recovery.test.ts` 在本機會間歇失敗。實測：本分支連跑三次為 8/8、7/8、8/8；在 B12 之前的 `8390db5` 上同一支也失敗一項（且是不同案例）。這是 B04 既有的環境敏感測試（`databaseTimeoutMs: 100`、`shutdown.timeoutMs: 250`），不是 B12 迴歸，處置歸屬 B04／B05 工作線。上表的 713 PASS 是在沒有其他重型工作並行時取得。
 
 ## 尚未完成
 
-- 完整 integration gate：執行中，結果補於此。
-- Docker／native smoke：未跑。
-- 片3 獨立審查：進行中。
 - B12 整包整合驗收後才可將基準交給 B09。
+- 片3 的修正尚未再取得一次獨立審查。

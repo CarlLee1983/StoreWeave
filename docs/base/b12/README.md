@@ -1,7 +1,8 @@
 # B12 — 共用工具
 
-狀態：三片實作完成，片1／片2 各取得一份獨立審查並修完其 HIGH，片3 審查與完整
-gates 見下方 evidence。範圍與依賴以[計畫 §3](../../base-implementation-plan.md#3-依賴圖與階段出口)為準；派工契約與現況盤點見 [assignment](assignment.md)。
+狀態：三片實作完成，三份獨立審查的 CRITICAL／HIGH 全部修完並補回歸；完整
+integration 與四種 smoke 實跑通過，逐項見 [acceptance](acceptance.md)。片3 的修正
+尚未再取得一次獨立審查。範圍與依賴以[計畫 §3](../../base-implementation-plan.md#3-依賴圖與階段出口)為準；派工契約與現況盤點見 [assignment](assignment.md)。
 
 ## 三片
 

@@ -296,11 +296,17 @@ importers:
 
   packages/platform/contracts: {}
 
+  packages/platform/crypto: {}
+
   packages/platform/db: {}
 
   packages/platform/event-bus: {}
 
   packages/platform/extension-sdk: {}
+
+  packages/platform/http-client: {}
+
+  packages/platform/i18n: {}
 
   packages/platform/identity: {}
 
