@@ -23,6 +23,12 @@ const ctxWith = (
   commands: { execute: commandExecute },
   actor: customer,
   locale: 'zh-TW',
+  clientKey: 'test-client',
+  cookies: { guestCartToken: () => null, ensureGuestCart: () => 'guest-token' },
+  providers: {
+    get: () => { throw new Error('個人資料頁不需要 provider'); },
+    has: () => false,
+  },
 });
 
 describe('個人資料頁', () => {

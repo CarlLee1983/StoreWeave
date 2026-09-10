@@ -37,12 +37,18 @@ export interface PageCookiePort {
  */
 export interface PageProviderPort {
   readonly get: <T>(kind: string, id?: string) => T;
+  /** 有沒有註冊這種 provider。結帳頁靠它決定要不要顯示發票欄位。 */
+  readonly has: (kind: string, id?: string) => boolean;
 }
 
 export interface PageResolveContext {
   readonly queries: { execute<O = unknown>(name: string, input: unknown, options: { actor: Actor }): Promise<O> };
   readonly commands: {
-    execute<O = unknown>(name: string, input: unknown, options: { actor: Actor; idempotencyKey?: string }): Promise<O>;
+    execute<O = unknown>(
+      name: string, input: unknown,
+      /** `correlationId` 讓一次操作在稽核紀錄裡串得起來；寫入命令應該帶。 */
+      options: { actor: Actor; idempotencyKey?: string; correlationId?: string },
+    ): Promise<O>;
   };
   /**
    * 永遠存在：未登入時是該 release 的匿名 actor。查詢與命令一律帶身分，
@@ -133,10 +139,14 @@ export function collectPages(modules: readonly PlatformModule[]): readonly Store
 }
 
 /**
- * 沒有自己的路由，但任何 release 都會用到的頁面。錯誤頁是其中唯一一個：
- * 它是別條路由失敗時的結果，所以不由誰「宣告」，而是每個 Theme 都必須提供。
+ * 沒有自己的路由，但任何 release 都會用到的頁面。錯誤頁是別條路由失敗時的結果，
+ * 所以不由誰「宣告」，而是每個 Theme 都必須提供。
+ *
+ * 登入表單暫時也在這裡：它的寫入端點要簽發 session cookie，而頁面能碰的 cookie
+ * 只有訪客購物車那兩個動作。identity 的頁面遷移（B13 片5）會把它改成模組宣告，
+ * 屆時這個清單應該只剩錯誤頁。
  */
-export const SYSTEM_PAGE_IDS = ['platform.error'] as const;
+export const SYSTEM_PAGE_IDS = ['platform.error', 'platform.auth'] as const;
 
 /**
  * 在開始服務之前比對已載入模組宣告的必需頁面與 Theme 提供的 renderer。

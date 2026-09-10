@@ -17,7 +17,10 @@ const ctxWith = (execute: PageResolveContext['queries']['execute']): PageResolve
   locale: 'zh-TW',
   clientKey: 'test-client',
   cookies: { guestCartToken: () => null, ensureGuestCart: () => 'guest-token' },
-  providers: { get: () => { throw new Error('目錄頁不需要 provider'); } },
+  providers: {
+    get: () => { throw new Error('目錄頁不需要 provider'); },
+    has: () => false,
+  },
 });
 
 describe('目錄頁', () => {
@@ -82,5 +85,36 @@ describe('商品頁', () => {
     const outcome = await catalogPages.product.resolve(ctxWith(execute as never), { id: 'p1' });
 
     expect(outcome).toEqual({ kind: 'not-found' });
+  });
+});
+
+describe('首頁', () => {
+  const parse = (raw: Record<string, string>) => catalogPages.home.input.parse(raw);
+
+  it('目錄與品牌內容摘要一起取回', async () => {
+    const execute = vi.fn(async (name: string, input: any) => {
+      if (name === 'commerce.catalog.searchProducts') return { items: [product()], total: 1 };
+      if (name === 'commerce.inventory.getStock') return { available: 2 };
+      return { items: [{ kind: input.kind, slug: `${input.kind}-1`, title: 't', summary: 's', section: 'x', body: [], imageKey: null, publishedAt: '2026-01-01' }] };
+    });
+
+    const outcome = await catalogPages.home.resolve(ctxWith(execute as never), parse({}));
+
+    expect(outcome).toMatchObject({
+      kind: 'view',
+      view: { total: 1, story: { slug: 'story-1' }, journal: [{ slug: 'journal-1' }], news: [{ slug: 'news-1' }] },
+    });
+  });
+
+  it('沒有 content 模組時首頁照樣出得來，摘要是空的', async () => {
+    const execute = vi.fn(async (name: string) => {
+      if (name === 'commerce.catalog.searchProducts') return { items: [], total: 0 };
+      if (name === 'commerce.inventory.getStock') return { available: 0 };
+      throw new Error('unknown query: commerce.content.listPublishedArticles');
+    });
+
+    const outcome = await catalogPages.home.resolve(ctxWith(execute as never), parse({}));
+
+    expect(outcome).toMatchObject({ kind: 'view', view: { story: null, journal: [], news: [] } });
   });
 });

@@ -4,6 +4,7 @@ import { defineModule } from '@storeweave/kernel';
 import { createCartModule, type CartModuleDeps } from './commands';
 import { PURGE_STALE_GUEST_CARTS_JOB, createPurgeStaleGuestCartsJob } from './jobs';
 import { cartMigrations } from './migrations';
+import { cartPages } from './pages';
 import { createCartQueries } from './queries';
 
 export function createCart(deps: CartModuleDeps) {
@@ -37,5 +38,6 @@ export function createCart(deps: CartModuleDeps) {
       },
     ],
     queries: createCartQueries(deps).queries,
+    pages: cartPages,
   });
 }

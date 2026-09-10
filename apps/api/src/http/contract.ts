@@ -6,7 +6,15 @@ import { zodToJsonSchema, type JsonSchema7Type } from 'zod-to-json-schema';
 import { z } from 'zod';
 import { declaredInputKeys, PlatformError } from '@storeweave/contracts';
 import type { ShippingProvider } from '@storeweave/extension-sdk';
+import type {
+  RateLimitBucket, StorefrontAssetHttpContract, StorefrontCookieEffect, StorefrontHttpContract, StorefrontResponse,
+} from '@storeweave/kernel';
 import type { Runtime } from '@storeweave/kernel';
+
+// 前台的契約型別跟著頁面宣告住進 kernel（ADR 0045）；這裡沿用原本的匯出路徑。
+export type {
+  RateLimitBucket, StorefrontAssetHttpContract, StorefrontCookieEffect, StorefrontHttpContract, StorefrontResponse,
+};
 import { IS_ANONYMOUS, IS_EXTERNAL_CALLBACK, IS_PUBLIC } from './auth';
 import { httpErrorSchema } from './envelope';
 import { MCP_METHOD_LIST, MCP_PROTOCOL_VERSION, jsonRpcRequest } from '../mcp/jsonrpc';

@@ -27,6 +27,12 @@ const ctxWith = (execute: PageResolveContext['queries']['execute']): PageResolve
   commands: { execute: vi.fn() },
   actor: customer,
   locale: 'zh-TW',
+  clientKey: 'test-client',
+  cookies: { guestCartToken: () => null, ensureGuestCart: () => 'guest-token' },
+  providers: {
+    get: () => { throw new Error('購物金與等級頁不需要 provider'); },
+    has: () => false,
+  },
 });
 
 describe('購物金與等級頁', () => {

@@ -89,13 +89,16 @@ export function buildResolveContext(
     actor,
     locale: deps.runtime.config.store.locale,
     // 雜湊而不是原始位址：頁面要的是「分得出是不是同一個人」，不是知道他在哪。
-    clientKey: createHash('sha256').update(req.ip ?? 'unknown').digest('hex').slice(0, 32),
+    clientKey: createHash('sha256').update((req as { ip?: string }).ip ?? 'unknown').digest('hex').slice(0, 32),
     cookies: {
       guestCartToken: () => existingGuestToken(req, deps.runtime.config.http.publicUrl) ?? null,
       // 簽發會寫進這個回應，所以只在真的要建立購物車時呼叫，不是每頁都叫一次。
       ensureGuestCart: () => guestTokenFor(req, reply, deps.runtime.config.http.publicUrl)!,
     },
-    providers: { get: (kind, id) => deps.runtime.providers.get(kind as never, id) as never },
+    providers: {
+      get: (kind, id) => deps.runtime.providers.get(kind as never, id) as never,
+      has: (kind, id) => deps.runtime.providers.has(kind as never, id),
+    },
   };
 }
 

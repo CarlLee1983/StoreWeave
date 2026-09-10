@@ -28,6 +28,10 @@ export interface ThemeCatalogView {
 
 export const CATALOG_PAGE_SIZE = 24;
 
+/** 首頁只帶一則品牌內容；完整清單留給各自的頁面。 */
+const HOME_JOURNAL_COUNT = 2;
+const HOME_NEWS_COUNT = 3;
+
 interface ProductDtoShape {
   id: string; sku: string; name: string; description: string | null;
   priceCents: number; currency: string; status: string;
@@ -107,7 +111,56 @@ async function searchCatalog(
   };
 }
 
+/** 首頁上的品牌內容摘要。內容歸 content 模組；沒有載入它的 release 就是沒有摘要。 */
+interface HomeArticleTeaser {
+  kind: string; slug: string; title: string; summary: string; section: string;
+  body: { heading: string | null; text: string }[];
+  imageKey: string | null; publishedAt: Date | null;
+}
+
+export interface ThemeHomeView extends ThemeCatalogView {
+  story: HomeArticleTeaser | null;
+  journal: HomeArticleTeaser[];
+  news: HomeArticleTeaser[];
+}
+
+/**
+ * 品牌內容是選配的：沒有 content 模組的 release 首頁照樣要出得來，
+ * 所以查不到就是沒有摘要，而不是一整頁失敗。
+ */
+async function publishedTeasers(ctx: PageResolveContext, kind: string, limit: number): Promise<HomeArticleTeaser[]> {
+  try {
+    const result = await ctx.queries.execute<{ items: (HomeArticleTeaser & { publishedAt: string | Date | null })[] }>(
+      'commerce.content.listPublishedArticles', { kind, limit }, { actor: ctx.actor },
+    );
+    return result.items.map(item => ({ ...item, publishedAt: item.publishedAt ? new Date(item.publishedAt) : null }));
+  } catch {
+    return [];
+  }
+}
+
 export const catalogPages = {
+  home: definePage({
+    id: 'commerce.catalog.home',
+    path: '/',
+    method: 'get',
+    audience: 'public',
+    input: catalogInput,
+    contract: {
+      kind: 'storefront', request: 'query', input: jsonSchema(['q', 'minPrice', 'maxPrice', 'page']),
+      responses: htmlOnly, cookieEffects: ['cart-notice-consume'],
+    },
+    resolve: async (ctx, input) => {
+      const [catalog, story, journal, news] = await Promise.all([
+        searchCatalog(ctx, input),
+        publishedTeasers(ctx, 'story', 1),
+        publishedTeasers(ctx, 'journal', HOME_JOURNAL_COUNT),
+        publishedTeasers(ctx, 'news', HOME_NEWS_COUNT),
+      ]);
+      return { kind: 'view', view: { ...catalog, story: story[0] ?? null, journal, news } };
+    },
+  }),
+
   catalog: definePage({
     id: 'commerce.catalog.view',
     path: '/catalog',

@@ -48,7 +48,7 @@ export async function createReleaseServer(options: ReleaseServerOptions): Promis
     adapter.getInstance().get(route.path, handler as never);
   };
   try {
-    selectedControllers = options.httpAdapter.controllers(runtime.config);
+    selectedControllers = options.httpAdapter.controllers(runtime.config, { runtime, theme });
     app = await NestFactory.create<NestFastifyApplication>(
       AppModule.forRuntime(runtime, theme, release, options.httpAdapter, selectedControllers),
       adapter,

@@ -14,12 +14,18 @@ const article = (over: Record<string, unknown> = {}) => ({
 const ctxWith = (
   execute: PageResolveContext['queries']['execute'],
   commandExecute: PageResolveContext['commands']['execute'] = vi.fn(),
-  actor: Actor = anonymous,
+  clientKey: string = 'client-1',
 ): PageResolveContext => ({
   queries: { execute },
   commands: { execute: commandExecute },
-  actor,
+  actor: anonymous,
   locale: 'zh-TW',
+  clientKey,
+  cookies: { guestCartToken: () => null, ensureGuestCart: () => 'guest-token' },
+  providers: {
+    get: () => { throw new Error('聯絡頁不需要 provider'); },
+    has: () => false,
+  },
 });
 
 describe('故事頁', () => {
@@ -128,7 +134,7 @@ describe('送出聯絡表單', () => {
     const commandExecute = vi.fn(async () => ({ id: 'm1' }));
 
     const outcome = await contentPages.submitContact.resolve(
-      ctxWith(vi.fn(), commandExecute as never, { id: `visitor-${Math.random()}`, type: 'service', permissions: [] }),
+      ctxWith(vi.fn(), commandExecute as never, `visitor-${Math.random()}`),
       parse(values),
     );
 
@@ -147,7 +153,7 @@ describe('送出聯絡表單', () => {
     const commandExecute = vi.fn(async () => { throw PlatformError.validation('Email 格式錯誤'); });
 
     const outcome = await contentPages.submitContact.resolve(
-      ctxWith(vi.fn(), commandExecute as never, { id: `visitor-${Math.random()}`, type: 'service', permissions: [] }),
+      ctxWith(vi.fn(), commandExecute as never, `visitor-${Math.random()}`),
       parse(values),
     );
 
@@ -158,7 +164,7 @@ describe('送出聯絡表單', () => {
     const commandExecute = vi.fn();
 
     const outcome = await contentPages.submitContact.resolve(
-      ctxWith(vi.fn(), commandExecute as never, { id: `visitor-${Math.random()}`, type: 'service', permissions: [] }),
+      ctxWith(vi.fn(), commandExecute as never, `visitor-${Math.random()}`),
       parse({ ...values, website: 'http://spam.example' }),
     );
 
@@ -171,8 +177,8 @@ describe('送出聯絡表單', () => {
 
   it('同一個節流鍵超過視窗上限時靜默丟棄', async () => {
     const commandExecute = vi.fn(async () => ({ id: 'm1' }));
-    const actor: Actor = { id: `throttle-${Math.random()}`, type: 'service', permissions: [] };
-    const ctx = ctxWith(vi.fn(), commandExecute as never, actor);
+    const clientKey = `throttle-${Math.random()}`;
+    const ctx = ctxWith(vi.fn(), commandExecute as never, clientKey);
 
     for (let i = 0; i < 10; i += 1) {
       await contentPages.submitContact.resolve(ctx, parse(values));

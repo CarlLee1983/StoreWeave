@@ -1,4 +1,5 @@
 import type { Type } from '@nestjs/common';
+import { collectPages } from '@storeweave/kernel';
 import type { ReleaseHttpAdapter } from '../release-adapter';
 import { startSession } from '../http/session-start';
 import { AnalyticsController } from '../controllers/analytics.controller';
@@ -25,16 +26,29 @@ import { ContentArticleController, ContentContactController } from '../controlle
 import { RmaController } from '../controllers/rma.controller';
 import { McpController } from '../mcp/mcp.controller';
 import { StorefrontController } from '../storefront/storefront.controller';
+import { createStorefrontController } from '../storefront/storefront-routes';
+import { buildResolveContext, buildThemeContext, renderStorefrontError } from '../storefront/storefront-context';
 import { StorageController } from '../controllers/storage.controller';
 
 export const httpAdapter: ReleaseHttpAdapter = {
   releaseId: 'commerce', anonymousRole: 'storefront', startSession,
-  controllers(config) {
+  controllers(config, { runtime, theme }) {
     const controllers: Type[] = [
       HealthController, MetaController, AuthController, CatalogController, InventoryController, SystemController, StorageController,
       OrderController, PromotionController, CouponController, CustomerController, CartController, ShippingController, RefundController, RmaController, InvoiceController, LoyaltyController, NotificationController, NotificationsController, CallbackController, AnalyticsController, ContentArticleController, ContentContactController, ExtensionsController, StorefrontController,
     ];
     if (config.mcp.enabled) controllers.push(McpController);
+    if (theme) {
+      // 前台路由來自模組宣告的頁面；StorefrontController 只剩登入表單、
+      // 外部回呼與 Theme 靜態資產（ADR 0045）。
+      const deps = { runtime, theme, anonymousRole: 'storefront' };
+      controllers.push(createStorefrontController(collectPages(runtime.modules), {
+        theme,
+        buildContext: (req, reply) => buildThemeContext(deps, req, reply),
+        resolveContext: (req, reply) => buildResolveContext(deps, req, reply),
+        renderError: (req, reply, error) => renderStorefrontError(deps, reply, error, req),
+      }));
+    }
 
     return controllers;
   },
