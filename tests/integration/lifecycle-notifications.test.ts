@@ -1,13 +1,48 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { SMTPServer } from 'smtp-server';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import {
   ADMIN_ACTOR, checkoutInput, createHarness, createProduct, defaultCustomer, payOrder, placeOrder, runJobsUntilProcessed, settleWorker, stockUp, type TestHarness,
 } from './helpers';
 
+const servers: SMTPServer[] = [];
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map(server => new Promise<void>(resolve => server.close(() => resolve()))));
+});
+
+/** 生命週期通知走 base 通知能力，因此這裡的收信端就是一個真的 SMTP。 */
+async function smtpSink(options: { rejectAll?: boolean } = {}) {
+  const messages: string[] = [];
+  const server = new SMTPServer({
+    disabledCommands: ['STARTTLS', 'AUTH'],
+    onRcptTo(_address, _session, callback) { callback(options.rejectAll ? new Error('550 recipient rejected') : null); },
+    onData(stream, _session, callback) {
+      stream.on('data', chunk => { messages.push(chunk.toString('utf8')); });
+      stream.on('end', callback);
+    },
+  });
+  servers.push(server);
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.server.address();
+  if (!address || typeof address === 'string') throw new Error('SMTP sink did not expose a TCP port');
+  return { port: address.port, messages };
+}
+
+function mailConfig(port: number) {
+  return { transport: 'smtp', from: 'store@example.test', smtp: { host: '127.0.0.1', port } };
+}
+
+let sink: Awaited<ReturnType<typeof smtpSink>>;
 let h: TestHarness;
-beforeAll(async () => { h = await createHarness(); }, 300_000);
-afterAll(async () => { await h?.close(); });
+beforeAll(async () => {
+  sink = await smtpSink();
+  h = await createHarness({ mail: mailConfig(sink.port) });
+}, 300_000);
+afterAll(async () => {
+  await h?.close();
+  await Promise.all(servers.splice(0).map(server => new Promise<void>(resolve => server.close(() => resolve()))));
+});
 
 async function lifecycleDeliveries(harness: TestHarness, orderId: string) {
   return harness.runtime.queries.execute<{ items: any[] }>(
@@ -43,7 +78,7 @@ async function paidOrderWithShipment(harness: TestHarness) {
 }
 
 describe('訂單生命週期通知', () => {
-  it('下單、付款、出貨、到貨各產生一筆有 provider 證據的通知', async () => {
+  it('下單、付款、出貨、到貨各寄出一封信，並留下可查的投遞證據', async () => {
     const { order, shipment } = await paidOrderWithShipment(h);
     await settleWorker(h.worker);
 
@@ -52,8 +87,9 @@ describe('訂單生命週期通知', () => {
       'customer.order-paid', 'customer.order-placed', 'customer.shipment-arrived', 'customer.shipment-shipped',
     ]);
     for (const row of rows) {
+      // 狀態與 provider 證據都來自 base 通知能力：commerce 不另外記一份可能過時的副本。
       expect(row.status).toBe('sent');
-      expect(row.providerRef).toMatch(/^mock_/);
+      expect(row.providerRef).toMatch(/^<[0-9a-f]+@storeweave\.mail>$/);
       expect(row.reference).toContain(row.eventId);
       expect(row.attempts).toBe(1);
     }
@@ -71,16 +107,20 @@ describe('訂單生命週期通知', () => {
     const { order } = await paidOrderWithShipment(h);
     await settleWorker(h.worker);
     const before = (await lifecycleDeliveries(h, order.id)).items;
+    const sent = sink.messages.length;
     await settleWorker(h.worker);
     const after = (await lifecycleDeliveries(h, order.id)).items;
     expect(after).toHaveLength(4);
     expect(after.map((row) => [row.eventId, row.template, row.providerRef]).sort())
       .toEqual(before.map((row) => [row.eventId, row.template, row.providerRef]).sort());
+    expect(sink.messages.length).toBe(sent);
   });
 
-  it('provider failure is recorded before the retryable job is returned to pending', async () => {
+  it('退信先留下紀錄才進死信，重送是營運的決定；訂單不受影響', async () => {
+    const rejecting = await smtpSink({ rejectAll: true });
     const failing = await createHarness({
-      extensions: { 'mock-payment': { autoApprove: true }, 'mock-notification': { deliver: false }, mcp: {} },
+      extensions: { 'mock-payment': { autoApprove: true }, mcp: {} },
+      mail: mailConfig(rejecting.port),
     });
     try {
       const product = await createProduct(failing.runtime);
@@ -92,14 +132,37 @@ describe('訂單生命週期通知', () => {
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ template: 'customer.order-placed', status: 'failed' });
       expect(rows[0].attempts).toBeGreaterThanOrEqual(1);
+      expect(rows[0].lastError).not.toContain('@example.com');
+      // 收件人被明確退回是永久性失敗：先寫下證據，再讓工作進死信等營運決定重送，
+      // 而不是拿同一個地址無止盡重試。
       const jobs = await failing.runtime.database.db.execute<{ status: string; last_error: string | null }>(sql`
-        SELECT status, last_error FROM platform_jobs WHERE type = 'commerce.notification.deliver-lifecycle'
+        SELECT status, last_error FROM platform_jobs WHERE type = 'platform.notification.deliver'
       `);
-      expect(jobs.rows).toContainEqual(expect.objectContaining({ status: 'pending', last_error: expect.stringContaining('delivery disabled') }));
+      expect(jobs.rows).toContainEqual(expect.objectContaining({ status: 'dead' }));
       const current = await failing.runtime.queries.execute<any>('commerce.order.getOrder', { id: order.id }, { actor: ADMIN_ACTOR });
       expect(current.status).toBe('pending');
     } finally {
       await failing.close();
+    }
+  });
+
+  it('沒有設定寄信管道時記成 skipped，不會排出永遠送不出去的工作', async () => {
+    const disabled = await createHarness({ extensions: { 'mock-payment': { autoApprove: true }, mcp: {} } });
+    try {
+      const product = await createProduct(disabled.runtime);
+      await stockUp(disabled.runtime, product.id, 2);
+      const order = await placeOrder(disabled.runtime, product.id);
+      await settleWorker(disabled.worker);
+
+      const rows = (await lifecycleDeliveries(disabled, order.id)).items;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ template: 'customer.order-placed', status: 'skipped' });
+      const jobs = await disabled.runtime.database.db.execute(sql`
+        SELECT 1 FROM platform_jobs WHERE type = 'platform.notification.deliver'
+      `);
+      expect(jobs.rows).toHaveLength(0);
+    } finally {
+      await disabled.close();
     }
   });
 });

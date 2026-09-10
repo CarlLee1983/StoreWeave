@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { PlatformError, defineQuery, type QueryContext } from '@storeweave/contracts';
+import { maskEmailsIn, maskRecipient, type NotificationsPort } from '@storeweave/notifications';
 import { lifecycleDeliveryDto, listLifecycleDeliveriesInput, listLifecycleDeliveriesOutput, type LifecycleDeliverySummaryDto } from './dto';
 import { NotificationRepository, toLifecycleDeliveryDto } from './repository';
+
+export { maskEmailsIn, maskRecipient };
 
 const repository = new NotificationRepository();
 
@@ -24,31 +27,28 @@ export const listLifecycleDeliveriesQuery = defineQuery({
 });
 
 /**
- * `a***@example.com`。留得下網域是為了看得出退信是不是集中在某一家。
- *
- * 星號數量固定，不跟著本地端長度走——長度本身就是線索，配上網域往往足以把人縮到幾個。
- * 單字元本地端整個遮掉：只有一個字元時，留下首字等於沒有遮。
+ * 投遞狀態向 base 通知能力要，不自己存一份。B07 之前建立的紀錄沒有對應的 base 通知，
+ * 讀回來的就是它自己當時留下的欄位——舊紀錄照樣看得到，只是不會再更新。
  */
-const MASK = '***';
-export function maskRecipient(email: string): string {
-  const at = email.lastIndexOf('@');
-  if (at <= 0) return MASK;
-  const local = [...email.slice(0, at)];
-  const domain = email.slice(at + 1);
-  if (local.length <= 1) return `${MASK}@${domain}`;
-  return `${local[0]}${MASK}@${domain}`;
+export function createListLifecycleDeliveriesHandler(notifications: () => NotificationsPort) {
+  return async (input: z.infer<typeof listLifecycleDeliveriesInput>, ctx: QueryContext) => {
+    const result = await repository.list(ctx.db, { ...input, status: undefined });
+    const evidence = await notifications().evidenceByReference(result.items.map(row => row.reference));
+    const items: LifecycleDeliverySummaryDto[] = result.items.map((row) => {
+      const { recipientEmail, variables: _variables, ...rest } = toLifecycleDeliveryDto(row);
+      const delivery = evidence.get(row.reference)?.[0];
+      return {
+        ...rest,
+        status: delivery?.status ?? rest.status,
+        providerRef: delivery?.externalRef ?? rest.providerRef,
+        attempts: delivery?.attempts ?? rest.attempts,
+        lastError: maskEmailsIn(delivery?.lastError ?? rest.lastError),
+        sentAt: delivery?.sentAt ?? rest.sentAt,
+        recipientMasked: maskRecipient(recipientEmail),
+      };
+    });
+    // 狀態是投遞端的事實，因此篩選要在合併之後做，否則篩到的是這張表的舊值。
+    const filtered = input.status ? items.filter(item => item.status === input.status) : items;
+    return { items: filtered, total: input.status ? filtered.length : result.total };
+  };
 }
-
-/** provider 的退信訊息慣例會夾帶完整地址，隔壁欄位遮了這裡不遮等於沒遮。 */
-export function maskEmailsIn(message: string | null): string | null {
-  return message === null ? null : message.replace(/[^\s<>@]+@[^\s<>@,;]+/g, (match) => maskRecipient(match));
-}
-
-export const listLifecycleDeliveriesHandler = async (input: z.infer<typeof listLifecycleDeliveriesInput>, ctx: QueryContext) => {
-  const result = await repository.list(ctx.db, input);
-  const items: LifecycleDeliverySummaryDto[] = result.items.map((row) => {
-    const { recipientEmail, variables: _variables, ...rest } = toLifecycleDeliveryDto(row);
-    return { ...rest, lastError: maskEmailsIn(rest.lastError), recipientMasked: maskRecipient(recipientEmail) };
-  });
-  return { items, total: result.total };
-};

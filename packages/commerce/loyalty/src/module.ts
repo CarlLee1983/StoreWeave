@@ -1,6 +1,7 @@
 import packageJson from '../package.json';
 import { z } from 'zod';
 import { defineModule, type PlatformModule } from '@storeweave/kernel';
+import type { NotificationsPort } from '@storeweave/notifications';
 import {
   adjustRewardsCommand, adjustRewardsHandler,
   createNotifyExpiringRewardsHandler, notifyExpiringRewardsCommand,
@@ -25,17 +26,25 @@ import {
   createOutstandingRewardsHandler, outstandingRewardsQuery,
 } from './queries';
 
-export function createLoyaltyModule(deps: LoyaltyModuleDeps): PlatformModule {
+export function createLoyaltyModule(options: Omit<LoyaltyModuleDeps, 'notifications'>): PlatformModule {
+  let port: NotificationsPort | undefined;
+  const notifications = () => {
+    if (!port) throw new Error('Loyalty module was composed without the base notification capability');
+    return port;
+  };
+  const deps: LoyaltyModuleDeps = { ...options, notifications };
   return defineModule({
   name: 'loyalty',
   version: packageJson.version,
   baseVersionRange: '^1.0.0',
   dependencies: { required: [
     { name: 'platform', versionRange: '^0.1.0' },
+    { name: 'platform-notifications', versionRange: '^0.1.0' },
     { name: 'customer', versionRange: '^0.1.0' },
   ] },
   data: { owns: ['loyalty_reward_entries', 'loyalty_settings', 'loyalty_tier_entries', 'loyalty_tiers', 'loyalty_customer_tiers', 'loyalty_reward_expiry_notices'] },
   migrations: loyaltyMigrations,
+  bindPorts: (ports) => { port = ports.notifications; },
   // 等級門檻與購物金累積比例原本借用 promotion:write。改成自己的鍵：
   // 改累積比例會直接改動購物金這本負債帳，那與編一檔活動不是同一種授權。
   permissions: [{ key: 'loyalty:write', description: '維護會員等級與購物金累積規則', owner: 'loyalty' }],

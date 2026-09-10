@@ -2,6 +2,7 @@ import packageJson from '../package.json';
 import { z } from 'zod';
 import { defineModule, type PlatformModule } from '@storeweave/kernel';
 import { defineEvent } from '@storeweave/contracts';
+import type { NotificationsPort } from '@storeweave/notifications';
 import { customerRegisteredV1 } from '@storeweave/customer';
 import {
   createCouponCommand, createCouponHandler, createIssueAutoCouponsHandler, createIssueBirthdayCouponsHandler,
@@ -17,18 +18,26 @@ import {
   createListMyCouponsHandler, listMyCouponsQuery,
 } from './queries';
 
-export function createCouponModule(deps: CouponModuleDeps): PlatformModule {
+export function createCouponModule(options: Omit<CouponModuleDeps, 'notifications'>): PlatformModule {
+  let port: NotificationsPort | undefined;
+  const notifications = () => {
+    if (!port) throw new Error('Coupon module was composed without the base notification capability');
+    return port;
+  };
+  const deps: CouponModuleDeps = { ...options, notifications };
   return defineModule({
   name: 'coupon',
   version: packageJson.version,
   baseVersionRange: '^1.0.0',
   dependencies: { required: [
     { name: 'platform', versionRange: '^0.1.0' },
+    { name: 'platform-notifications', versionRange: '^0.1.0' },
     { name: 'customer', versionRange: '^0.1.0' },
     { name: 'promotion', versionRange: '^0.1.0' },
   ] },
   data: { owns: ['coupon_coupons', 'coupon_redemptions'] },
   migrations: couponMigrations,
+  bindPorts: (ports) => { port = ports.notifications; },
   permissions: [
     { key: 'coupon:read', description: '讀取券', owner: 'coupon' },
     { key: 'coupon:write', description: '建立與停用券', owner: 'coupon' },

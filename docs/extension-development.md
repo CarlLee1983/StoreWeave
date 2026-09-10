@@ -8,7 +8,7 @@ Extension 是客戶特殊需求的唯一落腳處。它只能透過 `@storeweave
 | # | 契約 | 型別／檔案 |
 | --- | --- | --- |
 | 1 | Extension Manifest | `ExtensionManifest`（`manifest.ts`） |
-| 2 | Provider Contract | `PaymentProvider` / `ShippingProvider` / `InvoiceProvider` / `NotificationProvider` / `ErpProvider`（`providers.ts` 的 `ProviderKind`） |
+| 2 | Provider Contract | `PaymentProvider` / `ShippingProvider` / `InvoiceProvider` / `ErpProvider`（`providers.ts` 的 `ProviderKind`）。通知不是 Provider——見 `@storeweave/notifications`（base capability，module `platform-notifications`） |
 | 3 | Command Registry | `ExtensionRegistration.commands`（`ext.<id>.*`） |
 | 4 | Query Registry | `ExtensionRegistration.queries`（`ext.<id>.*`） |
 | — | 輸入契約 | Command / Query 的 `input` 一律 `.strict()`（ADR 0024，見下） |
