@@ -344,6 +344,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
         get notifications() { return notifications; },
         authentication: {
           authenticate: input => auth.authenticate(database.db, input),
+          register: input => auth.register(input),
           requestPasswordReset: input => auth.requestPasswordReset(input),
           resetPassword: async input => { await auth.resetPassword(input); },
         },

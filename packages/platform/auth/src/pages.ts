@@ -76,11 +76,11 @@ export interface AuthPageDeps {
   /** 這個 release 的會員 actor type。購物站是 `['customer']`。 */
   readonly signedInActorTypes: readonly string[];
   /**
-   * 註冊要跑哪一個命令由組裝的 release 指定：購物站傳建立 Customer 的那一個（它在同一筆
-   * 交易裡建立 Account 與 Customer），形象站只建立 Account。認證模組自己不知道這個網站的
-   * 會員除了帳號之外還有什麼（ADR 0041、0047）。
+   * 註冊命令由組裝的 release 選擇：購物站傳建立 Customer 的那一個（它在同一筆交易裡建立
+   * Account 與 Customer）；沒有命令的形象站改用 identity 自助建立 Account。認證模組自己
+   * 不知道這個網站的會員除了帳號之外還有什麼（ADR 0041、0047）。
    */
-  readonly registerCommand: string;
+  readonly registerCommand?: string;
 }
 
 /** 顯示名稱沒填就交給命令自己從信箱推導；空白字串會變成一個沒有名字的名字。 */
@@ -287,13 +287,16 @@ export function createAuthPages(deps: AuthPageDeps) {
       resolve: async (ctx, { email, password, displayName, next }) => {
         const location = safeRedirectPath(next);
         try {
-          await ctx.commands.execute(
-            deps.registerCommand,
-            { email, password, displayName: displayNameOf(displayName) },
-            { actor: ctx.actor },
-          );
-          // 註冊完直接登入：讓人再打一次同一組密碼沒有任何意義。
-          const session = await deps.authentication().authenticate({ email, password });
+          const registration = { email, password, displayName: displayNameOf(displayName) };
+          // Commerce 的 command 在同一筆交易裡還會建立 Customer；Base 沒有那個領域資料，
+          // 所以直接由 identity 建立 Account 並取用它剛簽發的 session。
+          let session;
+          if (deps.registerCommand !== undefined) {
+            await ctx.commands.execute(deps.registerCommand, registration, { actor: ctx.actor });
+            session = await deps.authentication().authenticate({ email, password });
+          } else {
+            session = await deps.authentication().register(registration);
+          }
           return { kind: 'session-start' as const, session, location };
         } catch (error) {
           const message = registerFailure(error);

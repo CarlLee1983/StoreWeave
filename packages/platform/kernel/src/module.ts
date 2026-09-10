@@ -31,6 +31,10 @@ export interface AuthenticationPort {
   readonly authenticate: (input: {
     email: string; password: string; userAgent?: string; mfaCode?: string; recoveryCode?: string;
   }) => Promise<IssuedSession>;
+  /** Base release 的自助註冊只建立 Account；Commerce 可改由自己的註冊命令建立 Customer。 */
+  readonly register: (input: {
+    email: string; password: string; displayName?: string; userAgent?: string;
+  }) => Promise<IssuedSession>;
   /** 忘記密碼與重設密碼同樣不是 Command：此刻通常還沒有 Actor。 */
   readonly requestPasswordReset: (input: { email: string; ttlMs?: number }) => Promise<void>;
   readonly resetPassword: (input: { token: string; newPassword: string }) => Promise<void>;

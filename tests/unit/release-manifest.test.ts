@@ -32,7 +32,7 @@ describe('release build manifest', () => {
       registeredQueries: [], registeredProviders: [], registeredJobs: ['ext.manifest-probe.run'],
     }, setup });
     const manifest = buildReleaseManifest({ ...base, availableExtensions: { 'manifest-probe': extension } });
-    expect(manifest.modules.map(module => module.id)).toEqual(['platform', 'platform-cache', 'platform-identity', 'platform-mail', 'platform-notifications', 'platform-ops', 'platform-site', 'platform-storage']);
+    expect(manifest.modules.map(module => module.id)).toEqual(['platform', 'platform-auth', 'platform-cache', 'platform-identity', 'platform-mail', 'platform-notifications', 'platform-ops', 'platform-site', 'platform-storage']);
     expect(manifest.modules.find(module => module.id === 'platform')?.dataRelations)
       .toContain('platform_job_quarantine');
     expect(manifest.modules.find(module => module.id === 'platform')?.dataRelations)

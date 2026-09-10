@@ -15,6 +15,7 @@ const issuedSession = {
 
 const port = (over: Partial<AuthenticationPort> = {}): AuthenticationPort => ({
   authenticate: vi.fn(async () => issuedSession),
+  register: vi.fn(async () => issuedSession),
   requestPasswordReset: vi.fn(async () => undefined),
   resetPassword: vi.fn(async () => undefined),
   ...over,
@@ -31,6 +32,12 @@ const pagesWith = (
   signedInActorTypes,
   registerCommand: REGISTER_COMMAND,
   logPasswordResetFailure,
+});
+
+const basePagesWith = (authentication: AuthenticationPort) => createAuthPages({
+  authentication: () => authentication,
+  signedInActorTypes: ['user'],
+  logPasswordResetFailure: vi.fn(),
 });
 
 const visitor = { id: 'anon', type: 'service', permissions: [] } as unknown as Actor;
@@ -201,6 +208,13 @@ describe('沒有綁定 port 就使用', () => {
       email: 'a@example.com', password: 'x',
     })).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
   });
+
+  it('拒絕空白註冊命令，避免自訂 release 靜默退回 Account-only 註冊', async () => {
+    const { createAuthModule } = await import('../src/module');
+
+    expect(() => createAuthModule({ signedInActorTypes: ['customer'], registerCommand: '  ' }))
+      .toThrow('registerCommand must be non-empty');
+  });
 });
 
 describe('註冊頁', () => {
@@ -256,6 +270,21 @@ describe('送出註冊', () => {
 
     expect(authentication.authenticate).toHaveBeenCalledWith({ email: 'a@example.com', password: 'a-good-password' });
     expect(outcome).toEqual({ kind: 'session-start', session: issuedSession, location: '/checkout' });
+  });
+
+  it('沒有 release 註冊命令時，交給 identity 的自助註冊並直接使用它簽發的 session', async () => {
+    const authentication = port();
+    const context = ctx(visitor);
+    const outcome = await basePagesWith(authentication).submitRegister.resolve(context, {
+      email: 'member@example.com', password: 'a-good-password', displayName: '會員', next: '/welcome',
+    });
+
+    expect(authentication.register).toHaveBeenCalledWith({
+      email: 'member@example.com', password: 'a-good-password', displayName: '會員',
+    });
+    expect(context.commands.execute).not.toHaveBeenCalled();
+    expect(authentication.authenticate).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ kind: 'session-start', session: issuedSession, location: '/welcome' });
   });
 
   it('註冊完的去處一樣不能離站', async () => {

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { escapeHtml } from '@storeweave/i18n';
 import { defineTheme, type ThemeAuthView, type ThemeContext, type ThemeNavigationItem } from '@storeweave/kernel';
+import type { AuthPages } from '@storeweave/auth';
 import type { SitePages } from '@storeweave/site';
 
 /**
@@ -92,8 +93,11 @@ function renderAuth(ctx: ThemeContext, view: ThemeAuthView): string {
   const title = AUTH_TITLES[view.mode];
   const csrf = ctx.csrfToken ? `<input type="hidden" name="_csrf" value="${escapeHtml(ctx.csrfToken)}">` : '';
   const next = `<input type="hidden" name="next" value="${escapeHtml(view.next)}">`;
+  const email = view.mode === 'reset-password' ? '' : `<label for="email">電子郵件</label>
+      <input id="email" name="email" type="email" autocomplete="email" required>`;
+  const passwordAutocomplete = view.mode === 'reset-password' ? 'new-password' : 'current-password';
   const password = view.mode === 'forgot-password' ? '' : `<label for="password">密碼</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required>`;
+      <input id="password" name="password" type="password" autocomplete="${passwordAutocomplete}" required>`;
   const token = view.mode === 'reset-password'
     ? `<input type="hidden" name="token" value="${escapeHtml(view.token)}">` : '';
   const notice = view.mode === 'forgot-password' && view.notice
@@ -104,8 +108,7 @@ function renderAuth(ctx: ThemeContext, view: ThemeAuthView): string {
     ${notice}
     <form method="post" action="/${view.mode}">
       ${csrf}${next}${token}
-      <label for="email">電子郵件</label>
-      <input id="email" name="email" type="email" autocomplete="email" required>
+      ${email}
       ${password}
       <button type="submit">${title}</button>
     </form>
@@ -120,12 +123,20 @@ function renderError(ctx: ThemeContext, view: { status: number; message: string 
   `);
 }
 
-export const baseTheme = defineTheme<SitePages>({
+export const baseTheme = defineTheme<SitePages & AuthPages>({
   id: 'base',
   name: 'Base Site',
   optionsSchema: baseThemeOptions,
   renderers: {
     'platform.site.home': renderHome,
+    'platform.auth.login': renderAuth,
+    'platform.auth.submitLogin': renderAuth,
+    'platform.auth.register': renderAuth,
+    'platform.auth.submitRegister': renderAuth,
+    'platform.auth.forgotPassword': renderAuth,
+    'platform.auth.submitForgotPassword': renderAuth,
+    'platform.auth.resetPassword': renderAuth,
+    'platform.auth.submitResetPassword': renderAuth,
     'platform.auth': renderAuth,
     'platform.error': renderError,
   },
