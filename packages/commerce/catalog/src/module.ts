@@ -4,6 +4,7 @@ import { catalogMigrations } from './migrations';
 import { catalogEvents } from './events';
 import { createProductCommand, createProductHandler, updateProductCommand, updateProductHandler } from './commands';
 import { getProductHandler, getProductQuery, searchProductsHandler, searchProductsQuery } from './queries';
+import { catalogPages } from './pages';
 
 export const catalogModule = defineModule({
   name: 'catalog',
@@ -25,4 +26,5 @@ export const catalogModule = defineModule({
     { descriptor: getProductQuery, handler: getProductHandler },
     { descriptor: searchProductsQuery, handler: searchProductsHandler },
   ],
+  pages: catalogPages,
 });

@@ -6,3 +6,4 @@ export * from './module';
 export * from './queries';
 export * from './service';
 export { toProductDto } from './repository';
+export * from './pages';

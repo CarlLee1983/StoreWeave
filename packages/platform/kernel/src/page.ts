@@ -1,6 +1,7 @@
-import type { ZodType, ZodTypeAny } from 'zod';
+import type { ZodType, ZodTypeAny, ZodTypeDef } from 'zod';
 import type { Actor } from '@storeweave/contracts';
 import { PlatformError } from '@storeweave/contracts';
+import type { StorefrontHttpContract } from './http-contract';
 import type { PlatformModule } from './module';
 import type { StorefrontTheme, ThemeContext } from './theme';
 
@@ -24,8 +25,11 @@ export interface PageResolveContext {
   readonly commands: {
     execute<O = unknown>(name: string, input: unknown, options: { actor: Actor; idempotencyKey?: string }): Promise<O>;
   };
-  /** 未登入時是 undefined；`audience` 已經擋掉需要身分卻沒有身分的請求。 */
-  readonly actor: Actor | undefined;
+  /**
+   * 永遠存在：未登入時是該 release 的匿名 actor。查詢與命令一律帶身分，
+   * 範圍過濾因此留在 handler 那一層，頁面不必自己加條件。
+   */
+  readonly actor: Actor;
   readonly locale: string;
 }
 
@@ -40,11 +44,14 @@ export interface StorefrontPage<Input = unknown, View = unknown> {
   readonly path: string;
   readonly method: 'get' | 'post';
   readonly audience: PageAudience;
-  /** path params 與 query／form 欄位合併之後解析。 */
-  readonly input: ZodType<Input>;
+  /**
+   * path params 與 query／form 欄位合併之後解析。輸入端一律是字串，所以 schema
+   * 可以帶 transform——`Input` 指的是 transform 之後 `resolve` 收到的形狀。
+   */
+  readonly input: ZodType<Input, ZodTypeDef, any>;
   readonly resolve: (ctx: PageResolveContext, input: Input) => Promise<PageOutcome<View>>;
   /** 沿用 B03 的宣告式 HTTP 契約；資料驅動的路由不換掉啟動時的靜態檢查。 */
-  readonly contract: unknown;
+  readonly contract: StorefrontHttpContract;
   /**
    * Theme 沒有實作就拒絕啟動。設 false 代表這一頁沒有畫面（只做寫入與轉址）
    * 或是選配版型，缺了不影響網站可用。
