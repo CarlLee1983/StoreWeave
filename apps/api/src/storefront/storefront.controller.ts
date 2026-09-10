@@ -10,9 +10,9 @@ import type { StorefrontTheme, ThemeContext } from '@storeweave/kernel';
 import type { PaymentProvider, ShippingProvider } from '@storeweave/extension-sdk';
 import { customerService } from '@storeweave/customer';
 import { Anonymous, ExternalCallback, Public, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
-import { clearSessionCookies, sessionTokenOf } from '../http/session-cookies';
 import { cartNoticeOf, clearCartNoticeCookie, existingGuestToken, guestTokenFor } from '../http/cart-cookie';
 import { HTTP_ADAPTER, type ReleaseHttpAdapter } from '../release-adapter';
+import { clearSession } from '../http/session-clear';
 import { HttpContract } from '../http/contract';
 import { buildThemeContext, renderStorefrontError } from './storefront-context';
 import { resolveThemeAssetsDir } from '../theme-assets';
@@ -299,9 +299,7 @@ export class StorefrontController {
   @HttpContract(storefrontContracts.logout)
   @Post('logout')
   async logout(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
-    const token = sessionTokenOf(req, this.runtime.config.http.publicUrl);
-    if (token) await this.runtime.auth.revokeSession(this.runtime.database.db, token);
-    clearSessionCookies(reply as never, this.runtime.config.http.publicUrl);
+    await clearSession(this.runtime, req, reply as never);
     void reply.status(303).header('location', '/').send();
   }
 

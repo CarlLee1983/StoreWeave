@@ -39,12 +39,27 @@ describe('簽發 session 的唯一入口', () => {
     expect(releaseFiles).toHaveLength(2);
   });
 
-  it('只有簽發實作本身可以寫 session cookie', () => {
-    // 只禁 setSessionCookies（簽發），不禁 clearSessionCookies——登出本來就要清 cookie。
-    const offenders = files
-      .filter(file => file !== IMPLEMENTATION && file !== 'http/session-cookies.ts')
-      .filter(file => /\bsetSessionCookies\b/.test(readFileSync(join(ROOT, API_SRC, file), 'utf8')));
+  it('只有具名的那兩份實作可以直接動 session cookie', () => {
+    // 簽發與清除各有唯一實作，其他人呼叫它們而不是自己寫一份。
+    const owners: Record<string, string[]> = {
+      setSessionCookies: [IMPLEMENTATION, 'http/session-cookies.ts'],
+      clearSessionCookies: ['http/session-clear.ts', 'http/session-cookies.ts'],
+    };
 
-    expect(offenders).toEqual([]);
+    for (const [helper, allowed] of Object.entries(owners)) {
+      const offenders = files
+        .filter(file => !allowed.includes(file))
+        .filter(file => new RegExp(`\\b${helper}\\b`).test(readFileSync(join(ROOT, API_SRC, file), 'utf8')));
+
+      expect(offenders, helper).toEqual([]);
+    }
+  });
+
+  it('兩個 release 把頁面用的簽發接到自己的 adapter 上，不是接自由變數', () => {
+    // 值比對只釘得住 adapter 對外那一份；頁面走的是 sessionEffects.start，那是第二條接線。
+    for (const release of releaseFiles) {
+      const body = readFileSync(join(ROOT, API_SRC, release), 'utf8');
+      expect(body, release).toMatch(/start:\s*\([^)]*\)\s*=>\s*this\.startSession\(/);
+    }
   });
 });

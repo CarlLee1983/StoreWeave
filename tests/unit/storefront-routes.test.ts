@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { PATH_METADATA, METHOD_METADATA } from '@nestjs/common/constants';
 import { RequestMethod } from '@nestjs/common';
 import { definePage } from '@storeweave/kernel';
+import type { IssuedSession } from '@storeweave/identity';
 import type { StorefrontPage } from '@storeweave/kernel';
 import { HTTP_CONTRACT } from '../../apps/api/src/http/contract';
 import { createStorefrontController } from '../../apps/api/src/storefront/storefront-routes';
@@ -16,7 +17,18 @@ const page = (over: Partial<StorefrontPage<any, any>> & Pick<StorefrontPage<any,
   ...over,
 } as StorefrontPage<any, any>);
 
+const sessionEffects = () => ({ start: vi.fn(async () => undefined), clear: vi.fn(async () => undefined) });
+
+const issuedSession = (token = 'tok'): IssuedSession => ({
+  token, expiresAt: new Date('2026-09-11T00:00:00Z'),
+  user: {
+    id: 'u1', email: 'a@example.com', displayName: 'A', role: 'member',
+    status: 'active', createdAt: '2026-09-10T00:00:00Z', lastLoginAt: null,
+  },
+});
+
 const deps = (over: Record<string, unknown> = {}) => ({
+  sessionEffects: sessionEffects(),
   theme: { id: 't', name: 'T', optionsSchema: z.object({}), renderers: { 'platform.home': () => '<h1>home</h1>' } },
   buildContext: async () => ({ storeName: 'S', storeId: 's', currency: 'TWD', locale: 'zh-TW', timeZone: 'Asia/Taipei', publicUrl: 'http://x' }),
   resolveContext: () => ({ queries: { execute: vi.fn() }, commands: { execute: vi.fn() }, actor: undefined, locale: 'zh-TW' }),
@@ -111,5 +123,76 @@ describe('資料驅動的 storefront 路由', () => {
 
     expect(sent.status).toBe(200);
     expect(sent.body).toBe('<ul></ul>');
+  });
+  it('session-start 交給 release 的簽發實作，然後 303 到指定位置', async () => {
+    const effects = sessionEffects();
+    const session = issuedSession();
+    const Controller = createStorefrontController([
+      page({ id: 'platform.auth.login', path: '/login', method: 'post',
+        resolve: async () => ({ kind: 'session-start', session, location: '/account' }) }),
+    ], deps({ sessionEffects: effects }));
+    const { reply, sent } = replyStub();
+    const req = { actor: undefined };
+
+    await (new Controller() as Record<string, any>)[Object.getOwnPropertyNames(Controller.prototype)[1]!](req, reply);
+
+    // 頁面自己碰不到 cookie：簽發是路由層拿著回傳值去做的（ADR 0047）。
+    expect(effects.start).toHaveBeenCalledWith(req, reply, session);
+    expect(effects.clear).not.toHaveBeenCalled();
+    expect(sent.status).toBe(303);
+    expect(sent.headers.location).toBe('/account');
+    expect(sent.body).toBeUndefined();
+  });
+
+  it('session-clear 清掉 session，然後 303', async () => {
+    const effects = sessionEffects();
+    const Controller = createStorefrontController([
+      page({ id: 'platform.auth.logout', path: '/logout', method: 'post',
+        resolve: async () => ({ kind: 'session-clear', location: '/' }) }),
+    ], deps({ sessionEffects: effects }));
+    const { reply, sent } = replyStub();
+    const req = { actor: { id: 'c1', type: 'customer', permissions: [] } };
+
+    await (new Controller() as Record<string, any>)[Object.getOwnPropertyNames(Controller.prototype)[1]!](req, reply);
+
+    expect(effects.clear).toHaveBeenCalledWith(req, reply);
+    expect(effects.start).not.toHaveBeenCalled();
+    expect(sent.status).toBe(303);
+    expect(sent.headers.location).toBe('/');
+  });
+
+  it('簽發失敗不會留下半個轉址：錯誤交給錯誤頁，不送 303', async () => {
+    const effects = sessionEffects();
+    effects.start.mockRejectedValue(new Error('cookie write failed'));
+    const renderError = vi.fn(async () => undefined);
+    const Controller = createStorefrontController([
+      page({ id: 'platform.auth.login', path: '/login', method: 'post',
+        resolve: async () => ({ kind: 'session-start', session: issuedSession('t'), location: '/' }) }),
+    ], deps({ sessionEffects: effects, renderError }));
+    const { reply, sent } = replyStub();
+
+    await (new Controller() as Record<string, any>)[Object.getOwnPropertyNames(Controller.prototype)[1]!]({ actor: undefined }, reply);
+
+    // 這一行讓案例不會因為「根本沒走到簽發」而假綠：它必須真的試過再失敗。
+    expect(effects.start).toHaveBeenCalled();
+    expect(renderError).toHaveBeenCalled();
+    expect(sent.status).toBeUndefined();
+  });
+
+  it('登出失敗也不送 303——錯誤交給錯誤頁', async () => {
+    const effects = sessionEffects();
+    effects.clear.mockRejectedValue(new Error('revoke failed'));
+    const renderError = vi.fn(async () => undefined);
+    const Controller = createStorefrontController([
+      page({ id: 'platform.auth.logout', path: '/logout', method: 'post',
+        resolve: async () => ({ kind: 'session-clear', location: '/' }) }),
+    ], deps({ sessionEffects: effects, renderError }));
+    const { reply, sent } = replyStub();
+
+    await (new Controller() as Record<string, any>)[Object.getOwnPropertyNames(Controller.prototype)[1]!]({ actor: undefined }, reply);
+
+    expect(effects.clear).toHaveBeenCalled();
+    expect(renderError).toHaveBeenCalled();
+    expect(sent.status).toBeUndefined();
   });
 });

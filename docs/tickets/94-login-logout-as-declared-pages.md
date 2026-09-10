@@ -19,6 +19,16 @@
 - [ ] 新套件的 importer 條目補進 lockfile（本地安裝不會自己補，Docker 的 frozen lockfile 才會炸）
 - [ ] 因為模組數改變而失準的數字型斷言一併更新
 
+## 工單 93 轉過來的三個待決
+
+- **登出頁的 CSRF**：現行表單登出刻意標 `@Anonymous()`，理由是「被強制登出是干擾而不是資料外洩」。
+  資料驅動的路由只在 class 上掛 `Public()`，沒有 per-page 的匿名旗標——session 有效但沒帶
+  `_csrf` 時會回 403 而不是登出。要嘛 theme 的登出表單一律帶 `_csrf`，要嘛頁面宣告多一個旗標。
+- **用 Bearer token 認證的呼叫端打登出**：沒有 cookie，所以什麼都不會作廢卻回 303 說登出了。
+  這和今天的 `AuthController.logout` 行為一致，不是回歸，但這一票要決定它該回 400 還是無操作。
+- **簽發失敗要不要回滾**：session 在 `resolve` 裡就已經寫進資料庫、cookie 也可能已掛上 reply，
+  所以「簽發失敗等於沒登入」並不成立。目前的行為是不送 303、交給錯誤頁。
+
 ## 邊界
 
 忘記密碼與重設密碼這一票不動，仍留在 controller；`platform.auth` 系統頁因此還在，兩種形狀並存。

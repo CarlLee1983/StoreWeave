@@ -1,3 +1,4 @@
+import type { IssuedSession } from '@storeweave/identity';
 import { z } from 'zod';
 import type { ZodType, ZodTypeAny, ZodTypeDef } from 'zod';
 import type { Actor } from '@storeweave/contracts';
@@ -19,6 +20,14 @@ export type PageAudience = 'public' | 'customer' | 'operator';
 export type PageOutcome<View> =
   | { readonly kind: 'view'; readonly view: View; readonly status?: number }
   | { readonly kind: 'redirect'; readonly location: string }
+  /**
+   * 「請簽發這個 session，然後轉到那裡」。頁面自己碰不到 cookie——簽發、訪客購物車合併
+   * 與轉址都由路由層執行（ADR 0047）。kind 的名字與契約的 `cookieEffects` 同名，
+   * 兩邊因此對得起來，而不是靠人維持一致。
+   */
+  | { readonly kind: 'session-start'; readonly session: IssuedSession; readonly location: string }
+  /** 「請清掉目前的 session，然後轉到那裡」。要作廢哪一張由路由層從請求上決定。 */
+  | { readonly kind: 'session-clear'; readonly location: string }
   | { readonly kind: 'not-found' };
 
 /**

@@ -6,12 +6,12 @@
 
 **Blocked by:** 92
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 頁面的 outcome 多出 `session-start` 與 `session-clear` 兩個具名變體，名字與契約既有的 cookie 效果詞彙一致
-- [ ] 頁面解析時拿得到的東西一個都沒有增加——特別是沒有新增 session 入口、沒有 runtime、沒有請求物件
-- [ ] 路由層收到這兩種 outcome 時，簽發與合併都經過 92 建立的那個唯一入口
-- [ ] 頁面註冊的既有守衛照舊：重複的 page id 與 path 仍是組裝錯誤，缺必需版型仍在啟動時被拒絕
+- [x] 頁面的 outcome 多出 `session-start` 與 `session-clear` 兩個具名變體，名字與契約既有的 cookie 效果詞彙一致
+- [x] 頁面解析時拿得到的東西一個都沒有增加——特別是沒有新增 session 入口、沒有 runtime、沒有請求物件
+- [x] 路由層收到這兩種 outcome 時，簽發與合併都經過 92 建立的那個唯一入口
+- [x] 頁面註冊的既有守衛照舊：重複的 page id 與 path 仍是組裝錯誤，缺必需版型仍在啟動時被拒絕
 
 ## 邊界
 
