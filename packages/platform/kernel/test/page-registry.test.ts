@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { assertThemeCoversPages, collectPages, definePage } from '../src/page';
+import { assertThemeCoversPages, collectPages, definePage, SYSTEM_PAGE_IDS } from '../src/page';
 import { defineModule } from '../src/module';
 import type { PlatformModule } from '../src/module';
 import type { StorefrontTheme } from '../src/theme';
@@ -23,7 +23,7 @@ const themeWith = (...ids: string[]): StorefrontTheme => ({
   id: 'test-theme',
   name: 'Test',
   optionsSchema: z.object({}),
-  renderers: Object.fromEntries(ids.map(id => [id, () => '<html></html>'])),
+  renderers: Object.fromEntries([...SYSTEM_PAGE_IDS, ...ids].map(id => [id, () => '<html></html>'])),
 });
 
 describe('頁面註冊表', () => {
@@ -58,6 +58,11 @@ describe('頁面註冊表', () => {
     ];
 
     expect(() => collectPages(modules)).toThrow(/'\/'/);
+  });
+
+  it('錯誤頁沒有路由但每個 Theme 都要有；缺了就拒絕啟動', () => {
+    expect(() => assertThemeCoversPages([], { ...themeWith(), renderers: {} }))
+      .toThrow(/platform\.error/);
   });
 
   it('theme 缺必需頁面時拒絕啟動，訊息列出缺的是哪幾頁', () => {

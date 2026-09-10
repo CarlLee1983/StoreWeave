@@ -20,6 +20,25 @@ export type PageOutcome<View> =
   | { readonly kind: 'redirect'; readonly location: string }
   | { readonly kind: 'not-found' };
 
+/**
+ * 頁面能碰的 cookie，就只有這幾件事。給的是具名動作而不是 FastifyReply：
+ * 契約裡的 `cookieEffects` 因此仍然說得準，模組也不能順手寫別的 cookie。
+ */
+export interface PageCookiePort {
+  /** 訪客購物車 token；已登入或還沒有車時是 null。 */
+  readonly guestCartToken: () => string | null;
+  /** 確保訪客有一個購物車 token，必要時簽發並寫進回應。 */
+  readonly ensureGuestCart: () => string;
+}
+
+/**
+ * Provider registry 的唯讀入口。結帳頁要列出付款方式、取貨頁要問物流商有哪些門市，
+ * 這些是 extension 提供的能力，沒有等價的查詢可以取代。
+ */
+export interface PageProviderPort {
+  readonly get: <T>(kind: string, id?: string) => T;
+}
+
 export interface PageResolveContext {
   readonly queries: { execute<O = unknown>(name: string, input: unknown, options: { actor: Actor }): Promise<O> };
   readonly commands: {
@@ -31,6 +50,14 @@ export interface PageResolveContext {
    */
   readonly actor: Actor;
   readonly locale: string;
+  /**
+   * 這個請求的來源端識別，由路由層算出——匿名訪客彼此不同，但不是原始位址。
+   * 表單節流這種「同一個人短時間內做太多次」的判斷用它當鍵；用 actor.id 會讓
+   * 所有匿名訪客共用一個視窗，第一個灌爆的人就把其他人一起擋掉。
+   */
+  readonly clientKey: string;
+  readonly cookies: PageCookiePort;
+  readonly providers: PageProviderPort;
 }
 
 /**
@@ -106,13 +133,22 @@ export function collectPages(modules: readonly PlatformModule[]): readonly Store
 }
 
 /**
+ * 沒有自己的路由，但任何 release 都會用到的頁面。錯誤頁是其中唯一一個：
+ * 它是別條路由失敗時的結果，所以不由誰「宣告」，而是每個 Theme 都必須提供。
+ */
+export const SYSTEM_PAGE_IDS = ['platform.error'] as const;
+
+/**
  * 在開始服務之前比對已載入模組宣告的必需頁面與 Theme 提供的 renderer。
  * 缺頁在啟動時拒絕，不留到某位客人按下結帳的那一刻才變成 404（ADR 0045）。
  */
 export function assertThemeCoversPages(modules: readonly PlatformModule[], theme: StorefrontTheme): void {
-  const missing = collectPages(modules)
-    .filter(page => page.required !== false && !(page.id in theme.renderers))
-    .map(page => page.id);
+  const missing = [
+    ...SYSTEM_PAGE_IDS.filter(id => !(id in theme.renderers)),
+    ...collectPages(modules)
+      .filter(page => page.required !== false && !(page.id in theme.renderers))
+      .map(page => page.id),
+  ];
 
   if (missing.length > 0) {
     throw PlatformError.validation(

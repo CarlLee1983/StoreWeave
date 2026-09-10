@@ -297,7 +297,11 @@ export interface ThemeAccountRewardsView {
 export interface ThemeContext {
   storeName: string;
   storeId: string;
-  currency: string;
+  /**
+   * 商店貨幣。base-only 的網站沒有貨幣這個概念，所以它是選填——
+   * 需要它的是商務頁的 renderer，不是每一個網站（ADR 0045）。
+   */
+  currency?: string;
   locale: string;
   /** IANA 時區，來自 `store.timezone`。日期一律以它顯示，不用主機時區。 */
   timeZone: string;

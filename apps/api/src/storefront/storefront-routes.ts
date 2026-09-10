@@ -12,7 +12,7 @@ export interface StorefrontRouteDeps {
   /** 每個請求的 Theme 環境（門市資訊、CSRF、一次性提示）。 */
   readonly buildContext: (req: AuthenticatedRequest, reply: FastifyReply) => Promise<ThemeContext>;
   /** 交給模組 resolve 的執行環境；actor 由請求決定。 */
-  readonly resolveContext: (req: AuthenticatedRequest) => PageResolveContext;
+  readonly resolveContext: (req: AuthenticatedRequest, reply: FastifyReply) => PageResolveContext;
   /** 錯誤頁。沒有提供時直接把 PlatformError 往上拋給例外過濾器。 */
   readonly renderError?: (req: AuthenticatedRequest, reply: FastifyReply, error: unknown) => Promise<void>;
 }
@@ -56,7 +56,7 @@ export function createStorefrontController(
         const source = req as AuthenticatedRequest & { params?: object; query?: object; body?: object };
         const raw = { ...(source.params ?? {}), ...((page.method === 'get' ? source.query : source.body) ?? {}) };
         const input = page.input.parse(raw);
-        const outcome = (await page.resolve(deps.resolveContext(req), input)) as PageOutcome<unknown>;
+        const outcome = (await page.resolve(deps.resolveContext(req, reply), input)) as PageOutcome<unknown>;
 
         if (outcome.kind === 'redirect') {
           void reply.status(303).header('location', outcome.location).send();

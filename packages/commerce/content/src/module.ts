@@ -4,6 +4,7 @@ import { createArticleCommand,createArticleHandler,deleteArticleCommand,deleteAr
 import { contentEvents } from './events';
 import { contentMigrations } from './migrations';
 import { getArticleHandler,getArticleQuery,getPublishedKindsHandler,getPublishedKindsQuery,getContactMessageHandler,getContactMessageQuery,getPublishedArticleHandler,getPublishedArticleQuery,listArticlesHandler,listArticlesQuery,listContactMessagesHandler,listContactMessagesQuery,listPublishedArticlesHandler,listPublishedArticlesQuery } from './queries';
+import { contentPages } from './pages';
 export function createContentModule(){return defineModule({name:'content',
   version: packageJson.version,
   baseVersionRange: '^1.0.0',
@@ -34,4 +35,4 @@ export function createContentModule(){return defineModule({name:'content',
  {descriptor:getPublishedKindsQuery,handler:getPublishedKindsHandler},
  {descriptor:listContactMessagesQuery,handler:listContactMessagesHandler},
  {descriptor:getContactMessageQuery,handler:getContactMessageHandler},
-]});}
+],pages:contentPages});}

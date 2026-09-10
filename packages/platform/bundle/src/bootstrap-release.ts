@@ -1,5 +1,8 @@
 import { loadReleaseConfig, type BaseConfig, type LoadedConfig } from '@storeweave/config';
-import { closeInReverse, withCleanupDeadline, createLogger, createRuntime, type Runtime, type StorefrontTheme } from '@storeweave/kernel';
+import {
+  assertThemeCoversPages, closeInReverse, withCleanupDeadline, createLogger, createRuntime,
+  type Runtime, type StorefrontTheme,
+} from '@storeweave/kernel';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
 import { PlatformError } from '@storeweave/contracts';
 import type { ReleaseDefinition } from './release';
@@ -45,6 +48,8 @@ export async function bootstrapRelease<C extends BaseConfig>(
     const providers = new ProviderRegistry(logger);
     const modules = release.createModules({ config, providers });
     const manifest = assertReleaseComposition(release, modules);
+    // 缺頁在啟動時拒絕，不留到某位客人按下結帳的那一刻才變成 404（ADR 0045）。
+    if (theme) assertThemeCoversPages(modules, theme);
     const expectedChecksum = process.env.STOREWEAVE_BUILD_MANIFEST_SHA;
     if (expectedChecksum && catalogDigest(manifest) !== expectedChecksum) {
       throw new Error('Release manifest does not match the built artifact');
