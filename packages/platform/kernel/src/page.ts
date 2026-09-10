@@ -106,14 +106,24 @@ export interface StorefrontPage<Input = unknown, View = unknown> {
  */
 export const formValue = z.union([z.string(), z.number(), z.boolean()]).transform(String);
 
-export function definePage<Input, View>(page: StorefrontPage<Input, View>): StorefrontPage<Input, View> {
+/**
+ * `Id` 是 const 型別參數，所以 page id 在型別層保留字面值——Theme 的 renderers
+ * 才能以 id 為鍵逐一比對 view 型別，而不是退化成 `Record<string, unknown>`。
+ */
+export function definePage<Input, View, const Id extends string>(
+  page: StorefrontPage<Input, View> & { readonly id: Id },
+): StorefrontPage<Input, View> & { readonly id: Id } {
   return page;
 }
 
 /** 模組把自己的頁面收成具名 map；型別由此推導出 Theme 該實作哪些 renderer。 */
 export type PageMap = Readonly<Record<string, StorefrontPage<any, any>>>;
 
-export type ViewOf<P> = P extends StorefrontPage<any, infer V> ? V : never;
+/**
+ * 頁面的 view 型別。排除 undefined：它是 `not-found` 分支沒有 view 欄位造成的
+ * 推導雜訊，renderer 只會在 `kind: 'view'` 的結果上被呼叫。
+ */
+export type ViewOf<P> = P extends StorefrontPage<any, infer V> ? Exclude<V, undefined> : never;
 
 export type PageRenderer<View> = (ctx: ThemeContext, view: View) => string;
 

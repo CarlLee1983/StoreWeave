@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import type { StorefrontTheme, ThemeAuthView, ThemeContext } from '@storeweave/kernel';
-import type { ThemeCartView, ThemeCheckoutView, ThemePickupStorePickerView } from '@storeweave/cart';
-import type { ThemeCatalogView, ThemeHomeView, ThemeProductView } from '@storeweave/catalog';
-import type { ThemeArticleListView, ThemeArticleView, ThemeContactView } from '@storeweave/content';
-import type { ThemeAccountCouponsView } from '@storeweave/coupon';
-import type { ThemeAccountProfileView } from '@storeweave/customer';
-import type { ThemeAccountRewardsView } from '@storeweave/loyalty';
-import type { ThemeAccountOrdersView, ThemeOrderView } from '@storeweave/order';
+import { defineTheme, type ThemeAuthView, type ThemeContext } from '@storeweave/kernel';
+import type { cartPages, ThemeCartView, ThemeCheckoutView, ThemePickupStorePickerView } from '@storeweave/cart';
+import type { catalogPages, ThemeCatalogView, ThemeHomeView, ThemeProductView } from '@storeweave/catalog';
+import type { contentPages, ThemeArticleListView, ThemeArticleView, ThemeContactView } from '@storeweave/content';
+import type { couponPages, ThemeAccountCouponsView } from '@storeweave/coupon';
+import type { customerPages, ThemeAccountProfileView } from '@storeweave/customer';
+import type { createLoyaltyPages, ThemeAccountRewardsView } from '@storeweave/loyalty';
+import type { orderPages, ThemeAccountOrdersView, ThemeOrderView } from '@storeweave/order';
 import { escapeHtml, formatMoney, layout } from './layout';
 import { formatDate, formatDateTime, safeUrlAttribute } from '@storeweave/i18n';
 import { EDITORIAL_IMAGE_KEYS, renderStorefrontArtwork, renderWovenDayEditorialImage, renderWovenDayProductImage, type WovenDayEditorialImage } from './artwork';
@@ -1265,7 +1265,15 @@ export function renderError(ctx: ThemeContext, { status, message }: { status: nu
  * 表單，差別只在有沒有送出結果，view 型別相同。`commerce.customer.profile`
  * 與 `commerce.customer.saveProfile` 同理。
  */
-export const defaultTheme: StorefrontTheme = {
+/**
+ * 這個 Theme 服務的頁面集合。defineTheme 用它逐一比對每個 renderer 收到的 view，
+ * 所以「訂單頁的資料少包一層」這種形狀錯誤是編譯期錯誤，不是上線後的 500。
+ */
+type ServedPages = typeof catalogPages & typeof cartPages & typeof orderPages
+  & typeof contentPages & typeof customerPages & typeof couponPages
+  & ReturnType<typeof createLoyaltyPages>;
+
+export const defaultTheme = defineTheme<ServedPages>({
   id: 'default',
   name: 'Default Storefront',
   optionsSchema: defaultThemeOptions,
@@ -1297,7 +1305,7 @@ export const defaultTheme: StorefrontTheme = {
     'platform.auth': renderAuth,
     'platform.error': renderError,
   },
-};
+});
 
 export * from './layout';
 export default defaultTheme;

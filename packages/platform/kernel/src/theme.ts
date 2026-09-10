@@ -347,15 +347,30 @@ export interface StorefrontTheme {
 }
 
 /**
- * Theme 作者呼叫這個而不是直接寫物件字面量：`pages` 決定 renderers 的鍵與每個
- * view 的型別，少寫一頁或簽名對不上都是編譯期錯誤，不必等到啟動時的缺頁檢查。
+ * Theme 作者呼叫這個而不是直接寫物件字面量：型別參數 `Pages` 決定 renderers 的鍵
+ * 與每個 view 的型別，形狀對不上就是編譯期錯誤。傳型別而不是值，Theme 因此不必
+ * 依賴各模組的執行期實例——它要的只是「這些頁面長什麼樣」。
  */
+/**
+ * 沒有路由的必需頁面各自的 view。SYSTEM_PAGE_IDS 是同一份清單的執行期形式，
+ * 兩邊要一起改——啟動檢查看 id，型別看形狀。
+ */
+export interface SystemPageViews {
+  'platform.error': { status: number; message: string };
+  'platform.auth': ThemeAuthView;
+}
+
 export function defineTheme<Pages extends PageMap>(
-  pages: Pages,
   theme: Omit<StorefrontTheme, 'renderers'> & {
-    readonly renderers: { readonly [K in keyof Pages & string as Pages[K]['id']]: PageRenderer<ViewOf<Pages[K]>> };
+    /**
+     * 型別管形狀，啟動檢查管完整性：這裡逐一比對每個 renderer 收到的 view，
+     * 「少了哪一頁」交給 assertThemeCoversPages——只做寫入與轉址的頁面沒有畫面，
+     * 在型別層分不出它們，硬要求就會逼出一堆空 renderer。
+     */
+    readonly renderers:
+      & Partial<{ readonly [K in keyof Pages & string as Pages[K]['id']]: PageRenderer<ViewOf<Pages[K]>> }>
+      & { readonly [K in keyof SystemPageViews]: PageRenderer<SystemPageViews[K]> };
   },
 ): StorefrontTheme {
-  void pages;
-  return theme;
+  return theme as StorefrontTheme;
 }
