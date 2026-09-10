@@ -31,26 +31,22 @@ import { McpController } from '../../apps/api/src/mcp/mcp.controller';
 import { StorefrontController } from '../../apps/api/src/storefront/storefront.controller';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
-const ADMIN_TOKEN = 'test-admin-token-abcdefghijklmnop';
-const MCP_TOKEN = 'test-mcp-token-abcdefghijklmnop';
-const RESTRICTED_MCP_TOKEN = 'test-restricted-mcp-token-abcdefghijklmnop';
+let ADMIN_TOKEN: string;
+let MCP_TOKEN: string;
+let RESTRICTED_MCP_TOKEN: string;
 
 let h: TestHarness;
 let app: NestFastifyApplication;
 
 beforeAll(async () => {
   h = await createHarness();
-  // 直接把 token 設定注入 runtime，模擬 commerce.yaml 的 auth.tokens
-  (h.runtime.config.auth.tokens as unknown[]).push(
-    { name: 'admin', role: 'admin', secretRef: 'ADMIN_TOKEN' },
-    { name: 'mcp', role: 'mcp', secretRef: 'MCP_TOKEN' },
-    { name: 'mcp-restricted', role: 'readonly', secretRef: 'RESTRICTED_MCP_TOKEN' },
-  );
-  (h.runtime as { secrets: any }).secrets = {
-    get: (n: string) => ({ ADMIN_TOKEN, MCP_TOKEN, RESTRICTED_MCP_TOKEN, DEMO_ERP_API_KEY: 'test-key' } as Record<string, string>)[n],
-    has: (n: string) => Boolean(({ ADMIN_TOKEN, MCP_TOKEN, RESTRICTED_MCP_TOKEN, DEMO_ERP_API_KEY: 'k' } as Record<string, string>)[n]),
-    listNames: () => [],
-  };
+  // 真的簽發資料庫 API token，模擬 commerce.yaml 過去用設定檔驅動 auth.tokens 的效果（ADR 0043）。
+  ADMIN_TOKEN = (await h.runtime.database.transaction(tx => h.runtime.apiTokens.issue(tx,
+    { name: 'admin', role: 'admin', ttlMs: 60 * 60_000 }))).secret;
+  MCP_TOKEN = (await h.runtime.database.transaction(tx => h.runtime.apiTokens.issue(tx,
+    { name: 'mcp', role: 'mcp', ttlMs: 60 * 60_000 }))).secret;
+  RESTRICTED_MCP_TOKEN = (await h.runtime.database.transaction(tx => h.runtime.apiTokens.issue(tx,
+    { name: 'mcp-restricted', role: 'readonly', ttlMs: 60 * 60_000 }))).secret;
   app = await createServer({
     runtime: h.runtime,
     theme: defaultTheme,
@@ -73,7 +69,7 @@ describe('REST 介面', () => {
   it('retains exact selected Commerce route identities with MCP on and off', async () => {
     const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
     expect(commerceHttpAdapter.controllers(h.runtime.config)).toHaveLength(26);
-    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(164);
+    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(177);
     expect(catalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
 
     const enabled = h.runtime.config.mcp.enabled;
@@ -83,7 +79,7 @@ describe('REST 介面', () => {
     try {
       const withoutMcpCatalog = withoutMcp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
       expect(commerceHttpAdapter.controllers(h.runtime.config)).toHaveLength(25);
-      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(162);
+      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(175);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.some(route => route.path === '/mcp')).toBe(false);
     } finally {
@@ -103,7 +99,7 @@ describe('REST 介面', () => {
       corsApp = await createReleaseServer({ runtime: h.runtime, theme: defaultTheme,
         httpAdapter: commerceHttpAdapter, release: { version: 'test', configPath: '<test>' } });
       const catalog = (corsApp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier).storeweaveHttpCatalog!;
-      expect(catalog).toHaveLength(166);
+      expect(catalog).toHaveLength(179);
       expect(catalog.filter(route => route.kind === 'cors-preflight')).toEqual([expect.objectContaining({
         method: 'OPTIONS', path: '*', automaticRoute: true, auth: 'unauthenticated', request: 'headers', rateLimit: null,
         policy: expect.objectContaining({ allowedOrigins: ['https://console.example'], credentials: true }),
@@ -131,7 +127,18 @@ describe('REST 介面', () => {
       .map(route => `${route.rateLimit} ${route.method} ${route.path}`)
       .sort();
     expect(limited).toEqual([
+      'auth POST /api/v1/auth/change-email',
+      'auth POST /api/v1/auth/confirm-email-change',
+      'auth POST /api/v1/auth/forgot-password',
       'auth POST /api/v1/auth/login',
+      'auth POST /api/v1/auth/mfa/confirm',
+      'auth POST /api/v1/auth/mfa/disable',
+      'auth POST /api/v1/auth/mfa/enroll',
+      'auth POST /api/v1/auth/mfa/recovery-codes',
+      'auth POST /api/v1/auth/register',
+      'auth POST /api/v1/auth/resend-verification',
+      'auth POST /api/v1/auth/reset-password',
+      'auth POST /api/v1/auth/verify-email',
       'auth POST /api/v1/customers/register',
       'auth POST /forgot-password',
       'auth POST /login',
@@ -1086,7 +1093,7 @@ describe('死信佇列 HTTP 端點', () => {
 });
 
 describe('工單 69：發票的 HTTP 營運介面', () => {
-  const auth = { authorization: `Bearer ${ADMIN_TOKEN}` };
+  const auth = { get authorization() { return `Bearer ${ADMIN_TOKEN}`; } };
 
   it('lists invoices for an operator token', async () => {
     const res = await inject({ method: 'GET', url: '/api/v1/invoices?limit=5', headers: auth });
@@ -1112,8 +1119,8 @@ describe('工單 69：發票的 HTTP 營運介面', () => {
 });
 
 describe('工單 72：會員等級與購物金設定的營運介面', () => {
-  const auth = { authorization: `Bearer ${ADMIN_TOKEN}` };
-  const mcp = { authorization: `Bearer ${MCP_TOKEN}` };
+  const auth = { get authorization() { return `Bearer ${ADMIN_TOKEN}`; } };
+  const mcp = { get authorization() { return `Bearer ${MCP_TOKEN}`; } };
 
   it('讀得到購物金設定，並且改得動累積比例', async () => {
     const before = await inject({ method: 'GET', url: '/api/v1/loyalty/settings', headers: auth });
@@ -1163,8 +1170,8 @@ describe('工單 72：會員等級與購物金設定的營運介面', () => {
 });
 
 describe('工單 73／74：通知紀錄與生日更正的 HTTP 面', () => {
-  const auth = { authorization: `Bearer ${ADMIN_TOKEN}` };
-  const mcp = { authorization: `Bearer ${MCP_TOKEN}` };
+  const auth = { get authorization() { return `Bearer ${ADMIN_TOKEN}`; } };
+  const mcp = { get authorization() { return `Bearer ${MCP_TOKEN}`; } };
 
   it('通知紀錄讀得到，limit 不是數字時回 400 而不是 500', async () => {
     const res = await inject({ method: 'GET', url: '/api/v1/notification-deliveries?limit=5', headers: auth });

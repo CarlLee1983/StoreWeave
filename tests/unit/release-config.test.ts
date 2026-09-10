@@ -43,14 +43,15 @@ describe('release configuration', () => {
     });
   });
 
-  it('preserves Commerce v1 defaults and static-token restrictions', () => {
+  it('preserves Commerce v1 defaults and refuses the retired static-token block', () => {
     const config = commerceConfigSchema.parse(base);
     expect(config.store.currency).toBe('TWD');
     expect(config.theme.id).toBe('default');
     expect(config.paths.dataDir).toBe('/var/lib/commerce');
     expect(config.auth.sessionTtlMinutes).toEqual({ operator: 720, customer: 43200 });
-    for (const role of ['customer', 'storefront', 'constructor']) {
-      expect(commerceConfigSchema.safeParse({ ...base, auth: { tokens: [{ name: 'bad', role, secretRef: 'TOKEN' }] } }).success).toBe(false);
+    // Token 移進資料庫之後，帶著舊區塊升級要硬失敗而不是被安靜忽略（ADR 0043）。
+    for (const schema of [baseConfigSchema, commerceConfigSchema]) {
+      expect(schema.safeParse({ ...base, auth: { tokens: [{ name: 'legacy', role: 'admin', secretRef: 'TOKEN' }] } }).success).toBe(false);
     }
   });
 

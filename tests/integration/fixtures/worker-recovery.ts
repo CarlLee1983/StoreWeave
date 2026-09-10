@@ -82,8 +82,12 @@ export function createWorkerRecoveryRuntime(url: string, mode: RecoveryMode) {
       worker: { concurrency: 1, pollIntervalMs: 50 },
       shutdown: { timeoutMs: 250 },
       logging: { level: 'error' },
+      security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
     }),
-    secrets: { get: () => undefined, has: () => false, listNames: () => [] },
+    secrets: {
+      get: (name: string) => name === 'SW_SIGNING_KEY_TEST' ? Buffer.alloc(32, 3).toString('base64url') : undefined,
+      has: (name: string) => name === 'SW_SIGNING_KEY_TEST', listNames: () => ['SW_SIGNING_KEY_TEST'],
+    },
     logger: noopLogger,
     modules: [recoveryModule(url, mode)],
     availableExtensions: {},

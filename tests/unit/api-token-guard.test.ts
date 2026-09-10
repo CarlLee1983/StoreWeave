@@ -22,11 +22,16 @@ function guardWith(options: {
     roles: COMMERCE_ROLES,
     actorForRole: (role: string, id?: string) => ({ id: id ?? `role:${role}`, type: 'service', displayName: role, permissions: permissionsForRole(role) }),
     config: {
-      auth: { tokens: [{ name: 'admin-console', role: 'admin', secretRef: 'TOKEN' }] },
       // 本機 http：cookie 名字沒有 __Host- 前綴（見 cookie-names.ts）。
       http: { publicUrl: 'http://localhost:3000' },
     },
-    secrets: { get: (name: string) => (name === 'TOKEN' ? options.tokenSecret ?? 'secret-token' : undefined) },
+    // Token 由資料庫擁有（ADR 0043）；守衛只問「這串是誰」。
+    apiTokens: {
+      resolve: vi.fn(async (_db: unknown, presented: string) =>
+        (presented === (options.tokenSecret ?? 'secret-token')
+          ? { id: 'token-1', name: 'admin-console', role: 'admin' }
+          : null)),
+    },
     auth: { resolveSession: vi.fn(async (_db: unknown, token: string) => (options.resolveSession ? options.resolveSession(token) : null)) },
     database: { db: {} },
   };

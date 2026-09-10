@@ -60,7 +60,9 @@ describe('owned logger resources', () => {
       database: { url: 'postgres://unused.invalid/test' },
       logging: { level: 'info', destination: 'file', file },
       theme: { id: failure ? 'missing' : 'none' },
+      security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
     }));
+    process.env.SW_SIGNING_KEY_TEST = Buffer.alloc(32, 5).toString('base64url');
     const destination = vi.spyOn(pino, 'destination');
     if (failure) {
       await expect(bootstrapRelease(release, { configPath, loggerName: 'test' })).rejects.toThrow('not part of release');

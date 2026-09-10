@@ -96,7 +96,8 @@ beforeAll(async () => {
   runtime = await createRuntime({
     release: { id: 'test', version: '1.0.0', buildManifestChecksum: `sha256:${'0'.repeat(64)}` },
     roles: BASE_ROLES,
-    config: testConfig(url, { extensions: {} }), secrets: testSecretProvider({}), logger: noopLogger,
+    config: testConfig(url, { extensions: {} }),
+    secrets: testSecretProvider({ SW_SIGNING_KEY_TEST: Buffer.alloc(32, 3).toString('base64url') }), logger: noopLogger,
     availableExtensions: {},
     modules: [enrollmentModule(bindModuleCapability('activity-capacity', 'activities.capacity.reserve', capacityService)), capacityModule,
       defineModule({

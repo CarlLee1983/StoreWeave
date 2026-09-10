@@ -23,8 +23,12 @@ async function runtime() {
   const instance = await createRuntime({
     release: { id: 'payload-contract', version: '1.0.0', buildManifestChecksum: `sha256:${'2'.repeat(64)}` },
     roles: BASE_ROLES,
-    config: baseConfigSchema.parse({ version: 1, store: { id: 'payload-contract', name: 'Payload contract' }, database: { url }, logging: { level: 'error' } }),
-    secrets: { get: () => undefined, has: () => false, listNames: () => [] }, logger: noopLogger, availableExtensions: {},
+    config: baseConfigSchema.parse({ version: 1, store: { id: 'payload-contract', name: 'Payload contract' }, database: { url }, logging: { level: 'error' },
+      security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] } }),
+    secrets: {
+      get: (name: string) => name === 'SW_SIGNING_KEY_TEST' ? Buffer.alloc(32, 3).toString('base64url') : undefined,
+      has: (name: string) => name === 'SW_SIGNING_KEY_TEST', listNames: () => ['SW_SIGNING_KEY_TEST'],
+    }, logger: noopLogger, availableExtensions: {},
     modules: [{
       name: 'payload-contract', version: '1.0.0', baseVersionRange: '^1.0.0',
       jobs: [
@@ -50,8 +54,12 @@ async function legacyRuntime() {
   const instance = await createRuntime({
     release: { id: 'legacy-payload-contract', version: '1.0.0', buildManifestChecksum: `sha256:${'3'.repeat(64)}` },
     roles: BASE_ROLES,
-    config: baseConfigSchema.parse({ version: 1, store: { id: 'legacy-payload-contract', name: 'Legacy payload contract' }, database: { url }, logging: { level: 'error' } }),
-    secrets: { get: () => undefined, has: () => false, listNames: () => [] }, logger: noopLogger, availableExtensions: {},
+    config: baseConfigSchema.parse({ version: 1, store: { id: 'legacy-payload-contract', name: 'Legacy payload contract' }, database: { url }, logging: { level: 'error' },
+      security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] } }),
+    secrets: {
+      get: (name: string) => name === 'SW_SIGNING_KEY_TEST' ? Buffer.alloc(32, 3).toString('base64url') : undefined,
+      has: (name: string) => name === 'SW_SIGNING_KEY_TEST', listNames: () => ['SW_SIGNING_KEY_TEST'],
+    }, logger: noopLogger, availableExtensions: {},
     modules: [{ name: 'legacy-owner', version: '1.0.0', baseVersionRange: '^1.0.0', jobs: [
       { type: 'ext.legacy-owner.send', handler: async () => undefined },
     ] }],

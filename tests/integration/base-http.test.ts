@@ -31,6 +31,7 @@ let directory: string;
 let runtime: Runtime;
 let app: NestFastifyApplication;
 let controllerFactory: ReturnType<typeof vi.fn>;
+let READONLY_TOKEN: string;
 const email = 'http-boundary@example.com';
 const password = 'base-http-valid-password';
 
@@ -48,9 +49,11 @@ function syntheticRouteController(path: string, method: RequestMethod, contract?
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'storeweave-base-http-'));
   const configPath = join(directory, 'config.json');
+  process.env.SW_SIGNING_KEY_TEST = Buffer.alloc(32, 3).toString('base64url');
   writeFileSync(configPath, JSON.stringify({ version: 1,
     store: { id: 'base-http', name: 'Base HTTP' },
     database: { url: await createTestDatabase() }, logging: { level: 'error' },
+    security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
   }));
   const boot = await bootstrapRelease(release, { configPath, loggerName: 'base-http' });
   runtime = boot.runtime;
@@ -58,9 +61,10 @@ beforeAll(async () => {
   await runtime.commands.execute('platform.identity.createUser', {
     email, password, displayName: 'Operator', role: 'admin',
   }, { actor: ADMIN_ACTOR, idempotencyKey: 'base-http-user' });
-  runtime.config.auth.tokens.push({ name: 'readonly', role: 'readonly', secretRef: 'B03_READONLY_TOKEN' });
-  const getSecret = runtime.secrets.get;
-  runtime.secrets.get = name => name === 'B03_READONLY_TOKEN' ? 'base-http-readonly-token' : getSecret(name);
+  const issuedReadonly = await runtime.database.transaction(tx => runtime.apiTokens.issue(tx, {
+    name: 'readonly', role: 'readonly', ttlMs: 60 * 60_000,
+  }));
+  READONLY_TOKEN = issuedReadonly.secret;
   controllerFactory = vi.fn(httpAdapter.controllers);
   app = await createReleaseServer({ runtime, httpAdapter: { ...httpAdapter, controllers: controllerFactory }, release: { version: release.version, configPath } });
 });
@@ -72,11 +76,11 @@ afterAll(async () => {
 });
 
 describe('Base HTTP input boundary', () => {
-  it('selects Base controllers once and retains the validated 7-controller, 33-route catalog', () => {
+  it('selects Base controllers once and retains the validated 7-controller, 46-route catalog', () => {
     expect(controllerFactory).toHaveBeenCalledTimes(1);
     expect(controllerFactory.mock.results[0]?.value).toHaveLength(7);
     const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
-    expect(catalog.storeweaveHttpCatalog).toHaveLength(33);
+    expect(catalog.storeweaveHttpCatalog).toHaveLength(46);
     expect(catalog.storeweaveHttpCatalog?.filter(route => route.method === 'GET').every(route => route.automaticMethods?.[0] === 'HEAD')).toBe(true);
     expect(app.getHttpAdapter().getInstance().hasRoute({ method: 'OPTIONS', url: '*' })).toBe(false);
   });
@@ -124,6 +128,19 @@ describe('Base HTTP input boundary', () => {
       ['POST', '/api/v1/auth/logout', 200, 'session-or-anonymous'],
       ['GET', '/api/v1/auth/me', 200, 'session'],
       ['POST', '/api/v1/auth/change-password', 200, 'session'],
+      ['POST', '/api/v1/auth/register', 200, 'anonymous'],
+      ['POST', '/api/v1/auth/forgot-password', 200, 'anonymous'],
+      ['POST', '/api/v1/auth/reset-password', 200, 'anonymous'],
+      ['POST', '/api/v1/auth/verify-email', 200, 'anonymous'],
+      ['POST', '/api/v1/auth/resend-verification', 200, 'session'],
+      ['POST', '/api/v1/auth/change-email', 200, 'session'],
+      ['POST', '/api/v1/auth/confirm-email-change', 200, 'anonymous'],
+      ['POST', '/api/v1/auth/revoke-other-sessions', 200, 'session'],
+      ['GET', '/api/v1/auth/mfa', 200, 'session'],
+      ['POST', '/api/v1/auth/mfa/enroll', 200, 'session'],
+      ['POST', '/api/v1/auth/mfa/confirm', 200, 'session'],
+      ['POST', '/api/v1/auth/mfa/recovery-codes', 200, 'session'],
+      ['POST', '/api/v1/auth/mfa/disable', 200, 'session'],
       ['GET', '/api/v1/meta', 200, 'bearer-or-session'],
       ['GET', '/api/v1/meta/commands', 200, 'bearer-or-session'],
       ['GET', '/api/v1/meta/queries', 200, 'bearer-or-session'],
@@ -179,7 +196,7 @@ describe('Base HTTP input boundary', () => {
 
   it('uses the declared error envelope without exposing internal details', async () => {
     const execute = vi.spyOn(runtime.queries, 'execute');
-    const headers = { authorization: 'Bearer base-http-readonly-token' };
+    const headers = { authorization: `Bearer ${READONLY_TOKEN}` };
     try {
       for (const [error, status, code] of [
         [new Error('private-database-password'), 500, 'INTERNAL_ERROR'],
@@ -205,7 +222,7 @@ describe('Base HTTP input boundary', () => {
   it('validates pagination and rejects a reader attempting a write', async () => {
     expect(describeHttpRoutes(runtime, [SystemController])).toHaveLength(9);
     expect(() => describeHttpRoutes(runtime, [InventoryController])).toThrow('not found');
-    const headers = { authorization: 'Bearer base-http-readonly-token' };
+    const headers = { authorization: `Bearer ${READONLY_TOKEN}` };
     const valid = await app.inject({ url: '/api/v1/system/jobs/dead?limit=1&offset=0', headers });
     expect(valid.statusCode).toBe(200);
     expect(valid.json().data).toEqual({ items: [], total: 0 });
@@ -308,7 +325,7 @@ describe('Base HTTP input boundary', () => {
       cors.credentials = false;
       withoutCredentials = await createReleaseServer({ runtime, httpAdapter, release: { version: 'test', configPath: '<test>' } });
       const catalog = (withoutCredentials.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier).storeweaveHttpCatalog!;
-      expect(catalog).toHaveLength(34);
+      expect(catalog).toHaveLength(47);
       expect(catalog.find(route => route.kind === 'cors-preflight')).toMatchObject({
         method: 'OPTIONS', path: '*', automaticRoute: true, auth: 'unauthenticated', request: 'headers', rateLimit: null,
         policy: { allowedOrigins: ['https://console.example'], credentials: false,
@@ -375,7 +392,7 @@ describe('Base HTTP input boundary', () => {
         headers: { origin: 'https://console.example' }, payload: { email, password } });
       expect(crossSiteLogin.statusCode).toBe(403);
       const bearer = await withCredentials.inject({ url: '/api/v1/meta', headers: {
-        origin: 'https://console.example', authorization: 'Bearer base-http-readonly-token',
+        origin: 'https://console.example', authorization: `Bearer ${READONLY_TOKEN}`,
       } });
       expect(bearer).toMatchObject({ statusCode: 200, headers: {
         'access-control-allow-origin': 'https://console.example', 'access-control-allow-credentials': 'true',

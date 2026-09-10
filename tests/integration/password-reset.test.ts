@@ -38,18 +38,19 @@ const requestReset = (email: string) =>
     payload: `email=${encodeURIComponent(email)}`,
   });
 
-/** 重設信走 base 通知能力；內容與收件人留在 platform_notifications。 */
-async function sentNotifications(): Promise<any[]> {
-  const rows = await h.runtime.database.db.execute<{ template_id: string; recipient_email: string; variables: any }>(sql`
-    SELECT template_id, recipient_email, variables FROM platform_notifications ORDER BY created_at
+/** 重設信由 B06 mail 寄出，內容留在 `platform_mail_messages`。 */
+async function resetMails(email?: string): Promise<{ recipients: { email: string }[]; text_body: string }[]> {
+  const rows = await h.runtime.database.db.execute<{ recipients: { email: string }[]; text_body: string }>(sql`
+    SELECT recipients, text_body FROM public.platform_mail_messages
+    WHERE template_id = 'identity.password-reset' ORDER BY created_at
   `);
-  return rows.rows.map((row) => ({ template: row.template_id, to: { email: row.recipient_email }, variables: row.variables }));
+  return rows.rows.filter(row => !email || row.recipients.some(recipient => recipient.email === email));
 }
 
 async function resetTokenFor(email: string): Promise<string> {
-  const sent = (await sentNotifications()).filter((n) => n.to.email === email);
-  const url = String(sent[sent.length - 1].variables.resetUrl);
-  return new URL(url).searchParams.get('token')!;
+  const mails = await resetMails(email);
+  const body = mails[mails.length - 1].text_body;
+  return new URL(/https?:\/\/\S+/.exec(body)![0]).searchParams.get('token')!;
 }
 
 const login = (email: string, password: string) =>
@@ -67,29 +68,30 @@ describe('請求重設密碼', () => {
     expect(missing.body).toContain('若這個電子郵件存在');
   });
 
-  it('信經由 base 通知能力寄出，樣板與收件者正確', async () => {
+  it('信由平台自己的 mail 能力寄出，樣板與收件者正確', async () => {
     await signUp('reset2@example.com');
     await requestReset('reset2@example.com');
 
-    const sent = (await sentNotifications()).filter((n) => n.to.email === 'reset2@example.com');
+    const sent = await resetMails('reset2@example.com');
     expect(sent).toHaveLength(1);
-    expect(sent[0].template).toBe('customer.password-reset');
-    expect(String(sent[0].variables.resetUrl)).toContain('/reset-password?token=');
+    expect(sent[0].text_body).toContain('/reset-password?token=');
   });
 
   it('不存在的 email 不會寄出任何東西', async () => {
-    const before = (await sentNotifications()).length;
+    const before = (await resetMails()).length;
     await requestReset('nobody-at-all@example.com');
-    expect((await sentNotifications()).length).toBe(before);
+    expect((await resetMails()).length).toBe(before);
   });
 
-  it('token 只存雜湊，資料庫裡找不到明文', async () => {
+  it('資料庫裡沒有任何可以重建連結的材料', async () => {
     await signUp('reset3@example.com');
     await requestReset('reset3@example.com');
     const token = await resetTokenFor('reset3@example.com');
 
+    // 簽章值只出現在信裡；token 表存的是 id、用途與到期，沒有秘密。
     const rows = await h.runtime.database.db.execute<{ count: string }>(sql`
-      SELECT count(*)::text AS count FROM platform_password_resets WHERE token_hash = ${token}
+      SELECT count(*)::text AS count FROM platform_identity_tokens
+      WHERE id::text = ${token} OR coalesce(data, '') = ${token}
     `);
     expect(rows.rows[0].count).toBe('0');
   });
@@ -137,7 +139,7 @@ describe('使用重設連結', () => {
     await signUp('reset6@example.com');
     await requestReset('reset6@example.com');
     const token = await resetTokenFor('reset6@example.com');
-    await h.runtime.database.db.execute(sql`UPDATE platform_password_resets SET expires_at = now() - interval '1 minute'`);
+    await h.runtime.database.db.execute(sql`UPDATE platform_identity_tokens SET expires_at = now() - interval '1 minute'`);
 
     const res = await inject({
       method: 'POST', url: '/reset-password',

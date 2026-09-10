@@ -26,10 +26,8 @@ import { createTestDatabase } from './helpers';
  */
 
 const HOUR = 60 * 60 * 1000;
-const READONLY_TOKEN = 'ops-http-readonly-token';
-const ADMIN_TOKEN = 'ops-http-admin-token';
-const readonly = { authorization: `Bearer ${READONLY_TOKEN}` };
-const admin = { authorization: `Bearer ${ADMIN_TOKEN}` };
+let readonly: { authorization: string };
+let admin: { authorization: string };
 
 let directory: string;
 let runtime: Runtime;
@@ -38,20 +36,23 @@ let app: NestFastifyApplication;
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'storeweave-ops-http-'));
   const configPath = join(directory, 'config.json');
+  process.env.SW_SIGNING_KEY_TEST = Buffer.alloc(32, 3).toString('base64url');
   writeFileSync(configPath, JSON.stringify({ version: 1,
     store: { id: 'ops-http', name: 'Ops HTTP' },
     database: { url: await createTestDatabase() }, logging: { level: 'error' },
+    security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
   }));
   const boot = await bootstrapRelease(release, { configPath, loggerName: 'ops-http' });
   runtime = boot.runtime;
   await runtime.migrate();
   // readonly 有 jobs:read 沒有 jobs:write，admin 是 `*`——兩把 token 剛好切出
   // 「讀得到但寫不了」與「寫得了」兩條路徑。
-  runtime.config.auth.tokens.push({ name: 'readonly', role: 'readonly', secretRef: 'OPS_HTTP_READONLY' });
-  runtime.config.auth.tokens.push({ name: 'admin', role: 'admin', secretRef: 'OPS_HTTP_ADMIN' });
-  const getSecret = runtime.secrets.get;
-  runtime.secrets.get = (name: string) => name === 'OPS_HTTP_READONLY' ? READONLY_TOKEN
-    : name === 'OPS_HTTP_ADMIN' ? ADMIN_TOKEN : getSecret(name);
+  const issuedReadonly = await runtime.database.transaction(tx => runtime.apiTokens.issue(tx,
+    { name: 'readonly', role: 'readonly', ttlMs: 60 * 60_000 }));
+  const issuedAdmin = await runtime.database.transaction(tx => runtime.apiTokens.issue(tx,
+    { name: 'admin', role: 'admin', ttlMs: 60 * 60_000 }));
+  readonly = { authorization: `Bearer ${issuedReadonly.secret}` };
+  admin = { authorization: `Bearer ${issuedAdmin.secret}` };
   app = await createReleaseServer({ runtime, httpAdapter, release: { version: release.version, configPath } });
 }, 300_000);
 

@@ -169,15 +169,8 @@ export const setCustomerStatusHandler = async (
   if (!row) throw PlatformError.notFound('Customer', input.customerId);
 
   // 帳號一起停：只停顧客資料的話，人還是登得進來，只是什麼都不能做——那不是「停用帳號」。
-  await ctx.tx.execute(sql`
-    UPDATE platform_users SET status = ${input.status === 'disabled' ? 'disabled' : 'active'}
-    WHERE id = ${row.accountId}
-  `);
-  if (input.status === 'disabled') {
-    await ctx.tx.execute(sql`
-      UPDATE platform_sessions SET revoked_at = now() WHERE user_id = ${row.accountId} AND revoked_at IS NULL
-    `);
-  }
+  // 走 identity 的入口而不是自己 UPDATE：那兩張表是 identity 擁有的。
+  await accountService.setStatus(ctx.tx, row.accountId, input.status === 'disabled' ? 'disabled' : 'active');
 
   return toCustomerDto(row);
 };

@@ -4,8 +4,8 @@ import { doctor, type Runtime } from '@storeweave/kernel';
 function runtimeForProvider(provider: { id: string; kind: 'payment'; healthCheck?: () => Promise<{ ok: boolean; message?: string }> }): Runtime {
   return {
     config: {
+      security: { signingKeys: [] },
       store: { id: 'test-store' },
-      auth: { tokens: [] },
       paths: { dataDir: '/tmp', backupDir: '/tmp' },
       storage: { driver: 'local' },
     },

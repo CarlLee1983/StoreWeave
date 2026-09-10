@@ -51,12 +51,12 @@ pnpm 讀到會判定 lockfile 過期，CI 的 `--frozen-lockfile` 直接失敗�
 ```bash
 pnpm install
 export DATABASE_URL=postgres://commerce:devpw@127.0.0.1:5432/commerce
-export COMMERCE_ADMIN_TOKEN=dev-admin-token COMMERCE_MCP_TOKEN=dev-mcp-token DEMO_ERP_API_KEY=dev-erp-key
+export COMMERCE_SIGNING_KEY_K1=$(openssl rand -base64 32) DEMO_ERP_API_KEY=dev-erp-key
 export COMMERCE_CONFIG=deployments/example-store/commerce.yaml
 pnpm commerce migrate
 pnpm seed -- --demo  # 明確選擇示範資料：注入 24 款選品、促銷券、會員等級與示範帳號
 pnpm "dev:api"       # 另開一個終端機
-pnpm "dev:worker"
+pnpm "dev:worker"    # 需要 API token 時：pnpm commerce token:create --name dev --role admin
 ```
 
 ## 文件

@@ -38,8 +38,8 @@ volumes:
 
 ```bash
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
-COMMERCE_ADMIN_TOKEN=$(openssl rand -hex 32)
-COMMERCE_MCP_TOKEN=$(openssl rand -hex 32)
+# 身分連結與下載連結的簽章金鑰；沒有它的部署不會啟動（ADR 0042）
+COMMERCE_SIGNING_KEY_K1=$(openssl rand -base64 32)
 DEMO_ERP_API_KEY=...
 COMMERCE_PUBLIC_URL=https://shop.example.com
 # 對外 port，預設 3000

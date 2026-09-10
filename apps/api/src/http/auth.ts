@@ -88,22 +88,18 @@ export class ApiTokenGuard implements CanActivate {
     if (raw && raw.toLowerCase().startsWith('bearer ')) {
       const presented = raw.slice(7).trim();
 
-      for (const token of this.runtime.config.auth.tokens) {
-        const expected = this.runtime.secrets.get(token.secretRef);
-        if (!expected) continue;
-        if (constantTimeEquals(presented, expected)) {
-          const role = roleFor(this.runtime.roles, token.role);
-          if (!role?.tokenAllowed) throw new PlatformError('UNAUTHENTICATED', 'Invalid API token');
-          request.actor = {
-            id: `token:${token.name}`,
-            type: 'service',
-            displayName: token.name,
-            permissions: role.permissions,
-          };
-          return true;
-        }
-      }
-      throw new PlatformError('UNAUTHENTICATED', 'Invalid API token');
+      // Token 存在資料庫，撤銷與到期因此立刻生效，不必重啟（ADR 0043）。
+      const token = await this.runtime.apiTokens.resolve(this.runtime.database.db, presented);
+      if (!token) throw new PlatformError('UNAUTHENTICATED', 'Invalid API token');
+      const role = roleFor(this.runtime.roles, token.role);
+      if (!role?.tokenAllowed) throw new PlatformError('UNAUTHENTICATED', 'Invalid API token');
+      request.actor = {
+        id: `token:${token.name}`,
+        type: 'service',
+        displayName: token.name,
+        permissions: role.permissions,
+      };
+      return true;
     }
 
     const sessionToken = sessionTokenOf(request, this.runtime.config.http.publicUrl);

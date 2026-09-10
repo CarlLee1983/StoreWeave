@@ -38,11 +38,12 @@ admin:
 mcp:
   enabled: true
 
-auth:
-  tokens:
-    - name: admin-console
-      role: admin
-      secretRef: COMMERCE_ADMIN_TOKEN
+security:
+  signingKeys:
+    - id: k1
+      secretRef: COMMERCE_SIGNING_KEY_K1
+
+# API token 由 `commerce token:create` 簽發，設定檔裡沒有它們（ADR 0043）。
 
 extensions:
   # 這家店不接 ERP，也只開放唯讀的 MCP 工具

@@ -20,10 +20,10 @@ for kind in network volume; do
   fi
 done
 export STOREWEAVE_IMAGE="${STOREWEAVE_IMAGE:-storeweave/$RELEASE_ID:smoke-$PROJECT}"
-export COMMERCE_ADMIN_TOKEN="${COMMERCE_ADMIN_TOKEN:-smoke-admin-token-0123456789}"
-export COMMERCE_MCP_TOKEN="${COMMERCE_MCP_TOKEN:-smoke-mcp-token-0123456789}"
 export DEMO_ERP_API_KEY="${DEMO_ERP_API_KEY:-smoke-erp-key}"
-export STOREWEAVE_ADMIN_TOKEN="${STOREWEAVE_ADMIN_TOKEN:-smoke-base-admin-token-0123456789}"
+# 身分連結的簽章金鑰（ADR 0042）：release 沒有它就起不來。
+export COMMERCE_SIGNING_KEY_K1="${COMMERCE_SIGNING_KEY_K1:-c21va2Utc2lnbmluZy1rZXktMzItYnl0ZXMtMDAwMDE}"
+export STOREWEAVE_SIGNING_KEY_K1="${STOREWEAVE_SIGNING_KEY_K1:-c21va2Utc2lnbmluZy1rZXktMzItYnl0ZXMtMDAwMDE}"
 KEEP="${KEEP:-false}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/storeweave-docker-smoke.XXXXXX")"
 compose() { docker compose -p "$PROJECT" -f "$COMPOSE_FILE" "$@"; }
@@ -36,8 +36,8 @@ if [ "$RELEASE_ID" = base ]; then
 version: 1
 store: { id: base-smoke, name: Base Smoke }
 database: { url: '${STOREWEAVE_DATABASE_URL}' }
-auth:
-  tokens: [{ name: smoke, role: admin, secretRef: STOREWEAVE_ADMIN_TOKEN }]
+security:
+  signingKeys: [{ id: k1, secretRef: STOREWEAVE_SIGNING_KEY_K1 }]
 extensions: []
 CONFIG
   export STOREWEAVE_CONFIG_PATH="$WORK/base.yaml"
@@ -53,6 +53,8 @@ for i in $(seq 1 90); do
   [ "$i" -lt 90 ] || { echo 'API did not become ready' >&2; compose logs --tail 60 api; exit 1; }
   sleep 2
 done
+# Token 不再寫在設定檔：由 CLI 現場簽發，秘密只在標準輸出出現一次（ADR 0043）。
+secret_of() { sed -n 's/.*"secret":"\([^"]*\)".*/\1/p'; }
 compose exec -T api "$NAME" extension:list
 # The same selected seed is shipped in the image and remains safe to repeat.
 compose exec -T api /usr/local/bin/entrypoint.sh seed
@@ -62,10 +64,15 @@ if [ "$RELEASE_ID" = commerce ]; then
   SMOKE_USER_PASSWORD=smoke-user-passphrase-2026
   compose exec -T -e COMMERCE_USER_PASSWORD="$SMOKE_USER_PASSWORD" api "$NAME" user:create \
     --email "$SMOKE_USER_EMAIL" --name 'Smoke operator' --role admin >/dev/null
-  BASE_URL="http://localhost:$PORT" ADMIN_TOKEN="$COMMERCE_ADMIN_TOKEN" MCP_TOKEN="$COMMERCE_MCP_TOKEN" \
+  ADMIN_TOKEN="$(compose exec -T api "$NAME" token:create --name smoke-admin --role admin --json | secret_of)"
+  MCP_TOKEN="$(compose exec -T api "$NAME" token:create --name smoke-mcp --role mcp --json | secret_of)"
+  [ -n "$ADMIN_TOKEN" ] || { echo 'token:create did not return a secret' >&2; exit 1; }
+  BASE_URL="http://localhost:$PORT" ADMIN_TOKEN="$ADMIN_TOKEN" MCP_TOKEN="$MCP_TOKEN" \
     SMOKE_USER_EMAIL="$SMOKE_USER_EMAIL" SMOKE_USER_PASSWORD="$SMOKE_USER_PASSWORD" bash scripts/smoke.sh
 else
-  BASE_URL="http://localhost:$PORT" ADMIN_TOKEN="$STOREWEAVE_ADMIN_TOKEN" bash scripts/smoke-base.sh
+  ADMIN_TOKEN="$(compose exec -T api "$NAME" token:create --name smoke-admin --role admin --json | secret_of)"
+  [ -n "$ADMIN_TOKEN" ] || { echo 'token:create did not return a secret' >&2; exit 1; }
+  BASE_URL="http://localhost:$PORT" ADMIN_TOKEN="$ADMIN_TOKEN" bash scripts/smoke-base.sh
   compose exec -T api sh -c 'test ! -e /opt/storeweave/current/admin && test ! -e /opt/storeweave/current/theme-assets && test ! -e /etc/commerce && test ! -e /opt/commerce'
 fi
 printf 'Docker %s smoke passed (%s)\n' "$RELEASE_ID" "$PROJECT"

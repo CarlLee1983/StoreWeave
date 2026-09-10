@@ -37,9 +37,11 @@ async function options(extensions: ExtensionDefinition[]) {
   finally { await initial.close(); }
   return {
     release: { id: 'test', version: '1.0.0', buildManifestChecksum: `sha256:${'0'.repeat(64)}` },
-    roles: BASE_ROLES, modules: [], logger: noopLogger, secrets: testSecretProvider({}),
+    roles: BASE_ROLES, modules: [], logger: noopLogger,
+    secrets: testSecretProvider({ SW_SIGNING_KEY_TEST: Buffer.alloc(32, 3).toString('base64url') }),
     config: baseConfigSchema.parse({ version: 1, store: { id: 'lifecycle', name: 'Lifecycle' }, database: { url },
-      extensions: extensions.map(extension => ({ id: extension.manifest.id })) }),
+      extensions: extensions.map(extension => ({ id: extension.manifest.id })),
+      security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] } }),
     availableExtensions: Object.fromEntries(extensions.map(extension => [extension.manifest.id, extension])),
   };
 }
@@ -66,8 +68,10 @@ describe('runtime cleanup', () => {
       } finally { await connection.close(); }
       return { close: () => { order.push('extension'); } };
     });
+    process.env.SW_SIGNING_KEY_TEST = Buffer.alloc(32, 3).toString('base64url');
     writeFileSync(configPath, JSON.stringify({ version: 1, store: { id: 'finalizer', name: 'Finalizer' },
-      database: { url }, extensions: [{ id: probe.manifest.id }] }));
+      database: { url }, extensions: [{ id: probe.manifest.id }],
+      security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] } }));
     try {
       const { runtime } = await bootstrapRelease({ ...baseRelease, availableExtensions: { [probe.manifest.id]: probe } },
         { configPath, loggerName: 'finalizer-test' });
@@ -218,7 +222,12 @@ describe('runtime cleanup', () => {
     try {
       expect((await inspection.pool.query('SELECT count(*)::int AS count FROM platform_release_history')).rows).toEqual([{ count: 0 }]);
       expect((await inspection.pool.query("SELECT id FROM platform_migrations WHERE migration_owner='identity' ORDER BY id")).rows)
-        .toEqual([{ id: 'identity/0001_users_and_sessions' }, { id: 'identity/0003_password_resets' }]);
+        .toEqual([
+          { id: 'identity/0001_users_and_sessions' }, { id: 'identity/0003_password_resets' },
+          { id: 'identity/0004_identity_tokens' }, { id: 'identity/0005_drop_password_resets' },
+          { id: 'identity/0006_api_tokens' }, { id: 'identity/0007_mfa' },
+          { id: 'identity/0008_login_lockout' },
+        ]);
     } finally { await inspection.close(); }
   });
 

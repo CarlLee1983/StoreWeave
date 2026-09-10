@@ -16,6 +16,7 @@ import { createTestDatabase } from './helpers';
 
 const runtimes: Runtime[] = [];
 const directories: string[] = [];
+process.env.SW_SIGNING_KEY_TEST = Buffer.alloc(32, 3).toString('base64url');
 afterEach(async () => {
   await Promise.all(runtimes.splice(0).map(runtime => runtime.close()));
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true });
@@ -29,6 +30,7 @@ async function configPath() {
     version: 1, store: { id: 'release-test', name: 'Release Test' },
     database: { url: await createTestDatabase() }, logging: { level: 'error' }, extensions: [],
     storage: { localRoot: join(directory, 'storage'), maxUploadBytes: 32 },
+    security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
   }));
   return config;
 }
@@ -41,18 +43,18 @@ describe('selected release bootstrap', () => {
     expect(result.theme).toBeUndefined();
     expect(runtime.config.store).not.toHaveProperty('currency');
     expect(runtime.modules.map(module => module.name).sort()).toEqual(['platform', 'platform-cache', 'platform-identity', 'platform-mail', 'platform-notifications', 'platform-ops', 'platform-storage']);
-    expect(Object.keys(runtime.roles).sort()).toEqual(['admin', 'readonly', 'staff']);
+    expect(Object.keys(runtime.roles).sort()).toEqual(['admin', 'member', 'readonly', 'staff']);
     await runtime.migrate();
     await expect(runtime.migrate()).resolves.toEqual([]);
     const tables = await runtime.database.pool.query<{ tablename: string }>(
       "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename",
     );
     expect(tables.rows.map(row => row.tablename)).toEqual([
-      'platform_audit_log', 'platform_cache', 'platform_extension_registry', 'platform_extension_state',
-      'platform_idempotency', 'platform_job_quarantine', 'platform_job_schedules', 'platform_jobs', 'platform_mail_messages', 'platform_migration_baselines', 'platform_migrations',
+      'platform_api_tokens', 'platform_audit_log', 'platform_cache', 'platform_extension_registry', 'platform_extension_state',
+      'platform_idempotency', 'platform_identity_tokens', 'platform_job_quarantine', 'platform_job_schedules', 'platform_jobs', 'platform_mail_messages', 'platform_mfa_recovery_codes', 'platform_migration_baselines', 'platform_migrations',
       'platform_notification_deliveries', 'platform_notifications', 'platform_outbox',
       'platform_outbox_quarantine', 'platform_outbox_quarantine_audit',
-      'platform_password_resets', 'platform_release_history', 'platform_sessions', 'platform_storage_objects', 'platform_users', 'platform_worker_heartbeat',
+      'platform_release_history', 'platform_sessions', 'platform_storage_objects', 'platform_user_mfa', 'platform_users', 'platform_worker_heartbeat',
     ]);
   });
 
@@ -65,16 +67,16 @@ describe('selected release bootstrap', () => {
     await runtime.commands.execute('platform.identity.createUser', {
       email: 'base@example.com', password, displayName: 'Base Operator', role: 'staff',
     }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
-    runtime.config.auth.tokens.push({ name: 'readonly', role: 'readonly', secretRef: 'B02_BASE_TOKEN' });
-    const getSecret = runtime.secrets.get;
-    runtime.secrets.get = name => name === 'B02_BASE_TOKEN' ? 'base-token' : getSecret(name);
+    const issued = await runtime.database.transaction(tx => runtime.apiTokens.issue(tx, {
+      name: 'readonly', role: 'readonly', ttlMs: 60 * 60_000,
+    }));
     const app = await createReleaseServer({ runtime, httpAdapter,
       release: { version: baseRelease.version, configPath: result.loaded.sourcePath } });
     try {
       expect((await app.inject({ url: '/health/live' })).statusCode).toBe(200);
       expect((await app.inject({ url: '/api/v1/system/jobs/dead' })).statusCode).toBe(401);
       expect((await app.inject({ url: '/api/v1/system/jobs/dead',
-        headers: { authorization: 'Bearer base-token' } })).statusCode).toBe(200);
+        headers: { authorization: `Bearer ${issued.secret}` } })).statusCode).toBe(200);
       for (const url of ['/', '/api/v1/products', '/api/v1/orders', '/mcp', '/storefront-assets/woven-day-hero.png']) {
         expect((await app.inject({ url })).statusCode, url).toBe(404);
       }

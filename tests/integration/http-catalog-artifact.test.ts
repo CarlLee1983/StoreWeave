@@ -17,6 +17,7 @@ import { httpAdapter as commerceHttpAdapter } from '../../apps/api/src/releases/
 
 const directories: string[] = [];
 const executeFile = promisify(execFile);
+process.env.SW_SIGNING_KEY_TEST = Buffer.alloc(32, 3).toString('base64url');
 
 afterEach(async () => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
@@ -174,6 +175,7 @@ describe('startup HTTP catalog artifact', () => {
         store: commerce ? { id: name, name, currency: 'TWD' } : { id: name, name },
         database: { url: await createTestDatabase() }, logging: { level: 'error' },
         ...(commerce ? { theme: { id: 'default' }, extensions: [] } : { extensions: [] }),
+        security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
       }));
       const boot = await bootstrapRelease(selected as never, { configPath, loggerName: name });
       const app = await createReleaseServer({ runtime: boot.runtime, theme: boot.theme, httpAdapter: adapter as never,
@@ -199,7 +201,8 @@ describe('startup HTTP catalog artifact', () => {
       const configPath = join(root, `${name}.json`);
       writeFileSync(configPath, JSON.stringify({ version: 1, store: { id: name, name },
         database: { url: await createTestDatabase() }, logging: { level: 'error' }, extensions: [],
-        http: { cors: { allowedOrigins: ['https://console.example'], credentials: true } } }));
+        http: { cors: { allowedOrigins: ['https://console.example'], credentials: true } },
+        security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] } }));
       const base = await bootstrapRelease(baseRelease, { configPath, loggerName: name });
       await base.runtime.migrate();
       const app = await createReleaseServer({ runtime: base.runtime, httpAdapter: baseHttpAdapter,
@@ -253,6 +256,7 @@ describe('startup HTTP catalog artifact', () => {
           { id: 'demo-erp', config: { endpoint: 'mock://artifact-erp' } },
           { id: 'mcp', config: {} },
         ],
+        security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
       }));
       const priorSecret = process.env.DEMO_ERP_API_KEY;
       process.env.DEMO_ERP_API_KEY = secret;

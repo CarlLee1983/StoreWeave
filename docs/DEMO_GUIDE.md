@@ -13,9 +13,10 @@ docker compose up -d postgres
 
 # 或在本機開發環境設定環境變數
 export DATABASE_URL=postgres://commerce:commerce-dev-password@127.0.0.1:5432/commerce
-export COMMERCE_ADMIN_TOKEN=dev-admin-token-change-me-please
-export COMMERCE_MCP_TOKEN=dev-mcp-token-change-me-please
+export COMMERCE_SIGNING_KEY_K1=$(openssl rand -base64 32)
 export COMMERCE_CONFIG=deployments/example-store/commerce.yaml
+# API token 由 CLI 簽發，秘密只顯示一次：
+#   pnpm commerce token:create --name demo --role admin
 ```
 
 ### 步驟 B: 一鍵注入 Demo 數據

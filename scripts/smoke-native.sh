@@ -67,10 +67,9 @@ cat > "$WORK/secret.env" <<ENV
 DATABASE_URL=postgres://commerce:smokepw@$PG:5432/commerce
 STOREWEAVE_DATABASE_URL=postgres://commerce:smokepw@$PG:5432/commerce
 COMMERCE_PUBLIC_URL=http://localhost:3000
-COMMERCE_ADMIN_TOKEN=native-admin-token-0123456789
-COMMERCE_MCP_TOKEN=native-mcp-token-0123456789
-STOREWEAVE_ADMIN_TOKEN=native-admin-token-0123456789
 DEMO_ERP_API_KEY=native-erp-key
+COMMERCE_SIGNING_KEY_K1=bmF0aXZlLXNpZ25pbmcta2V5LTMyLWJ5dGVzLTAwMDE
+STOREWEAVE_SIGNING_KEY_K1=bmF0aXZlLXNpZ25pbmcta2V5LTMyLWJ5dGVzLTAwMDE
 ENV
 docker cp "$WORK/secret.env" "$APP:/etc/$NAME/$NAME.env"
 docker exec "$APP" sh -c "chown root:$NAME /etc/$NAME/$NAME.env && chmod 0640 /etc/$NAME/$NAME.env"
@@ -79,8 +78,8 @@ if [ "$RELEASE_ID" = base ]; then
 version: 1
 store: { id: base-smoke, name: Base Smoke }
 database: { url: '${STOREWEAVE_DATABASE_URL}' }
-auth:
-  tokens: [{ name: smoke, role: admin, secretRef: STOREWEAVE_ADMIN_TOKEN }]
+security:
+  signingKeys: [{ id: k1, secretRef: STOREWEAVE_SIGNING_KEY_K1 }]
 extensions: []
 secrets: { provider: file, file: /etc/storeweave/storeweave.env }
 CONFIG
@@ -94,16 +93,23 @@ for i in $(seq 1 60); do
   [ "$i" -lt 60 ] || { echo 'API did not start' >&2; exit 1; }
   sleep 1
 done
+# Token 不再寫在設定檔：由 CLI 現場簽發，秘密只在標準輸出出現一次（ADR 0043）。
+secret_of() { sed -n 's/.*"secret":"\([^"]*\)".*/\1/p'; }
 docker exec --user "$NAME" "$APP" "$NAME" extension:list
 if [ "$RELEASE_ID" = commerce ]; then
   SMOKE_USER_EMAIL=smoke@example.com
   SMOKE_USER_PASSWORD=smoke-user-passphrase-2026
   docker exec --user "$NAME" -e COMMERCE_USER_PASSWORD="$SMOKE_USER_PASSWORD" "$APP" "$NAME" user:create \
     --email "$SMOKE_USER_EMAIL" --name 'Smoke operator' --role admin >/dev/null
-  BASE_URL="http://localhost:$PORT" ADMIN_TOKEN=native-admin-token-0123456789 MCP_TOKEN=native-mcp-token-0123456789 \
+  ADMIN_TOKEN="$(docker exec --user "$NAME" "$APP" "$NAME" token:create --name smoke-admin --role admin --json | secret_of)"
+  MCP_TOKEN="$(docker exec --user "$NAME" "$APP" "$NAME" token:create --name smoke-mcp --role mcp --json | secret_of)"
+  [ -n "$ADMIN_TOKEN" ] || { echo 'token:create did not return a secret' >&2; exit 1; }
+  BASE_URL="http://localhost:$PORT" ADMIN_TOKEN="$ADMIN_TOKEN" MCP_TOKEN="$MCP_TOKEN" \
     SMOKE_USER_EMAIL="$SMOKE_USER_EMAIL" SMOKE_USER_PASSWORD="$SMOKE_USER_PASSWORD" bash scripts/smoke.sh
 else
-  BASE_URL="http://localhost:$PORT" ADMIN_TOKEN=native-admin-token-0123456789 bash scripts/smoke-base.sh
+  ADMIN_TOKEN="$(docker exec --user "$NAME" "$APP" "$NAME" token:create --name smoke-admin --role admin --json | secret_of)"
+  [ -n "$ADMIN_TOKEN" ] || { echo 'token:create did not return a secret' >&2; exit 1; }
+  BASE_URL="http://localhost:$PORT" ADMIN_TOKEN="$ADMIN_TOKEN" bash scripts/smoke-base.sh
 fi
 docker exec --user "$NAME" "$APP" "$NAME" stop
 printf 'Native %s smoke passed; artifacts: %s\n' "$RELEASE_ID" "$STOREWEAVE_RELEASE_DIR"

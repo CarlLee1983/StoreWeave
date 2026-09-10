@@ -25,6 +25,17 @@ export interface ReleaseRole {
     readonly sessionTtl: 'operator' | 'customer';
     readonly minPasswordLength: number;
     readonly adminCreatable: boolean;
+    /**
+     * 自助註冊落在哪個角色。一個 release 至多一個——註冊端點要選角色，
+     * 「看情況」等於讓 HTTP 層決定權限，那是 release 的事（ADR 0041）。
+     * Commerce 的顧客不走這裡：它的註冊同時要建立 Customer，因此是 commerce 的 command。
+     */
+    readonly selfServiceRegistration?: boolean;
+    /**
+     * 這個角色的帳號是否必須有第二因素。`required` 的帳號在還沒註冊 TOTP 之前
+     * 仍然登得進來（否則第一個管理員永遠設定不了），但會被標記成必須先完成註冊。
+     */
+    readonly mfa?: 'required' | 'optional';
   };
 }
 
@@ -36,12 +47,26 @@ export function roleFor(catalog: ReleaseRoleCatalog, role: string): ReleaseRole 
 
 const operatorAccount = {
   actorType: 'user', sessionTtl: 'operator', minPasswordLength: 12, adminCreatable: true,
+  // 後台帳號改得了設定、看得到所有訂單：一個外洩的密碼不該就是一次完整接管。
+  mfa: 'required',
+} as const;
+
+/**
+ * Base 的一般人。它不是顧客——base release 裡沒有商務資料——但它是一個可以自己註冊、
+ * 驗證信箱、登入、看自己東西的帳號。Commerce 的 Customer 之後擴充在它旁邊，不是它的前提。
+ */
+const memberAccount = {
+  actorType: 'user', sessionTtl: 'customer', minPasswordLength: 8,
+  adminCreatable: false, selfServiceRegistration: true,
 } as const;
 
 export const BASE_ROLES: ReleaseRoleCatalog = {
   admin: { permissions: ['*'], tokenAllowed: true, account: operatorAccount },
   staff: { permissions: ['users:read', 'jobs:read', 'jobs:write', 'storage:read', 'storage:write', 'storage:delete', 'storage:share', 'notifications:read', 'notifications:inbox'], tokenAllowed: true, account: operatorAccount },
   readonly: { permissions: ['users:read', 'jobs:read', 'storage:read', 'notifications:read', 'notifications:inbox'], tokenAllowed: true, account: operatorAccount },
+  // 權限是空的：自助帳號能做的事都是「對自己」，走 AuthService 而不是 Command Bus。
+  // （站內收件匣要不要給 member，留給 B13 決定，不在合併裡順手加。）
+  member: { permissions: [], tokenAllowed: false, account: memberAccount },
 };
 
 export const COMMERCE_ROLES: ReleaseRoleCatalog = Object.fromEntries(

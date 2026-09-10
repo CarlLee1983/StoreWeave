@@ -81,10 +81,12 @@ sudo rm -rf -- "$work"
 ```
 DATABASE_URL=postgres://commerce:...@127.0.0.1:5432/commerce
 COMMERCE_PUBLIC_URL=https://shop.example.com
-COMMERCE_ADMIN_TOKEN=<openssl rand -hex 32>
-COMMERCE_MCP_TOKEN=<openssl rand -hex 32>
+COMMERCE_SIGNING_KEY_K1=<openssl rand -base64 32>
 DEMO_ERP_API_KEY=<客戶提供>
 ```
+
+API token 不寫在設定或 env：安裝完成後用 `commerce token:create --name <名稱> --role <角色>`
+簽發，秘密只顯示一次（ADR 0043）。
 
 編輯 `/etc/commerce/commerce.yaml`：店名、幣別、Theme 選項、要啟用的 Extension。
 結構定義在 `deployments/commerce.schema.json`，編輯器可直接套用。

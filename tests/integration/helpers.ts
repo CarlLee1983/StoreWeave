@@ -124,7 +124,6 @@ export function testConfig(url: string, options: TestRuntimeOptions = {}): Comme
     store: { id: options.storeId ?? 'test-store', name: 'Test Store', currency: 'TWD' },
     database: { url, poolSize: 5 },
     worker: { pollIntervalMs: 50, concurrency: 4 },
-    auth: { tokens: [] },
     // 明寫本機位址：cookie 的名字看它。localhost 發不出 Secure，因此測試裡的 cookie 都是
     // 裸名（`commerce_session` 而不是 `__Host-commerce_session`），其他整合測試才寫得出
     // `cookies: { [SESSION_COOKIE]: ... }`。改動這一行會讓那些檔案一起失敗——那是預期的，
@@ -139,6 +138,8 @@ export function testConfig(url: string, options: TestRuntimeOptions = {}): Comme
       staleObjectSeconds: 7 * 24 * 60 * 60,
     },
     ...(options.mail ? { mail: options.mail } : {}),
+    // 身分連結（重設、驗證、換信箱）是簽發值，沒有金鑰就沒有這些流程（ADR 0042）。
+    security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
     extensions: Object.entries(extensionEntries).map(([id, config]) => ({ id, enabled: true, config })),
     logging: { level: 'error' },
   });
@@ -147,7 +148,11 @@ export function testConfig(url: string, options: TestRuntimeOptions = {}): Comme
 export async function createHarness(options: TestRuntimeOptions = {}): Promise<TestHarness> {
   const url = await createTestDatabase();
   const config = testConfig(url, options);
-  const secrets = testSecretProvider({ DEMO_ERP_API_KEY: 'test-key', ...options.secrets });
+  const secrets = testSecretProvider({
+    DEMO_ERP_API_KEY: 'test-key',
+    SW_SIGNING_KEY_TEST: Buffer.alloc(32, 7).toString('base64url'),
+    ...options.secrets,
+  });
   const logger = options.logger ?? noopLogger;
   const providers = new ProviderRegistry(logger);
 

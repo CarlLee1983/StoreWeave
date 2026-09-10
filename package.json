@@ -46,6 +46,7 @@
     "drizzle-orm": "^0.38.0",
     "keyv": "5.6.0",
     "nodemailer": "10.0.1",
+    "otplib": "13.5.0",
     "pg": "^8.13.0",
     "pino": "^9.5.0",
     "react-day-picker": "^10.0.1",

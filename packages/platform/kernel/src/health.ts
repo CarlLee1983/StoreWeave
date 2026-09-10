@@ -168,7 +168,8 @@ export async function doctor(runtime: Runtime, options: { releaseVersion: string
   for (const ext of runtime.extensions.list()) {
     for (const s of ext.definition.manifest.requiredSecrets ?? []) requiredSecrets.add(s);
   }
-  for (const token of runtime.config.auth.tokens) requiredSecrets.add(token.secretRef);
+  // 沒有簽章金鑰就沒有密碼重設與驗證信；identity 在啟動時就要求它（ADR 0042）。
+  for (const key of runtime.config.security.signingKeys) requiredSecrets.add(key.secretRef);
   if (runtime.config.storage.driver === 's3') {
     requiredSecrets.add(runtime.config.storage.s3!.accessKeyIdRef);
     requiredSecrets.add(runtime.config.storage.s3!.secretAccessKeyRef);

@@ -20,7 +20,9 @@ it('publishes a native B01 safety dump without baseline DDL and preserves raw hi
   const root = mkdtempSync(join(tmpdir(), 'storeweave-legacy-safety-'));
   const pool = new Pool({ connectionString: container.getConnectionUri(), max: 1 });
   const configPath = join(root, 'config.json');
-  writeFileSync(configPath, JSON.stringify({ version: 1, store: { id: 'legacy-test', name: 'Legacy test' }, database: { url: container.getConnectionUri() }, extensions: [] }));
+  process.env.SW_SIGNING_KEY_TEST = Buffer.alloc(32, 3).toString('base64url');
+  writeFileSync(configPath, JSON.stringify({ version: 1, store: { id: 'legacy-test', name: 'Legacy test' }, database: { url: container.getConnectionUri() }, extensions: [],
+    security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] } }));
   const { runtime } = await bootstrapRelease(release, { configPath, loggerName: 'legacy-test', logDestination: 'stderr' });
   try {
     // Execute the pinned B01 catalog, then retain the historical three-column ledger shape.

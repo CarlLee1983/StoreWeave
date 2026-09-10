@@ -49,14 +49,12 @@ mcp:
   enabled: true
   path: /mcp
 
-auth:
-  tokens:
-    - name: admin-console
-      role: admin
-      secretRef: COMMERCE_ADMIN_TOKEN
-    - name: mcp-client
-      role: mcp
-      secretRef: COMMERCE_MCP_TOKEN
+security:
+  signingKeys:
+    - id: k1
+      secretRef: COMMERCE_SIGNING_KEY_K1
+
+# 機器對機器的 API token 不在設定檔裡：用 `commerce token:create` 簽發（ADR 0043）。
 
 extensions:
   - id: mock-payment

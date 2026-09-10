@@ -9,6 +9,8 @@ import { expect, it, vi } from 'vitest';
 import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
 import { release } from '../../packages/platform/bundle/src/releases/base';
 
+process.env.SW_SIGNING_KEY_TEST = Buffer.alloc(32, 3).toString('base64url');
+
 async function withSource(test: (runtime: Runtime, container: StartedPostgreSqlContainer, directory: string) => Promise<void>) {
   const container = await new PostgreSqlContainer('postgres:17-alpine').withDatabase('source_test')
     .withUsername('commerce').withPassword('isolated-snapshot-password').start();
@@ -17,7 +19,8 @@ async function withSource(test: (runtime: Runtime, container: StartedPostgreSqlC
   try {
     const config = join(directory, 'base.json');
     writeFileSync(config, JSON.stringify({ version: 1, store: { id: 'snapshot', name: 'Snapshot' },
-      database: { url: container.getConnectionUri() }, extensions: [], logging: { level: 'error' } }));
+      database: { url: container.getConnectionUri() }, extensions: [], logging: { level: 'error' },
+      security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] } }));
     runtime = (await bootstrapRelease(release, { configPath: config, loggerName: 'snapshot-test' })).runtime;
     await runtime.migrate();
     await test(runtime, container, directory);
@@ -130,7 +133,8 @@ it('fails closed when physical cluster identifier access has been revoked', asyn
     url.username = 'snapshot_reader'; url.password = 'isolated-reader-password';
     const config = join(directory, 'reader.json');
     writeFileSync(config, JSON.stringify({ version: 1, store: { id: 'snapshot', name: 'Snapshot' },
-      database: { url: url.toString() }, extensions: [], logging: { level: 'error' } }));
+      database: { url: url.toString() }, extensions: [], logging: { level: 'error' },
+      security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] } }));
     const reader = (await bootstrapRelease(release, { configPath: config, loggerName: 'snapshot-reader-test' })).runtime;
     const dump = vi.fn();
     try { await expect(reader.withReleaseSnapshot(dump)).rejects.toThrow('permission denied for function pg_control_system'); }
