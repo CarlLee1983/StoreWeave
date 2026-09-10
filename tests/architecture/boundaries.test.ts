@@ -1,32 +1,7 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
-
-const ROOT = join(__dirname, '..', '..');
-
-function sourceFiles(dir: string): string[] {
-  const out: string[] = [];
-  const walk = (current: string) => {
-    for (const entry of readdirSync(current)) {
-      if (entry === 'node_modules' || entry === 'dist') continue;
-      const full = join(current, entry);
-      if (statSync(full).isDirectory()) walk(full);
-      else if (entry.endsWith('.ts') && !entry.endsWith('.d.ts')) out.push(full);
-    }
-  };
-  walk(join(ROOT, dir));
-  return out;
-}
-
-function importsOf(file: string): string[] {
-  const source = readFileSync(file, 'utf8');
-  const specifiers: string[] = [];
-  const patterns = [/from\s+['"]([^'"]+)['"]/g, /require\(\s*['"]([^'"]+)['"]\s*\)/g, /import\(\s*['"]([^'"]+)['"]\s*\)/g];
-  for (const pattern of patterns) {
-    for (const match of source.matchAll(pattern)) specifiers.push(match[1]);
-  }
-  return specifiers;
-}
+import { ROOT, importsOf, sourceFiles } from './source-graph';
 
 /** Extension 只能倚賴公開契約，不能碰資料層。 */
 const FORBIDDEN_FOR_EXTENSIONS = [

@@ -88,8 +88,11 @@ describe('selected release bootstrap', () => {
       expect(home.headers['content-type']).toContain('text/html');
       expect(home.body).toContain('<a href="/">首頁</a>');
       expect(home.body).toContain('Release Test');
+      // 形象站與購物站共用同一份簽發實作（工單 92）：帶著購物車 cookie 進來也不會有東西可以併，
+      // 因為這個 release 根本沒有註冊那個 command——而且不能因此在 log 裡留下失敗。
       const login = await app.inject({ method: 'POST', url: '/api/v1/auth/login',
-        payload: { email: 'base@example.com', password } });
+        payload: { email: 'base@example.com', password },
+        cookies: { commerce_cart: 'a-guest-cart-token-from-somewhere' } });
       expect(login.statusCode).toBe(200);
       expect(login.json().data).toMatchObject({ role: 'staff', cartNotice: null });
       const cookie = login.cookies.find(cookie => cookie.name === SESSION_COOKIE);

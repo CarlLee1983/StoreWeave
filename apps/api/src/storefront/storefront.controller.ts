@@ -12,7 +12,7 @@ import { customerService } from '@storeweave/customer';
 import { Anonymous, ExternalCallback, Public, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
 import { clearSessionCookies, sessionTokenOf } from '../http/session-cookies';
 import { cartNoticeOf, clearCartNoticeCookie, existingGuestToken, guestTokenFor } from '../http/cart-cookie';
-import { startSession } from '../http/session-start';
+import { HTTP_ADAPTER, type ReleaseHttpAdapter } from '../release-adapter';
 import { HttpContract } from '../http/contract';
 import { buildThemeContext, renderStorefrontError } from './storefront-context';
 import { resolveThemeAssetsDir } from '../theme-assets';
@@ -116,6 +116,7 @@ export class StorefrontController {
     @Inject(RUNTIME) private readonly runtime: Runtime<CommerceConfig>,
     @Inject(THEME) private readonly theme: StorefrontTheme,
     @Inject(RELEASE) private readonly release: ReleaseInfo,
+    @Inject(HTTP_ADAPTER) private readonly http: ReleaseHttpAdapter,
   ) {}
 
   /** Sliding contact-form windows keyed by address; in-process, never persisted. */
@@ -247,7 +248,7 @@ export class StorefrontController {
         email: body.email,
         password: body.password,
       });
-      await startSession(this.runtime, req, reply, session);
+      await this.http.startSession(this.runtime, req, reply, session);
       void reply.status(303).header('location', next).send();
     } catch {
       // 訊息一律中性：區分「沒這個帳號」與「密碼錯」等於送出帳號枚舉管道。
@@ -278,7 +279,7 @@ export class StorefrontController {
         email: body.email,
         password: body.password,
       });
-      await startSession(this.runtime, req, reply, session);
+      await this.http.startSession(this.runtime, req, reply, session);
       void reply.status(303).header('location', next).send();
     } catch (err) {
       // 已存在的帳號不能在這裡說出來——那是一條比登入更明確的帳號枚舉管道。

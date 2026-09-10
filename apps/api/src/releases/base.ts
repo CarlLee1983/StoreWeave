@@ -1,7 +1,7 @@
 import type { Type } from '@nestjs/common';
 import { collectPages } from '@storeweave/kernel';
 import type { ReleaseHttpAdapter } from '../release-adapter';
-import { setSessionCookies } from '../http/session-cookies';
+import { startSession } from '../http/session-start';
 import { createStorefrontController } from '../storefront/storefront-routes';
 import { buildResolveContext, buildThemeContext, renderStorefrontError } from '../storefront/storefront-context';
 import { AuthController } from '../controllers/auth.controller';
@@ -16,7 +16,7 @@ import { NotificationsController } from '../controllers/notifications.controller
 
 export const httpAdapter: ReleaseHttpAdapter = {
   // 匿名訪客也讀得到導覽與網站設定；base 有前台之後就需要一個名字（ADR 0046）。
-  releaseId: 'base', anonymousRole: 'visitor',
+  releaseId: 'base', anonymousRole: 'visitor', startSession,
   controllers(_config, { runtime, theme }) {
     const controllers: Type[] = [
       HealthController, MetaController, AuthController, SystemController, StorageController,
@@ -32,11 +32,5 @@ export const httpAdapter: ReleaseHttpAdapter = {
       }));
     }
     return controllers;
-  },
-  async startSession(runtime, _request, reply, session) {
-    setSessionCookies(reply, {
-      publicUrl: runtime.config.http.publicUrl, token: session.token, expiresAt: session.expiresAt,
-    });
-    return null;
   },
 };

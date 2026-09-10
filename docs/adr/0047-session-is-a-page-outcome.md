@@ -1,8 +1,8 @@
 # 0047. Session 是頁面的 outcome，不是頁面的能力
 
-- 狀態：proposed；2026-09-10 定案，實作與整合回歸通過後改 accepted。轉 accepted 之前
-  必須先消除下面「Falsified if」第四條現存的違反——`startSession` 目前被三個呼叫端繞過，
-  不修掉的話本決策一落地就自我否證。
+- 狀態：proposed；2026-09-10 定案，實作與整合回歸通過後改 accepted。下面「Falsified if」
+  第四條在定案當下就是違反狀態——`startSession` 被三個呼叫端繞過——已於工單 92 消除；
+  其餘條件待工單 93–98。
 - 日期：2026-09-10
 
 ADR 0045 把前台頁面從 Theme 挪到模組宣告，但登入／註冊／忘記密碼／重設密碼四頁留在
@@ -61,9 +61,10 @@ base release 不傳、走 `AuthService.register()`。這是 `createSiteModule({ 
 logout（`apps/api/src/controllers/auth.controller.ts`）原樣保留：它的呼叫端要 JSON，
 表單版要 303，合併只會逼出一個判斷 Accept header 的分支。
 
-**`ReleaseHttpAdapter.startSession` 成為唯一入口。** 這個 hook 現在存在但被繞過三次——
-前台的登入與註冊表單、`apps/api/src/controllers/customer.controller.ts` 都直接 import
-commerce 版的實作。搬遷時全部改回經過 adapter。沒有改成「cart 模組監聽登入事件自己合併」，
+**`ReleaseHttpAdapter.startSession` 成為唯一入口。** 定案當下這個 hook 存在卻被繞過三次——
+前台的登入與註冊表單、顧客 REST 註冊都直接引用 commerce 版的實作。工單 92 把三處都改回經過
+adapter，並移除形象站那份不合併購物車的重複實作：合併與否改成問命令註冊表，也就是問「這個
+網站有沒有購物車」。沒有改成「cart 模組監聽登入事件自己合併」，
 因為合併必須發生在簽發 cookie 之後、回應送出之前，改成事件會讓失敗處理與那張一次性的
 購物車提示 cookie 都失去時序保證。
 
