@@ -41,7 +41,7 @@
 
 | 片 | 範圍 | 風險／owner |
 | --- | --- | --- |
-| 1 | Theme 契約反轉：kernel 頁面能力、模組頁面宣告、theme renderer 註冊表、啟動時缺頁檢查、default theme 遷移、storefront 資料驅動路由 | 高；主代理 |
+| 1 | Theme 契約反轉：kernel 頁面能力、模組頁面宣告、theme renderer 註冊表、啟動時缺頁檢查、default theme 遷移、storefront 資料驅動路由 | 高；主代理。**進行中** |
 | 2 | 網站設定與導覽獨立於 theme：新資料表與 migration、theme options 依 id 保存、default theme 改讀導覽資料 | 高；主代理 |
 | 3 | Admin 依有效模組與權限組裝 route／navigation：`/auth/me` 回 permission 清單、route 宣告所需權限與模組、側欄與命令面板過濾 | 高；主代理 |
 | 4 | users 與 api-tokens controller，以及對應的 Admin 帳號管理與 token 簽發頁 | 後端主代理；UI 可委派 |
@@ -50,6 +50,27 @@
 片4 與片5 的 UI 檔案彼此不重疊，契約定案後可平行派兩個 implementer；共用接線檔
 （`apps/admin/src/{App,routes,api}.tsx`、`kernel/theme.ts`、`apps/api/src/app.module.ts`、
 `packages/themes/default/src/*`）維持單一 writer，留在主代理。
+
+## 片1 的結果與遺留
+
+29 個前台頁面由六個 commerce 模組宣告（catalog 3、cart 10、order 5、content 9、
+customer 2、coupon 1、loyalty 1），`storefront.controller.ts` 從 1356 行減到 399。
+
+`PageResolveContext` 比原先設計多了三個受限入口，理由見 ADR 0045：`cookies`、
+`providers`、`clientKey`。
+
+兩件事沒有在片1 收掉：
+
+- **登入表單暫時列為 system page**（`platform.auth`）。它的寫入端點要簽發 session
+  cookie，而頁面能碰的 cookie 只有訪客購物車那兩個動作。identity 的頁面遷移在片5
+  一起做，屆時 `SYSTEM_PAGE_IDS` 應該只剩錯誤頁。
+- **base-only release 仍然沒有前台**。它沒有 theme、沒有宣告頁面的模組，`/` 依舊
+  404。要讓一個沒有商務的網站跑起來，缺的是片2 的網站設定與導覽，以及一個只實作
+  通用頁的 theme。
+
+行為變更一項：Theme 缺少選配版型時，原本在請求時回 404，現在是啟動時拒絕
+（ADR 0045）。`tests/unit/theme-assets-http.test.ts` 對應的測試已移除，替代覆蓋
+在 `packages/platform/kernel/test/page-registry.test.ts`。
 
 ## 出口
 
