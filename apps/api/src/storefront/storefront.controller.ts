@@ -6,7 +6,7 @@ import { Body, Controller, Get, Inject, Param, Post, Query, Req, Res } from '@ne
 import type { FastifyReply } from 'fastify';
 import { PlatformError, SYSTEM_ACTOR, type Actor } from '@storeweave/contracts';
 import { csrfTokenFor } from '@storeweave/identity';
-import type { StorefrontTheme, ThemeArticleView, ThemeContext } from '@storeweave/kernel';
+import type { StorefrontTheme, ThemeContext } from '@storeweave/kernel';
 import type { PaymentProvider, ShippingProvider } from '@storeweave/extension-sdk';
 import { customerService } from '@storeweave/customer';
 import { Anonymous, ExternalCallback, Public, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
@@ -14,6 +14,7 @@ import { clearSessionCookies, sessionTokenOf } from '../http/session-cookies';
 import { cartNoticeOf, clearCartNoticeCookie, existingGuestToken, guestTokenFor } from '../http/cart-cookie';
 import { startSession } from '../http/session-start';
 import { HttpContract } from '../http/contract';
+import { buildThemeContext, renderStorefrontError } from './storefront-context';
 import { resolveThemeAssetsDir } from '../theme-assets';
 import { RELEASE, RUNTIME, THEME, type ReleaseInfo, type Runtime } from '../tokens';
 import { storefrontAssetContract, storefrontContracts, WOVEN_DAY_ARTWORK } from './storefront.contract';
@@ -30,21 +31,6 @@ const HOME_NEWS_COUNT = 3;
 /** One address may land this many messages per window before it is quietly dropped. */
 const CONTACT_WINDOW_MS = 10 * 60 * 1000;
 const CONTACT_WINDOW_LIMIT = 10;
-
-interface ArticleDtoShape {
-  kind: 'story' | 'journal' | 'news' | 'faq';
-  slug: string; title: string; summary: string; section: string;
-  body: { heading: string | null; text: string }[];
-  imageKey: string | null; publishedAt: string | Date | null;
-}
-
-function toArticleView(article: ArticleDtoShape): ThemeArticleView {
-  return {
-    kind: article.kind, slug: article.slug, title: article.title, summary: article.summary,
-    section: article.section, body: article.body ?? [], imageKey: article.imageKey,
-    publishedAt: article.publishedAt ? new Date(article.publishedAt) : null,
-  };
-}
 
 function catalogQuery(value: unknown): string {
   if (value === undefined) return '';
@@ -119,11 +105,6 @@ function rmaLinesFromForm(body: Record<string, unknown>) {
   }));
 }
 
-interface ProductDtoShape {
-  id: string; sku: string; name: string; description: string | null;
-  priceCents: number; currency: string; status: string;
-}
-
 /**
  * 預設 Storefront：NestJS SSR，畫面完全由 Theme 決定。
  * 這裡同樣只呼叫 Command / Query Bus。
@@ -161,56 +142,13 @@ export class StorefrontController {
     return reply.type('image/png').header('cache-control', 'public, max-age=0').send(readFileSync(path));
   }
 
-  /**
-   * 一次性提示：讀到就清掉。合併發生在轉址之前，訊息沒有別的地方可以放。
-   * 清除要落在同一個回應上，否則它會在每一頁重複出現。
-   */
-  private takeNotice(req?: AuthenticatedRequest, reply?: FastifyReply): string | null {
-    const notice = cartNoticeOf(req, this.runtime.config.http.publicUrl);
-    if (!notice) return null;
-    if (reply) clearCartNoticeCookie(reply, this.runtime.config.http.publicUrl);
-    return notice;
+  /** 與 generated controller 共用同一份組裝，兩邊不會各自長出一套語意。 */
+  private get contextDeps() {
+    return { runtime: this.runtime, theme: this.theme, anonymousRole: 'storefront' as const };
   }
 
-  /**
-   * Which brand pages currently have content. This is one distinct read on a
-   * small indexed table, so the navigation stays truthful the moment staff
-   * publish rather than after a cache window nobody can see.
-   */
-  private async publishedContentKinds(): Promise<readonly ThemeArticleView['kind'][]> {
-    try {
-      const result = await this.runtime.queries.execute<{ kinds: ThemeArticleView['kind'][] }>(
-        'commerce.content.getPublishedKinds', {}, { actor: anonymousActor(this.runtime, 'storefront'), channel: 'rest' },
-      );
-      return result.kinds;
-    } catch (err) {
-      // The navigation is not worth failing a page for, but a failure here is
-      // still a fault: show no brand links and say why in the log.
-      this.runtime.logger.warn({ error: (err as Error).message }, 'brand navigation lookup failed');
-      return [];
-    }
-  }
-
-  private async themeContext(req?: AuthenticatedRequest, reply?: FastifyReply): Promise<ThemeContext> {
-    const store = this.runtime.config.store;
-    const sessionToken = sessionTokenOf(req, this.runtime.config.http.publicUrl);
-    const actor = req?.actor;
-    return {
-      storeName: store.name,
-      storeId: store.id,
-      currency: store.currency,
-      locale: store.locale,
-      timeZone: store.timezone,
-      publicUrl: this.runtime.config.http.publicUrl,
-      supportEmail: store.supportEmail,
-      options: this.runtime.config.theme.options,
-      customerName: actor?.type === 'customer' ? actor.displayName ?? null : null,
-      // 有 session 就發 token：守衛對任何 cookie 身分都會驗 CSRF，只發給顧客的話，
-      // 後台身分逛前台送出表單會拿到裸的 403，而不是那句「請先登入」。
-      csrfToken: sessionToken && actor && actor.type !== 'service' ? csrfTokenFor(sessionToken) : null,
-      publishedContentKinds: await this.publishedContentKinds(),
-      notice: this.takeNotice(req, reply),
-    };
+  private themeContext(req?: AuthenticatedRequest, reply?: FastifyReply): Promise<ThemeContext> {
+    return buildThemeContext(this.contextDeps, req, reply);
   }
 
   private html(reply: FastifyReply, status: number, body: string) {
@@ -366,19 +304,6 @@ export class StorefrontController {
     void reply.status(303).header('location', '/').send();
   }
 
-  private async withStock(actor: Actor, product: ProductDtoShape) {
-    let available: number | null = null;
-    try {
-      const stock = await this.runtime.queries.execute<{ available: number }>(
-        'commerce.inventory.getStock', { productId: product.id }, { actor, channel: 'rest' },
-      );
-      available = stock.available;
-    } catch {
-      available = null;
-    }
-    return { ...product, available };
-  }
-
   /**
    * Theme 是一份 page id → renderer 的對映（ADR 0045）。缺頁在啟動時就被擋下，
    * 走到這裡還缺就是註冊表與 Theme 不同步，讓它明確失敗而不是回半頁 HTML。
@@ -389,11 +314,8 @@ export class StorefrontController {
     return render(ctx, view);
   }
 
-  private async renderError(reply: FastifyReply, err: unknown, req?: AuthenticatedRequest) {
-    const status = err instanceof PlatformError ? err.httpStatus : 500;
-    const message = err instanceof PlatformError && status < 500 ? err.message : '發生未預期的錯誤';
-    if (status >= 500) this.runtime.logger.error({ error: (err as Error).message }, 'storefront error');
-    this.html(reply, status, this.renderTheme('platform.error', await this.themeContext(req, reply), { status, message }));
+  private renderError(reply: FastifyReply, err: unknown, req?: AuthenticatedRequest): Promise<void> {
+    return renderStorefrontError(this.contextDeps, reply, err, req);
   }
 }
 
