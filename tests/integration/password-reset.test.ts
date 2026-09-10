@@ -38,7 +38,7 @@ const requestReset = (email: string) =>
     payload: `email=${encodeURIComponent(email)}`,
   });
 
-/** 重設信由 B06 mail 寄出，內容留在 `platform_mail_messages`。 */
+/** 重設信由 B06 mail 寄出，內容留在 `platform_mail_messages`——identity 不走通知能力（B08）。 */
 async function resetMails(email?: string): Promise<{ recipients: { email: string }[]; text_body: string }[]> {
   const rows = await h.runtime.database.db.execute<{ recipients: { email: string }[]; text_body: string }>(sql`
     SELECT recipients, text_body FROM public.platform_mail_messages

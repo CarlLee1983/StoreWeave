@@ -7,6 +7,7 @@ import type { PlatformModule } from '@storeweave/kernel';
 import { identityMigrations } from './migrations';
 import { IDENTITY_CLEANUP_JOB, createIdentityCleanupJob, identityCleanupPayload, type IdentityCleanupDeps } from './jobs';
 import { accountService } from './account-service';
+import { hashPassword } from './password';
 import { UserRepository, toUserDto } from './repository';
 
 export const IDENTITY_MODULE_NAME = 'platform-identity';
@@ -130,7 +131,12 @@ export function createIdentityModule(
           if (input.password.length < role.account.minPasswordLength) {
             throw PlatformError.validation(`Password must be at least ${role.account.minPasswordLength} characters`);
           }
-          return accountService.createAccount(ctx.tx, input);
+          return accountService.createAccount(ctx.tx, {
+            email: input.email,
+            passwordHash: await hashPassword(input.password),
+            displayName: input.displayName,
+            role: input.role,
+          });
         },
       },
       {

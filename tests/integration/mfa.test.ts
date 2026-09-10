@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { generateSync } from 'otplib';
+import { doctor } from '@storeweave/kernel';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ADMIN_ACTOR, createHarness, type TestHarness } from './helpers';
 
@@ -136,6 +137,18 @@ describe('operator multi-factor authentication', () => {
     await expect(context.harness.runtime.database.transaction(tx =>
       context.harness.runtime.mfa.beginEnrolment(tx, { userId: context.userId, accountName: 'operator' })))
       .rejects.toMatchObject({ code: 'CONFLICT' });
+  });
+
+  it('counts the operators that still owe an enrolment, so the window is visible to operations', async () => {
+    const context = await operator();
+    const mfaCheck = async () => (await doctor(context.harness.runtime, { releaseVersion: 'test', configPath: '<test>' }))
+      .find(check => check.name === 'operator mfa enrolment');
+
+    // ADR 0044 讓未註冊的管理員仍然登得進來；補償是這個窗口在營運檢查裡看得見，
+    // 而不是只出現在某一次登入回應的一個布林值裡。
+    expect(await mfaCheck()).toMatchObject({ status: 'warn' });
+    await enrol(context);
+    expect(await mfaCheck()).toMatchObject({ status: 'pass' });
   });
 
   it('leaves a customer account untouched by the operator requirement', async () => {

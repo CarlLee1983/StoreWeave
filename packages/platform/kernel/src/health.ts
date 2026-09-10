@@ -98,6 +98,34 @@ export async function dependencies(runtime: Runtime): Promise<DependencyHealth> 
   return summarize(checks);
 }
 
+/**
+ * 宣告要第二因素、卻從來沒有註冊的帳號。ADR 0044 讓這些帳號仍然登得進來
+ * （否則新部署完成不了初始化），代價是「宣稱強制 MFA 的部署可以無限期只靠密碼」。
+ * 這裡把那個窗口變成營運檢查看得到的數字，而不是只出現在登入回應的一個布林值。
+ */
+async function mfaEnrolmentCheck(runtime: Runtime): Promise<Check> {
+  const rolesRequiringMfa = Object.entries(runtime.roles)
+    .filter(([, role]) => role.account && role.account.mfa === 'required')
+    .map(([name]) => name);
+  if (rolesRequiringMfa.length === 0) {
+    return { name: 'operator mfa enrolment', status: 'pass', detail: 'no role requires a second factor' };
+  }
+
+  const result = await runtime.database.db.execute<{ pending: string; total: string }>(sql`
+    SELECT count(*) FILTER (WHERE m.confirmed_at IS NULL)::text AS pending, count(*)::text AS total
+    FROM platform_users u
+    LEFT JOIN platform_user_mfa m ON m.user_id = u.id
+    WHERE u.status = 'active' AND u.role IN (${sql.join(rolesRequiringMfa.map(role => sql`${role}`), sql`, `)})
+  `);
+  const pending = Number(result.rows[0]?.pending ?? 0);
+  const total = Number(result.rows[0]?.total ?? 0);
+  return {
+    name: 'operator mfa enrolment',
+    status: pending > 0 ? 'warn' : 'pass',
+    detail: `${total - pending}/${total} operator accounts have a confirmed second factor`,
+  };
+}
+
 async function workerHeartbeatCheck(runtime: Runtime): Promise<Check> {
   const res = await runtime.database.db.execute<{ worker_id: string; age: string }>(sql`
     SELECT worker_id, EXTRACT(EPOCH FROM (now() - updated_at))::text AS age
@@ -147,6 +175,7 @@ export async function doctor(runtime: Runtime, options: { releaseVersion: string
       status: (jobs.dead ?? 0) > 0 ? 'warn' : (jobs.pending ?? 0) > 500 ? 'warn' : 'pass',
       detail: Object.entries(jobs).map(([k, v]) => `${k}=${v}`).join(' '),
     });
+    checks.push(await mfaEnrolmentCheck(runtime));
   }
 
   for (const dir of [runtime.config.paths.dataDir, runtime.config.paths.backupDir]) {

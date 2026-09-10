@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext } from '@storeweave/contracts';
-import { CUSTOMER_ROLE, accountService } from '@storeweave/identity';
+import { CUSTOMER_ROLE, accountService, hashPassword } from '@storeweave/identity';
 import { sql } from 'drizzle-orm';
 import { customerDto, setCustomerStatusInput, registerCustomerInput, registerCustomerOutput, setCustomerBirthdayInput, updateMyProfileInput } from './dto';
 import { customerRegisteredV1 } from './events';
@@ -36,7 +36,7 @@ export const registerCustomerHandler = async (
   // 帳號與顧客資料同生共死：帳號建了但顧客資料沒建，會是一個登入得了卻不存在的會員。
   const account = await accountService.createAccount(ctx.tx, {
     email: input.email,
-    password: input.password,
+    passwordHash: await hashPassword(input.password),
     displayName,
     role: CUSTOMER_ROLE,
   });

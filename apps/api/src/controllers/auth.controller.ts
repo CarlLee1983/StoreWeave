@@ -1,6 +1,7 @@
 import { Body, Controller, HttpCode, Inject, Post, Req, Res, Get } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { PlatformError } from '@storeweave/contracts';
+import { roleFor } from '@storeweave/authorization';
 import { ok } from '../http/envelope';
 import { Anonymous, Public, type AuthenticatedRequest } from '../http/auth';
 import { clearSessionCookies, sessionTokenOf } from '../http/session-cookies';
@@ -299,7 +300,7 @@ export class AuthController {
   @HttpCode(200)
   @HttpContract(routes.mfaEnroll)
   async mfaEnroll(@Req() req: AuthenticatedRequest) {
-    const { resolved } = await this.sessionOf(req);
+    const { resolved } = await this.mfaSessionOf(req);
     const enrolment = await this.runtime.database.transaction(tx => this.runtime.mfa.beginEnrolment(tx, {
       userId: resolved.user.id, accountName: resolved.user.email,
     }));
@@ -314,7 +315,7 @@ export class AuthController {
     @Req() req: AuthenticatedRequest,
     @Body(new SchemaPipe(mfaCodeInput)) body: z.infer<typeof mfaCodeInput>,
   ) {
-    const { resolved } = await this.sessionOf(req);
+    const { resolved } = await this.mfaSessionOf(req);
     const codes = await this.runtime.database.transaction(tx => this.runtime.mfa.confirmEnrolment(tx, {
       userId: resolved.user.id, code: body.code,
     }));
@@ -329,7 +330,7 @@ export class AuthController {
     @Req() req: AuthenticatedRequest,
     @Body(new SchemaPipe(mfaCodeInput)) body: z.infer<typeof mfaCodeInput>,
   ) {
-    const { resolved } = await this.sessionOf(req);
+    const { resolved } = await this.mfaSessionOf(req);
     const passed = await this.runtime.mfa.verifyForLogin(this.runtime.database.db, {
       userId: resolved.user.id, code: body.code,
     });
@@ -346,7 +347,7 @@ export class AuthController {
     @Req() req: AuthenticatedRequest,
     @Body(new SchemaPipe(mfaDisableInput)) body: z.infer<typeof mfaDisableInput>,
   ) {
-    const { token, resolved } = await this.sessionOf(req);
+    const { token, resolved } = await this.mfaSessionOf(req);
     await this.runtime.auth.assertPassword(resolved.user.id, body.currentPassword);
     const passed = await this.runtime.mfa.verifyForLogin(this.runtime.database.db, {
       userId: resolved.user.id, code: body.code, recoveryCode: body.code.includes('-') ? body.code : undefined,
@@ -370,5 +371,18 @@ export class AuthController {
     const resolved = await this.runtime.auth.resolveSession(this.runtime.database.db, token);
     if (!resolved) throw new PlatformError('UNAUTHENTICATED', 'Invalid or expired session');
     return { token, resolved };
+  }
+
+  /**
+   * 第二因素只存在於宣告 `account.mfa` 的角色上。沒宣告的角色登入時不會驗它，
+   * 讓他註冊等於發一個什麼都不擋、卻讓人以為受保護的第二因素——那比沒有更糟。
+   */
+  private async mfaSessionOf(req: AuthenticatedRequest) {
+    const session = await this.sessionOf(req);
+    const account = roleFor(this.runtime.roles, session.resolved.user.role)?.account;
+    if (!account || !account.mfa) {
+      throw PlatformError.validation('This account type does not use a second factor');
+    }
+    return session;
   }
 }

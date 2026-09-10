@@ -330,7 +330,9 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       database,
       tokens: identityTokens,
       mfa,
-      mail: mail!,
+      // 延後取值，和同檔其他晚一步的相依一致：直接抓當下的值，會讓「mail 的建構
+      // 哪天挪到這行之後」變成第一個按下忘記密碼的人才收到的 500。
+      mail: { queue: (tx, request) => mail!.queue(tx, request) },
       publicUrl: config.http.publicUrl.replace(/\/+$/, ''),
       storeName: config.store.name,
       locale: config.store.locale,

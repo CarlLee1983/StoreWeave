@@ -62,6 +62,35 @@ describe('account security', () => {
     await expect(login(context, PASSWORD)).resolves.toBeDefined();
   });
 
+  it('starts the count over once a lock has expired, so one wrong password cannot re-lock', async () => {
+    const context = await operator();
+    for (let attempt = 0; attempt < 10; attempt += 1) await login(context, 'wrong').catch(() => undefined);
+    await context.harness.runtime.database.pool.query(
+      `UPDATE platform_users SET locked_until = now() - interval '1 second' WHERE id = $1`, [context.userId]);
+
+    // 鎖過期之後的第一次失敗只是第一次失敗。否則知道信箱的人每十五分鐘打一次
+    // 就能把帳號永久鎖住，而合法使用者等不到任何一個沒有人在打的窗口。
+    await login(context, 'wrong').catch(() => undefined);
+    const row = await context.harness.runtime.database.pool.query<{ locked_until: Date | null; failed_login_count: number }>(
+      'SELECT locked_until, failed_login_count FROM platform_users WHERE id = $1', [context.userId]);
+    expect(row.rows[0]).toMatchObject({ failed_login_count: 1, locked_until: null });
+    await expect(login(context, PASSWORD)).resolves.toBeDefined();
+  });
+
+  it('clears the lock when the password is reset, so a locked-out operator has a way back in', async () => {
+    const context = await operator();
+    for (let attempt = 0; attempt < 10; attempt += 1) await login(context, 'wrong').catch(() => undefined);
+
+    await context.harness.runtime.auth.requestPasswordReset({ email: context.email });
+    const mail = await context.harness.runtime.database.pool.query<{ text_body: string }>(
+      `SELECT text_body FROM public.platform_mail_messages
+       WHERE template_id = 'identity.password-reset' ORDER BY created_at DESC LIMIT 1`);
+    const token = decodeURIComponent(/token=([A-Za-z0-9._~%-]+)/.exec(mail.rows[0].text_body)![1]);
+    await context.harness.runtime.auth.resetPassword({ token, newPassword: 'a-brand-new-password-1' });
+
+    await expect(login(context, 'a-brand-new-password-1')).resolves.toBeDefined();
+  });
+
   it('revokes every session the moment an account is disabled', async () => {
     const context = await operator();
     const session = await login(context, PASSWORD);

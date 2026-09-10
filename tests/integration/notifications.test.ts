@@ -64,8 +64,8 @@ async function baseRuntime(mail?: Record<string, unknown>) {
   writeFileSync(config, JSON.stringify({
     version: 1, store: { id: 'notifications-test', name: 'Notifications Test' },
     database: { url: await createTestDatabase() }, logging: { level: 'error' }, extensions: [],
-    storage: { localRoot: join(directory, 'storage') },
     security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
+    storage: { localRoot: join(directory, 'storage') },
     ...(mail ? { mail } : {}),
   }));
   const result = await bootstrapRelease(baseRelease, { configPath: config, loggerName: 'notifications-test' });

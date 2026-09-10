@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BASE_ROLES, COMMERCE_ROLES } from '@storeweave/authorization';
 import { baseConfigSchema } from '@storeweave/config';
 import { noopLogger } from '@storeweave/contracts';
-import { AuthService, IdentityTokenService, accountService } from '@storeweave/identity';
+import { AuthService, IdentityTokenService, accountService, hashPassword } from '@storeweave/identity';
 import { createRuntime, type Runtime } from '@storeweave/kernel';
 import { ADMIN_ACTOR, createTestDatabase, testSecretProvider } from './helpers';
 
@@ -61,8 +61,9 @@ describe('release-owned roles', () => {
 
   it('a legacy customer cannot authenticate, resolve, or reset through Base policy', async () => {
     const email = `${randomUUID()}@example.com`;
+    const passwordHash = await hashPassword(password);
     await runtime.database.transaction(tx => accountService.createAccount(tx,
-      { email, password, displayName: 'Customer', role: 'customer' }));
+      { email, passwordHash, displayName: 'Customer', role: 'customer' }));
     const commerce = new AuthService({ operatorMs: 60_000, customerMs: 600_000 }, COMMERCE_ROLES, {
       database: runtime.database,
       tokens: new IdentityTokenService(runtime.keyring!),

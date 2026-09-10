@@ -1,4 +1,4 @@
-import { accountService } from '@storeweave/identity';
+import { accountService, hashPassword } from '@storeweave/identity';
 import { PlatformError, type Actor } from '@storeweave/contracts';
 import type { Runtime } from '@storeweave/kernel';
 
@@ -492,7 +492,7 @@ async function demo(runtime: Runtime) {
     await runtime.database.db.transaction(async (tx) => {
       await accountService.createAccount(tx, {
         email: 'admin@storeweave.test',
-        password: 'AdminPassword123!',
+        passwordHash: await hashPassword('AdminPassword123!'),
         displayName: '織日總部店長',
         role: 'admin',
       });
