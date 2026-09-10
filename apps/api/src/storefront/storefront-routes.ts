@@ -1,0 +1,93 @@
+import 'reflect-metadata';
+import { Controller, Get, Post, Req, Res, type Type } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
+import type { PageOutcome, PageResolveContext, StorefrontPage, StorefrontTheme, ThemeContext } from '@storeweave/kernel';
+import { PlatformError } from '@storeweave/contracts';
+import { HttpContract, type HttpRouteContract } from '../http/contract';
+import { Public } from '../http/auth';
+import type { AuthenticatedRequest } from '../http/auth';
+
+export interface StorefrontRouteDeps {
+  readonly theme: StorefrontTheme;
+  /** 每個請求的 Theme 環境（門市資訊、CSRF、一次性提示）。 */
+  readonly buildContext: (req: AuthenticatedRequest, reply: FastifyReply) => Promise<ThemeContext>;
+  /** 交給模組 resolve 的執行環境；actor 由請求決定。 */
+  readonly resolveContext: (req: AuthenticatedRequest) => PageResolveContext;
+  /** 錯誤頁。沒有提供時直接把 PlatformError 往上拋給例外過濾器。 */
+  readonly renderError?: (req: AuthenticatedRequest, reply: FastifyReply, error: unknown) => Promise<void>;
+}
+
+/** Nest 的 route path 不帶前導斜線；根路徑交給它自己正規化成 '/'。 */
+const nestPath = (path: string): string => path.replace(/^\/+/, '');
+
+/** page id 不是合法的識別字，但方法名只要唯一且穩定就夠了。 */
+const handlerName = (id: string): string => `page_${id.replace(/[^A-Za-z0-9]/g, '_')}`;
+
+const requiresIdentity = (page: StorefrontPage<any, any>): boolean => page.audience !== 'public';
+
+const identityMatches = (page: StorefrontPage<any, any>, req: AuthenticatedRequest): boolean => {
+  const type = req.actor?.type;
+  if (page.audience === 'customer') return type === 'customer';
+  if (page.audience === 'operator') return type === 'user';
+  return true;
+};
+
+/**
+ * 從模組宣告的頁面生成一個 Nest controller。路由是資料驅動的，但守衛鏈、CSRF 規則與
+ * 啟動時的契約檢查全部沿用 decorator 那一套——資料驅動不該換來一次安全性退步（ADR 0045）。
+ */
+export function createStorefrontController(
+  pages: readonly StorefrontPage<any, any>[],
+  deps: StorefrontRouteDeps,
+): Type<object> {
+  class GeneratedStorefrontController {}
+  const prototype = GeneratedStorefrontController.prototype as Record<string, unknown>;
+
+  for (const page of pages) {
+    const name = handlerName(page.id);
+
+    const handler = async function (req: AuthenticatedRequest, reply: FastifyReply): Promise<void> {
+      try {
+        if (requiresIdentity(page) && !identityMatches(page, req)) {
+          void reply.status(303).header('location', `/login?next=${encodeURIComponent(page.path)}`).send();
+          return;
+        }
+
+        const source = req as AuthenticatedRequest & { params?: object; query?: object; body?: object };
+        const raw = { ...(source.params ?? {}), ...((page.method === 'get' ? source.query : source.body) ?? {}) };
+        const input = page.input.parse(raw);
+        const outcome = (await page.resolve(deps.resolveContext(req), input)) as PageOutcome<unknown>;
+
+        if (outcome.kind === 'redirect') {
+          void reply.status(303).header('location', outcome.location).send();
+          return;
+        }
+        if (outcome.kind === 'not-found') throw PlatformError.notFound('Page', page.path);
+
+        const render = deps.theme.renderers[page.id];
+        if (!render) {
+          // 啟動時的缺頁檢查應該早就攔下這種情況；走到這裡表示註冊表與 Theme 不同步。
+          throw PlatformError.validation(`Theme '${deps.theme.id}' 沒有頁面 '${page.id}' 的 renderer`);
+        }
+        const body = render(await deps.buildContext(req, reply), outcome.view);
+        void reply.status(outcome.status ?? 200).header('content-type', 'text/html; charset=utf-8').send(body);
+      } catch (error) {
+        if (!deps.renderError) throw error;
+        await deps.renderError(req, reply, error);
+      }
+    };
+
+    Object.defineProperty(prototype, name, { value: handler, writable: true, enumerable: false, configurable: true });
+    Reflect.defineMetadata('design:paramtypes', [Object, Object], prototype, name);
+
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, name)!;
+    Req()(prototype, name, 0);
+    Res()(prototype, name, 1);
+    HttpContract(page.contract as HttpRouteContract)(prototype, name, descriptor);
+    (page.method === 'get' ? Get : Post)(nestPath(page.path))(prototype, name, descriptor);
+  }
+
+  Public()(GeneratedStorefrontController);
+  Controller()(GeneratedStorefrontController);
+  return GeneratedStorefrontController;
+}
