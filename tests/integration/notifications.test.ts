@@ -59,9 +59,12 @@ async function baseRuntime(mail?: Record<string, unknown>) {
   const directory = mkdtempSync(join(tmpdir(), 'storeweave-notifications-'));
   directories.push(directory);
   const config = join(directory, 'config.yaml');
+  // 身分連結一律簽發，所以 base release 沒有簽章金鑰就不啟動（ADR 0042）。
+  process.env.SW_SIGNING_KEY_TEST ??= Buffer.alloc(32, 7).toString('base64url');
   writeFileSync(config, JSON.stringify({
     version: 1, store: { id: 'notifications-test', name: 'Notifications Test' },
     database: { url: await createTestDatabase() }, logging: { level: 'error' }, extensions: [],
+    security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
     storage: { localRoot: join(directory, 'storage') },
     ...(mail ? { mail } : {}),
   }));
