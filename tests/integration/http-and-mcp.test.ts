@@ -68,7 +68,7 @@ const auth = (token = ADMIN_TOKEN) => ({ authorization: `Bearer ${token}` });
 describe('REST 介面', () => {
   it('retains exact selected Commerce route identities with MCP on and off', async () => {
     const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
-    expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(26);
+    expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(27);
     expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(177);
     expect(catalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
 
@@ -78,7 +78,7 @@ describe('REST 介面', () => {
       httpAdapter: commerceHttpAdapter, release: { version: 'test', configPath: '<test>' } });
     try {
       const withoutMcpCatalog = withoutMcp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
-      expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(25);
+      expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(26);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(175);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.some(route => route.path === '/mcp')).toBe(false);
@@ -620,9 +620,16 @@ describe('REST 介面', () => {
   });
 });
 
+/** StorefrontController 與依模組頁面生成的那一個，合起來就是整個前台。 */
+const storefrontControllers = () => commerceHttpAdapter
+  .controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })
+  .filter(controller => controller === StorefrontController || controller.name === 'GeneratedStorefrontController');
+
 describe('Storefront SSR', () => {
   it('catalogs all mounted storefront identities without inventing REST or Bus responses', () => {
-    const routes = describeHttpRoutes(h.runtime, [StorefrontController]);
+    // 前台路由現在來自模組宣告的頁面（ADR 0045），所以要連 generated controller
+    // 一起描述——只看 StorefrontController 會漏掉除了登入與資產以外的每一頁。
+    const routes = describeHttpRoutes(h.runtime, storefrontControllers());
     expect(routes).toHaveLength(41);
     for (const route of routes) {
       expect(app.getHttpAdapter().getInstance().hasRoute({ method: route.method, url: route.path }), `${route.method} ${route.path}`).toBe(true);

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { PlatformError } from '@storeweave/contracts';
-import { definePage, type PageOutcome, type PageResolveContext, type StorefrontHttpContract } from '@storeweave/kernel';
+import { definePage, formValue, type PageOutcome, type PageResolveContext, type StorefrontHttpContract } from '@storeweave/kernel';
 import type { JsonSchema7Type } from 'zod-to-json-schema';
 
 /** 會員中心「我的資料」頁看到的樣子。 */
@@ -31,16 +31,16 @@ const redirect = (location: Extract<StorefrontResponse, { kind: 'redirect' }>['l
   ({ kind: 'redirect', status: 303, location });
 
 const saveProfileInput = z.object({
-  displayName: z.string().optional(),
-  phone: z.string().optional(),
-  birthday: z.string().optional(),
-  recipient: z.string().optional(),
-  addressPhone: z.string().optional(),
-  postcode: z.string().optional(),
-  city: z.string().optional(),
-  district: z.string().optional(),
-  line1: z.string().optional(),
-  line2: z.string().optional(),
+  displayName: formValue.optional(),
+  phone: formValue.optional(),
+  birthday: formValue.optional(),
+  recipient: formValue.optional(),
+  addressPhone: formValue.optional(),
+  postcode: formValue.optional(),
+  city: formValue.optional(),
+  district: formValue.optional(),
+  line1: formValue.optional(),
+  line2: formValue.optional(),
 });
 
 async function renderProfile(

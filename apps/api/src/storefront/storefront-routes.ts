@@ -3,6 +3,7 @@ import { Controller, Get, Post, Req, Res, type Type } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import type { PageOutcome, PageResolveContext, StorefrontPage, StorefrontTheme, ThemeContext } from '@storeweave/kernel';
 import { PlatformError } from '@storeweave/contracts';
+import { ZodError } from 'zod';
 import { HttpContract, type HttpRouteContract } from '../http/contract';
 import { Public } from '../http/auth';
 import type { AuthenticatedRequest } from '../http/auth';
@@ -47,15 +48,23 @@ export function createStorefrontController(
     const name = handlerName(page.id);
 
     const handler = async function (req: AuthenticatedRequest, reply: FastifyReply): Promise<void> {
+      const source = req as AuthenticatedRequest & {
+        params?: Record<string, string | undefined>; query?: object; body?: object;
+      };
       try {
         if (requiresIdentity(page) && !identityMatches(page, req)) {
-          void reply.status(303).header('location', `/login?next=${encodeURIComponent(page.path)}`).send();
+          const next = page.loginNext ? page.loginNext(source.params ?? {}) : page.path;
+          void reply.status(303).header('location', `/login?next=${encodeURIComponent(next)}`).send();
           return;
         }
 
-        const source = req as AuthenticatedRequest & { params?: object; query?: object; body?: object };
         const raw = { ...(source.params ?? {}), ...((page.method === 'get' ? source.query : source.body) ?? {}) };
-        const input = page.input.parse(raw);
+        // zod 的錯誤是輸入錯誤，不是伺服器故障：轉成 PlatformError 才會回 400 而不是 500。
+        const parsed = page.input.safeParse(raw);
+        if (!parsed.success) {
+          throw PlatformError.validation(parsed.error.issues[0]?.message ?? 'Invalid input', parsed.error.issues);
+        }
+        const input = parsed.data;
         const outcome = (await page.resolve(deps.resolveContext(req, reply), input)) as PageOutcome<unknown>;
 
         if (outcome.kind === 'redirect') {
@@ -72,8 +81,12 @@ export function createStorefrontController(
         const body = render(await deps.buildContext(req, reply), outcome.view);
         void reply.status(outcome.status ?? 200).header('content-type', 'text/html; charset=utf-8').send(body);
       } catch (error) {
-        if (!deps.renderError) throw error;
-        await deps.renderError(req, reply, error);
+        // resolve 內部也可能拋 zod 錯誤（巢狀 schema），一併當成輸入錯誤。
+        const failure = error instanceof ZodError
+          ? PlatformError.validation(error.issues[0]?.message ?? 'Invalid input', error.issues)
+          : error;
+        if (!deps.renderError) throw failure;
+        await deps.renderError(req, reply, failure);
       }
     };
 

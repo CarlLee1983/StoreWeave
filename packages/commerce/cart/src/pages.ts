@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PlatformError } from '@storeweave/contracts';
-import { definePage, type PageResolveContext, type StorefrontHttpContract } from '@storeweave/kernel';
+import { definePage, formValue, type PageResolveContext, type StorefrontHttpContract } from '@storeweave/kernel';
 import type { PaymentProvider, ShippingProvider } from '@storeweave/extension-sdk';
 import type { JsonSchema7Type } from 'zod-to-json-schema';
 
@@ -162,51 +162,51 @@ function invoicePreferenceFromForm(body: Record<string, string | undefined>) {
  * 輸入是「元」而且允許小數：折抵額不見得是整數元（餘額或小計都可能不是），
  * 用整數元來回換算會讓每一次重送都少折幾分。
  */
-const cartRewardsInput = z.object({ amount: z.string().optional() }).transform(({ amount }) => {
+const cartRewardsInput = z.object({ amount: formValue.optional() }).transform(({ amount }) => {
   const parsed = Number(amount ?? '0');
   return { amountCents: Number.isFinite(parsed) ? Math.max(0, Math.round(parsed * 100)) : 0 };
 });
 
 const startPickupSelectionInput = z.object({
-  cartId: z.string().optional(),
-  shippingMethodId: z.string().optional(),
+  cartId: formValue.optional(),
+  shippingMethodId: formValue.optional(),
 });
 
-const addToCartInput = z.object({ productId: z.string().optional(), quantity: z.string().optional() })
+const addToCartInput = z.object({ productId: formValue.optional(), quantity: formValue.optional() })
   .transform(({ productId, quantity }) => ({ productId, quantity: Number.parseInt(quantity ?? '1', 10) }));
 
 /** 數量設成 0 就是移除——前台的數量欄位本來就會走到 0，讓它自然表達「不要了」。 */
-const setCartItemQuantityInput = z.object({ productId: z.string(), quantity: z.string().optional() })
+const setCartItemQuantityInput = z.object({ productId: formValue, quantity: formValue.optional() })
   .transform(({ productId, quantity }) => ({ productId, quantity: Number.parseInt(quantity ?? '0', 10) }));
 
-const cartCouponInput = z.object({ code: z.string().optional(), remove: z.string().optional() })
+const cartCouponInput = z.object({ code: formValue.optional(), remove: formValue.optional() })
   .transform(({ code, remove }) => ({ code: code ?? '', remove: Boolean(remove) }));
 
 const checkoutPageInput = z.object({
-  shippingMethodId: z.string().optional(),
-  pickupSelectionToken: z.string().optional(),
+  shippingMethodId: formValue.optional(),
+  pickupSelectionToken: formValue.optional(),
 });
 
-const pickupStorePickerInput = z.object({ token: z.string() });
+const pickupStorePickerInput = z.object({ token: formValue });
 
 const checkoutInput = z.object({
-  cartId: z.string().optional(),
-  shippingMethodId: z.string().optional(),
-  pickupSelectionToken: z.string().optional(),
-  pickupRecipient: z.string().optional(),
-  pickupPhone: z.string().optional(),
-  recipient: z.string().optional(),
-  phone: z.string().optional(),
-  postcode: z.string().optional(),
-  city: z.string().optional(),
-  district: z.string().optional(),
-  line1: z.string().optional(),
-  line2: z.string().optional(),
-  paymentProvider: z.string().optional(),
-  paymentMethod: z.string().optional(),
-  invoicePreference: z.string().optional(),
-  invoiceCarrierNumber: z.string().optional(),
-  invoiceLoveCode: z.string().optional(),
+  cartId: formValue.optional(),
+  shippingMethodId: formValue.optional(),
+  pickupSelectionToken: formValue.optional(),
+  pickupRecipient: formValue.optional(),
+  pickupPhone: formValue.optional(),
+  recipient: formValue.optional(),
+  phone: formValue.optional(),
+  postcode: formValue.optional(),
+  city: formValue.optional(),
+  district: formValue.optional(),
+  line1: formValue.optional(),
+  line2: formValue.optional(),
+  paymentProvider: formValue.optional(),
+  paymentMethod: formValue.optional(),
+  invoicePreference: formValue.optional(),
+  invoiceCarrierNumber: formValue.optional(),
+  invoiceLoveCode: formValue.optional(),
 });
 
 export const cartPages = {
@@ -302,6 +302,7 @@ export const cartPages = {
    */
   setRewards: definePage({
     id: 'commerce.cart.setRewards',
+    loginNext: () => '/cart',
     path: '/cart/rewards',
     method: 'post',
     audience: 'customer',
@@ -407,6 +408,7 @@ export const cartPages = {
   /** 超商取貨門市挑選頁。 */
   pickupStorePicker: definePage({
     id: 'commerce.checkout.pickupStorePicker',
+    loginNext: () => '/checkout',
     path: '/checkout/pickup/select',
     method: 'get',
     audience: 'customer',
@@ -440,6 +442,7 @@ export const cartPages = {
    */
   startPickupSelection: definePage({
     id: 'commerce.checkout.startPickupSelection',
+    loginNext: () => '/checkout',
     path: '/checkout/pickup/start',
     method: 'post',
     audience: 'customer',

@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { ZodType, ZodTypeAny, ZodTypeDef } from 'zod';
 import type { Actor } from '@storeweave/contracts';
 import { PlatformError } from '@storeweave/contracts';
@@ -86,11 +87,24 @@ export interface StorefrontPage<Input = unknown, View = unknown> {
   /** 沿用 B03 的宣告式 HTTP 契約；資料驅動的路由不換掉啟動時的靜態檢查。 */
   readonly contract: StorefrontHttpContract;
   /**
+   * 未登入時導向登入頁後要回到哪裡。預設是這一頁自己，但寫入頁面通常要回到它的
+   * 顯示頁——送出折抵失敗後把人丟回 `POST /cart/rewards` 沒有意義。收到的是原始
+   * path params，因為這個判斷發生在解析輸入之前。
+   */
+  readonly loginNext?: (params: Record<string, string | undefined>) => string;
+  /**
    * Theme 沒有實作就拒絕啟動。設 false 代表這一頁沒有畫面（只做寫入與轉址）
    * 或是選配版型，缺了不影響網站可用。
    */
   readonly required?: boolean;
 }
+
+/**
+ * 前台表單送出的一律是字串，但直接打 JSON 的呼叫端（整合測試、腳本）會送原生型別。
+ * 兩者都接受並一律當字串處理，頁面的輸入 schema 因此不必各自處理這件事——
+ * 只收字串的 schema 會把一個合法的請求變成 500。
+ */
+export const formValue = z.union([z.string(), z.number(), z.boolean()]).transform(String);
 
 export function definePage<Input, View>(page: StorefrontPage<Input, View>): StorefrontPage<Input, View> {
   return page;

@@ -63,8 +63,10 @@ describe('訂單明細頁', () => {
     expect(outcome).toMatchObject({
       kind: 'view',
       view: {
-        number: 'ORD-1', canCancel: true,
-        paymentRetry: { provider: 'ecpay', methods: [{ code: 'credit', label: '信用卡', timing: 'immediate' }] },
+        order: {
+          number: 'ORD-1', canCancel: true,
+          paymentRetry: { provider: 'ecpay', methods: [{ code: 'credit', label: '信用卡', timing: 'immediate' }] },
+        },
       },
     });
   });
@@ -76,7 +78,7 @@ describe('訂單明細頁', () => {
     const outcome = await orderPages.order.resolve(ctxWith(queries as never, vi.fn(), providers as never), { number: 'ORD-1' });
 
     expect(providers.get).not.toHaveBeenCalled();
-    expect(outcome).toMatchObject({ view: { paymentRetry: null, canCancel: false } });
+    expect(outcome).toMatchObject({ view: { order: { paymentRetry: null, canCancel: false } } });
   });
 
   it('查不到出貨單時 shipment 是 null 而不是整頁失敗', async () => {
@@ -84,7 +86,7 @@ describe('訂單明細頁', () => {
 
     const outcome = await orderPages.order.resolve(ctxWith(queries as never), { number: 'ORD-1' });
 
-    expect(outcome).toMatchObject({ view: { shipment: null, canRequestRma: false } });
+    expect(outcome).toMatchObject({ view: { order: { shipment: null, canRequestRma: false } } });
   });
 
   it('訂單不存在或不是自己的訂單時原樣拋出', async () => {

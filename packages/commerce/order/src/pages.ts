@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { PlatformError, SYSTEM_ACTOR } from '@storeweave/contracts';
 import {
   definePage,
+  formValue,
   type PageResolveContext,
   type StorefrontHttpContract,
   type StorefrontResponse,
@@ -131,6 +132,7 @@ async function scopedOrder(ctx: PageResolveContext, number: string): Promise<Ord
 export const orderPages = {
   order: definePage({
     id: 'commerce.order.view',
+    loginNext: params => `/orders/${params.number}`,
     path: '/orders/:number',
     method: 'get',
     audience: 'customer',
@@ -163,7 +165,7 @@ export const orderPages = {
         : null;
       return {
         kind: 'view',
-        view: {
+        view: { order: {
           number: order.number,
           status: order.status,
           currency: order.currency,
@@ -210,18 +212,19 @@ export const orderPages = {
             status: rma.status, reason: rma.reason, staffNote: rma.staffNote, createdAt: rma.createdAt,
             lines: rma.lines.map((line: any) => ({ name: line.name, quantity: line.quantity })),
           })),
-        },
+        } },
       };
     },
   }),
 
   retryPayment: definePage({
     id: 'commerce.order.retryPayment',
+    loginNext: params => `/orders/${params.number}`,
     path: '/orders/:number/pay',
     method: 'post',
     audience: 'customer',
     required: false,
-    input: z.object({ number: z.string(), paymentProvider: z.string().optional(), paymentMethod: z.string().optional() }),
+    input: z.object({ number: z.string(), paymentProvider: formValue.optional(), paymentMethod: formValue.optional() }),
     contract: {
       kind: 'storefront', rateLimit: 'cart', request: 'form',
       input: jsonSchema(['number', 'paymentProvider', 'paymentMethod']), params: { number: 'number' },
@@ -253,7 +256,7 @@ export const orderPages = {
     path: '/account/orders',
     method: 'get',
     audience: 'customer',
-    input: z.object({ limit: z.string().optional(), offset: z.string().optional() }),
+    input: z.object({ limit: formValue.optional(), offset: formValue.optional() }),
     contract: {
       kind: 'storefront', request: 'query', input: jsonSchema(['limit', 'offset']),
       audience: 'customer', responses: pageOrRedirect, cookieEffects: cartNotice,
@@ -286,6 +289,7 @@ export const orderPages = {
 
   createRma: definePage({
     id: 'commerce.order.createRma',
+    loginNext: params => `/orders/${params.number}`,
     path: '/orders/:number/rmas',
     method: 'post',
     audience: 'customer',
@@ -308,6 +312,7 @@ export const orderPages = {
 
   cancelOrder: definePage({
     id: 'commerce.order.cancel',
+    loginNext: params => `/orders/${params.number}`,
     path: '/orders/:number/cancel',
     method: 'post',
     audience: 'customer',
