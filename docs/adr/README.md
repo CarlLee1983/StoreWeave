@@ -48,6 +48,7 @@
 | [0044](0044-operator-mfa-is-totp-with-recovery-codes.md) | 後台帳號的第二因素是 TOTP＋一次性復原碼 | accepted（B08） |
 | [0045](0045-modules-declare-storefront-pages.md) | 前台頁面由模組宣告，Theme 只提供渲染 | accepted（B13） |
 | [0046](0046-site-settings-and-navigation-are-release-data.md) | 網站設定與導覽是資料，不是 Theme 的一部分 | accepted（B13） |
+| [0047](0047-session-is-a-page-outcome.md) | Session 是頁面的 outcome，不是頁面的能力 | proposed |
 
 寫法：每篇結尾用 `## Falsified if` 這個標題起一段，段落裡以反引號標出這個決策所依賴的檔案；
 那些檔案就是這個決策的邊界清單，條件本身要寫成某個東西可以檢查的形式。

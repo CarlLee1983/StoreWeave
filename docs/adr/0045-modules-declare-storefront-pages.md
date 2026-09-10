@@ -55,9 +55,8 @@ schema，舊設定被覆寫。改成以 theme id 為鍵保存，換回去時原�
 
 本決策未涵蓋的部分：登入／註冊／忘記密碼／重設密碼四頁仍以 decorator 留在
 `apps/api/src/storefront/storefront.controller.ts`，`packages/platform/kernel/src/page.ts`
-的 `SYSTEM_PAGE_IDS` 因此還有 `platform.auth`。頁面要簽發 session 就得在 `PageResolveContext`
-上新增一個具名入口，而下面的條件正好守著那個介面——所以它需要一次新的邊界決策，不是
-本決策的剩餘工作。
+的 `SYSTEM_PAGE_IDS` 因此還有 `platform.auth`。那需要一次新的邊界決策，答案在
+[ADR 0047](0047-session-is-a-page-outcome.md)。
 
 ## Falsified if
 
