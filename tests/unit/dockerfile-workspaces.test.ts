@@ -43,4 +43,24 @@ describe('Dockerfile 的 workspace manifest 清單', () => {
     expect(actual.filter((manifest) => !copied.has(manifest))).toEqual([]);
     expect([...copied].filter((manifest) => !actual.includes(manifest))).toEqual([]);
   });
+
+  /**
+   * 同一件事的另一半：manifest 帶進去了，但 lockfile 沒有那個 importer，
+   * 映像裡的 `pnpm install --frozen-lockfile` 就會直接失敗。本地的 `pnpm install`
+   * 不會自己補——沒有相依的新套件在它眼裡不算變更——所以只有 Docker 建置會炸，
+   * 而那是整個流程裡最慢才發現的地方（B13 片2 實際踩到）。
+   */
+  it('每一個 workspace 在 pnpm-lock.yaml 裡都有 importer 條目', () => {
+    const lockfile = readFileSync(join(ROOT, 'pnpm-lock.yaml'), 'utf8');
+    const importers = new Set(
+      [...lockfile.matchAll(/^ {2}(\S+):/gm)].map((match) => match[1]),
+    );
+
+    const missing = ['apps', 'packages', 'tools']
+      .flatMap((dir) => workspaceManifests(dir))
+      .map((manifest) => manifest.replace(/\/package\.json$/, ''))
+      .filter((workspace) => !importers.has(workspace));
+
+    expect(missing).toEqual([]);
+  });
 });
