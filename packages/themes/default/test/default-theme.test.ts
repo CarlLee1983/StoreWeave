@@ -6,6 +6,27 @@ import type { ThemeArticleView } from '@storeweave/content';
 import type { ThemeOrderView } from '@storeweave/order';
 import { defaultTheme } from '../src/index';
 
+/**
+ * 導覽是資料，不是 Theme 的一部分（ADR 0046）：這份是 storefront 組好之後交進來的樣子。
+ * 「還沒發文就不出現品牌連結」的過濾發生在那之前，覆蓋在 `@storeweave/site` 的單元測試。
+ */
+const NAVIGATION = {
+  primary: [
+    { label: '首頁', href: '/' },
+    { label: '商品型錄', href: '/catalog' },
+    { label: '品牌故事', href: '/story' },
+    { label: '生活誌', href: '/journal' },
+    { label: '最新消息', href: '/news' },
+    { label: '常見問題', href: '/faq' },
+    { label: '聯絡我們', href: '/contact' },
+    { label: '購物車', href: '/cart' },
+  ],
+  footer: [
+    { label: '瀏覽商品', href: '/catalog', group: '商品' },
+    { label: '訂單查詢', href: '/account/orders', group: '帳戶' },
+  ],
+} as const;
+
 const context = (overrides: Partial<ThemeContext> = {}): ThemeContext => ({
   storeName: '織日選物',
   storeId: 'example-store',
@@ -14,7 +35,9 @@ const context = (overrides: Partial<ThemeContext> = {}): ThemeContext => ({
   timeZone: 'Asia/Taipei',
   publicUrl: 'https://woven-day.example.test',
   supportEmail: 'hello@woven-day.example.test',
-  options: { accentColor: '#8C3E28', tagline: '日常用品，認真挑選。', showSku: true },
+  options: { accentColor: '#8C3E28', showSku: true },
+  tagline: '日常用品，認真挑選。',
+  navigation: NAVIGATION,
   customerName: null,
   csrfToken: null,
   notice: null,
@@ -139,8 +162,12 @@ describe('Default Theme 的商品瀏覽切片', () => {
     expect(html).not.toContain('<script');
   });
 
-  it('只輸出 Theme 可證明的商品事實，且主導覽不連向沒有內容來源的頁面', () => {
-    const ctx = context({ storeName: '另一間商店', storeId: 'another-store' });
+  it('只輸出 Theme 可證明的商品事實，導覽以外沒有寫死的品牌痕跡', () => {
+    // 另一間商店的導覽裡沒有品牌內容——這是資料的結果，不是 Theme 的判斷（ADR 0046）。
+    const ctx = context({
+      storeName: '另一間商店', storeId: 'another-store',
+      navigation: { primary: [{ label: '商品型錄', href: '/catalog' }], footer: [] },
+    });
     const home = defaultTheme.renderers['commerce.catalog.home'](ctx, { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] });
     const catalog = defaultTheme.renderers['commerce.catalog.view'](ctx, { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
     const detail = defaultTheme.renderers['commerce.catalog.product'](ctx, { product });
@@ -175,7 +202,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('把 Core 的品牌內容排進首頁、品牌故事、生活誌與最新消息', () => {
-    const ctx = context({ publishedContentKinds: ['story', 'journal', 'news', 'faq'] });
+    const ctx = context();
     const home = defaultTheme.renderers['commerce.catalog.home'](ctx, {
       products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1,
       story, journal: [journalArticle], news: [newsArticle],
@@ -211,17 +238,16 @@ describe('Default Theme 的商品瀏覽切片', () => {
     expect(articlePage).not.toContain('images.unsplash.com');
   });
 
-  it('沒有發布內容的商店，導覽列不出現品牌頁面入口', () => {
-    const html = defaultTheme.renderers['commerce.catalog.home'](context({ publishedContentKinds: [] }), {
-      products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1,
-      story: null, journal: [], news: [],
-    });
+  it('導覽列印出資料給的項目，自己不決定有哪些', () => {
+    const html = defaultTheme.renderers['commerce.catalog.home'](
+      context({ navigation: { primary: [{ label: '關於', href: '/about' }], footer: [] } }), {
+        products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1,
+        story: null, journal: [], news: [],
+      });
+    expect(html).toContain('<nav class="site-nav" aria-label="主要導覽"><a href="/about">關於</a></nav>');
+    // 資料裡沒有的連結不會因為 Theme 覺得該有就冒出來（ADR 0046）。
     expect(html).not.toContain('href="/story"');
-    expect(html).not.toContain('href="/journal"');
-    expect(html).not.toContain('href="/news"');
-    expect(html).not.toContain('href="/faq"');
-    // Contact needs no content, so it stays.
-    expect(html).toContain('href="/contact"');
+    expect(html).not.toContain('href="/cart"');
   });
 
   it('文章指向已經不存在的圖片 key 時，改用無圖版型而不是壞掉', () => {

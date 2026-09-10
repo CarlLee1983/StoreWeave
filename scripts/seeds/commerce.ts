@@ -223,6 +223,14 @@ const PRODUCTS: SeedProduct[] = [
 async function demo(runtime: Runtime) {
   console.log('🌱 開始注入 StoreWeave 完整 Demo 資料...');
 
+  // 1. 網站設定。標語與頁尾附註是網站資料，不是 theme options（ADR 0046）。
+  console.log('✓ 設定網站標語與頁尾...');
+  await runtime.commands.execute(
+    'platform.site.updateSettings',
+    { tagline: '日日相伴的器物與手織生活工藝', footerNote: '從正在販售的商品開始，找到適合你的選擇。' },
+    { actor: SEED_ACTOR, idempotencyKey: 'seed-site-settings' },
+  );
+
   // 2. 物流配送方式 (Shipping Methods)
   const shippingMethods = [
     {

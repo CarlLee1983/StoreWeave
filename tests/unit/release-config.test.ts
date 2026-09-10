@@ -26,7 +26,8 @@ describe('release configuration', () => {
     const config = baseConfigSchema.parse(base);
     expect(config.store).not.toHaveProperty('currency');
     expect(config.extensions).toEqual([]);
-    expect(config.theme.id).toBe('none');
+    // base 有自己的通用 theme，但仍然沒有商務設定與後台（ADR 0046）。
+    expect(config.theme.id).toBe('base');
     expect(config.admin.enabled).toBe(false);
     expect(config.mcp.enabled).toBe(false);
     expect(config.paths.dataDir).toBe('/var/lib/storeweave');

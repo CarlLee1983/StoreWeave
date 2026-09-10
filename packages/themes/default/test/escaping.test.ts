@@ -41,7 +41,14 @@ const context = (overrides: Partial<ThemeContext> = {}): ThemeContext => ({
   timeZone: 'Asia/Taipei',
   publicUrl: 'https://woven-day.example.test',
   supportEmail: PROBE,
-  options: { accentColor: '#8C3E28', tagline: PROBE, showSku: true },
+  options: { accentColor: '#8C3E28', showSku: true },
+  tagline: PROBE,
+  footerNote: PROBE,
+  // 導覽現在是後台可編輯的資料，所以它也是一個注入面（ADR 0046）。
+  navigation: {
+    primary: [{ label: PROBE, href: `/${PROBE}` }],
+    footer: [{ label: PROBE, href: `/${PROBE}`, group: PROBE }],
+  },
   customerName: PROBE,
   csrfToken: PROBE,
   notice: PROBE,

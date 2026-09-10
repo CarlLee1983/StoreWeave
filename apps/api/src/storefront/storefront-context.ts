@@ -3,6 +3,7 @@ import type { FastifyReply } from 'fastify';
 import { PlatformError } from '@storeweave/contracts';
 import { csrfTokenFor } from '@storeweave/identity';
 import type { PageResolveContext, StorefrontTheme, ThemeContext } from '@storeweave/kernel';
+import { EMPTY_SITE_SETTINGS, themeNavigation, visibleNavigation, type SiteChrome } from '@storeweave/site';
 import { actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
 import { sessionTokenOf } from '../http/session-cookies';
 import { cartNoticeOf, clearCartNoticeCookie, existingGuestToken, guestTokenFor } from '../http/cart-cookie';
@@ -47,6 +48,22 @@ async function publishedContentKinds(deps: StorefrontContextDeps): Promise<reado
   }
 }
 
+/**
+ * 網站設定與導覽。存在資料庫，獨立於 theme（ADR 0046）——沒有 site 模組的 release
+ * 拿到空外框，跟品牌內容一樣不值得讓整頁失敗。
+ */
+async function siteChrome(deps: StorefrontContextDeps): Promise<SiteChrome> {
+  try {
+    return await deps.runtime.queries.execute<SiteChrome>(
+      'platform.site.getChrome', {},
+      { actor: anonymousActor(deps.runtime, deps.anonymousRole), channel: 'rest' },
+    );
+  } catch (err) {
+    deps.runtime.logger.warn({ error: (err as Error).message }, 'site chrome lookup failed');
+    return { settings: EMPTY_SITE_SETTINGS, navigation: [] };
+  }
+}
+
 export async function buildThemeContext(
   deps: StorefrontContextDeps, req?: AuthenticatedRequest, reply?: FastifyReply,
 ): Promise<ThemeContext> {
@@ -54,6 +71,7 @@ export async function buildThemeContext(
   const store = deps.runtime.config.store as typeof deps.runtime.config.store & { currency?: string };
   const sessionToken = sessionTokenOf(req, deps.runtime.config.http.publicUrl);
   const actor = req?.actor;
+  const [chrome, contentKinds] = await Promise.all([siteChrome(deps), publishedContentKinds(deps)]);
   return {
     storeName: store.name,
     storeId: store.id,
@@ -62,12 +80,16 @@ export async function buildThemeContext(
     timeZone: store.timezone,
     publicUrl: deps.runtime.config.http.publicUrl,
     supportEmail: store.supportEmail,
-    options: deps.runtime.config.theme.options,
+    options: deps.runtime.config.theme.options[deps.theme.id] ?? {},
+    tagline: chrome.settings.tagline,
+    footerNote: chrome.settings.footerNote,
+    // 還沒發文的品牌連結在這裡就被濾掉，Theme 不必自己判斷（ADR 0033、0046）。
+    navigation: themeNavigation(visibleNavigation(chrome.navigation, contentKinds)),
     customerName: actor?.type === 'customer' ? actor.displayName ?? null : null,
     // 有 session 就發 token：守衛對任何 cookie 身分都會驗 CSRF，只發給顧客的話，
     // 後台身分逛前台送出表單會拿到裸的 403，而不是那句「請先登入」。
     csrfToken: sessionToken && actor && actor.type !== 'service' ? csrfTokenFor(sessionToken) : null,
-    publishedContentKinds: await publishedContentKinds(deps) as ThemeContext['publishedContentKinds'],
+    publishedContentKinds: contentKinds as ThemeContext['publishedContentKinds'],
     notice: takeNotice(deps, req, reply),
   };
 }

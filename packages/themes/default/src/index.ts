@@ -454,9 +454,12 @@ function articlePage(ctx: ThemeContext, article: ThemeArticleView, base: string,
   return layout({ title: article.title, body, ctx });
 }
 
+/**
+ * 這個 Theme 專屬的視覺設定。標語不在這裡：它換 theme 之後應該還在，
+ * 所以存在 `platform_site_settings`（ADR 0046）。
+ */
 export const defaultThemeOptions = z.object({
   accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#8C3E28'),
-  tagline: z.string().max(120).default(''),
   showSku: z.boolean().default(true),
 });
 

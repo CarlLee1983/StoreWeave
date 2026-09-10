@@ -1,4 +1,4 @@
-import type { ThemeContext } from '@storeweave/kernel';
+import type { ThemeContext, ThemeNavigationItem } from '@storeweave/kernel';
 import { escapeHtml } from '@storeweave/i18n';
 
 /**
@@ -27,21 +27,32 @@ function accountNav(ctx: ThemeContext): string {
     </form>`;
 }
 
+/** 一組導覽項目的連結。內容全部來自資料，Theme 只負責排版（ADR 0046）。 */
+function links(items: readonly ThemeNavigationItem[]): string {
+  return items.map(item => `<a href="${escapeHtml(item.href)}">${escapeHtml(item.label)}</a>`).join('');
+}
+
+/** 頁尾依 `group` 分欄，順序就是導覽資料的順序；沒有分組的項目歸到最後一欄。 */
+function footerColumns(items: readonly ThemeNavigationItem[]): string {
+  const columns: { heading: string; items: ThemeNavigationItem[] }[] = [];
+  for (const item of items) {
+    const heading = item.group ?? '';
+    const column = columns.find(candidate => candidate.heading === heading);
+    if (column) column.items.push(item); else columns.push({ heading, items: [item] });
+  }
+  return columns.map(column => `<div class="footer-nav-col">
+      ${column.heading ? `<p class="footer-heading">${escapeHtml(column.heading)}</p>` : ''}
+      <nav class="footer-links">${links(column.items)}</nav>
+    </div>`).join('');
+}
+
 export function layout({ title, body, ctx }: LayoutOptions): string {
   const accent = escapeHtml(ctx.options.accentColor ?? '#8C3E28');
-  const tagline = escapeHtml(ctx.options.tagline ?? '');
+  const tagline = escapeHtml(ctx.tagline ?? '');
   const supportEmail = ctx.supportEmail ? escapeHtml(ctx.supportEmail) : '';
-  // Brand links appear only where the store has published something: the
-  // storefront tells the theme what exists, the theme never guesses (ADR 0033).
-  const published = new Set(ctx.publishedContentKinds ?? []);
-  const brandLink = (kind: 'story' | 'journal' | 'news' | 'faq', href: string, label: string) =>
-    (published.has(kind) ? `<a href="${href}">${label}</a>` : '');
-  const brandNav = [
-    brandLink('story', '/story', '品牌故事'),
-    brandLink('journal', '/journal', '生活誌'),
-    brandLink('news', '/news', '最新消息'),
-    brandLink('faq', '/faq', '常見問題'),
-  ].join('');
+  const primaryNav = links(ctx.navigation?.primary ?? []);
+  const footerNav = footerColumns(ctx.navigation?.footer ?? []);
+  const footerNote = ctx.footerNote ? escapeHtml(ctx.footerNote) : '';
   return `<!doctype html>
 <html lang="${escapeHtml(ctx.locale)}">
 <head>
@@ -66,13 +77,7 @@ export function layout({ title, body, ctx }: LayoutOptions): string {
       <a class="brand" href="/">${escapeHtml(ctx.storeName)}</a>
       ${tagline ? `<p class="tagline">${tagline}</p>` : ''}
     </div>
-    <nav class="site-nav" aria-label="主要導覽">
-      <a href="/">首頁</a>
-      <a href="/catalog">商品型錄</a>
-      ${brandNav}
-      <a href="/contact">聯絡我們</a>
-      <a href="/cart">購物車</a>
-    </nav>
+    <nav class="site-nav" aria-label="主要導覽">${primaryNav}</nav>
     <nav class="account" aria-label="帳戶操作">${accountNav(ctx)}</nav>
   </div>
 </header>
@@ -84,31 +89,10 @@ export function layout({ title, body, ctx }: LayoutOptions): string {
         <a class="brand" href="/">${escapeHtml(ctx.storeName)}</a>
         ${tagline ? `<p class="tagline">${tagline}</p>` : ''}
       </div>
-      <p class="footer-desc">從正在販售的商品開始，找到適合你的選擇。</p>
+      ${footerNote ? `<p class="footer-desc">${footerNote}</p>` : ''}
+      ${supportEmail ? `<p><a class="footer-email" href="mailto:${supportEmail}">${supportEmail}</a></p>` : ''}
     </div>
-    <div class="footer-nav-col">
-      <p class="footer-heading">商品</p>
-      <nav class="footer-links">
-        <a href="/catalog">瀏覽商品</a>
-        <a href="/cart">購物車</a>
-      </nav>
-    </div>
-    <div class="footer-nav-col">
-      <p class="footer-heading">帳戶</p>
-      <nav class="footer-links">
-        <a href="/account/rewards">會員購物金</a>
-        <a href="/account/orders">訂單查詢</a>
-      </nav>
-    </div>
-    ${brandNav ? `<div class="footer-nav-col">
-      <p class="footer-heading">認識我們</p>
-      <nav class="footer-links">${brandNav}</nav>
-    </div>` : ''}
-    ${supportEmail ? `<div class="footer-nav-col">
-      <p class="footer-heading">聯絡</p>
-      <nav class="footer-links"><a href="/contact">寫訊息給我們</a></nav>
-      <p><a class="footer-email" href="mailto:${supportEmail}">${supportEmail}</a></p>
-    </div>` : ''}
+    ${footerNav}
   </div>
   <div class="site-footer__bottom">
     <div class="site-footer__bottom-inner">

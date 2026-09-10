@@ -26,6 +26,19 @@ export type ThemeAuthView =
 
 
 
+/** Theme 拿到的一個導覽項目。`group` 是頁尾小標，沒有分組時不存在。 */
+export interface ThemeNavigationItem {
+  readonly label: string;
+  readonly href: string;
+  readonly group?: string;
+}
+
+/**
+ * menu slug → 項目。平台不規定一個網站有哪幾組選單，Theme 讀它認得的那幾組
+ * （ADR 0046）——`primary` 與 `footer` 是預設 Theme 的用法，不是契約。
+ */
+export type ThemeNavigation = Readonly<Record<string, readonly ThemeNavigationItem[]>>;
+
 export interface ThemeContext {
   storeName: string;
   storeId: string;
@@ -39,8 +52,22 @@ export interface ThemeContext {
   timeZone: string;
   publicUrl: string;
   supportEmail?: string;
-  /** 由 commerce.yaml 的 theme.options 提供，已通過 optionsSchema 驗證。 */
+  /**
+   * 目前選用 theme 的視覺設定，由設定檔的 `theme.options[<theme id>]` 提供，
+   * 已通過 optionsSchema 驗證。依 theme id 分開保存，換回去時原本的配色還在（ADR 0045）。
+   */
   options: Record<string, unknown>;
+  /**
+   * 網站標語。存在資料庫而不是 theme options：換 theme 不該換掉標語（ADR 0046）。
+   */
+  tagline?: string;
+  /** 頁尾附註，與標語同源。 */
+  footerNote?: string;
+  /**
+   * 導覽。內容由資料決定，Theme 只負責排版——硬編碼一份連結清單等於讓資訊架構
+   * 跟著外觀走（ADR 0046）。沒有 site 模組的 release 拿到空物件。
+   */
+  navigation?: ThemeNavigation;
   /** 已登入時的顯示名稱；未登入為 null。 */
   customerName?: string | null;
   /** 登入者的 CSRF token。寫入表單必須把它放進隱藏欄位 `_csrf`。 */

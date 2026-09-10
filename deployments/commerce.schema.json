@@ -379,7 +379,10 @@
             },
             "options": {
               "type": "object",
-              "additionalProperties": {},
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": {}
+              },
               "default": {}
             }
           },

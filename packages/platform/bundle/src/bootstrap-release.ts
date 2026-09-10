@@ -41,9 +41,10 @@ export async function bootstrapRelease<C extends BaseConfig>(
       throw PlatformError.validation(`Theme "${config.theme.id}" is not part of release "${release.id}"`);
     }
     if (theme) {
-      const parsed = theme.optionsSchema.safeParse(config.theme.options);
+      // 只驗證並回寫目前選用的那一組：其他 theme 的設定原封留著（ADR 0045）。
+      const parsed = theme.optionsSchema.safeParse(config.theme.options[theme.id] ?? {});
       if (!parsed.success) throw PlatformError.validation(`Invalid theme options for "${theme.id}"`, parsed.error.issues);
-      config.theme.options = parsed.data as Record<string, unknown>;
+      config.theme.options = { ...config.theme.options, [theme.id]: parsed.data as Record<string, unknown> };
     }
     const providers = new ProviderRegistry(logger);
     const modules = release.createModules({ config, providers });

@@ -8,6 +8,7 @@ import { cacheMigrations } from '@storeweave/cache';
 import { storageMigrations } from '@storeweave/storage';
 import { mailMigrations } from '@storeweave/mail';
 import { notificationsMigrations } from '@storeweave/notifications';
+import { siteMigrations } from '@storeweave/site';
 import { buildReleaseManifest } from '../../packages/platform/bundle/src/release-manifest';
 import { release as base } from '../../packages/platform/bundle/src/releases/base';
 import { release as commerce } from '../../packages/platform/bundle/src/releases/commerce';
@@ -24,7 +25,7 @@ async function database() {
 }
 const foundations: ModulePin[] = buildReleaseManifest(base).modules.map(({ baseVersionRange: _range,
   requiredDependencies: _required, optionalDependencies: _optional, ...pin }) => pin);
-const baseSets = [platformMigrations, cacheMigrations, identityMigrations, storageMigrations, mailMigrations, notificationsMigrations];
+const baseSets = [platformMigrations, cacheMigrations, identityMigrations, storageMigrations, mailMigrations, notificationsMigrations, siteMigrations];
 const featureSet: MigrationSet = { module: 'feature', migrations: [
   sqlMigration('0001', 'expand', 'CREATE TABLE feature_rows(id integer PRIMARY KEY); INSERT INTO feature_rows VALUES (1)'),
 ] };
@@ -124,7 +125,10 @@ describe('release transitions', () => {
   it('adopts the full pinned Commerce legacy state before forward Base migrations', async () => {
     const pool = await database();
     const modules = commerce.createModules({ config: commerce.config.schema.parse(commerce.manifestConfig), providers: new ProviderRegistry() });
-    const sets = [...baseSets, ...modules.flatMap(module => module.migrations ? [module.migrations] : [])];
+    // platform-site 已經在 baseSets 裡（base release 也載入它），不要再從 commerce 模組收一次。
+    const owned = new Set(baseSets.map(set => set.module));
+    const sets = [...baseSets, ...modules.flatMap(module =>
+      module.migrations && !owned.has(module.migrations.module) ? [module.migrations] : [])];
     const legacySource = legacyBaselineSelection(legacyCommerce, sets);
     await pool.query('CREATE TABLE platform_migrations(id text PRIMARY KEY, phase text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())');
     // Create the fixed pre-B02 source fixture, never an unpinned slice of the
@@ -158,8 +162,9 @@ describe('release transitions', () => {
       'platform-storage/0001_init',
       'platform-mail/0001_init',
       'platform-notifications/0001_init',
+      'platform-site/0001_init',
     ]);
-    expect(prepared.manifest.owners.filter(entry => entry.state === 'active')).toHaveLength(7);
+    expect(prepared.manifest.owners.filter(entry => entry.state === 'active')).toHaveLength(8);
     expect(prepared.manifest.owners.filter(entry => entry.state === 'disabled')).toHaveLength(22);
     expect(JSON.stringify(prepared.manifest)).not.toContain('CREATE TABLE');
     await recordEffectiveRelease(pool, prepared, prepared.manifest);
