@@ -36,6 +36,15 @@ page 型別來寫它的 renderer，這條邊存在且刻意——theme 本來就
 被禁止的是反向：kernel 不得再出現任何商務 view 型別，因為那會讓所有 theme 都繼承
 這個依賴。base-only release 的 theme 只 import kernel。
 
+**頁面能碰的執行環境是三個受限入口，不是 runtime。** 搬遷時發現前台 handler 不只是
+「查資料再渲染」：購物車要讀訪客 cookie 的 token，結帳與取貨頁要問 provider registry
+有哪些付款方式與門市，聯絡表單要以來源端為鍵做節流。把 runtime 整個交給 `resolve`
+可以一次解決，代價是頁面變得難測、模組對平台的耦合回到重構前。改成三個具名入口：
+`cookies` 只能讀訪客購物車 token 與簽發一個——不給 `FastifyReply`，所以契約裡的
+`cookieEffects` 仍然說得準，模組也不能順手寫別的 cookie；`providers` 是 registry 的
+唯讀查詢；`clientKey` 是路由層算出的來源端雜湊，不是原始位址。節流用它而不是
+`actor.id`，因為匿名訪客共用同一個 actor，第一個灌爆的人會把其他人一起擋掉。
+
 **視覺設定依 theme id 分開保存。** 現在 `theme.options` 是單一 record，換 theme 就換一套
 schema，舊設定被覆寫。改成以 theme id 為鍵保存，換回去時原本的配色與標語還在。
 代價是設定檔多一層巢狀，補償是「試用另一個 theme」不再是破壞性動作。
@@ -49,5 +58,7 @@ schema，舊設定被覆寫。改成以 theme id 為鍵保存，換回去時原�
 `packages/platform/kernel/src/theme.ts` 重新出現任何商務 view 型別（cart、checkout、
 order、rewards、coupons、pickup），或 `packages/platform/kernel/src/module.ts` 的頁面宣告
 被移除而 theme 改回固定方法清單，或 `apps/api/src/storefront/storefront.controller.ts`
-恢復以 decorator 逐條列出商務 path，或缺頁改成執行期 404 而非啟動時拒絕；
+恢復以 decorator 逐條列出商務 path，或缺頁改成執行期 404 而非啟動時拒絕，
+或 `packages/platform/kernel/src/page.ts` 的 `PageResolveContext` 開始帶 runtime、
+database、logger 或請求物件本身；
 任一成立表示平台層又綁回了商務領域，或缺頁的代價又被推遲到客人身上，須重開本決策。

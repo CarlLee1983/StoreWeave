@@ -50,14 +50,14 @@ async function publishedContentKinds(deps: StorefrontContextDeps): Promise<reado
 export async function buildThemeContext(
   deps: StorefrontContextDeps, req?: AuthenticatedRequest, reply?: FastifyReply,
 ): Promise<ThemeContext> {
-  const store = deps.runtime.config.store;
+  // 貨幣是商務設定，base 的 store 區塊沒有它。
+  const store = deps.runtime.config.store as typeof deps.runtime.config.store & { currency?: string };
   const sessionToken = sessionTokenOf(req, deps.runtime.config.http.publicUrl);
   const actor = req?.actor;
   return {
     storeName: store.name,
     storeId: store.id,
-    // 貨幣是商務設定；base-only 的 store 區塊沒有它。
-    ...('currency' in store ? { currency: store.currency as string } : {}),
+    ...(store.currency ? { currency: store.currency } : {}),
     locale: store.locale,
     timeZone: store.timezone,
     publicUrl: deps.runtime.config.http.publicUrl,

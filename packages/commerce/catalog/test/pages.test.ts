@@ -15,6 +15,9 @@ const ctxWith = (execute: PageResolveContext['queries']['execute']): PageResolve
   commands: { execute: vi.fn() },
   actor: anonymous,
   locale: 'zh-TW',
+  clientKey: 'test-client',
+  cookies: { guestCartToken: () => null, ensureGuestCart: () => 'guest-token' },
+  providers: { get: () => { throw new Error('目錄頁不需要 provider'); } },
 });
 
 describe('目錄頁', () => {
