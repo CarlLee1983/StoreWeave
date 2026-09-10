@@ -4,8 +4,17 @@ import type {
 import type { MigrationSet } from '@storeweave/db';
 import type { PermissionDefinition, PolicyDefinition } from '@storeweave/authorization';
 import type { JobHandler } from '@storeweave/jobs';
+import type { NotificationsPort } from '@storeweave/notifications';
 import type { ScheduleDeclaration } from './schedule-spec';
 import type { JobPayloadContract } from './job-registry';
+
+/**
+ * Base capabilities a module cannot construct for itself because the runtime
+ * owns their resources. They are handed over once, before any handler runs.
+ */
+export interface PlatformPorts {
+  readonly notifications: NotificationsPort;
+}
 
 export interface ModuleDependency {
   readonly name: string;
@@ -82,6 +91,12 @@ export interface PlatformModule {
     commands?: readonly ModuleCommandRequirement[];
   }[];
   readonly policies?: readonly PolicyDefinition[];
+  /**
+   * One-shot composition hook. Modules are built before the runtime exists, so a
+   * module that notifies people receives the capability here rather than looking
+   * it up: there is still no registry to ask, and the edge stays visible.
+   */
+  readonly bindPorts?: (ports: PlatformPorts) => void;
 }
 
 export function defineModule(mod: PlatformModule): PlatformModule {

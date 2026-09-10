@@ -310,8 +310,6 @@ importers:
 
   packages/extensions/mock-invoice: {}
 
-  packages/extensions/mock-notification: {}
-
   packages/extensions/mock-payment: {}
 
   packages/platform/audit: {}
@@ -347,6 +345,8 @@ importers:
   packages/platform/kernel: {}
 
   packages/platform/mail: {}
+
+  packages/platform/notifications: {}
 
   packages/platform/outbox: {}
 

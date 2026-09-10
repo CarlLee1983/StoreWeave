@@ -62,10 +62,6 @@ extensions:
     config:
       autoApprove: true
       declineAboveCents: 0
-  - id: mock-notification
-    enabled: true
-    config:
-      deliver: true
   - id: demo-erp
     enabled: true
     config:

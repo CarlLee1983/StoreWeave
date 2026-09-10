@@ -6,7 +6,7 @@ import { ADMIN_ACTOR, actorWith, checkoutInput, createHarness, createProduct, de
 
 let h: TestHarness;
 beforeAll(async () => {
-  h = await createHarness({ extensions: { 'mock-payment': { autoApprove: true }, 'mock-notification': {}, mcp: {} } });
+  h = await createHarness({ extensions: { 'mock-payment': { autoApprove: true }, mcp: {} } });
 }, 300_000);
 afterAll(async () => { await h?.close(); });
 
@@ -29,7 +29,8 @@ describe('通知投遞紀錄', () => {
     expect(result.items.length).toBeGreaterThan(0);
     const delivery = result.items[0];
     expect(delivery).toMatchObject({ orderId: order.id, template: expect.stringMatching(/^customer\./) });
-    expect(['pending', 'sent', 'failed']).toContain(delivery.status);
+    // 投遞狀態由 base 通知能力供給；這個部署沒有設定 SMTP，因此是「跳過」而不是失敗。
+    expect(['pending', 'sent', 'failed', 'skipped']).toContain(delivery.status);
 
     // 遮蔽是這張票的重點：查得到「送給誰」不等於把 email 攤在營運頁上。
     expect(delivery.recipientEmail).toBeUndefined();

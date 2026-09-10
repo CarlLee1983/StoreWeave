@@ -401,6 +401,7 @@ export class StorageScope {
 export class StorageManager {
   private readonly scopes = new Map<string, StorageScope>();
   private cleanupTimer: NodeJS.Timeout | undefined;
+  private cleanupInFlight: Promise<void> | undefined;
   constructor(private readonly pool: Pool, private readonly store: ObjectStore, private readonly maximumUploadBytes = 20 * 1024 * 1024) {
     if (!Number.isSafeInteger(maximumUploadBytes) || maximumUploadBytes < 1) throw new Error('Invalid storage upload limit');
   }
@@ -526,10 +527,22 @@ export class StorageManager {
 
   startCleanup(options: { readonly intervalMs: number; readonly staleAfterMs: number; readonly onError: (error: unknown) => void }): void {
     if (this.cleanupTimer) return;
-    const run = () => void this.cleanupStale({ olderThan: new Date(Date.now() - options.staleAfterMs) }).catch(options.onError);
+    // The sweep is held so `close()` can drain it: it owns pool connections, and a
+    // background sweep that outlives shutdown queries a pool that has already ended.
+    const run = () => {
+      if (this.cleanupInFlight) return;
+      this.cleanupInFlight = this.cleanupStale({ olderThan: new Date(Date.now() - options.staleAfterMs) })
+        .then(() => undefined, options.onError)
+        .finally(() => { this.cleanupInFlight = undefined; });
+    };
     run();
     this.cleanupTimer = setInterval(run, options.intervalMs);
     this.cleanupTimer.unref();
   }
-  close(): void { if (this.cleanupTimer) clearInterval(this.cleanupTimer); this.cleanupTimer = undefined; }
+
+  async close(): Promise<void> {
+    if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+    this.cleanupTimer = undefined;
+    await this.cleanupInFlight;
+  }
 }

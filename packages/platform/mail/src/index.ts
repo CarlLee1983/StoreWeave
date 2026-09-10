@@ -272,6 +272,8 @@ export class MailService {
     if (stranded) return stranded;
     return this.deliver(id, expected);
   }
+  /** Whether this deployment has a real transport at all; a disabled one never queues work. */
+  get enabled(): boolean { return !(this.transport instanceof DisabledTransport); }
   async close(): Promise<void> { await this.transport.close?.(); }
   async healthCheck(): Promise<{ enabled: boolean }> {
     if (this.transport instanceof DisabledTransport) return { enabled: false };

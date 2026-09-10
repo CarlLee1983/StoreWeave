@@ -19,7 +19,6 @@ import { mockInvoiceExtension } from '@storeweave/ext-mock-invoice';
 import { ecpayPaymentExtension } from '@storeweave/ext-ecpay';
 import { ecpayInvoiceExtension } from '@storeweave/ext-ecpay-invoice';
 import { ecpayLogisticsExtension } from '@storeweave/ext-ecpay-logistics';
-import { mockNotificationExtension } from '@storeweave/ext-mock-notification';
 import { demoErpExtension } from '@storeweave/ext-demo-erp';
 import { mcpExtension } from '@storeweave/ext-mcp';
 
@@ -47,19 +46,18 @@ export function coreModules(options: {
     ),
     createPromotionModule({ defaultCurrency: options.defaultCurrency }),
     createCouponModule({
-      providers: options.providers,
       timezone: options.timezone,
       currency: options.defaultCurrency,
       locale: options.locale,
     }),
-    createLoyaltyModule({ providers: options.providers, currency: options.defaultCurrency }),
+    createLoyaltyModule({ currency: options.defaultCurrency, locale: options.locale }),
     createOrderModule({
       providers: options.providers,
       defaultCurrency: options.defaultCurrency,
       orderNumberPrefix: options.orderNumberPrefix,
     }),
     createInvoiceModule(bindModuleCapability('order', 'commerce.order.invoice-lookup', orderInvoiceService), options.providers),
-    createNotificationModule(bindModuleCapability('order', 'commerce.order.notification-lookup', orderNotificationService), options.providers),
+    createNotificationModule(bindModuleCapability('order', 'commerce.order.notification-lookup', orderNotificationService), { locale: options.locale }),
     createRefundModule(
       bindModuleCapability('order', 'commerce.order.refund-operations', orderRefundService),
       bindModuleCapability('shipping', 'commerce.shipping.shipment-lookup', { hasShipmentForOrder: shippingService.hasShipmentForOrder }),
@@ -79,7 +77,6 @@ export const AVAILABLE_EXTENSIONS: Record<string, ExtensionDefinition<any>> = {
   ecpay: ecpayPaymentExtension,
   'ecpay-invoice': ecpayInvoiceExtension,
   'ecpay-logistics': ecpayLogisticsExtension,
-  'mock-notification': mockNotificationExtension,
   'demo-erp': demoErpExtension,
   mcp: mcpExtension,
 };

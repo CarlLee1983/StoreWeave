@@ -5,7 +5,7 @@ import { PlatformError } from '@storeweave/contracts';
  * Provider Contract —— Extension 對外部世界（金流／物流／ERP／通知）的可替換介面。
  * Core 只認識這些介面，不認識任何供應商名稱。
  */
-export type ProviderKind = 'payment' | 'shipping' | 'erp' | 'notification' | 'invoice';
+export type ProviderKind = 'payment' | 'shipping' | 'erp' | 'invoice';
 
 export interface ProviderBase {
   readonly id: string;
@@ -305,28 +305,6 @@ export interface ErpProvider extends ProviderBase {
   push(doc: ErpDocument): Promise<{ accepted: boolean; remoteId: string; message?: string }>;
 }
 
-export interface NotificationMessage {
-  /** 具名樣板，例如 `customer.password-reset`。Core 只給名字與變數，不給內文。 */
-  readonly template: string;
-  readonly to: { email: string; name?: string };
-  readonly variables?: Record<string, unknown>;
-  /** BCP 47 語言標籤；不給就由 Provider 決定。 */
-  readonly locale?: string;
-  /** 由呼叫端提供的唯一參考；Provider 必須用它做去重。 */
-  readonly reference: string;
-}
-
-export interface NotificationSendResult {
-  readonly status: 'sent' | 'failed';
-  readonly providerRef: string;
-  readonly message?: string;
-}
-
-export interface NotificationProvider extends ProviderBase {
-  readonly kind: 'notification';
-  send(message: NotificationMessage): Promise<NotificationSendResult>;
-}
-
 /**
  * The checkout-time invoice choice. It is a deliberately small, provider-neutral
  * snapshot: a provider receives only the durable choice and sale facts, never an
@@ -396,7 +374,7 @@ export interface InvoiceProvider extends ProviderBase {
   validateLoveCode(loveCode: string): Promise<boolean>;
 }
 
-export type AnyProvider = PaymentProvider | ShippingProvider | ErpProvider | NotificationProvider | InvoiceProvider;
+export type AnyProvider = PaymentProvider | ShippingProvider | ErpProvider | InvoiceProvider;
 
 export interface ProviderRegistration {
   readonly provider: AnyProvider;

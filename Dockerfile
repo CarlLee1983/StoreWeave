@@ -33,6 +33,7 @@ COPY packages/platform/extension-sdk/package.json packages/platform/extension-sd
 COPY packages/platform/jobs/package.json packages/platform/jobs/
 COPY packages/platform/kernel/package.json packages/platform/kernel/
 COPY packages/platform/mail/package.json packages/platform/mail/
+COPY packages/platform/notifications/package.json packages/platform/notifications/
 COPY packages/platform/outbox/package.json packages/platform/outbox/
 COPY packages/platform/query-bus/package.json packages/platform/query-bus/
 COPY packages/platform/storage/package.json packages/platform/storage/
@@ -55,7 +56,6 @@ COPY packages/extensions/ecpay/package.json packages/extensions/ecpay/
 COPY packages/extensions/ecpay-invoice/package.json packages/extensions/ecpay-invoice/
 COPY packages/extensions/ecpay-logistics/package.json packages/extensions/ecpay-logistics/
 COPY packages/extensions/mcp/package.json packages/extensions/mcp/
-COPY packages/extensions/mock-notification/package.json packages/extensions/mock-notification/
 COPY packages/extensions/mock-invoice/package.json packages/extensions/mock-invoice/
 COPY packages/extensions/mock-payment/package.json packages/extensions/mock-payment/
 COPY packages/themes/default/package.json packages/themes/default/

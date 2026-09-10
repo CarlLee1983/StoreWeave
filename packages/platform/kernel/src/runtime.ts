@@ -28,6 +28,11 @@ import { createHash } from 'node:crypto';
 import { cacheMigrations, PostgresCacheManager, PostgresMutexManager, type CacheScope, type MutexScope } from '@storeweave/cache';
 import { LocalObjectStore, S3ObjectStore, StorageManager, storageMigrations, type StorageScope } from '@storeweave/storage';
 import { MailService, createMailJob, MAIL_SEND_JOB, mailMigrations, mailSendJobPayload } from '@storeweave/mail';
+import {
+  NOTIFICATION_DELIVER_JOB, NotificationService, createListDeliveriesHandler, createListInboxHandler,
+  createMarkInboxReadHandler, createNotificationDeliverJob, createSendNotificationHandler, listDeliveriesQuery,
+  listInboxQuery, markInboxReadCommand, notificationDeliverJobPayload, notificationsMigrations, sendNotificationCommand,
+} from '@storeweave/notifications';
 import packageJson from '../package.json';
 import { projectModulePins, projectExtensionPin } from './release-pins';
 import { join } from 'node:path';
@@ -104,6 +109,8 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
   readonly storage: StorageManager;
   /** Base mail capability. SMTP is disabled unless explicitly configured. */
   readonly mail: MailService;
+  /** Base notification capability: generic recipients, per-channel delivery evidence. */
+  readonly notifications: NotificationService;
   readonly migrations: readonly MigrationSet[];
   readonly platformVersion: string;
   readonly modules: readonly PlatformModule[];
@@ -118,7 +125,7 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
 }
 
 /** Pure composition shared by runtime and release metadata projection; no handlers execute here. */
-export function composeRuntimeModules({ modules, roles, logger, platformVersion, jobs, events, outbox, scheduler, cache, mail, identityCleanup }: {
+export function composeRuntimeModules({ modules, roles, logger, platformVersion, jobs, events, outbox, scheduler, cache, mail, notifications, identityCleanup }: {
   modules: readonly PlatformModule[];
   roles: ReleaseRoleCatalog;
   logger: Logger;
@@ -130,6 +137,7 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
   cache?: () => CacheScope;
   /** Deferred because module metadata is composed before runtime resources exist. */
   mail?: () => MailService | undefined;
+  notifications?: () => NotificationService | undefined;
   identityCleanup?: () => IdentityCleanupDeps | undefined;
 }): readonly PlatformModule[] {
   const platformModule: PlatformModule = {
@@ -165,8 +173,29 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
     jobs: [{ type: MAIL_SEND_JOB, handler: createMailJob(mail ?? (() => undefined)),
       jobContractV1: { currentVersion: 1, versions: { 1: mailSendJobPayload }, execution: { timeoutMs: 60_000, concurrencyKey: 'platform-mail-smtp', concurrencyLimit: 4 } } }],
   };
+  const notificationsService = notifications ?? (() => undefined);
+  const notificationsModule: PlatformModule = {
+    name: 'platform-notifications', version: packageJson.version, baseVersionRange: '^1.0.0',
+    dependencies: { required: [{ name: 'platform', versionRange: '^0.1.0' }, { name: 'platform-mail', versionRange: '^0.1.0' }] },
+    migrations: notificationsMigrations, data: { owns: ['platform_notifications', 'platform_notification_deliveries'] },
+    permissions: [
+      { key: 'notifications:send', description: 'Create notifications through the base capability', owner: 'platform-notifications' },
+      { key: 'notifications:inbox', description: 'Read and mark your own in-app notifications', owner: 'platform-notifications' },
+      { key: 'notifications:read', description: 'Read masked notification delivery evidence', owner: 'platform-notifications' },
+    ],
+    commands: [
+      { descriptor: sendNotificationCommand, handler: createSendNotificationHandler(notificationsService) },
+      { descriptor: markInboxReadCommand, handler: createMarkInboxReadHandler(notificationsService) },
+    ],
+    queries: [
+      { descriptor: listInboxQuery, handler: createListInboxHandler(notificationsService) },
+      { descriptor: listDeliveriesQuery, handler: createListDeliveriesHandler(notificationsService) },
+    ],
+    jobs: [{ type: NOTIFICATION_DELIVER_JOB, handler: createNotificationDeliverJob(notificationsService),
+      jobContractV1: { currentVersion: 1, versions: { 1: notificationDeliverJobPayload }, execution: { timeoutMs: 60_000, concurrencyKey: 'platform-mail-smtp', concurrencyLimit: 4 } } }],
+  };
   return validateModuleGraph(
-    [platformModule, cacheModule, storageModule, mailModule, createOpsModule(jobs, {
+    [platformModule, cacheModule, storageModule, mailModule, notificationsModule, createOpsModule(jobs, {
       events, outbox, scheduler,
       cache: cache ?? (() => { throw new Error('Cache scope is not configured'); }),
     }), createIdentityModule(roles, identityCleanup ?? (() => undefined)), ...modules], platformVersion,
@@ -196,6 +225,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
   let scheduler: RecurringScheduler | undefined;
   let opsCache: ModuleCacheScopes | undefined;
   let mail: MailService | undefined;
+  let notifications: NotificationService | undefined;
   let identityCleanupDeps: IdentityCleanupDeps | undefined;
   const allModules = composeRuntimeModules({
     modules: options.modules, roles: options.roles, logger, platformVersion, jobs, events, outbox,
@@ -208,6 +238,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       return opsCache.cache;
     },
     mail: () => mail,
+    notifications: () => notifications,
     identityCleanup: () => identityCleanupDeps,
   });
   const enabled = config.extensions.filter(entry => entry.enabled).map(entry => {
@@ -249,6 +280,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     })();
   const storage = new StorageManager(database.pool, objectStore, config.storage.maxUploadBytes);
   mail = new MailService(database, jobs, storage, config, secrets, logger);
+  notifications = new NotificationService(database, mail, logger, (tx, job) => jobs.enqueue(tx, job));
   const mutex = new PostgresMutexManager({
     url: config.database.url, ssl: config.database.ssl, poolSize: config.cache.mutexPoolSize,
     connectionTimeoutMs: Math.min(config.cache.mutexConnectionTimeoutMs, Math.max(1, Math.floor(config.shutdown.timeoutMs / 2))),
@@ -283,6 +315,8 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       boundStorageModules.add(binding.module);
       binding.bind(storage.forNamespace(cacheNamespaceForModule(binding.module)));
     }
+    for (const mod of allModules) mod.bindPorts?.({ notifications });
+
     const authorization = new AuthorizationService();
     // 重設與驗證連結是 base 一定會用到的簽發值，所以簽章金鑰不是選配（ADR 0042）。
     const identityTokens = new IdentityTokenService(requireKeyring({ keyring }, 'identity'));
@@ -356,7 +390,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     let activatedRelease: Readonly<{ readonly id: string; readonly version: string }> | null = null;
 
     const runtime: Runtime<C> = {
-      roles: options.roles, config, secrets, keyring, logger, database, authorization, auth, apiTokens, mfa, audit, outbox, jobs, jobRegistry, recurring, storage, mail,
+      roles: options.roles, config, secrets, keyring, logger, database, authorization, auth, apiTokens, mfa, audit, outbox, jobs, jobRegistry, recurring, storage, mail, notifications,
       events, commands, queries, providers, mcpTools, extensions, migrations, platformVersion, modules: allModules,
       get activatedRelease() { return activatedRelease; },
       actorForRole(role, id) {
