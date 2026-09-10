@@ -9,6 +9,8 @@ import { ExtensionsController } from '../controllers/extensions.controller';
 import { HealthController } from '../controllers/health.controller';
 import { MetaController } from '../controllers/meta.controller';
 import { SystemController } from '../controllers/system.controller';
+import { UsersController } from '../controllers/users.controller';
+import { ApiTokensController } from '../controllers/api-tokens.controller';
 import { StorageController } from '../controllers/storage.controller';
 import { NotificationsController } from '../controllers/notifications.controller';
 
@@ -18,7 +20,7 @@ export const httpAdapter: ReleaseHttpAdapter = {
   controllers(_config, { runtime, theme }) {
     const controllers: Type[] = [
       HealthController, MetaController, AuthController, SystemController, StorageController,
-      NotificationsController, ExtensionsController,
+      NotificationsController, ExtensionsController, UsersController, ApiTokensController,
     ];
     if (theme) {
       const deps = { runtime, theme, anonymousRole: 'visitor' };

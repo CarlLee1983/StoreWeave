@@ -9,6 +9,7 @@ import { IDENTITY_CLEANUP_JOB, createIdentityCleanupJob, identityCleanupPayload,
 import { accountService } from './account-service';
 import { hashPassword } from './password';
 import { UserRepository, toUserDto } from './repository';
+import { ApiTokenService, type ApiTokenSummary } from './api-tokens';
 
 export const IDENTITY_MODULE_NAME = 'platform-identity';
 
@@ -75,11 +76,81 @@ export const listUsersQuery = defineQuery({
   permission: 'users:read',
 });
 
+/**
+ * 機器對機器的 token。B08 只給了 Bus 與 CLI 入口，做不出簽發頁（B13 片4）；
+ * 這裡把它放上 Bus，權限、稽核與冪等因此與其他寫入命令同一套。
+ */
+export const apiTokenDto = z.object({
+  id: z.string(),
+  name: z.string(),
+  role: z.string(),
+  // 時間一律是 ISO 字串，與 userDto 同一個慣例——DTO 是傳輸形狀，不是領域物件。
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  lastUsedAt: z.string().nullable(),
+  revokedAt: z.string().nullable(),
+});
+
+/** 這幾欄由原生 SQL 取回，驅動可能給 Date 也可能給字串——兩種都收斂成 ISO。 */
+const iso = (value: Date | string | null): string | null =>
+  (value === null ? null : (value instanceof Date ? value : new Date(value)).toISOString());
+
+function toApiTokenDto(token: ApiTokenSummary): z.infer<typeof apiTokenDto> {
+  return {
+    id: token.id, name: token.name, role: token.role,
+    createdAt: iso(token.createdAt)!,
+    expiresAt: iso(token.expiresAt)!,
+    lastUsedAt: iso(token.lastUsedAt),
+    revokedAt: iso(token.revokedAt),
+  };
+}
+
+export const issueApiTokenInput = z.object({
+  name: z.string().min(1).max(120),
+  role: z.string(),
+  /** 到期是必填：沒有到期日的 token 就是一把改不掉的萬能鑰匙（ADR 0043）。 */
+  ttlDays: z.number().int().min(1).max(365),
+}).strict();
+
+export const issueApiTokenCommand = defineCommand({
+  name: 'platform.identity.issueApiToken',
+  summary: '簽發一個機器對機器的 API token',
+  input: issueApiTokenInput,
+  // 秘密只在這一次的回應裡出現，系統自己也讀不回來，所以不進 audit payload。
+  output: apiTokenDto.extend({ secret: z.string() }),
+  permission: 'tokens:write',
+  idempotency: 'required',
+  audit: { action: 'api-token.issued', resourceType: 'api-token', resourceId: (_i, o: { id?: string }) => o?.id,
+    redact: (input) => ({ name: input.name, role: input.role, ttlDays: input.ttlDays }) },
+});
+
+export const revokeApiTokenInput = z.object({ name: z.string().min(1).max(120) }).strict();
+
+export const revokeApiTokenCommand = defineCommand({
+  name: 'platform.identity.revokeApiToken',
+  summary: '撤銷一個 API token，下一個請求就不通過',
+  input: revokeApiTokenInput,
+  output: apiTokenDto,
+  permission: 'tokens:write',
+  idempotency: 'optional',
+  audit: { action: 'api-token.revoked', resourceType: 'api-token', resourceId: (input) => input.name },
+});
+
+export const listApiTokensQuery = defineQuery({
+  name: 'platform.identity.listApiTokens',
+  summary: '列出 API token；秘密不在其中',
+  input: z.object({}).strict(),
+  output: z.object({ items: z.array(apiTokenDto) }),
+  permission: 'tokens:read',
+});
+
 export function createIdentityModule(
   roles: ReleaseRoleCatalog,
   /** Deferred：模組在 runtime 資源存在之前就要組好，清理工作的相依只能晚一步取。 */
   cleanup: () => IdentityCleanupDeps | undefined = () => undefined,
 ): PlatformModule {
+  // Token 的合法角色由 release 的角色目錄決定，所以它跟著這份目錄走。
+  const apiTokens = new ApiTokenService(roles);
   return {
     name: IDENTITY_MODULE_NAME,
     version: packageJson.version,
@@ -90,6 +161,8 @@ export function createIdentityModule(
     permissions: [
       { key: 'users:read', description: '檢視後台操作者帳號', owner: IDENTITY_MODULE_NAME },
       { key: 'users:write', description: '建立與停用後台操作者帳號', owner: IDENTITY_MODULE_NAME },
+      { key: 'tokens:read', description: '檢視 API token', owner: IDENTITY_MODULE_NAME },
+      { key: 'tokens:write', description: '簽發與撤銷 API token', owner: IDENTITY_MODULE_NAME },
     ],
     jobs: [
       {
@@ -140,6 +213,22 @@ export function createIdentityModule(
         },
       },
       {
+        descriptor: issueApiTokenCommand,
+        handler: async (input: z.infer<typeof issueApiTokenInput>, ctx: CommandContext) => {
+          const issued = await apiTokens.issue(ctx.tx, {
+            name: input.name, role: input.role,
+            ttlMs: input.ttlDays * 24 * 60 * 60 * 1000,
+            createdBy: ctx.actor.id,
+          });
+          return { ...toApiTokenDto(issued), secret: issued.secret };
+        },
+      },
+      {
+        descriptor: revokeApiTokenCommand,
+        handler: async (input: z.infer<typeof revokeApiTokenInput>, ctx: CommandContext) =>
+          toApiTokenDto(await apiTokens.revoke(ctx.tx, input.name)),
+      },
+      {
         descriptor: setUserStatusCommand,
         handler: async (input: z.infer<typeof setUserStatusInput>, ctx: CommandContext) => {
           await accountService.setStatus(ctx.tx, input.userId, input.status);
@@ -150,6 +239,11 @@ export function createIdentityModule(
       },
     ],
     queries: [
+      {
+        descriptor: listApiTokensQuery,
+        handler: async (_input: unknown, ctx: QueryContext) =>
+          ({ items: (await apiTokens.list(ctx.db)).map(toApiTokenDto) }),
+      },
       {
         descriptor: listUsersQuery,
         handler: async (input: z.infer<typeof listUsersInput>, ctx: QueryContext) => {

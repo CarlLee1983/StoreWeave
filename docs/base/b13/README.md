@@ -41,11 +41,11 @@
 
 | 片 | 範圍 | 風險／owner |
 | --- | --- | --- |
-| 1 | Theme 契約反轉：kernel 頁面能力、模組頁面宣告、theme renderer 註冊表、啟動時缺頁檢查、default theme 遷移、storefront 資料驅動路由 | 高；主代理。**進行中** |
-| 2 | 網站設定與導覽獨立於 theme：新資料表與 migration、theme options 依 id 保存、default theme 改讀導覽資料 | 高；主代理 |
-| 3 | Admin 依有效模組與權限組裝 route／navigation：`/auth/me` 回 permission 清單、route 宣告所需權限與模組、側欄與命令面板過濾 | 高；主代理 |
-| 4 | users 與 api-tokens controller，以及對應的 Admin 帳號管理與 token 簽發頁 | 後端主代理；UI 可委派 |
-| 5 | B07 站內收件匣 UI、B08 帳號自助頁（改密碼／驗證信箱／換信箱／session／MFA）、login 的 MFA 挑戰與強制註冊 | 契約定後 UI 可委派 |
+| 1 | Theme 契約反轉：kernel 頁面能力、模組頁面宣告、theme renderer 註冊表、啟動時缺頁檢查、default theme 遷移、storefront 資料驅動路由 | 高；主代理。**已完成** |
+| 2 | 網站設定與導覽獨立於 theme：新資料表與 migration、theme options 依 id 保存、default theme 改讀導覽資料、base-only 前台 | 高；主代理。**已完成** |
+| 3 | Admin 依有效模組與權限組裝 route／navigation：`/auth/me` 回 permission 清單、route 宣告所需權限與模組、側欄與命令面板過濾 | 高；主代理。**已完成** |
+| 4 | users 與 api-tokens controller，以及對應的 Admin 帳號管理與 token 簽發頁 | 後端主代理；UI 可委派。**已完成** |
+| 5 | B07 站內收件匣 UI、B08 帳號自助頁（改密碼／驗證信箱／換信箱／session／MFA）、login 的 MFA 挑戰與強制註冊 | 契約定後 UI 可委派。**已完成** |
 
 片4 與片5 的 UI 檔案彼此不重疊，契約定案後可平行派兩個 implementer；共用接線檔
 （`apps/admin/src/{App,routes,api}.tsx`、`kernel/theme.ts`、`apps/api/src/app.module.ts`、
@@ -64,13 +64,55 @@ customer 2、coupon 1、loyalty 1），`storefront.controller.ts` 從 1356 行�
 - **登入表單暫時列為 system page**（`platform.auth`）。它的寫入端點要簽發 session
   cookie，而頁面能碰的 cookie 只有訪客購物車那兩個動作。identity 的頁面遷移在片5
   一起做，屆時 `SYSTEM_PAGE_IDS` 應該只剩錯誤頁。
-- **base-only release 仍然沒有前台**。它沒有 theme、沒有宣告頁面的模組，`/` 依舊
-  404。要讓一個沒有商務的網站跑起來，缺的是片2 的網站設定與導覽，以及一個只實作
-  通用頁的 theme。
+- **base-only release 仍然沒有前台**（片2 已收掉）。它當時沒有 theme、沒有宣告頁面的
+  模組，`/` 是 404。
 
 行為變更一項：Theme 缺少選配版型時，原本在請求時回 404，現在是啟動時拒絕
 （ADR 0045）。`tests/unit/theme-assets-http.test.ts` 對應的測試已移除，替代覆蓋
 在 `packages/platform/kernel/test/page-registry.test.ts`。
+
+## 片2 的結果
+
+`platform-site` 模組（`packages/platform/site`）擁有 `platform_site_settings` 與
+`platform_site_navigation_items`，並提供 `platform.site.getChrome`／`updateSettings`／
+`replaceNavigation`。導覽的預設值由 release 提供（`packages/platform/bundle/src/navigation.ts`），
+不是 migration 塞進去的資料列——`ThemeContext` 因此多了 `navigation`、`tagline`、`footerNote`，
+`packages/themes/default/src/layout.ts` 裡不再有任何寫死的連結。決策見
+[ADR 0046](../../adr/0046-site-settings-and-navigation-are-release-data.md)。
+
+`theme.options` 改成以 theme id 為鍵（ADR 0045 的未實作部分），bootstrap 只驗證並回寫
+目前選用的那一組。舊的扁平寫法會在啟動時被 schema 擋下來，沒有相容路徑。
+
+base release 因此有了前台：`packages/themes/base` 只實作 `platform.site.home`、
+`platform.auth` 與 `platform.error`，`/` 回 200 而不是 404，匿名訪客用新的 `visitor` 角色。
+`tests/integration/base-release.test.ts` 與 `scripts/smoke-base.sh` 已改成斷言這件事。
+
+一項行為變更：頁尾的支援信箱從自己一欄移到品牌欄，`寫訊息給我們` 成為導覽資料的一項。
+
+## 片3 到片5 的結果
+
+`GET /api/v1/auth/me` 多回 `permissions` 與 `modules`；`apps/admin/src/routes.tsx` 的每一列
+宣告 `permissions` 與選配的 `module`，`visibleRoutes()` 依它們過濾側欄與命令面板。
+`account` 那一列的 `permissions` 是空陣列——自己的帳號是「登得進來就做得到」。
+靜態 API token 進來的沒有身分可問，維持全部顯示；隱藏從來不是權限檢查，
+`tests/integration/admin-accounts.test.ts` 用 readonly 直接打 `POST /api/v1/users` 釘住這件事。
+
+新的後端入口：`apps/api/src/controllers/users.controller.ts` 與 `api-tokens.controller.ts`。
+API token 從 runtime service 搬上 Command Bus（`platform.identity.issueApiToken`／
+`revokeApiToken`／`listApiTokens`，權限 `tokens:read`／`tokens:write`），因此權限、稽核與
+冪等與其他寫入命令同一套；秘密只在簽發那一次的回應裡出現。
+
+新的 Admin 頁面在 `platform` 分組：操作者帳號、API Token、站內通知、我的帳號。
+登入頁多了第二因素挑戰（後端回 `A multi-factor code is required` 時才出現輸入框），
+`mfaEnrolmentRequired` 會把人帶到我的帳號並顯示提示（ADR 0044）。
+
+## 還沒收掉的一件事
+
+`storefront.controller.ts` 的登入／註冊／忘記密碼表單仍然是 decorator 路由，
+`SYSTEM_PAGE_IDS` 因此還留著 `platform.auth`。把它變成模組宣告的頁面需要在
+`PageResolveContext` 上開一個具名的 session 入口（簽發與撤銷 session、密碼重設），
+而 ADR 0045 的 falsification 條件正好守著這個介面——它是一次新的邊界決策，
+應該先寫 ADR 再動手，不適合夾在片5 收工時順手改。
 
 ## 出口
 
@@ -83,4 +125,21 @@ customer 2、coupon 1、loyalty 1），`storefront.controller.ts` 從 1356 行�
 ## 驗證
 
 commerce-free 的 HTTP 與 Admin 流程、既有前台路由與 theme 回歸、鍵盤與視覺檢查、
-完整 integration 與 Docker／native smoke。逐片記錄命令、exit code 與 source identity。
+完整 integration 與 Docker／native smoke。
+
+片2 到片5 收工時的實跑結果（2026-09-10）：
+
+| Gate | 結果 |
+| --- | --- |
+| `pnpm typecheck` | 乾淨 |
+| `npx tsc -p apps/admin/tsconfig.json --noEmit` | 乾淨 |
+| `pnpm test:unit` | 1064 通過 / 88 檔 |
+| `vitest run --project admin` | 350 通過 / 32 檔 |
+| `pnpm test:integration` | 838 通過 / 99 檔 |
+| `pnpm smoke:native` | 65 通過 0 失敗 |
+| `pnpm smoke:docker` | 66 通過 0 失敗 |
+
+兩件收工時發現的事：Docker 映像的 `pnpm install --frozen-lockfile` 會因為
+`pnpm-lock.yaml` 缺少新 workspace 的 importer 而失敗——新增套件時要一併補上
+（本地的 `pnpm install` 不會自己補，因為那兩個套件沒有相依）。
+另外片1 記錄的 `database-cutover` 環境競態這次沒有重現。

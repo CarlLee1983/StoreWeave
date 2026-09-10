@@ -1,25 +1,39 @@
 import { useState, type FormEvent } from 'react';
-import { api, type CurrentUser } from '../api';
+import { ApiError, MFA_REQUIRED_MESSAGE, api, type LoginResult } from '../api';
 import { useI18n } from '../i18n';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Icon } from '../components/Icon';
 
 /** 帳號密碼登入頁；未登入且沒有靜態 API token 時顯示。 */
-export function LoginPage({ onLoggedIn }: { onLoggedIn: (user: CurrentUser) => void }) {
+export function LoginPage({ onLoggedIn }: { onLoggedIn: (user: LoginResult) => void }) {
   const { t } = useI18n();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  /**
+   * 第二因素是登入的第二步，不是永遠都在的欄位：只有後端說「還缺一個碼」時才出現
+   * （ADR 0044）。一開始就顯示會讓沒有註冊 MFA 的人以為自己漏填了什麼。
+   */
+  const [secondFactor, setSecondFactor] = useState<'none' | 'code' | 'recovery'>('none');
+  const [code, setCode] = useState('');
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      const user = await api.login(email, password);
+      const user = await api.login(email, password,
+        secondFactor === 'code' ? { mfaCode: code }
+          : secondFactor === 'recovery' ? { recoveryCode: code } : undefined);
       onLoggedIn(user);
     } catch (err) {
+      if (err instanceof ApiError && err.message === MFA_REQUIRED_MESSAGE) {
+        setSecondFactor((mode) => (mode === 'none' ? 'code' : mode));
+        setCode('');
+        // 第一次要碼不是錯誤，是流程的下一步——不要用紅色橫幅嚇人。
+        if (secondFactor === 'none') { setError(null); return; }
+      }
       setError(err);
     } finally {
       setSubmitting(false);
@@ -79,6 +93,30 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: (user: CurrentUser) => v
               />
             </label>
           </div>
+
+          {secondFactor === 'none' ? null : (
+            <div className="login-field-group">
+              <label>
+                <span>{secondFactor === 'recovery' ? t('recoveryCodes') : t('verificationCode')}</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                  required
+                />
+              </label>
+              <button
+                type="button"
+                className="button button--quiet"
+                onClick={() => { setSecondFactor(secondFactor === 'recovery' ? 'code' : 'recovery'); setCode(''); }}
+              >
+                {secondFactor === 'recovery' ? t('verificationCode') : t('recoveryCodes')}
+              </button>
+            </div>
+          )}
 
           <button type="submit" className="button button--primary login-submit-btn" disabled={submitting}>
             {submitting ? t('loggingIn') : t('login')}

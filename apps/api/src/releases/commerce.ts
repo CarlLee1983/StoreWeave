@@ -15,6 +15,8 @@ import { OrderController } from '../controllers/order.controller';
 import { PromotionController } from '../controllers/promotion.controller';
 import { CouponController } from '../controllers/coupon.controller';
 import { SystemController } from '../controllers/system.controller';
+import { UsersController } from '../controllers/users.controller';
+import { ApiTokensController } from '../controllers/api-tokens.controller';
 import { ShippingController } from '../controllers/shipping.controller';
 import { CallbackController } from '../controllers/callback.controller';
 import { RefundController } from '../controllers/refund.controller';
@@ -34,7 +36,7 @@ export const httpAdapter: ReleaseHttpAdapter = {
   releaseId: 'commerce', anonymousRole: 'storefront', startSession,
   controllers(config, { runtime, theme }) {
     const controllers: Type[] = [
-      HealthController, MetaController, AuthController, CatalogController, InventoryController, SystemController, StorageController,
+      HealthController, MetaController, AuthController, CatalogController, InventoryController, SystemController, StorageController, UsersController, ApiTokensController,
       OrderController, PromotionController, CouponController, CustomerController, CartController, ShippingController, RefundController, RmaController, InvoiceController, LoyaltyController, NotificationController, NotificationsController, CallbackController, AnalyticsController, ContentArticleController, ContentContactController, ExtensionsController, StorefrontController,
     ];
     if (config.mcp.enabled) controllers.push(McpController);

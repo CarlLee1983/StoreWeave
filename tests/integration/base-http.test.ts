@@ -76,11 +76,11 @@ afterAll(async () => {
 });
 
 describe('Base HTTP input boundary', () => {
-  it('selects Base controllers once and retains the validated 7-controller, 46-route catalog', () => {
+  it('selects Base controllers once and retains the validated 9-controller, 52-route catalog', () => {
     expect(controllerFactory).toHaveBeenCalledTimes(1);
-    expect(controllerFactory.mock.results[0]?.value).toHaveLength(7);
+    expect(controllerFactory.mock.results[0]?.value).toHaveLength(9);
     const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
-    expect(catalog.storeweaveHttpCatalog).toHaveLength(46);
+    expect(catalog.storeweaveHttpCatalog).toHaveLength(52);
     expect(catalog.storeweaveHttpCatalog?.filter(route => route.method === 'GET').every(route => route.automaticMethods?.[0] === 'HEAD')).toBe(true);
     expect(app.getHttpAdapter().getInstance().hasRoute({ method: 'OPTIONS', url: '*' })).toBe(false);
   });
@@ -325,7 +325,7 @@ describe('Base HTTP input boundary', () => {
       cors.credentials = false;
       withoutCredentials = await createReleaseServer({ runtime, httpAdapter, release: { version: 'test', configPath: '<test>' } });
       const catalog = (withoutCredentials.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier).storeweaveHttpCatalog!;
-      expect(catalog).toHaveLength(47);
+      expect(catalog).toHaveLength(53);
       expect(catalog.find(route => route.kind === 'cors-preflight')).toMatchObject({
         method: 'OPTIONS', path: '*', automaticRoute: true, auth: 'unauthenticated', request: 'headers', rateLimit: null,
         policy: { allowedOrigins: ['https://console.example'], credentials: false,

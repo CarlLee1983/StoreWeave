@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
 import { App } from './App';
 import { I18nProvider } from './i18n';
-import { api, setToken } from './api';
+import { api, getToken, setToken } from './api';
 import { ROUTE_TABLE } from './routes';
 import { createAdminQueryClient, deadJobKeys } from './query';
 import { createAdminOperationStore, AdminOperationProvider } from './admin-operations';
@@ -50,11 +50,14 @@ const renderApp = ({ client = createAdminQueryClient(), store = createAdminOpera
   </QueryClientProvider>,
 );
 const heading = () => screen.getByRole('heading', { level: 1 }).textContent;
+/** 側欄依權限與模組過濾，所以測試身分要說得出這個 release 載了什麼（B13 片3）。 */
+const MODULES = ROUTE_TABLE.flatMap((entry) => (entry.module ? [entry.module] : []));
 
 beforeEach(() => {
   window.location.hash = '';
+  vi.mocked(getToken).mockReturnValue('test-token');
   vi.mocked(api.listDeadJobs).mockReset().mockResolvedValue({ items: [], total: 0 });
-  vi.mocked(api.me).mockReset().mockResolvedValue({ id: 'u1', email: 'a@b.c', displayName: 'Admin', role: 'admin' });
+  vi.mocked(api.me).mockReset().mockResolvedValue({ id: 'u1', email: 'a@b.c', displayName: 'Admin', role: 'admin', permissions: ['*'], modules: MODULES });
 });
 
 afterEach(() => { window.location.hash = ''; });
@@ -69,7 +72,7 @@ describe('後台外殼的導覽', () => {
 
     const nav = screen.getByLabelText('主要導覽');
     const labels = Array.from(nav.querySelectorAll('.nav-link')).map((el) => el.getAttribute('aria-label'));
-    expect(labels).toEqual(['訂單', '商品', '配送與出貨', '退貨案件', '電子發票', '促銷活動', '優惠券', '購物金與等級', '會員', '品牌內容', '聯絡收件匣', '行銷分析', '通知紀錄', 'ERP 佇列', '死信佇列', '系統健康度']);
+    expect(labels).toEqual(['訂單', '商品', '配送與出貨', '退貨案件', '電子發票', '促銷活動', '優惠券', '購物金與等級', '會員', '品牌內容', '聯絡收件匣', '行銷分析', '通知紀錄', 'ERP 佇列', '死信佇列', '系統健康度', '操作者帳號', 'API Token', '站內通知', '我的帳號']);
   });
 
   it('預設進到商品頁，標題與副標題正確', async () => {
@@ -188,6 +191,42 @@ describe('路由表驅動的外殼', () => {
   });
 });
 
+describe('依權限與模組組裝的側欄', () => {
+  it('權限少的操作者只看到做得到的頁，命令面板也一樣', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getToken).mockReturnValue('');
+    vi.mocked(api.me).mockResolvedValue({
+      id: 'u2', email: 'staff@b.c', displayName: 'Staff', role: 'readonly',
+      permissions: ['order:read', 'jobs:read'], modules: MODULES,
+    });
+    renderApp();
+    await screen.findByText('ORDERS_PAGE');
+
+    const labels = [...screen.getByLabelText('主要導覽').querySelectorAll('.nav-link')]
+      .map((link) => link.getAttribute('aria-label'));
+    expect(labels).toEqual(['訂單', '死信佇列', '系統健康度', '我的帳號']);
+
+    await user.keyboard('{Meta>}k{/Meta}');
+    const options = await screen.findAllByRole('option');
+    expect(options).toHaveLength(4);
+  });
+
+  it('模組沒有載入時，那一頁不在側欄裡', async () => {
+    vi.mocked(getToken).mockReturnValue('');
+    vi.mocked(api.me).mockResolvedValue({
+      id: 'u3', email: 'admin@b.c', displayName: 'Admin', role: 'admin',
+      permissions: ['*'], modules: MODULES.filter((name) => name !== 'rma'),
+    });
+    renderApp();
+    await screen.findByText('PRODUCTS_PAGE');
+
+    const labels = [...screen.getByLabelText('主要導覽').querySelectorAll('.nav-link')]
+      .map((link) => link.getAttribute('aria-label'));
+    expect(labels).not.toContain('退貨案件');
+    expect(labels).toContain('訂單');
+  });
+});
+
 describe('命令面板', () => {
   it('⌘K 開啟後可搜尋並前往頁面', async () => {
     const user = userEvent.setup();
@@ -214,7 +253,7 @@ describe('命令面板', () => {
     const dialog = await screen.findByRole('dialog', { name: '命令選單' });
     const labels = Array.from(dialog.querySelectorAll('button')).map((el) => el.textContent);
 
-    expect(labels).toEqual(['訂單', '商品', '配送與出貨', '退貨案件', '電子發票', '促銷活動', '優惠券', '購物金與等級', '會員', '品牌內容', '聯絡收件匣', '行銷分析', '通知紀錄', 'ERP 佇列', '死信佇列', '系統健康度']);
+    expect(labels).toEqual(['訂單', '商品', '配送與出貨', '退貨案件', '電子發票', '促銷活動', '優惠券', '購物金與等級', '會員', '品牌內容', '聯絡收件匣', '行銷分析', '通知紀錄', 'ERP 佇列', '死信佇列', '系統健康度', '操作者帳號', 'API Token', '站內通知', '我的帳號']);
   });
 
   it('Esc 關閉命令面板', async () => {
@@ -259,8 +298,8 @@ describe('命令面板', () => {
     const search = await screen.findByRole('combobox');
     await user.keyboard('{ArrowDown}'.repeat(ROUTE_TABLE.length + 1));
 
-    expect(search).toHaveAttribute('aria-activedescendant', 'command-option-system');
-    expect(screen.getByRole('option', { name: '系統健康度' })).toHaveAttribute('tabindex', '-1');
+    expect(search).toHaveAttribute('aria-activedescendant', `command-option-${ROUTE_TABLE[ROUTE_TABLE.length - 1].path}`);
+    expect(screen.getByRole('option', { name: '我的帳號' })).toHaveAttribute('tabindex', '-1');
   });
 });
 
