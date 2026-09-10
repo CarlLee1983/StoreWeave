@@ -1,12 +1,34 @@
 import { z } from 'zod';
-import type {
-  StorefrontTheme, ThemeAccountCouponsView, ThemeArticleView, ThemeAuthView, ThemeCartView, ThemeCatalogView, ThemeContext, ThemeHomeView, ThemeOrderView,
-} from '@storeweave/kernel';
+import type { StorefrontTheme, ThemeAuthView, ThemeContext } from '@storeweave/kernel';
+import type { ThemeCartView, ThemeCheckoutView, ThemePickupStorePickerView } from '@storeweave/cart';
+import type { ThemeCatalogView, ThemeHomeView, ThemeProductView } from '@storeweave/catalog';
+import type { ThemeArticleListView, ThemeArticleView, ThemeContactView } from '@storeweave/content';
+import type { ThemeAccountCouponsView } from '@storeweave/coupon';
+import type { ThemeAccountProfileView } from '@storeweave/customer';
+import type { ThemeAccountRewardsView } from '@storeweave/loyalty';
+import type { ThemeAccountOrdersView, ThemeOrderView } from '@storeweave/order';
 import { escapeHtml, formatMoney, layout } from './layout';
 import { formatDate, formatDateTime, safeUrlAttribute } from '@storeweave/i18n';
 import { EDITORIAL_IMAGE_KEYS, renderStorefrontArtwork, renderWovenDayEditorialImage, renderWovenDayProductImage, type WovenDayEditorialImage } from './artwork';
 
 type AccountSection = 'orders' | 'coupons' | 'rewards' | 'profile';
+
+/**
+ * 文章卡片、內文與新聞列共用的最小形狀。首頁摘要（`ThemeHomeView` 的
+ * `story`／`journal`／`news`）與品牌內容頁（`ThemeArticleView`）的 `kind`
+ * 型別不同——前者是字串，後者是字面量聯集——但這幾個 helper 都沒用到
+ * `kind`，用它當交集會讓兩種來源都能直接傳進來。
+ */
+type ArticleLike = {
+  kind: string;
+  slug: string;
+  title: string;
+  summary: string;
+  section: string;
+  body: { heading: string | null; text: string }[];
+  imageKey: string | null;
+  publishedAt: Date | null;
+};
 
 function feedback(message: string | null | undefined, tone: 'notice' | 'error' = 'notice'): string {
   if (!message) return '';
@@ -229,7 +251,7 @@ function cartSummary(
 }
 
 /** Checkout adds a server-quoted shipping fee to the server-derived cart amount. */
-function checkoutSummary(ctx: ThemeContext, view: import('@storeweave/kernel').ThemeCheckoutView): string {
+function checkoutSummary(ctx: ThemeContext, view: ThemeCheckoutView): string {
   const money = (cents: number) => formatMoney(cents, view.currency, ctx.locale);
   const adjustments = view.adjustments.map((adjustment) => `
     <div class="order-summary__row"><dt>${escapeHtml(adjustment.name)}</dt><dd>${money(adjustment.amountCents)}</dd></div>`).join('');
@@ -375,21 +397,21 @@ function isWovenDay(ctx: ThemeContext): boolean {
  * no longer ships renders as no image at all: a missing photo must not take the
  * page down with it.
  */
-function editorialImage(article: ThemeArticleView, loading: 'eager' | 'lazy' = 'lazy'): string {
+function editorialImage(article: ArticleLike, loading: 'eager' | 'lazy' = 'lazy'): string {
   const key = article.imageKey;
   if (!key || !EDITORIAL_IMAGE_KEYS.includes(key as WovenDayEditorialImage)) return '';
   return renderWovenDayEditorialImage(key as WovenDayEditorialImage, loading);
 }
 
 /** Blocks with a heading are story chapters; everything else is a plain paragraph. */
-function articleBody(article: ThemeArticleView): string {
+function articleBody(article: ArticleLike): string {
   return article.body.map((block) => (block.heading
     ? `<section class="article-block"><h2>${escapeHtml(block.heading)}</h2><p>${escapeHtml(block.text)}</p></section>`
     : `<p>${escapeHtml(block.text)}</p>`)).join('');
 }
 
 /** News reads as a dated notice list, not a photo grid: the date is the point. */
-function newsRow(article: ThemeArticleView): string {
+function newsRow(article: ArticleLike): string {
   const href = `/news/${escapeHtml(article.slug)}`;
   const date = article.publishedAt
     ? `<time datetime="${article.publishedAt.toISOString().slice(0, 10)}">${article.publishedAt.toISOString().slice(0, 10)}</time>`
@@ -404,7 +426,7 @@ function newsRow(article: ThemeArticleView): string {
   </li>`;
 }
 
-function articleCard(article: ThemeArticleView, base: string): string {
+function articleCard(article: ArticleLike, base: string): string {
   const href = `${base}/${escapeHtml(article.slug)}`;
   const cover = editorialImage(article);
   return `<article class="journal-card">
@@ -438,23 +460,13 @@ export const defaultThemeOptions = z.object({
   showSku: z.boolean().default(true),
 });
 
-/**
- * 預設 Storefront Theme：NestJS SSR，輸出純 HTML。
- * 沒有 JavaScript 也能完成瀏覽與下單——這個 Theme 根本不輸出任何 script。
- */
-export const defaultTheme: StorefrontTheme = {
-  id: 'default',
-  name: 'Default Storefront',
-  optionsSchema: defaultThemeOptions,
-  editorialImageKeys: EDITORIAL_IMAGE_KEYS,
+export function renderHome(ctx: ThemeContext, { products, q, minPrice, maxPrice, page, pageSize, total, story, journal, news }: ThemeHomeView): string {
+  const isFilteredOrPaged = Boolean(q) || minPrice !== null || maxPrice !== null || page > 1;
 
-  renderHome(ctx, { products, q, minPrice, maxPrice, page, pageSize, total, story, journal, news }: ThemeHomeView) {
-    const isFilteredOrPaged = Boolean(q) || minPrice !== null || maxPrice !== null || page > 1;
-
-    // 若使用者帶有篩選條件或分頁，直接呈現目錄模式
-    if (isFilteredOrPaged) {
-      return this.renderCatalog ? this.renderCatalog(ctx, { products, q, minPrice, maxPrice, page, pageSize, total }) : '';
-    }
+  // 若使用者帶有篩選條件或分頁，直接呈現目錄模式
+  if (isFilteredOrPaged) {
+    return renderCatalog(ctx, { products, q, minPrice, maxPrice, page, pageSize, total });
+  }
 
     const featuredCards = products.slice(0, 6).map((product) => productCard(ctx, product)).join('');
     const productCount = total === 1 ? '目前有 1 件商品可瀏覽。' : `目前有 ${total} 件商品可瀏覽。`;
@@ -556,9 +568,9 @@ export const defaultTheme: StorefrontTheme = {
         ${journeySection}
       </div>`;
     return layout({ title: '首頁', body, ctx });
-  },
+}
 
-  renderCatalog(ctx, { products, q, minPrice, maxPrice, page, pageSize, total }: ThemeCatalogView) {
+export function renderCatalog(ctx: ThemeContext, { products, q, minPrice, maxPrice, page, pageSize, total }: ThemeCatalogView): string {
     const cards = products.map((product) => productCard(ctx, product)).join('');
 
     const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -598,9 +610,9 @@ export const defaultTheme: StorefrontTheme = {
         </section>
       </div>`;
     return layout({ title: '選物目錄', body, ctx });
-  },
+}
 
-  renderStory(ctx, { article }) {
+export function renderStory(ctx: ThemeContext, { article }: { article: ThemeArticleView }): string {
     const cover = editorialImage(article, 'eager');
     const chapters = article.body.filter((block) => block.heading);
     const paragraphs = article.body.filter((block) => !block.heading);
@@ -621,35 +633,35 @@ export const defaultTheme: StorefrontTheme = {
         </section>
       </article>`;
     return layout({ title: article.title, body, ctx });
-  },
+}
 
-  renderJournalList(ctx, { articles }) {
-    const body = `
+export function renderJournalList(ctx: ThemeContext, { articles }: ThemeArticleListView): string {
+  const body = `
       <article class="journal-page">
         <header class="page-heading"><p class="eyebrow">Woven Journal</p><h1>生活誌</h1><p class="page-heading__copy">記下物件、空間與日常之間，慢慢形成的關係。</p></header>
         <section class="journal-grid journal-grid--three" aria-label="生活誌文章">${articles.map((article) => articleCard(article, '/journal')).join('')}</section>
       </article>`;
-    return layout({ title: '生活誌', body, ctx });
-  },
+  return layout({ title: '生活誌', body, ctx });
+}
 
-  renderJournalArticle(ctx, { article }) {
-    return articlePage(ctx, article, '/journal', '生活誌');
-  },
+export function renderJournalArticle(ctx: ThemeContext, { article }: { article: ThemeArticleView }): string {
+  return articlePage(ctx, article, '/journal', '生活誌');
+}
 
-  renderNewsList(ctx, { articles }) {
-    const body = `
+export function renderNewsList(ctx: ThemeContext, { articles }: ThemeArticleListView): string {
+  const body = `
       <article class="news-page">
         <header class="page-heading"><p class="eyebrow">店務公告</p><h1>最新消息</h1><p class="page-heading__copy">出貨安排、活動與服務調整，都會先公布在這裡。</p></header>
         <ul class="news-list" aria-label="最新消息">${articles.map(newsRow).join('')}</ul>
       </article>`;
-    return layout({ title: '最新消息', body, ctx });
-  },
+  return layout({ title: '最新消息', body, ctx });
+}
 
-  renderNewsArticle(ctx, { article }) {
-    return articlePage(ctx, article, '/news', '最新消息');
-  },
+export function renderNewsArticle(ctx: ThemeContext, { article }: { article: ThemeArticleView }): string {
+  return articlePage(ctx, article, '/news', '最新消息');
+}
 
-  renderFaq(ctx, { articles }) {
+export function renderFaq(ctx: ThemeContext, { articles }: ThemeArticleListView): string {
     // Grouped by the merchant's own section labels; ungrouped entries keep their order.
     const groups = new Map<string, ThemeArticleView[]>();
     for (const article of articles) {
@@ -672,9 +684,9 @@ export const defaultTheme: StorefrontTheme = {
         </section>
       </article>`;
     return layout({ title: '常見問題', body, ctx });
-  },
+}
 
-  renderContact(ctx, { submitted, values, error }) {
+export function renderContact(ctx: ThemeContext, { submitted, values, error }: ThemeContactView): string {
     const csrf = ctx.csrfToken ? `<input type="hidden" name="_csrf" value="${escapeHtml(ctx.csrfToken)}">` : '';
     const support = ctx.supportEmail
       ? `<p class="contact-support">也可以直接寫信到 <a href="mailto:${escapeHtml(ctx.supportEmail)}">${escapeHtml(ctx.supportEmail)}</a>。</p>`
@@ -699,9 +711,9 @@ export const defaultTheme: StorefrontTheme = {
         ${support}
       </article>`;
     return layout({ title: '聯絡我們', body, ctx });
-  },
+}
 
-  renderProduct(ctx, { product }) {
+export function renderProduct(ctx: ThemeContext, { product }: { product: ThemeProductView }): string {
     const soldOut = product.available !== null && product.available <= 0;
     const availability = product.available === null
       ? ''
@@ -741,9 +753,9 @@ export const defaultTheme: StorefrontTheme = {
         </div>
       </article>`;
     return layout({ title: product.name, body, ctx });
-  },
+}
 
-  renderCart(ctx, view) {
+export function renderCart(ctx: ThemeContext, view: ThemeCartView): string {
     const body = `
       <article class="cart-page">
         ${pageHeading('購物流程', '購物車', '價格與可售狀態會在建立訂單前再次確認。')}
@@ -784,9 +796,9 @@ export const defaultTheme: StorefrontTheme = {
             </div>`}
       </article>`;
     return layout({ title: '購物車', body, ctx });
-  },
+}
 
-  renderCheckout(ctx, view) {
+export function renderCheckout(ctx: ThemeContext, view: ThemeCheckoutView): string {
     const address = view.deliveryAddress;
     const money = (cents: number) => formatMoney(cents, view.currency, ctx.locale);
     const shippingOptions = view.shippingMethods.map((method) => {
@@ -890,15 +902,15 @@ export const defaultTheme: StorefrontTheme = {
         </div>
       </article>`;
     return layout({ title: '確認訂單', body, ctx });
-  },
+}
 
-  renderPickupStorePicker(ctx, view) {
-    const choices = view.stores.map((store) => `<label class="card"><input type="radio" name="providerStoreId" value="${escapeHtml(store.providerStoreId)}" required> <strong>${escapeHtml(store.storeName)}</strong><br><span class="muted">${escapeHtml(store.storeAddress)}</span></label>`).join('');
-    const body = `<article><header class="page-heading"><p class="eyebrow">超商取貨</p><h1>選擇取貨門市</h1><p class="page-heading__copy">選定後會回到結帳頁；連結短暫有效。</p></header><form method="post" action="/checkout/pickup/callback"><input type="hidden" name="token" value="${escapeHtml(view.token)}">${choices || feedback('目前沒有可用門市。', 'error')}<button type="submit" ${view.stores.length ? '' : 'disabled'}>確認門市</button></form></article>`;
-    return layout({ title: '選擇取貨門市', body, ctx });
-  },
+export function renderPickupStorePicker(ctx: ThemeContext, view: ThemePickupStorePickerView): string {
+  const choices = view.stores.map((store) => `<label class="card"><input type="radio" name="providerStoreId" value="${escapeHtml(store.providerStoreId)}" required> <strong>${escapeHtml(store.storeName)}</strong><br><span class="muted">${escapeHtml(store.storeAddress)}</span></label>`).join('');
+  const body = `<article><header class="page-heading"><p class="eyebrow">超商取貨</p><h1>選擇取貨門市</h1><p class="page-heading__copy">選定後會回到結帳頁；連結短暫有效。</p></header><form method="post" action="/checkout/pickup/callback"><input type="hidden" name="token" value="${escapeHtml(view.token)}">${choices || feedback('目前沒有可用門市。', 'error')}<button type="submit" ${view.stores.length ? '' : 'disabled'}>確認門市</button></form></article>`;
+  return layout({ title: '選擇取貨門市', body, ctx });
+}
 
-  renderAccountRewards(ctx, { currency, balance, entries, tier }) {
+export function renderAccountRewards(ctx: ThemeContext, { currency, balance, entries, tier }: ThemeAccountRewardsView): string {
     const money = (cents: number) => formatMoney(cents, currency, ctx.locale);
     const day = (at: Date) => escapeHtml(formatDate(at, { locale: ctx.locale, timeZone: ctx.timeZone }));
 
@@ -954,9 +966,9 @@ export const defaultTheme: StorefrontTheme = {
         </section>
       </article>`;
     return layout({ title: '購物金與會員等級', body, ctx });
-  },
+}
 
-  renderAccountCoupons(ctx, { coupons }) {
+export function renderAccountCoupons(ctx: ThemeContext, { coupons }: ThemeAccountCouponsView): string {
     const rows = coupons.map((coupon) => `
       <tr class="data-table__row ${coupon.expiringSoon ? 'expiring' : ''}">
         <td data-label="折扣碼"><code>${escapeHtml(coupon.code)}</code></td>
@@ -982,9 +994,9 @@ export const defaultTheme: StorefrontTheme = {
         </section>
       </article>`;
     return layout({ title: '我的券', body, ctx });
-  },
+}
 
-  renderOrder(ctx, { order }) {
+export function renderOrder(ctx: ThemeContext, { order }: { order: ThemeOrderView }): string {
     const rows = order.lines.map((l) => `
       <tr class="data-table__row">
         <td data-label="商品">${escapeHtml(l.name)}</td>
@@ -1117,9 +1129,9 @@ export const defaultTheme: StorefrontTheme = {
         <p class="page-return"><a href="/">繼續購物</a></p>
       </article>`;
     return layout({ title: `訂單 ${order.number}`, body, ctx });
-  },
+}
 
-  renderAccountOrders(ctx, { orders, limit, offset, total }) {
+export function renderAccountOrders(ctx: ThemeContext, { orders, limit, offset, total }: ThemeAccountOrdersView): string {
     const rows = orders.map((o) => `
       <tr class="data-table__row">
         <td data-label="訂單編號"><a href="/orders/${escapeHtml(o.number)}">${escapeHtml(o.number)}</a></td>
@@ -1154,9 +1166,9 @@ export const defaultTheme: StorefrontTheme = {
         </section>
       </article>`;
     return layout({ title: '我的訂單', body, ctx });
-  },
+}
 
-  renderAccountProfile(ctx, { displayName, phone, birthday, address, saved, error }) {
+export function renderAccountProfile(ctx: ThemeContext, { displayName, phone, birthday, address, saved, error }: ThemeAccountProfileView): string {
     const field = (label: string, name: string, value: string | null, extra = '') =>
       `<label>${label}<input name="${name}" value="${escapeHtml(value ?? '')}" ${extra}></label>`;
     const body = `
@@ -1195,15 +1207,15 @@ export const defaultTheme: StorefrontTheme = {
         </form>
       </article>`;
     return layout({ title: '個人資料', body, ctx });
-  },
+}
 
-  renderAuth(ctx, view) {
-    if (view.mode === 'forgot-password' || view.mode === 'reset-password') {
-      return renderPasswordForm(ctx, view);
-    }
-    const { next, error } = view;
-    const login = view.mode === 'login';
-    const body = `
+export function renderAuth(ctx: ThemeContext, view: ThemeAuthView): string {
+  if (view.mode === 'forgot-password' || view.mode === 'reset-password') {
+    return renderPasswordForm(ctx, view);
+  }
+  const { next, error } = view;
+  const login = view.mode === 'login';
+  const body = `
       <article class="auth-page">
         <section class="auth-card" aria-labelledby="auth-title">
           <div class="auth-card__header">
@@ -1232,15 +1244,58 @@ export const defaultTheme: StorefrontTheme = {
             : `已經有帳號了？<a href="/login?next=${encodeURIComponent(next)}">登入</a>`}</p>
         </section>
       </article>`;
-    return layout({ title: login ? '登入' : '註冊', body, ctx });
-  },
+  return layout({ title: login ? '登入' : '註冊', body, ctx });
+}
 
-  renderError(ctx, { status, message }) {
-    return layout({
-      title: `錯誤 ${status}`,
-      body: `<article class="error-page"><div class="error" role="alert"><p class="eyebrow">找不到頁面或無法完成操作</p><h1>${status}</h1><p>${escapeHtml(message)}</p><a class="secondary-action" href="/">回商品列表</a></div></article>`,
-      ctx,
-    });
+export function renderError(ctx: ThemeContext, { status, message }: { status: number; message: string }): string {
+  return layout({
+    title: `錯誤 ${status}`,
+    body: `<article class="error-page"><div class="error" role="alert"><p class="eyebrow">找不到頁面或無法完成操作</p><h1>${status}</h1><p>${escapeHtml(message)}</p><a class="secondary-action" href="/">回商品列表</a></div></article>`,
+    ctx,
+  });
+}
+
+/**
+ * 預設 Storefront Theme：NestJS SSR，輸出純 HTML。
+ * 沒有 JavaScript 也能完成瀏覽與下單——這個 Theme 根本不輸出任何 script。
+ *
+ * `renderers` 以 page id 為鍵——服務哪些頁面由這裡實作了哪些 id 決定，
+ * 缺頁在啟動時比對出來並拒絕（ADR 0045）。`commerce.content.contact` 與
+ * `commerce.content.submitContact` 共用同一個 renderer：兩者都渲染聯絡我們
+ * 表單，差別只在有沒有送出結果，view 型別相同。`commerce.customer.profile`
+ * 與 `commerce.customer.saveProfile` 同理。
+ */
+export const defaultTheme: StorefrontTheme = {
+  id: 'default',
+  name: 'Default Storefront',
+  optionsSchema: defaultThemeOptions,
+  editorialImageKeys: EDITORIAL_IMAGE_KEYS,
+
+  renderers: {
+    'commerce.catalog.home': renderHome,
+    'commerce.catalog.view': renderCatalog,
+    'commerce.catalog.product': renderProduct,
+    'commerce.content.story': renderStory,
+    'commerce.content.journalList': renderJournalList,
+    'commerce.content.journalArticle': renderJournalArticle,
+    'commerce.content.newsList': renderNewsList,
+    'commerce.content.newsArticle': renderNewsArticle,
+    'commerce.content.faq': renderFaq,
+    'commerce.content.contact': renderContact,
+    'commerce.content.submitContact': renderContact,
+    'commerce.cart.view': renderCart,
+    // 折扣碼失敗會帶著 couponError 重新渲染購物車頁，形狀與 cart.view 相同。
+    'commerce.cart.coupon': renderCart,
+    'commerce.checkout.view': renderCheckout,
+    'commerce.checkout.pickupStorePicker': renderPickupStorePicker,
+    'commerce.loyalty.rewards': renderAccountRewards,
+    'commerce.coupon.accountList': renderAccountCoupons,
+    'commerce.order.view': renderOrder,
+    'commerce.order.accountList': renderAccountOrders,
+    'commerce.customer.profile': renderAccountProfile,
+    'commerce.customer.saveProfile': renderAccountProfile,
+    'platform.auth': renderAuth,
+    'platform.error': renderError,
   },
 };
 

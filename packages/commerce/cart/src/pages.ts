@@ -275,7 +275,8 @@ export const cartPages = {
     path: '/cart/coupon',
     method: 'post',
     audience: 'public',
-    required: false,
+    // 無效的碼會把購物車頁重新渲染出來（400），所以這一頁有畫面，不是純轉址。
+    required: true,
     input: cartCouponInput,
     contract: {
       kind: 'storefront', request: 'form', rateLimit: 'coupon', input: jsonSchema(['code', 'remove']),

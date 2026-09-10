@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { ThemeArticleView, ThemeCartView, ThemeContext, ThemeOrderView, ThemeProductView } from '@storeweave/kernel';
+import type { ThemeContext } from '@storeweave/kernel';
+import type { ThemeCartView } from '@storeweave/cart';
+import type { ThemeProductView } from '@storeweave/catalog';
+import type { ThemeArticleView } from '@storeweave/content';
+import type { ThemeOrderView } from '@storeweave/order';
 import { defaultTheme } from '../src/index';
 
 const context = (overrides: Partial<ThemeContext> = {}): ThemeContext => ({
@@ -119,7 +123,7 @@ const order: ThemeOrderView = {
 
 describe('Default Theme 的商品瀏覽切片', () => {
   it('以 ThemeProductView 的資料建立可連到商品頁的型錄', () => {
-    const html = defaultTheme.renderHome(context(), { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] });
+    const html = defaultTheme.renderers['commerce.catalog.home'](context(), { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] });
 
     expect(html).toContain('class="catalog-page"');
     expect(html).toContain('class="product-card"');
@@ -137,9 +141,9 @@ describe('Default Theme 的商品瀏覽切片', () => {
 
   it('只輸出 Theme 可證明的商品事實，且主導覽不連向沒有內容來源的頁面', () => {
     const ctx = context({ storeName: '另一間商店', storeId: 'another-store' });
-    const home = defaultTheme.renderHome(ctx, { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] });
-    const catalog = defaultTheme.renderCatalog!(ctx, { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
-    const detail = defaultTheme.renderProduct(ctx, { product });
+    const home = defaultTheme.renderers['commerce.catalog.home'](ctx, { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] });
+    const catalog = defaultTheme.renderers['commerce.catalog.view'](ctx, { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1 });
+    const detail = defaultTheme.renderers['commerce.catalog.product'](ctx, { product });
 
     for (const html of [home, catalog, detail]) {
       expect(html).not.toContain('images.unsplash.com');
@@ -163,7 +167,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
     expect(detail).not.toContain('工藝與使用指南');
     expect(detail).not.toContain('配送方式');
 
-    const soldOutHome = defaultTheme.renderHome(ctx, {
+    const soldOutHome = defaultTheme.renderers['commerce.catalog.home'](ctx, {
       products: [{ ...product, available: 0 }], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [],
     });
     expect(soldOutHome).toContain('目前有 1 件商品可瀏覽。');
@@ -172,14 +176,14 @@ describe('Default Theme 的商品瀏覽切片', () => {
 
   it('把 Core 的品牌內容排進首頁、品牌故事、生活誌與最新消息', () => {
     const ctx = context({ publishedContentKinds: ['story', 'journal', 'news', 'faq'] });
-    const home = defaultTheme.renderHome(ctx, {
+    const home = defaultTheme.renderers['commerce.catalog.home'](ctx, {
       products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1,
       story, journal: [journalArticle], news: [newsArticle],
     });
-    const storyPage = defaultTheme.renderStory!(ctx, { article: story });
-    const journalPage = defaultTheme.renderJournalList!(ctx, { kind: 'journal', articles: [journalArticle] });
-    const articlePage = defaultTheme.renderJournalArticle!(ctx, { article: journalArticle });
-    const newsPage = defaultTheme.renderNewsList!(ctx, { kind: 'news', articles: [newsArticle] });
+    const storyPage = defaultTheme.renderers['commerce.content.story'](ctx, { article: story });
+    const journalPage = defaultTheme.renderers['commerce.content.journalList'](ctx, { kind: 'journal', articles: [journalArticle] });
+    const articlePage = defaultTheme.renderers['commerce.content.journalArticle'](ctx, { article: journalArticle });
+    const newsPage = defaultTheme.renderers['commerce.content.newsList'](ctx, { kind: 'news', articles: [newsArticle] });
 
     expect(home).toContain('織日選物 · Woven Day');
     expect(home).toContain('讓每天使用的物件，慢慢成為生活的一部分。');
@@ -208,7 +212,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('沒有發布內容的商店，導覽列不出現品牌頁面入口', () => {
-    const html = defaultTheme.renderHome(context({ publishedContentKinds: [] }), {
+    const html = defaultTheme.renderers['commerce.catalog.home'](context({ publishedContentKinds: [] }), {
       products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1,
       story: null, journal: [], news: [],
     });
@@ -221,7 +225,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('文章指向已經不存在的圖片 key 時，改用無圖版型而不是壞掉', () => {
-    const html = defaultTheme.renderJournalArticle!(context(), {
+    const html = defaultTheme.renderers['commerce.content.journalArticle'](context(), {
       article: { ...journalArticle, imageKey: 'removed-last-season' },
     });
     expect(html).toContain('為桌面留一塊空白');
@@ -230,7 +234,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('常見問題依店家的分類分組，並導向聯絡我們', () => {
-    const html = defaultTheme.renderFaq!(context(), {
+    const html = defaultTheme.renderers['commerce.content.faq'](context(), {
       kind: 'faq',
       articles: [
         { ...faqEntry, title: '可以指定到貨日嗎？', section: '出貨' },
@@ -244,7 +248,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('聯絡我們是標準表單 POST，帶 honeypot 與 CSRF，送出後改顯示結果', () => {
-    const form = defaultTheme.renderContact!(context({ csrfToken: 'token-1' }), {
+    const form = defaultTheme.renderers['commerce.content.contact'](context({ csrfToken: 'token-1' }), {
       submitted: false, values: { name: '', email: '', subject: '', message: '' },
     });
     expect(form).toContain('method="post" action="/contact"');
@@ -252,14 +256,14 @@ describe('Default Theme 的商品瀏覽切片', () => {
     expect(form).toContain('name="website"');
     expect(form).not.toContain('<script');
 
-    const failed = defaultTheme.renderContact!(context(), {
+    const failed = defaultTheme.renderers['commerce.content.contact'](context(), {
       submitted: false, error: '請填寫訊息內容。',
       values: { name: '林小姐', email: 'a@example.test', subject: '出貨', message: '' },
     });
     expect(failed).toContain('請填寫訊息內容。');
     expect(failed).toContain('value="林小姐"');
 
-    const done = defaultTheme.renderContact!(context(), {
+    const done = defaultTheme.renderers['commerce.content.contact'](context(), {
       submitted: true, values: { name: '', email: '', subject: '', message: '' },
     });
     expect(done).toContain('訊息已送出');
@@ -268,8 +272,8 @@ describe('Default Theme 的商品瀏覽切片', () => {
 
   it('為織日選物已知 SKU 輸出對應的商品攝影格位', () => {
     const productPhoto = { ...product, sku: 'WD-POT-01' };
-    const home = defaultTheme.renderHome(context(), { products: [productPhoto], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] });
-    const detail = defaultTheme.renderProduct(context(), { product: productPhoto });
+    const home = defaultTheme.renderers['commerce.catalog.home'](context(), { products: [productPhoto], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] });
+    const detail = defaultTheme.renderers['commerce.catalog.product'](context(), { product: productPhoto });
 
     for (const html of [home, detail]) {
       expect(html).toContain('class="storefront-product-image');
@@ -279,7 +283,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('保留商品詳情的真實加車表單、session CSRF 與庫存上限', () => {
-    const html = defaultTheme.renderProduct(context({ csrfToken: 'csrf-token' }), { product });
+    const html = defaultTheme.renderers['commerce.catalog.product'](context({ csrfToken: 'csrf-token' }), { product });
 
     expect(html).toContain('class="product-page"');
     expect(html).toContain('action="/cart/items"');
@@ -290,10 +294,10 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('售罄時不產生無效的加車表單，訪客也不被要求不存在的 CSRF token', () => {
-    const soldOut = defaultTheme.renderProduct(context(), {
+    const soldOut = defaultTheme.renderers['commerce.catalog.product'](context(), {
       product: { ...product, available: 0 },
     });
-    const untracked = defaultTheme.renderProduct(context(), {
+    const untracked = defaultTheme.renderers['commerce.catalog.product'](context(), {
       product: { ...product, available: null },
     });
 
@@ -310,12 +314,12 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('使用已知庫存作為精確數量上限，且不以購物車既有數量放寬上限', () => {
-    const soldOut = defaultTheme.renderProduct(context(), { product: { ...product, available: 0 } });
-    const overAvailable = defaultTheme.renderCart(context(), {
+    const soldOut = defaultTheme.renderers['commerce.catalog.product'](context(), { product: { ...product, available: 0 } });
+    const overAvailable = defaultTheme.renderers['commerce.cart.view'](context(), {
       ...cart,
       lines: [{ ...cart.lines[0], quantity: 5, available: 3 }],
     });
-    const untracked = defaultTheme.renderCart(context(), {
+    const untracked = defaultTheme.renderers['commerce.cart.view'](context(), {
       ...cart,
       lines: [{ ...cart.lines[0], available: null }],
     });
@@ -328,7 +332,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('把購物車的真實品項、優惠與會員操作放進可近用的摘要版面，並保留所有寫入契約', () => {
-    const html = defaultTheme.renderCart(context({ customerName: '小美', csrfToken: 'csrf-token' }), cart);
+    const html = defaultTheme.renderers['commerce.cart.view'](context({ customerName: '小美', csrfToken: 'csrf-token' }), cart);
 
     expect(html).toContain('class="cart-layout"');
     expect(html).toContain('class="cart-table"');
@@ -348,8 +352,8 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('空車與確認訂單都有可理解的下一步，確認頁仍只送既有 cartId 與 confirm 欄位', () => {
-    const empty = defaultTheme.renderCart(context(), { ...cart, lines: [] });
-    const checkout = defaultTheme.renderCheckout(context({ customerName: '小美', csrfToken: 'csrf-token' }), {
+    const empty = defaultTheme.renderers['commerce.cart.view'](context(), { ...cart, lines: [] });
+    const checkout = defaultTheme.renderers['commerce.checkout.view'](context({ customerName: '小美', csrfToken: 'csrf-token' }), {
       ...cart,
       customerEmail: 'buyer@example.test',
       shippingMethods: [{ id: 'shipping-1', name: '宅配', feeCents: 6_000, freeShippingThresholdCents: 100_000 }],
@@ -382,8 +386,8 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('讓帳戶存取與個人資料沿用同一套頁面結構，而不改變欄位名稱', () => {
-    const login = defaultTheme.renderAuth(context(), { mode: 'login', next: '/checkout', error: '登入失敗' });
-    const profile = defaultTheme.renderAccountProfile(context({ customerName: '小美', csrfToken: 'csrf-token' }), {
+    const login = defaultTheme.renderers['platform.auth'](context(), { mode: 'login', next: '/checkout', error: '登入失敗' });
+    const profile = defaultTheme.renderers['commerce.customer.profile'](context({ customerName: '小美', csrfToken: 'csrf-token' }), {
       displayName: '小美',
       phone: '0911222333',
       birthday: null,
@@ -403,8 +407,8 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('保留既有訂單狀態標籤，未知狀態直接顯示 server 值', () => {
-    const known = defaultTheme.renderOrder(context(), { order });
-    const unknown = defaultTheme.renderOrder(context(), { order: { ...order, status: 'refunded' } });
+    const known = defaultTheme.renderers['commerce.order.view'](context(), { order });
+    const unknown = defaultTheme.renderers['commerce.order.view'](context(), { order: { ...order, status: 'refunded' } });
 
     expect(known).toContain('付款完成');
     expect(unknown).toContain('>refunded</span>');
@@ -412,7 +416,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('訂單顯示配送快照、繳費資訊與須由顧客觸發的付款續行', () => {
-    const html = defaultTheme.renderOrder(context(), { order: {
+    const html = defaultTheme.renderers['commerce.order.view'](context(), { order: {
       ...order,
       status: 'awaiting_payment',
       payment: {
@@ -431,7 +435,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('只顯示顧客可理解的配送進度、追蹤號碼與安全的 provider 追蹤頁', () => {
-    const html = defaultTheme.renderOrder(context(), { order: {
+    const html = defaultTheme.renderers['commerce.order.view'](context(), { order: {
       ...order,
       shipment: { status: 'arrived', trackingNumber: 'TW-TRACK-1', trackingUrl: 'https://carrier.example.test/track/TW-TRACK-1' },
     } });
@@ -450,13 +454,13 @@ describe('Default Theme 的商品瀏覽切片', () => {
     ['arrived', '已到店／送達'],
     ['completed', '配送完成'],
   ] as const)('maps shipment stage %s to customer copy', (status, label) => {
-    const html = defaultTheme.renderOrder(context(), { order: { ...order, shipment: { status, trackingNumber: null, trackingUrl: null } } });
+    const html = defaultTheme.renderers['commerce.order.view'](context(), { order: { ...order, shipment: { status, trackingNumber: null, trackingUrl: null } } });
     expect(html).toContain(label);
     expect(html).not.toContain(`<p>${status}</p>`);
   });
 
   it('renders a customer RMA request form and customer-safe progress', () => {
-    const html = defaultTheme.renderOrder(context({ csrfToken: 'csrf-token' }), { order: {
+    const html = defaultTheme.renderers['commerce.order.view'](context({ csrfToken: 'csrf-token' }), { order: {
       ...order,
       canRequestRma: true,
       rmas: [{ status: 'needs_information', reason: '商品尺寸不合', staffNote: '請補充包裝照片', createdAt: new Date(), lines: [{ name: '日常托盤', quantity: 1 }] }],
@@ -470,7 +474,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('失敗付款只顯示安全說明，並提供新的付款嘗試與未付款取消入口', () => {
-    const html = defaultTheme.renderOrder(context({ csrfToken: 'csrf-token' }), { order: {
+    const html = defaultTheme.renderers['commerce.order.view'](context({ csrfToken: 'csrf-token' }), { order: {
       ...order,
       status: 'pending',
       payment: {
@@ -492,7 +496,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('使用指定的表面色與可預期的置頂頁首層級', () => {
-    const html = defaultTheme.renderHome(context(), { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] });
+    const html = defaultTheme.renderers['commerce.catalog.home'](context(), { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] });
 
     expect(html).toContain('--surface-raised: #fffdfc;');
     expect(html).toContain('position: sticky;');
@@ -502,7 +506,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('保留搜尋字串並以安全連結輸出分頁與空頁提示', () => {
-    const html = defaultTheme.renderHome(context(), {
+    const html = defaultTheme.renderers['commerce.catalog.home'](context(), {
       products: [], q: '托盤 & <script>', minPrice: 300, maxPrice: 900, page: 4, pageSize: 12, total: 25, story: null, journal: [], news: [],
     });
 
@@ -515,7 +519,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
     expect(html).toContain('href="/?q=%E6%89%98%E7%9B%A4+%26+%3Cscript%3E&amp;minPrice=300&amp;maxPrice=900"');
     expect(html).not.toContain('<script>');
 
-    const priceOnlyEmpty = defaultTheme.renderHome(context(), {
+    const priceOnlyEmpty = defaultTheme.renderers['commerce.catalog.home'](context(), {
       products: [], q: '', minPrice: 300, maxPrice: null, page: 1, pageSize: 24, total: 0, story: null, journal: [], news: [],
     });
     expect(priceOnlyEmpty).toContain('找不到符合目前篩選條件的商品。');
@@ -525,7 +529,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
 
 describe('Default Theme 的退款狀態', () => {
   it('只呈現顧客安全的退款進度與金額', () => {
-    const html = defaultTheme.renderOrder(context(), { order: { ...order, refunds: [{ amountCents: 118_000, status: 'succeeded', requestedAt: new Date(), completedAt: new Date() }] } });
+    const html = defaultTheme.renderers['commerce.order.view'](context(), { order: { ...order, refunds: [{ amountCents: 118_000, status: 'succeeded', requestedAt: new Date(), completedAt: new Date() }] } });
     expect(html).toContain('退款進度');
     expect(html).toContain('succeeded');
     expect(html).toContain('$1,180.00');
