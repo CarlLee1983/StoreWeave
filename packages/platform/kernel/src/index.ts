@@ -6,6 +6,7 @@ export * from './keyring';
 export * from './mcp-registry';
 export * from './logger';
 export * from './module';
+export * from './page';
 export * from './module-graph';
 export * from './ops-module';
 export * from './recurring';

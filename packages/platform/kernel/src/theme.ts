@@ -1,4 +1,5 @@
 import type { ZodTypeAny } from 'zod';
+import type { PageMap, PageRenderer, ViewOf } from './page';
 
 export interface ThemeProductView {
   id: string;
@@ -333,42 +334,24 @@ export interface StorefrontTheme {
    * 永遠不是自己填一個路徑。沒有宣告就是這個 Theme 的文章不配圖。
    */
   readonly editorialImageKeys?: readonly string[];
-  renderHome(ctx: ThemeContext, data: ThemeHomeView): string;
-  renderProduct(ctx: ThemeContext, data: { product: ThemeProductView }): string;
-  renderOrder(ctx: ThemeContext, data: { order: ThemeOrderView }): string;
-  renderError(ctx: ThemeContext, data: { status: number; message: string }): string;
   /**
-   * 登入與註冊。結帳需要身分之後，商店若沒有這兩頁就等於關門，
-   * 因此它是 Theme 契約的一部分而不是選配。
+   * page id → renderer。Theme 服務哪些頁面由它實作了哪些 id 決定，缺哪些必需頁
+   * 在 release 組裝時比對出來並拒絕啟動（ADR 0045）——不是在這裡宣告一份方法清單，
+   * 那會讓平台層的契約重新編碼商務領域。
    */
-  renderAuth(ctx: ThemeContext, data: ThemeAuthView): string;
-  /**
-   * 購物車與結帳。任何購物型 Theme 都必須實作它們，不是選配——
-   * 沒有這兩頁的商店等於關著門。
-   */
-  renderCart(ctx: ThemeContext, data: ThemeCartView): string;
-  renderCheckout(ctx: ThemeContext, data: ThemeCheckoutView): string;
-  renderPickupStorePicker(ctx: ThemeContext, data: ThemePickupStorePickerView): string;
-  /** 會員中心的購物金與會員等級。 */
-  renderAccountRewards(ctx: ThemeContext, data: ThemeAccountRewardsView): string;
-  /** 會員中心的我的券。 */
-  renderAccountCoupons(ctx: ThemeContext, data: ThemeAccountCouponsView): string;
-  /** 會員中心的訂單清單。 */
-  renderAccountOrders(ctx: ThemeContext, data: ThemeAccountOrdersView): string;
-  /** 會員中心的個人資料與收件地址。 */
-  renderAccountProfile(ctx: ThemeContext, data: ThemeAccountProfileView): string;
-  /** 選物全目錄獨立頁面。 */
-  renderCatalog?(ctx: ThemeContext, data: ThemeCatalogView): string;
-  /**
-   * 品牌內容的版型。方法存不存在表達的是 **Theme 有沒有這個版型**；
-   * 內容存不存在、發布了沒有，是 content 模組的事，Storefront 查完才決定要不要呼叫（ADR 0033）。
-   */
-  renderStory?(ctx: ThemeContext, data: { article: ThemeArticleView }): string;
-  renderJournalList?(ctx: ThemeContext, data: ThemeArticleListView): string;
-  renderJournalArticle?(ctx: ThemeContext, data: { article: ThemeArticleView }): string;
-  renderNewsList?(ctx: ThemeContext, data: ThemeArticleListView): string;
-  renderNewsArticle?(ctx: ThemeContext, data: { article: ThemeArticleView }): string;
-  /** 常見問題是一頁清單，沒有單篇閱讀頁。 */
-  renderFaq?(ctx: ThemeContext, data: ThemeArticleListView): string;
-  renderContact?(ctx: ThemeContext, data: ThemeContactView): string;
+  readonly renderers: Readonly<Record<string, PageRenderer<any>>>;
+}
+
+/**
+ * Theme 作者呼叫這個而不是直接寫物件字面量：`pages` 決定 renderers 的鍵與每個
+ * view 的型別，少寫一頁或簽名對不上都是編譯期錯誤，不必等到啟動時的缺頁檢查。
+ */
+export function defineTheme<Pages extends PageMap>(
+  pages: Pages,
+  theme: Omit<StorefrontTheme, 'renderers'> & {
+    readonly renderers: { readonly [K in keyof Pages & string as Pages[K]['id']]: PageRenderer<ViewOf<Pages[K]>> };
+  },
+): StorefrontTheme {
+  void pages;
+  return theme;
 }
