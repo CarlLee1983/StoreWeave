@@ -1,6 +1,6 @@
 # 0045. 前台頁面由模組宣告，Theme 只提供渲染
 
-- 狀態：proposed；B13 片1 開工前定案，實作與整合回歸通過後改 accepted。
+- 狀態：accepted；B13 片1 實作完成，2026-09-10 本機與 CI 的整合回歸全綠。
 - 日期：2026-09-10
 
 `StorefrontTheme` 目前要求 13 個必需的 render 方法，其中 8 個是純商務頁——購物車、
@@ -52,6 +52,12 @@ schema，舊設定被覆寫。改成以 theme id 為鍵保存，換回去時原�
 網站設定與導覽同時從 theme 抽出來，成為獨立於 theme 的資料——`packages/themes/default/src/layout.ts`
 現在把導覽項目硬編碼成中文連結，換 theme 就換一套導覽，這在資訊架構上說不通。
 這部分的儲存形狀與 migration 屬於 B13 片2，不在本決策範圍。
+
+本決策未涵蓋的部分：登入／註冊／忘記密碼／重設密碼四頁仍以 decorator 留在
+`apps/api/src/storefront/storefront.controller.ts`，`packages/platform/kernel/src/page.ts`
+的 `SYSTEM_PAGE_IDS` 因此還有 `platform.auth`。頁面要簽發 session 就得在 `PageResolveContext`
+上新增一個具名入口，而下面的條件正好守著那個介面——所以它需要一次新的邊界決策，不是
+本決策的剩餘工作。
 
 ## Falsified if
 

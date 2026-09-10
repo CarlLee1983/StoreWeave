@@ -1,6 +1,7 @@
 # B13 — 網站殼與模組頁面
 
-狀態：`in_progress`（2026-09-10 開工）。前置 [B03](../b03/README.md)、[B07](../b07/README.md)、
+狀態：`in_progress`（2026-09-10 開工；五個切片實作完成，[PR #37](https://github.com/CarlLee1983/StoreWeave/pull/37)
+的五個 CI job 全綠，待獨立審查與合併後改 `done`）。前置 [B03](../b03/README.md)、[B07](../b07/README.md)、
 [B08](../b08/README.md) 與 Spec 0008 Ticket 90 全部結案；範圍依
 [Base 執行計畫的 B13 派工卡](../../base-implementation-plan.md#b13--網站殼與模組頁面)
 與 [Spec 0009](../../specs/0009-complete-modular-base.md) 的 F04／F05／F13。
@@ -143,3 +144,7 @@ commerce-free 的 HTTP 與 Admin 流程、既有前台路由與 theme 回歸、�
 `pnpm-lock.yaml` 缺少新 workspace 的 importer 而失敗——新增套件時要一併補上
 （本地的 `pnpm install` 不會自己補，因為那兩個套件沒有相依）。
 另外片1 記錄的 `database-cutover` 環境競態這次沒有重現。
+
+PR #37 的 CI（2026-09-10，run 34455625315）五個 job 全綠：typecheck + unit 3m20s、
+integration shard 1/2 5m15s、shard 2/2 6m10s、smoke (docker compose) 1m37s、
+smoke (native tarball) 1m18s。本機整跑與 CI 分片跑的結果一致，沒有只在 CI 出現的失敗。

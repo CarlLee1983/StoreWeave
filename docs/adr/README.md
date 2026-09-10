@@ -46,8 +46,8 @@
 | [0042](0042-identity-requires-a-signing-key.md) | 身分連結一律簽發，簽章金鑰因此是必要設定 | accepted（B08） |
 | [0043](0043-api-tokens-live-in-the-database.md) | 機器對機器的 token 存在資料庫，由 CLI 簽發 | accepted（B08） |
 | [0044](0044-operator-mfa-is-totp-with-recovery-codes.md) | 後台帳號的第二因素是 TOTP＋一次性復原碼 | accepted（B08） |
-| [0045](0045-modules-declare-storefront-pages.md) | 前台頁面由模組宣告，Theme 只提供渲染 | proposed（B13） |
-| [0046](0046-site-settings-and-navigation-are-release-data.md) | 網站設定與導覽是資料，不是 Theme 的一部分 | proposed（B13） |
+| [0045](0045-modules-declare-storefront-pages.md) | 前台頁面由模組宣告，Theme 只提供渲染 | accepted（B13） |
+| [0046](0046-site-settings-and-navigation-are-release-data.md) | 網站設定與導覽是資料，不是 Theme 的一部分 | accepted（B13） |
 
 寫法：每篇結尾用 `## Falsified if` 這個標題起一段，段落裡以反引號標出這個決策所依賴的檔案；
 那些檔案就是這個決策的邊界清單，條件本身要寫成某個東西可以檢查的形式。
