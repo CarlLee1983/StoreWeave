@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { PlatformError, type DrizzleDb, type Tx } from '@storeweave/contracts';
-import { hashPassword } from './password';
 import { UserRepository, toUserDto, type UserDto } from './repository';
 
 const repository = new UserRepository();
@@ -44,9 +43,13 @@ export const accountService = {
     }
   },
 
+  /**
+   * 收已經算好的雜湊而不是明文密碼：scrypt 要跑上百毫秒，在交易裡跑等於
+   * 那段時間一直佔著一條連線。呼叫端在開交易之前算好，能挪多少算多少。
+   */
   async createAccount(
     tx: Tx,
-    input: { email: string; password: string; displayName: string; role: string },
+    input: { email: string; passwordHash: string; displayName: string; role: string },
   ): Promise<UserDto> {
     // 訊息不帶 email：帶了就等於把登入端辛苦做的中性訊息從註冊端繞過去。
     const conflict = PlatformError.conflict('An account with these details already exists');
@@ -57,7 +60,7 @@ export const accountService = {
     const row = await repository.insertIfAbsent(tx, {
       id: randomUUID(),
       email: input.email,
-      passwordHash: await hashPassword(input.password),
+      passwordHash: input.passwordHash,
       displayName: input.displayName,
       role: input.role,
     });

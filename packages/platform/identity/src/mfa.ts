@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { generateSecret, generateURI, verifySync } from 'otplib';
 import { PlatformError, type DrizzleDb, type Tx } from '@storeweave/contracts';
@@ -14,7 +14,12 @@ const MFA_SECRET_PURPOSE = 'identity-mfa-secret';
 const EPOCH_TOLERANCE_SECONDS = 30;
 
 const RECOVERY_CODE_COUNT = 10;
-const RECOVERY_CODE_BYTES = 16;
+/**
+ * 復原碼用 base32 的字母表寫成，因為它要被人抄在紙上：沒有 0/O、1/I 這種抄錯的對子，
+ * 也不必區分大小寫。20 個字元就是 100 bit——熵來自這裡，不是來自產生了幾個 byte。
+ */
+const RECOVERY_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
+const RECOVERY_CODE_LENGTH = 20;
 
 export interface MfaEnrolment {
   /** 只在註冊當下回傳，之後系統只認得密文。 */
@@ -33,16 +38,26 @@ interface MfaRow extends Record<string, unknown> {
 }
 
 /**
- * 復原碼是 128 bit 的隨機值，不是密碼，所以用 sha256 而不是 scrypt：
+ * 復原碼是 100 bit 的隨機值，不是密碼，所以用 sha256 而不是 scrypt：
  * 沒有可猜的結構就沒有離線暴力破解的對象，而慢雜湊會讓「試十個碼」變成一秒。
  */
 function hashRecoveryCode(code: string): string {
   return createHash('sha256').update(code.replace(/\s|-/g, '').toUpperCase()).digest('hex');
 }
 
-function formatRecoveryCode(raw: Buffer): string {
-  const body = raw.toString('base64url').replace(/[-_]/g, '').toUpperCase().slice(0, 16);
-  return `${body.slice(0, 4)}-${body.slice(4, 8)}-${body.slice(8, 12)}-${body.slice(12, 16)}`;
+/** 從字母表均勻取樣：取模會讓前幾個字元機率偏高，那是白送出去的熵。 */
+function randomRecoveryCode(): string {
+  const size = RECOVERY_CODE_ALPHABET.length;
+  const limit = Math.floor(256 / size) * size;
+  let body = '';
+  while (body.length < RECOVERY_CODE_LENGTH) {
+    for (const byte of randomBytes(RECOVERY_CODE_LENGTH)) {
+      if (byte >= limit) continue;
+      body += RECOVERY_CODE_ALPHABET[byte % size];
+      if (body.length === RECOVERY_CODE_LENGTH) break;
+    }
+  }
+  return body.replace(/(.{5})(?=.)/g, '$1-');
 }
 
 export class MfaService {
@@ -105,7 +120,7 @@ export class MfaService {
     await tx.execute(sql`DELETE FROM platform_mfa_recovery_codes WHERE user_id = ${userId}`);
     const codes: string[] = [];
     for (let index = 0; index < RECOVERY_CODE_COUNT; index += 1) {
-      const code = formatRecoveryCode(randomBytes(RECOVERY_CODE_BYTES));
+      const code = randomRecoveryCode();
       codes.push(code);
       await tx.execute(sql`
         INSERT INTO platform_mfa_recovery_codes (id, user_id, code_hash)
@@ -178,11 +193,4 @@ export class MfaService {
     });
     return verified.valid ? { valid: true, timeStep: verified.timeStep } : { valid: false };
   }
-}
-
-/** 供測試與 CLI 使用：以同一組規則比對兩個字串，避免各處各寫一次。 */
-export function recoveryCodesMatch(a: string, b: string): boolean {
-  const left = Buffer.from(hashRecoveryCode(a), 'utf8');
-  const right = Buffer.from(hashRecoveryCode(b), 'utf8');
-  return left.length === right.length && timingSafeEqual(left, right);
 }

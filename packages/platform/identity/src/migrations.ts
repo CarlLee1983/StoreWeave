@@ -73,8 +73,10 @@ DROP TABLE IF EXISTS public.platform_password_resets;
     sqlMigration('0006_api_tokens', 'expand', `
 CREATE TABLE IF NOT EXISTS public.platform_api_tokens (
   id           uuid PRIMARY KEY,
-  -- 名字是營運端指認一把 token 的方式，因此唯一：兩把叫 "mcp" 的 token 沒有人撤銷得掉。
-  name         text NOT NULL UNIQUE,
+  -- 名字是營運端指認一把 token 的方式。唯一性只加在還活著的列上（見下方索引）：
+  -- 兩把同時有效的 "mcp" 沒有人撤銷得掉，但撤銷過的名字必須放得回來，
+  -- 不然輪替就得改名，於是輪替不會發生。
+  name         text NOT NULL,
   role         text NOT NULL,
   -- 只存雜湊。秘密只在簽發的當下出現一次，系統自己也讀不回來。
   token_hash   text NOT NULL UNIQUE,
@@ -85,6 +87,8 @@ CREATE TABLE IF NOT EXISTS public.platform_api_tokens (
   revoked_at   timestamptz,
   created_by   text
 );
+CREATE UNIQUE INDEX IF NOT EXISTS platform_api_tokens_live_name_idx
+  ON public.platform_api_tokens (name) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS platform_api_tokens_active_idx
   ON public.platform_api_tokens (expires_at) WHERE revoked_at IS NULL;
 `),
@@ -103,7 +107,7 @@ CREATE TABLE IF NOT EXISTS public.platform_user_mfa (
 CREATE TABLE IF NOT EXISTS public.platform_mfa_recovery_codes (
   id         uuid PRIMARY KEY,
   user_id    uuid NOT NULL REFERENCES public.platform_users(id) ON DELETE CASCADE,
-  -- 128 bit 隨機值，沒有可猜的結構，因此 sha256 就夠；慢雜湊只會讓復原變慢。
+  -- 100 bit 隨機值，沒有可猜的結構，因此 sha256 就夠；慢雜湊只會讓復原變慢。
   code_hash  text NOT NULL,
   used_at    timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()

@@ -122,6 +122,19 @@ describe('base identity over HTTP', () => {
     expect(res.statusCode).toBe(401);
   });
 
+  it('refuses to enrol a second factor on a role that login never checks', async () => {
+    const { session } = await register('member-mfa@example.test');
+    // member 的登入不驗第二因素（ADR 0044 只對 `mfa: 'required'` 的角色強制）。
+    // 讓他註冊等於給他一個什麼都不擋、卻讓他以為受保護的第二因素。
+    const res = await post('/api/v1/auth/mfa/enroll', {}, session);
+    expect(res.statusCode).toBe(400);
+
+    const rows = await runtime.database.pool.query(
+      `SELECT 1 FROM platform_user_mfa m JOIN platform_users u ON u.id = m.user_id
+       WHERE lower(u.email) = 'member-mfa@example.test'`);
+    expect(rows.rowCount).toBe(0);
+  });
+
   it('logs out other devices and keeps the caller signed in', async () => {
     const { session: first } = await register('member6@example.test');
     const second = (await post('/api/v1/auth/login', { email: 'member6@example.test', password: 'member-password' }))

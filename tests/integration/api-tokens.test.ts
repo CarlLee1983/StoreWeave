@@ -62,6 +62,23 @@ describe('database-owned API tokens', () => {
     await expect(issue(h, 'only-one')).rejects.toMatchObject({ code: 'CONFLICT' });
   });
 
+  it('lets a revoked name be reissued so rotation does not need a new name', async () => {
+    const h = await harness();
+    const first = await issue(h, 'mcp');
+    await h.runtime.database.transaction(tx => h.runtime.apiTokens.revoke(tx, 'mcp'));
+
+    // 輪替就是「撤掉舊的、用同一個名字發新的」。名字若被撤銷的列永久佔住，
+    // 營運端只能發 mcp-2 再改掉每一份部署設定，於是輪替就不會發生（ADR 0043）。
+    const second = await issue(h, 'mcp');
+    expect(second.id).not.toBe(first.id);
+    expect(await h.runtime.apiTokens.resolve(h.runtime.database.db, first.secret)).toBeNull();
+    expect(await h.runtime.apiTokens.resolve(h.runtime.database.db, second.secret)).toMatchObject({ name: 'mcp' });
+
+    // 撤銷仍然只認得還活著的那一把。
+    await h.runtime.database.transaction(tx => h.runtime.apiTokens.revoke(tx, 'mcp'));
+    expect(await h.runtime.apiTokens.resolve(h.runtime.database.db, second.secret)).toBeNull();
+  });
+
   it('rejects a tampered secret, a wrong id and a malformed presentation', async () => {
     const h = await harness();
     const issued = await issue(h, 'tamper-target');

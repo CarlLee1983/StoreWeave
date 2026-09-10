@@ -72,11 +72,11 @@ export class ApiTokenService {
     const inserted = await tx.execute<TokenRow>(sql`
       INSERT INTO platform_api_tokens (id, name, role, token_hash, expires_at, created_by)
       VALUES (${id}, ${input.name}, ${input.role}, ${hashSecret(secret)}, ${expiresAt.toISOString()}, ${input.createdBy ?? null})
-      ON CONFLICT (name) DO NOTHING
+      ON CONFLICT (name) WHERE revoked_at IS NULL DO NOTHING
       RETURNING *
     `);
     const row = inserted.rows[0];
-    if (!row) throw PlatformError.conflict(`An API token named "${input.name}" already exists`);
+    if (!row) throw PlatformError.conflict(`An API token named "${input.name}" is already in use`);
     return { ...summary(row), secret: `${PREFIX}.${id}.${secret}` };
   }
 

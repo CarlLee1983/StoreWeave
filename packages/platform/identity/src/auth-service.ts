@@ -140,19 +140,21 @@ export class AuthService {
     }
 
     let mfaEnrolmentRequired = false;
-    if (account.mfa === 'required') {
+    // 宣告了第二因素的角色，只要註冊已確認就一律驗——`optional` 指的是「可以不註冊」，
+    // 不是「註冊了也不檢查」。一個不被檢查的第二因素比沒有更糟。
+    if (account.mfa) {
       const status = await this.identity.mfa.statusFor(db, user.id);
       if (status.confirmed) {
         const passed = await this.identity.mfa.verifyForLogin(db, {
           userId: user.id, code: input.mfaCode, recoveryCode: input.recoveryCode,
         });
 
-          if (!passed) {
+        if (!passed) {
           // 第二因素也算登入嘗試：只有密碼的攻擊者不該有無限次猜六位數的機會。
           await this.recordFailedLogin(db, user.id);
           throw new PlatformError('UNAUTHENTICATED', MFA_REQUIRED);
         }
-      } else {
+      } else if (account.mfa === 'required') {
         // 第一個管理員得先登得進來才設定得了第二因素；旗標讓 UI 立刻把他帶過去。
         mfaEnrolmentRequired = true;
       }
@@ -186,10 +188,12 @@ export class AuthService {
     const role = this.selfServiceRole();
     if (!role) throw PlatformError.validation('This release does not offer self-service registration');
     assertPasswordLength(input.password, role, this.roles);
+    // 雜湊在交易外算：scrypt 的上百毫秒不該佔著一條資料庫連線。
+    const passwordHash = await hashPassword(input.password);
 
     return this.identity.database.transaction(async (tx) => {
       const created = await accountService.createAccount(tx, {
-        email: input.email, password: input.password, role,
+        email: input.email, passwordHash, role,
         displayName: input.displayName?.trim() || input.email.split('@')[0],
       });
       const user = (await this.users.findById(tx, created.id))!;
@@ -260,15 +264,19 @@ export class AuthService {
 
   /**
    * 寄出重設連結。找不到帳號就什麼都不做——中性回應不是呼叫端的責任，
-   * 是這裡就不產生任何可觀察的差異（不寄信、不寫列、不丟錯）。
+   * 是這裡就不產生任何可觀察的差異（不寄信、不寫列、不丟錯，也不快一個數量級）。
    */
   async requestPasswordReset(input: { email: string; ttlMs?: number }): Promise<void> {
-    await this.identity.database.transaction(async (tx) => {
-      const user = await this.users.findByEmail(tx, input.email);
-      if (!user || user.status !== 'active') return;
-      const account = roleFor(this.roles, user.role)?.account;
-      if (!account) return;
+    const user = await this.users.findByEmail(this.identity.database.db, input.email);
+    const account = user ? roleFor(this.roles, user.role)?.account : undefined;
+    if (!user || user.status !== 'active' || !account) {
+      // 沒有帳號的地址也跑一次完整的 scrypt。直接返回會讓「什麼都不做」比
+      // 「簽發＋加密＋寄信」快上一個數量級，回應時間本身就成了枚舉管道。
+      await verifyPassword(input.email, await DUMMY_HASH);
+      return;
+    }
 
+    await this.identity.database.transaction(async (tx) => {
       // 先作廢舊的：不然「我又點了一次忘記密碼」會讓上一封信裡的連結繼續有效。
       await this.identity.tokens.invalidate(tx, user.id, 'password-reset');
 
@@ -283,6 +291,10 @@ export class AuthService {
 
   /** 用重設 token 設定新密碼：單次使用、用過即作廢，並踢掉該帳號所有 session。 */
   async resetPassword(input: { token: string; newPassword: string }): Promise<UserDto> {
+    // 雜湊在交易外算，理由同 register：scrypt 不該佔著一條連線。長度規則在
+    // 消費 token 之後才知道角色，所以這裡先算，長度不合時這份雜湊就丟掉。
+    const passwordHash = await hashPassword(input.newPassword);
+
     return this.identity.database.transaction(async (tx) => {
       const consumed = await this.identity.tokens.consume(tx, { token: input.token, purpose: 'password-reset' });
       const user = await this.users.findById(tx, consumed.userId);
@@ -291,8 +303,13 @@ export class AuthService {
       }
       assertPasswordLength(input.newPassword, user.role, this.roles);
 
+      // 重設同時解鎖：被鎖住的人拿得到信才走得到這裡，而鎖著不放就等於
+      // 讓一個猜密碼的人把帳號永久關掉——重設本來就是那條回來的路。
       await tx.execute(sql`
-        UPDATE platform_users SET password_hash = ${await hashPassword(input.newPassword)} WHERE id = ${user.id}
+        UPDATE platform_users
+        SET password_hash = ${passwordHash},
+            failed_login_count = 0, locked_until = NULL
+        WHERE id = ${user.id}
       `);
       // 重設密碼的情境就是「我不確定誰還登著」，因此一個 session 都不留。
       await this.revokeAllSessions(tx, user.id);
@@ -353,14 +370,16 @@ export class AuthService {
   async requestEmailChange(
     input: { userId: string; currentPassword: string; newEmail: string; ttlMs?: number },
   ): Promise<void> {
+    // 驗密碼在交易外：scrypt 跑多久，交易就會多佔一條連線多久。
+    const user = await this.users.findById(this.identity.database.db, input.userId);
+    if (!user || user.status !== 'active' || !roleFor(this.roles, user.role)?.account) {
+      throw new PlatformError('UNAUTHENTICATED', FAILED);
+    }
+    if (!(await verifyPassword(input.currentPassword, user.password_hash))) {
+      throw new PlatformError('UNAUTHENTICATED', FAILED);
+    }
+
     await this.identity.database.transaction(async (tx) => {
-      const user = await this.users.findById(tx, input.userId);
-      if (!user || user.status !== 'active' || !roleFor(this.roles, user.role)?.account) {
-        throw new PlatformError('UNAUTHENTICATED', FAILED);
-      }
-      if (!(await verifyPassword(input.currentPassword, user.password_hash))) {
-        throw new PlatformError('UNAUTHENTICATED', FAILED);
-      }
       const taken = await this.users.findByEmail(tx, input.newEmail);
       // 訊息不帶 email：帶了就等於在登入端辛苦做的中性訊息旁邊開一個枚舉窗口。
       if (taken) throw PlatformError.conflict('An account with these details already exists');
@@ -425,12 +444,20 @@ export class AuthService {
     await this.identity.mail.queue(tx, request);
   }
 
-  /** 記一次失敗；到門檻就上鎖。計數寫在同一句 UPDATE 裡，並行的失敗不會互相覆蓋。 */
+  /**
+   * 記一次失敗；到門檻就上鎖。計數寫在同一句 UPDATE 裡，並行的失敗不會互相覆蓋。
+   * 鎖過期之後從一重算：不然帳號一旦到過門檻，之後每一次失敗都立刻再鎖十五分鐘，
+   * 知道信箱的人就能把合法使用者永久關在門外。
+   */
   private async recordFailedLogin(db: DrizzleDb, userId: string): Promise<void> {
     await db.execute(sql`
       UPDATE platform_users
-      SET failed_login_count = failed_login_count + 1,
+      SET failed_login_count = CASE
+            WHEN locked_until IS NOT NULL AND locked_until <= now() THEN 1
+            ELSE failed_login_count + 1
+          END,
           locked_until = CASE
+            WHEN locked_until IS NOT NULL AND locked_until <= now() THEN NULL
             WHEN failed_login_count + 1 >= ${MAX_FAILED_LOGINS}
             THEN now() + ${`${LOCKOUT_MS} milliseconds`}::interval
             ELSE locked_until

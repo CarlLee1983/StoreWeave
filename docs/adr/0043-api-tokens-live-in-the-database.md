@@ -16,6 +16,10 @@
 「這把還有人在用嗎」有答案。代價是每個 bearer 請求多一次索引查詢。沒有加快取：
 快取的存活時間就是撤銷的延遲時間，而撤銷要快是這個決策的全部理由。
 
+名字的唯一性只加在還活著的列上（`platform_api_tokens_live_name_idx`）。撤銷過的
+`mcp` 要能再發一把 `mcp`，否則輪替就得同時改掉每一份部署設定裡的名字，而那正是
+這個決策想解決的「輪替不會發生」。撤銷的列留著，因為它是 `last_used_at` 的歷史。
+
 沒有保留設定檔作為 bootstrap 路徑。第一把 token 由 CLI 在機器上簽發，
 與第一個管理員帳號同一條路徑（`user:create`），不需要一個「先有 token 才能建 token」
 的雞蛋問題。保留兩套會讓「這個 token 從哪裡來、怎麼撤銷」永遠有兩個答案。
@@ -35,5 +39,6 @@
 `packages/platform/config/src/schema.ts` 重新出現 `auth.tokens`，或
 `apps/api/src/http/auth.ts` 不再以 `runtime.apiTokens.resolve` 驗證 bearer（改回比對設定值），
 或 `packages/platform/identity/src/migrations.ts` 讓 `platform_api_tokens.expires_at` 可為 NULL，
-或 `packages/platform/identity/src/api-tokens.ts` 的 `resolve()` 加上跨請求快取；
+或 `packages/platform/identity/src/api-tokens.ts` 的 `resolve()` 加上跨請求快取，
+或 `platform_api_tokens.name` 改回無條件唯一（撤銷過的名字從此發不出來，輪替被迫改名）；
 任一成立表示 token 又變回不能即時撤銷或不會過期的長效秘密，須重開本決策。
