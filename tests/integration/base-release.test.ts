@@ -135,7 +135,7 @@ describe('selected release bootstrap', () => {
     runtimes.push(result.runtime);
     expect(result.theme?.id).toBe('default');
     expect(result.runtime.config.store.currency).toBe('TWD');
-    expect(result.runtime.modules).toHaveLength(22);
+    expect(result.runtime.modules).toHaveLength(23);
     expect(result.runtime.actorForRole('staff').permissions).toContain('erp:write');
     await result.runtime.migrate();
     await expect(result.runtime.migrate()).resolves.toEqual([]);

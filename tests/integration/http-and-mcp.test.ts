@@ -4,6 +4,7 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
+import { csrfTokenFor } from '@storeweave/identity';
 import { ADMIN_ACTOR, createCustomer, createHarness, createProduct, placeOrder, stockUp, storefrontCheckoutForm, type TestHarness } from './helpers';
 import { busHttpInput, describeHttpRoutes, HTTP_CONTRACT, type ComposedHttpContract, type HttpRouteCatalogCarrier, type StorefrontHttpContract } from '../../apps/api/src/http/contract';
 import { httpAdapter as commerceHttpAdapter } from '../../apps/api/src/releases/commerce';
@@ -643,29 +644,40 @@ describe('Storefront SSR', () => {
     expect(pages.filter(route => route.request === 'none')).toHaveLength(17);
     expect(pages.filter(route => route.request === 'query')).toHaveLength(8);
     expect(pages.filter(route => route.request === 'form')).toHaveLength(15);
-    expect(pages.filter(route => route.auth === 'session-or-anonymous')).toHaveLength(30);
-    expect(pages.filter(route => route.auth === 'anonymous')).toHaveLength(9);
+    // 登入與登出從 anonymous 變成 session-or-anonymous：宣告頁面沒有 per-page 的強制匿名，
+    // 而拿掉登出的 CSRF 豁免正是工單 94 的決定（ADR 0047）。
+    expect(pages.filter(route => route.auth === 'session-or-anonymous')).toHaveLength(33);
+    expect(pages.filter(route => route.auth === 'anonymous')).toHaveLength(6);
     expect(pages.filter(route => route.auth === 'opaque-capability')).toHaveLength(1);
-    expect(pages.filter(route => route.responses.every(response => response.kind === 'html'))).toHaveLength(17);
-    expect(pages.filter(route => route.responses.some(response => response.kind === 'html') && route.responses.some(response => response.kind === 'redirect'))).toHaveLength(22);
-    expect(pages.filter(route => route.responses.every(response => response.kind === 'redirect'))).toHaveLength(1);
+    // 登入頁的 GET 現在也宣告了 303（已登入者被轉走），所以它從「只有 HTML」那一組移到混合那一組。
+    expect(pages.filter(route => route.responses.every(response => response.kind === 'html'))).toHaveLength(16);
+    expect(pages.filter(route => route.responses.some(response => response.kind === 'html') && route.responses.some(response => response.kind === 'redirect'))).toHaveLength(24);
+    expect(pages.filter(route => route.responses.every(response => response.kind === 'redirect'))).toHaveLength(0);
     const root = pages.find(route => route.path === '/')!;
     const pay = pages.find(route => route.path === '/orders/:number/pay')!;
-    const login = pages.find(route => route.path === '/login')!;
+    const login = pages.find(route => route.path === '/login' && route.method === 'GET')!;
+    const submitLogin = pages.find(route => route.path === '/login' && route.method === 'POST')!;
     const pickup = pages.find(route => route.path === '/checkout/pickup/callback')!;
     const rewards = pages.find(route => route.path === '/cart/rewards')!;
     const logout = pages.find(route => route.path === '/logout')!;
     expect(root).toMatchObject({ request: 'query', csrf: 'none', guardError: { statuses: [401], contentType: 'application/json' },
       responses: [{ kind: 'html', status: 200 }, { kind: 'html', status: 'platform-error' }] });
     expect(pay).toMatchObject({ request: 'form', params: { number: 'number' }, audience: 'customer', csrf: 'session-csrf-or-same-origin', parserError: { statuses: [400, 413] } });
-    expect(login).toMatchObject({ request: 'query', auth: 'anonymous', csrf: 'none', cookieEffects: [] });
+    // 宣告頁面沒有 per-page 的強制匿名：auth 因此是 session-or-anonymous（工單 94）。
+    expect(login).toMatchObject({ request: 'query', auth: 'session-or-anonymous', csrf: 'none', cookieEffects: [] });
+    expect(submitLogin).toMatchObject({ request: 'form', auth: 'session-or-anonymous', rateLimit: 'auth',
+      cookieEffects: ['session-start'], csrf: 'session-csrf-or-same-origin' });
     expect(pickup).toMatchObject({ request: 'form', auth: 'opaque-capability', csrf: 'none', guardError: null, parserError: { statuses: [400, 413] } });
     expect(rewards).toMatchObject({ audience: 'customer', responses: [
       { kind: 'html', status: 'platform-error' },
       { kind: 'redirect', status: 303, location: { kind: 'fixed', value: '/cart' } },
       { kind: 'redirect', status: 303, location: { kind: 'fixed', value: '/login?next=%2Fcart' } },
     ] });
-    expect(logout).toMatchObject({ request: 'none', auth: 'anonymous', csrf: 'same-origin', cookieEffects: ['session-clear'], responses: [{ kind: 'redirect', status: 303, location: { kind: 'fixed', value: '/' } }] });
+    // csrf 從 same-origin 變成 session-csrf-or-same-origin：帶著有效 session 就要出示 token。
+    expect(logout).toMatchObject({ request: 'none', auth: 'session-or-anonymous', csrf: 'session-csrf-or-same-origin', cookieEffects: ['session-clear'], responses: [
+      { kind: 'html', status: 'platform-error' },
+      { kind: 'redirect', status: 303, location: { kind: 'fixed', value: '/' } },
+    ] });
     expect(pages.every(route => !('target' in route))).toBe(true);
 
     const controller = class InvalidOpaqueStorefrontContract {};
@@ -728,7 +740,15 @@ describe('Storefront SSR', () => {
     const registered = await inject({ method: 'POST', url: '/register', headers: { 'content-type': 'application/x-www-form-urlencoded' },
       payload: `email=logout-${Date.now()}%40example.test&password=a-good-password&next=%2F` });
     const session = registered.cookies.find(cookie => cookie.name === 'commerce_session')!.value;
-    const logout = await inject({ method: 'POST', url: '/logout', cookies: { commerce_session: session } });
+    // 登出不再是 CSRF 豁免的（工單 94）：帶著有效 session 就要出示 token，和其他表單一樣。
+    const withoutCsrf = await inject({ method: 'POST', url: '/logout', cookies: { commerce_session: session } });
+    expect(withoutCsrf.statusCode).toBe(403);
+
+    const logout = await inject({
+      method: 'POST', url: '/logout', cookies: { commerce_session: session },
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `_csrf=${encodeURIComponent(csrfTokenFor(session))}`,
+    });
     expect(logout.statusCode).toBe(303);
     expect(logout.headers.location).toBe('/');
     expect(logout.cookies.find(cookie => cookie.name === 'commerce_session')?.value).toBe('');

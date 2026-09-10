@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { Controller, Get, Post, Req, Res, type Type } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import type { IssuedSession } from '@storeweave/identity';
+import { safeRedirectPath } from '@storeweave/kernel';
 import type { PageOutcome, PageResolveContext, StorefrontPage, StorefrontTheme, ThemeContext } from '@storeweave/kernel';
 import { PlatformError } from '@storeweave/contracts';
 import { ZodError } from 'zod';
@@ -62,6 +63,12 @@ export function createStorefrontController(
       };
       try {
         if (requiresIdentity(page) && !identityMatches(page, req)) {
+          // 匿名身分一律是 service type（`anonymousActor`／`actorForRole`）。已經是真身分卻
+          // 不符這一頁要的，不是「請先登入」——把他送去登入頁只會和登入頁的「已登入就轉回來」
+          // 互踢成無限轉址（工單 94 的 review）。
+          if (req.actor && req.actor.type !== 'service') {
+            throw PlatformError.forbidden('這個頁面不屬於目前登入的身分');
+          }
           const next = page.loginNext ? page.loginNext(source.params ?? {}) : page.path;
           void reply.status(303).header('location', `/login?next=${encodeURIComponent(next)}`).send();
           return;
@@ -76,21 +83,23 @@ export function createStorefrontController(
         const input = parsed.data;
         const outcome = (await page.resolve(deps.resolveContext(req, reply), input)) as PageOutcome<unknown>;
 
+        // 清洗在這裡做一次，頁面因此不必各帶一份（ADR 0047）。固定目的地經過它不會變，
+        // 從輸入長出來的目的地則不可能離站。
         if (outcome.kind === 'redirect') {
-          void reply.status(303).header('location', outcome.location).send();
+          void reply.status(303).header('location', safeRedirectPath(outcome.location)).send();
           return;
         }
         // 先做完 cookie 那一側再送轉址：失敗就不送 303，錯誤交給錯誤頁。
         // 注意這不等於「失敗就沒登入」——session 在 resolve 裡已經寫進資料庫，
-        // cookie 也可能已經掛在 reply 上。要不要在簽發失敗時回滾，留給工單 94 決定。
+        // cookie 也可能已經掛在 reply 上。工單 94 決定不回滾（ADR 0047 的「不涵蓋」）。
         if (outcome.kind === 'session-start') {
           await deps.sessionEffects.start(req, reply, outcome.session);
-          void reply.status(303).header('location', outcome.location).send();
+          void reply.status(303).header('location', safeRedirectPath(outcome.location)).send();
           return;
         }
         if (outcome.kind === 'session-clear') {
           await deps.sessionEffects.clear(req, reply);
-          void reply.status(303).header('location', outcome.location).send();
+          void reply.status(303).header('location', safeRedirectPath(outcome.location)).send();
           return;
         }
         if (outcome.kind === 'not-found') throw PlatformError.notFound('Page', page.path);

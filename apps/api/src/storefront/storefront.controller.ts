@@ -6,13 +6,13 @@ import { Body, Controller, Get, Inject, Param, Post, Query, Req, Res } from '@ne
 import type { FastifyReply } from 'fastify';
 import { PlatformError, SYSTEM_ACTOR, type Actor } from '@storeweave/contracts';
 import { csrfTokenFor } from '@storeweave/identity';
+import { safeRedirectPath } from '@storeweave/kernel';
 import type { StorefrontTheme, ThemeContext } from '@storeweave/kernel';
 import type { PaymentProvider, ShippingProvider } from '@storeweave/extension-sdk';
 import { customerService } from '@storeweave/customer';
 import { Anonymous, ExternalCallback, Public, actorOf, anonymousActor, type AuthenticatedRequest } from '../http/auth';
 import { cartNoticeOf, clearCartNoticeCookie, existingGuestToken, guestTokenFor } from '../http/cart-cookie';
 import { HTTP_ADAPTER, type ReleaseHttpAdapter } from '../release-adapter';
-import { clearSession } from '../http/session-clear';
 import { HttpContract } from '../http/contract';
 import { buildThemeContext, renderStorefrontError } from './storefront-context';
 import { resolveThemeAssetsDir } from '../theme-assets';
@@ -60,26 +60,6 @@ function catalogPrice(value: unknown, label: string): number | null {
     throw PlatformError.validation(`${label} is too large`);
   }
   return price;
-}
-
-/**
- * 只接受站內路徑，避免變成開放轉址。
- *
- * 用 URL 解析而不是字串前綴：特殊 scheme 下反斜線等同斜線，tab / CR / LF 又會在
- * 解析前被剝掉，`/\evil.com` 與 `/<TAB>/evil.com` 都會被瀏覽器當成 protocol-relative。
- * 追這種邊角只能交給解析器。
- */
-function safeNext(value: string | undefined): string {
-  if (!value) return '/';
-  const cleaned = value.replace(/[\t\r\n]/g, '');
-  try {
-    const parsed = new URL(cleaned, 'https://internal.invalid');
-    if (parsed.origin !== 'https://internal.invalid') return '/';
-    const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
-    return path.startsWith('/') && !path.startsWith('//') ? path : '/';
-  } catch {
-    return '/';
-  }
 }
 
 /** 帳本的來源代碼對顧客沒有意義。客服補償的原因有寫就照實顯示。 */
@@ -221,41 +201,10 @@ export class StorefrontController {
   }
 
   @Anonymous()
-  @HttpContract(storefrontContracts.loginPage)
-  @Get('login')
-  async loginPage(@Query('next') next: string | undefined, @Res() reply: FastifyReply) {
-    this.html(reply, 200, this.renderTheme('platform.auth', await this.themeContext(), { mode: 'login', next: safeNext(next) }));
-  }
-
-  @Anonymous()
   @HttpContract(storefrontContracts.registerPage)
   @Get('register')
   async registerPage(@Query('next') next: string | undefined, @Res() reply: FastifyReply) {
-    this.html(reply, 200, this.renderTheme('platform.auth', await this.themeContext(), { mode: 'register', next: safeNext(next) }));
-  }
-
-  @Anonymous()
-  @HttpContract(storefrontContracts.login)
-  @Post('login')
-  async login(
-    @Req() req: AuthenticatedRequest,
-    @Body() body: Record<string, string>,
-    @Res() reply: FastifyReply,
-  ) {
-    const next = safeNext(body.next);
-    try {
-      const session = await this.runtime.auth.authenticate(this.runtime.database.db, {
-        email: body.email,
-        password: body.password,
-      });
-      await this.http.startSession(this.runtime, req, reply, session);
-      void reply.status(303).header('location', next).send();
-    } catch {
-      // 訊息一律中性：區分「沒這個帳號」與「密碼錯」等於送出帳號枚舉管道。
-      this.html(reply, 401, this.renderTheme('platform.auth', await this.themeContext(), {
-        mode: 'login', next, error: '電子郵件或密碼不正確。',
-      }));
-    }
+    this.html(reply, 200, this.renderTheme('platform.auth', await this.themeContext(), { mode: 'register', next: safeRedirectPath(next) }));
   }
 
   @Anonymous()
@@ -266,7 +215,7 @@ export class StorefrontController {
     @Body() body: Record<string, string>,
     @Res() reply: FastifyReply,
   ) {
-    const next = safeNext(body.next);
+    const next = safeRedirectPath(body.next);
     try {
       await this.runtime.commands.execute('commerce.customer.registerCustomer', {
         email: body.email,
@@ -292,15 +241,6 @@ export class StorefrontController {
           : '註冊失敗，請稍後再試。';
       this.html(reply, 400, this.renderTheme('platform.auth', await this.themeContext(), { mode: 'register', next, error: message }));
     }
-  }
-
-  // 強制匿名：HTML 表單送不出 CSRF header，而被強制登出是干擾而不是資料外洩。
-  @Anonymous()
-  @HttpContract(storefrontContracts.logout)
-  @Post('logout')
-  async logout(@Req() req: AuthenticatedRequest, @Res() reply: FastifyReply) {
-    await clearSession(this.runtime, req, reply as never);
-    void reply.status(303).header('location', '/').send();
   }
 
   /**

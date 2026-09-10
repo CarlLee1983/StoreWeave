@@ -352,6 +352,7 @@ importers:
 
   packages/platform/query-bus: {}
 
+  packages/platform/auth: {}
   packages/platform/site: {}
 
   packages/platform/storage: {}

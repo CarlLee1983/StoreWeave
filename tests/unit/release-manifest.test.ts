@@ -57,7 +57,7 @@ describe('release build manifest', () => {
     const modules = commerce.createModules({ config, providers });
     const actual = projectReleaseManifest(commerce, [...modules].reverse());
     expect(catalogDigest(actual)).toBe(catalogDigest(expected));
-    expect(expected.modules).toHaveLength(22);
+    expect(expected.modules).toHaveLength(23);
   });
 
   it('rejects config-dependent job metadata before constructing a database', async () => {

@@ -175,9 +175,9 @@ export function collectPages(modules: readonly PlatformModule[]): readonly Store
  * 沒有自己的路由，但任何 release 都會用到的頁面。錯誤頁是別條路由失敗時的結果，
  * 所以不由誰「宣告」，而是每個 Theme 都必須提供。
  *
- * 登入表單暫時也在這裡：它的寫入端點要簽發 session cookie，而頁面能碰的 cookie
- * 只有訪客購物車那兩個動作。identity 的頁面遷移（B13 片5）會把它改成模組宣告，
- * 屆時這個清單應該只剩錯誤頁。
+ * `platform.auth` 是註冊、忘記密碼與重設密碼共用的版型，還留在這裡：登入與登出已經
+ * 由 `platform-auth` 模組宣告（工單 94），其餘三者待工單 95、96。工單 98 會把這個清單
+ * 收到只剩錯誤頁。
  */
 export const SYSTEM_PAGE_IDS = ['platform.error', 'platform.auth'] as const;
 

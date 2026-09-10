@@ -75,9 +75,6 @@ export const storefrontContracts = {
   forgotPassword: storefront({ request: 'form', rateLimit: 'auth', input: form('email'), responses: plainHtml() }),
   resetPasswordPage: storefront({ request: 'query', input: query('token'), responses: plainHtml() }),
   resetPassword: storefront({ request: 'form', rateLimit: 'auth', input: form('token', 'password'), responses: [html(400), redirect({ kind: 'fixed', value: '/login' })] }),
-  loginPage: storefront({ request: 'query', input: query('next'), responses: plainHtml() }),
   registerPage: storefront({ request: 'query', input: query('next'), responses: plainHtml() }),
-  login: storefront({ request: 'form', rateLimit: 'auth', input: form('email', 'password', 'next'), responses: [html(401), redirect({ kind: 'validated-same-origin' })], cookieEffects: ['session-start'] }),
   register: storefront({ request: 'form', rateLimit: 'auth', input: form('email', 'password', 'displayName', 'next'), responses: [html(400), redirect({ kind: 'validated-same-origin' })], cookieEffects: ['session-start'] }),
-  logout: storefront({ request: 'none', input: none(), responses: [redirect({ kind: 'fixed', value: '/' })], cookieEffects: ['session-clear'] }),
 } as const;

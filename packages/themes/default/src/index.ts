@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { defineTheme, type ThemeAuthView, type ThemeContext } from '@storeweave/kernel';
+import type { AuthPages } from '@storeweave/auth';
 import type { cartPages, ThemeCartView, ThemeCheckoutView, ThemePickupStorePickerView } from '@storeweave/cart';
 import type { catalogPages, ThemeCatalogView, ThemeHomeView, ThemeProductView } from '@storeweave/catalog';
 import type { contentPages, ThemeArticleListView, ThemeArticleView, ThemeContactView } from '@storeweave/content';
@@ -7,7 +8,7 @@ import type { couponPages, ThemeAccountCouponsView } from '@storeweave/coupon';
 import type { customerPages, ThemeAccountProfileView } from '@storeweave/customer';
 import type { createLoyaltyPages, ThemeAccountRewardsView } from '@storeweave/loyalty';
 import type { orderPages, ThemeAccountOrdersView, ThemeOrderView } from '@storeweave/order';
-import { escapeHtml, formatMoney, layout } from './layout';
+import { csrfField, escapeHtml, formatMoney, layout } from './layout';
 import { formatDate, formatDateTime, safeUrlAttribute } from '@storeweave/i18n';
 import { EDITORIAL_IMAGE_KEYS, renderStorefrontArtwork, renderWovenDayEditorialImage, renderWovenDayProductImage, type WovenDayEditorialImage } from './artwork';
 
@@ -362,11 +363,6 @@ function couponStateText(coupon: ThemeAccountCouponsView['coupons'][number]): st
   return coupon.expiringSoon ? '<span class="badge expiring">即將到期</span>' : '<span class="badge">可使用</span>';
 }
 
-/** 伺服器渲染的表單以隱藏欄位做 CSRF 雙提交——瀏覽器的原生表單送不出自訂 header。 */
-function csrfField(ctx: { csrfToken?: string | null }): string {
-  return ctx.csrfToken ? `<input type="hidden" name="_csrf" value="${escapeHtml(ctx.csrfToken)}">` : '';
-}
-
 function productCard(ctx: ThemeContext, product: ThemeCatalogView['products'][number]): string {
   const soldOut = product.available !== null && product.available <= 0;
   const availability = product.available === null
@@ -690,7 +686,7 @@ export function renderFaq(ctx: ThemeContext, { articles }: ThemeArticleListView)
 }
 
 export function renderContact(ctx: ThemeContext, { submitted, values, error }: ThemeContactView): string {
-    const csrf = ctx.csrfToken ? `<input type="hidden" name="_csrf" value="${escapeHtml(ctx.csrfToken)}">` : '';
+    const csrf = csrfField(ctx);
     const support = ctx.supportEmail
       ? `<p class="contact-support">也可以直接寫信到 <a href="mailto:${escapeHtml(ctx.supportEmail)}">${escapeHtml(ctx.supportEmail)}</a>。</p>`
       : '';
@@ -1274,7 +1270,7 @@ export function renderError(ctx: ThemeContext, { status, message }: { status: nu
  */
 type ServedPages = typeof catalogPages & typeof cartPages & typeof orderPages
   & typeof contentPages & typeof customerPages & typeof couponPages
-  & ReturnType<typeof createLoyaltyPages>;
+  & ReturnType<typeof createLoyaltyPages> & AuthPages;
 
 export const defaultTheme = defineTheme<ServedPages>({
   id: 'default',
@@ -1283,6 +1279,10 @@ export const defaultTheme = defineTheme<ServedPages>({
   editorialImageKeys: EDITORIAL_IMAGE_KEYS,
 
   renderers: {
+    // 登入的顯示頁與送出頁共用同一個渲染函式，和聯絡我們同一個做法。
+    // `platform.auth` 系統頁還在，因為註冊／忘記密碼／重設密碼尚未遷移（工單 95、96）。
+    'platform.auth.login': renderAuth,
+    'platform.auth.submitLogin': renderAuth,
     'commerce.catalog.home': renderHome,
     'commerce.catalog.view': renderCatalog,
     'commerce.catalog.product': renderProduct,

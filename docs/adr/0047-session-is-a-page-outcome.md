@@ -41,6 +41,16 @@ cookie 寫入、訪客購物車合併與轉址。`PageResolveContext` 一個欄�
 判成 release 決定的資料。也沒有併進 `platform-site`：那個模組是導覽與網站設定的擁有者，
 加進認證頁會讓兩種變更理由完全不同的東西共用一個模組。
 
+**登入頁用 `bindPorts` 取得認證能力。** 這一條在定案時沒有想到：`resolve` 要驗密碼，
+而 `authenticate` 不是 Command（認證發生在 Actor 存在之前），`PageResolveContext` 又不該
+長出它——那正是上面拒絕的東西。答案是既有的機制：`PlatformPorts` 多一個 authentication
+port，模組在 `bindPorts` 拿到它，頁面閉包持有。這是模組層的相依，不是請求層的能力，
+所以 ADR 0045 的條件仍然成立。資料庫握柄由綁定那一端補上，模組看不到它。
+
+同樣的形狀之後也適用於註冊與密碼重設所需的服務。這條路的代價是 kernel 的 `PlatformPorts`
+會隨著模組需要的平台能力增長；界線是「不是 Command 也不是 Query 的平台服務」，
+而不是「模組想要的任何東西」。
+
 **註冊命令由 release 指定。** commerce release 傳 `commerce.customer.registerCustomer`，
 base release 不傳、走 `AuthService.register()`。這是 `createSiteModule({ defaultNavigation })`
 的同一個模式，而且 `packages/platform/authorization/src/roles.ts` 早就寫下同樣的判斷：
@@ -85,6 +95,22 @@ adapter，並移除形象站那份不合併購物車的重複實作：合併與�
 `member` 登入之後看得到什麼——特別是站內收件匣要不要給它——不在本決策裡。那是授權面的
 問題，`roles.ts` 的註解原本指名給 B13，現改為 B14。
 
+工單 94 一併決定的三件事：登出不再是 CSRF 豁免的（表單本來就送得出 `_csrf` 欄位，而
+CSRF 只在 session 解析成功時才檢查，所以過期 session 的登出照樣走得通——原本的豁免
+理由已經不成立）；用 Bearer token 認證的呼叫端打登出維持無操作，與 REST 版一致；
+簽發失敗不回滾，session 已經寫進資料庫、cookie 也可能已掛上 reply，路由層只保證不送轉址。
+
+連帶的行為變更：登入與登出從強制匿名變成 session-or-anonymous。資料驅動的路由目前沒有
+per-page 的強制匿名——這是現況而不是結論。它的代價是三個情境：停在匿名登入頁的分頁（表單
+裡沒有 `_csrf`，因為匿名時沒有 token）在別的分頁登入之後送出會得到 403；登入後按上一頁回到
+表單再送出同樣 403；以及在前台換登另一個帳號必須先登出。要消掉這些就得讓頁面宣告得出
+「這一頁一律當訪客」，那是一個新的介面決定，留待有人真的需要時再開。
+
+**誰算「已經登入」由 release 決定。** 登入頁看到已登入的人會把他轉走，但「已登入」不能寫死
+成任何 actor type：購物站的會員是 customer，形象站的 member 是 user。寫死成兩者皆可會讓
+營運者逛前台時被判成已登入，於是在登入頁與會員頁之間互踢成無限轉址。同一個問題的另一半
+在路由層：已經是真身分卻不符這一頁的 audience 時回 403，而不是再送去登入頁。
+
 ## Falsified if
 
 `packages/platform/kernel/src/page.ts` 的 `PageOutcome` 失去 `session-start` 與
@@ -93,4 +119,6 @@ adapter，並移除形象站那份不合併購物車的重複實作：合併與�
 或 `apps/api/src/storefront/storefront.controller.ts` 重新以 decorator 列出任何 auth 路由；
 或 `apps/api/src/release-adapter.ts` 的 `startSession` 又被呼叫端繞過而直接 import
 `apps/api/src/http/session-start.ts` 的實作；
+或 `packages/platform/kernel/src/module.ts` 的 `PlatformPorts` 長出請求層的東西——actor、
+請求或回應物件、資料庫握柄——那會讓模組層的能力入口變成另一個 `PageResolveContext`；
 任一成立表示 session 又變回頁面的能力，或認證路由又離開了模組宣告，須重開本決策。

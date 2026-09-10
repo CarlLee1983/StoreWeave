@@ -14,6 +14,7 @@ import { createCouponModule } from '@storeweave/coupon';
 import { createLoyaltyModule } from '@storeweave/loyalty';
 import { createPromotionModule } from '@storeweave/promotion';
 import { createNotificationModule } from '@storeweave/notification';
+import { createAuthModule } from '@storeweave/auth';
 import { createSiteModule } from '@storeweave/site';
 import { COMMERCE_NAVIGATION } from './navigation';
 import { mockPaymentExtension } from '@storeweave/ext-mock-payment';
@@ -72,6 +73,7 @@ export function coreModules(options: {
     createContentModule(),
     // `/` 由 catalog 宣告，所以 site 模組在這裡不提供首頁；它帶來的是網站設定與導覽（ADR 0046）。
     createSiteModule({ defaultNavigation: COMMERCE_NAVIGATION }),
+    createAuthModule({ signedInActorTypes: ['customer'] }),
   ];
 }
 

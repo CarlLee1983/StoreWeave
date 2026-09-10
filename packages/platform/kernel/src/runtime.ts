@@ -315,8 +315,6 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       boundStorageModules.add(binding.module);
       binding.bind(storage.forNamespace(cacheNamespaceForModule(binding.module)));
     }
-    for (const mod of allModules) mod.bindPorts?.({ notifications });
-
     const authorization = new AuthorizationService();
     // 重設與驗證連結是 base 一定會用到的簽發值，所以簽章金鑰不是選配（ADR 0042）。
     const identityTokens = new IdentityTokenService(requireKeyring({ keyring }, 'identity'));
@@ -337,6 +335,17 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       storeName: config.store.name,
       locale: config.store.locale,
     });
+    // 綁定放在 auth 建好之後：登入頁要的是這個實例，而這一行以上它還不存在。
+    // 資料庫握柄在這裡補上，模組拿到的 port 看不到它（ADR 0040 的 bindPorts 機制）。
+    for (const mod of allModules) {
+      mod.bindPorts?.({
+        // 兩者都延後取值，和同檔 mail 的做法一致：這個迴圈已經因為建構順序被搬過一次，
+        // 傳值的寫法下次再搬就會靜默變成 undefined。
+        get notifications() { return notifications; },
+        authentication: { authenticate: input => auth.authenticate(database.db, input) },
+      });
+    }
+
     const audit = new AuditWriter();
     const jobRegistry = new JobRegistry();
     const recurring = new RecurringScheduler({ jobs, database, logger, pollIntervalMs: config.worker.pollIntervalMs });

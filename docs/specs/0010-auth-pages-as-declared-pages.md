@@ -104,8 +104,8 @@ controller 的私有函式裡。搬遷後由路由層統一清洗，頁面拿到
 **已登入者打開登入頁改為轉址。** 頁面解析時已經拿得到 actor，判斷屬於頁面自己。
 
 **REST 的登入與登出不動。** 它們的呼叫端要 JSON、前台表單要 303，合併只會逼出一個判斷
-Accept header 的分支。前台的登出頁面維持對 CSRF header 的豁免（HTML 表單送不出它），
-但這個豁免從註解變成契約上看得見的宣告。
+Accept header 的分支。前台登出的 CSRF 豁免在工單 94 被**直接拿掉**而不是變成可見的宣告——理由與代價記在
+[ADR 0047](../adr/0047-session-is-a-page-outcome.md)。
 
 **前台角色不處理第二因素的強制註冊。** 目前只有營運者系的角色要求第二因素。哪天前台角色
 也要求了，判斷屬於頁面而不是路由層。
@@ -171,7 +171,12 @@ ADR 0047 的 falsification 條件有一條目前就是違反狀態：開始 Sess
 
 整跑完整 integration 要獨占機器約 30 到 40 分鐘，而且跑的時候不要改 `apps/api` 或
 `packages/**` 的原始碼（release artifacts 會在中途建置 admin bundle）。不要同時跑兩個
-integration suite——B13 這樣做過一次，結果是一整批假紅與逾時。
+integration suite——B13 這樣做過一次，結果是一整批假紅與逾時；工單 94 又踩了一次，
+`worker-recovery` 整批假紅，單獨重跑就全綠。
+
+**在這台 16GB 機器上一次跑完整套會被系統因記憶體不足中止**（工單 94 連續踩兩次，
+降到兩個 worker 也一樣——整套跑下來記憶體只增不減）。改成每 15 檔一批、依序跑，
+每批結束釋放記憶體，就跑得完。
 
 新增 workspace 套件時 `pnpm-lock.yaml` 要手動補 importer 條目：本地安裝不會補（沒有相依的
 新套件在它眼裡不算變更），只有 Docker 的 frozen lockfile 會炸。`tests/unit/dockerfile-workspaces.test.ts`

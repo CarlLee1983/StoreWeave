@@ -4,6 +4,7 @@ import type {
 import type { MigrationSet } from '@storeweave/db';
 import type { PermissionDefinition, PolicyDefinition } from '@storeweave/authorization';
 import type { JobHandler } from '@storeweave/jobs';
+import type { IssuedSession } from '@storeweave/identity';
 import type { NotificationsPort } from '@storeweave/notifications';
 import type { PageMap } from './page';
 import type { ScheduleDeclaration } from './schedule-spec';
@@ -15,6 +16,19 @@ import type { JobPayloadContract } from './job-registry';
  */
 export interface PlatformPorts {
   readonly notifications: NotificationsPort;
+  readonly authentication: AuthenticationPort;
+}
+
+/**
+ * 驗證帳密並簽發 session。認證發生在 Actor 存在之前，所以它不是 Command——
+ * 登入頁因此既不能走 Command Bus，也不該從 `PageResolveContext` 拿到執行環境
+ * （ADR 0045 的條件守著那個介面）。模組層用 bindPorts 取得它，和通知同一個機制
+ * （ADR 0040）。資料庫握柄由綁定那一端補上，模組看不到它。
+ */
+export interface AuthenticationPort {
+  readonly authenticate: (input: {
+    email: string; password: string; userAgent?: string; mfaCode?: string; recoveryCode?: string;
+  }) => Promise<IssuedSession>;
 }
 
 export interface ModuleDependency {
