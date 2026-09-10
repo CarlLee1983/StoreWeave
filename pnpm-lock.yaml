@@ -352,7 +352,11 @@ importers:
 
   packages/platform/query-bus: {}
 
+  packages/platform/site: {}
+
   packages/platform/storage: {}
+
+  packages/themes/base: {}
 
   packages/themes/default: {}
 

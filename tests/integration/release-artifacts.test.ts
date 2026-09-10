@@ -108,7 +108,7 @@ describe('release process artifacts', () => {
       const manifest = JSON.parse(readFileSync(join(output, 'release-manifest.json'), 'utf8'));
       expect(manifest).toMatchObject({ schemaVersion: 1, releaseId, releaseVersion: '0.1.2-test' });
       expect(info.manifestChecksum).toBe(catalogDigest(manifest));
-      expect(manifest.modules).toHaveLength(releaseId === 'base' ? 7 : 21);
+      expect(manifest.modules).toHaveLength(releaseId === 'base' ? 8 : 22);
       if (releaseId === 'base') {
         expect(manifest.availableExtensions).toEqual([]);
         for (const file of ['release-manifest.js.meta.json', 'scripts/validate-release.js.meta.json']) {
@@ -174,12 +174,15 @@ describe('release process artifacts', () => {
               'platform-storage/0001_init',
               'platform-mail/0001_init',
               'platform-notifications/0001_init',
+              'platform-site/0001_init',
               'identity/0004_identity_tokens',
               'identity/0005_drop_password_resets',
               'identity/0006_api_tokens',
               'identity/0007_mfa',
               'identity/0008_login_lockout'
             );
+            DROP TABLE public.platform_site_navigation_items;
+            DROP TABLE public.platform_site_settings;
             DROP TABLE public.platform_notification_deliveries;
             DROP TABLE public.platform_notifications;
             DROP TABLE public.platform_storage_objects;

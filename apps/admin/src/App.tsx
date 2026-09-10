@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getToken, setToken, type CurrentUser } from './api';
+import { getToken, setToken, type CurrentUser, type LoginResult } from './api';
 import { LOCALES, useI18n } from './i18n';
 import { navigate, useRoute } from './router';
-import { NAV_SECTIONS, ROUTE_TABLE, routeDefinition, type Route, type RouteContext } from './routes';
+import { NAV_SECTIONS, ROUTE_TABLE, firstVisibleRoute, routeDefinition, visibleRoutes,
+  type Route, type RouteContext, type RouteDefinition } from './routes';
 import { Icon } from './components/Icon';
 import { LoginPage } from './pages/LoginPage';
 import { Loading } from './components/Loading';
@@ -25,6 +26,7 @@ export function App() {
   // 靜態 API token 存在時維持既有行為，直接進後台，不檢查帳號登入狀態
   const [authStatus, setAuthStatus] = useState<'checking' | 'authed' | 'anon'>(() => (getToken() ? 'authed' : 'checking'));
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [mfaEnrolmentRequired, setMfaEnrolmentRequired] = useState(false);
   const identityEpoch = useRef(0);
 
   const prepareIdentity = async () => {
@@ -79,13 +81,18 @@ export function App() {
   };
 
   const go = (nextRoute: Route) => { navigate(nextRoute); setCommandOpen(false); };
-  const handleLoggedIn = async (user: CurrentUser) => {
+  const handleLoggedIn = async (login: LoginResult) => {
     const epoch = await prepareIdentity();
-    if (epoch === identityEpoch.current) {
-      setCurrentUser(user);
-      setAuthStatus('authed');
-      setTokenVersion((value) => value + 1);
-    }
+    if (epoch !== identityEpoch.current) return;
+    // 登入的回應說得出「你是誰」，但看得到哪幾頁要問 me()——權限與模組是那一支的答案。
+    const user = await api.me().catch(() => null);
+    if (epoch !== identityEpoch.current) return;
+    setCurrentUser(user);
+    setAuthStatus(user ? 'authed' : 'anon');
+    setTokenVersion((value) => value + 1);
+    // 角色要求第二因素而帳號還沒註冊：直接把人帶到設定的地方（ADR 0044）。
+    setMfaEnrolmentRequired(Boolean(login.mfaEnrolmentRequired));
+    if (login.mfaEnrolmentRequired) navigate('account');
   };
   const handleLogout = async () => {
     const epoch = await prepareIdentity();
@@ -109,6 +116,21 @@ export function App() {
 
   const routeContext: RouteContext = { deadJobCount: deadJobsQuery.data?.total ?? 0, deadJobError: deadJobsQuery.isError && !deadJobsQuery.data };
   const currentPage = routeDefinition(route);
+  /**
+   * 側欄只列出這個人做得到的事（B13 片3）。靜態 API token 進來的沒有身分可問，
+   * 維持原本的全部顯示——隱藏選單從來不是權限檢查，後端仍然會擋。
+   */
+  const navRoutes: readonly RouteDefinition[] = useMemo(
+    () => (currentUser ? visibleRoutes(currentUser) : ROUTE_TABLE),
+    [currentUser],
+  );
+
+  // 預設頁被藏起來時退到第一列看得到的，而不是渲染一頁按不動的東西。
+  useEffect(() => {
+    if (authStatus !== 'authed' || navRoutes.some((entry) => entry.path === route)) return;
+    const fallback = firstVisibleRoute(navRoutes);
+    if (fallback) navigate(fallback);
+  }, [authStatus, navRoutes, route]);
 
   if (authStatus === 'checking') {
     return <Loading />;
@@ -134,7 +156,7 @@ export function App() {
           {NAV_SECTIONS.map((section) => (
             <div className="nav-group" key={section}>
               <p className="nav-group__label">{t(section)}</p>
-              {ROUTE_TABLE.filter((item) => item.section === section).map((item) => {
+              {navRoutes.filter((item) => item.section === section).map((item) => {
                 const badge = item.badge?.(routeContext) ?? null;
                 const isActive = route === item.path;
                 return (
@@ -245,6 +267,9 @@ export function App() {
         </header>
 
         <main className="content" key={`${tokenVersion}-${locale}`}>
+          {mfaEnrolmentRequired ? (
+            <p className="error-banner" role="status">{t('mfaEnrolmentRequired')}</p>
+          ) : null}
           <div className="page-heading">
             <div>
               <h1>{t(currentPage.title)}</h1>
@@ -264,7 +289,7 @@ export function App() {
         </main>
       </div>
 
-      {commandOpen ? <CommandPalette returnFocus={commandReturnFocusRef.current} onNavigate={go} onClose={() => setCommandOpen(false)} /> : null}
+      {commandOpen ? <CommandPalette routes={navRoutes} returnFocus={commandReturnFocusRef.current} onNavigate={go} onClose={() => setCommandOpen(false)} /> : null}
     </div>
   );
 }
@@ -299,11 +324,11 @@ function TokenPanel({ onTokenChange, onClose }: { onTokenChange: (token: string)
   );
 }
 
-function CommandPalette({ returnFocus, onNavigate, onClose }: { returnFocus: HTMLElement | null; onNavigate: (route: Route) => void; onClose: () => void }) {
+function CommandPalette({ routes, returnFocus, onNavigate, onClose }: { routes: readonly RouteDefinition[]; returnFocus: HTMLElement | null; onNavigate: (route: Route) => void; onClose: () => void }) {
   const { t } = useI18n();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
-  const matches = ROUTE_TABLE.filter((item) => t(item.navLabel).toLowerCase().includes(query.toLowerCase()));
+  const matches = routes.filter((item) => t(item.navLabel).toLowerCase().includes(query.toLowerCase()));
   const activeOptionId = matches[active] ? `command-option-${matches[active].path}` : undefined;
   useEffect(() => { document.getElementById(activeOptionId ?? '')?.scrollIntoView?.({ block: 'nearest' }); }, [activeOptionId]);
   const choose = (index: number) => matches[index] && onNavigate(matches[index].path);

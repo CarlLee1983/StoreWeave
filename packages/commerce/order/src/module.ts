@@ -10,6 +10,7 @@ import {
   getOrderHandler, getOrderQuery, listOrdersHandler, listOrdersQuery,
   salesSummaryHandler, salesSummaryQuery,
 } from './queries';
+import { orderPages } from './pages';
 
 /**
  * order 模組需要 payment provider，因此以工廠函式注入 —— Core 本身不認識任何金流廠商。
@@ -56,5 +57,6 @@ export function createOrderModule(deps: OrderModuleDeps): PlatformModule {
       { descriptor: listOrdersQuery, handler: listOrdersHandler },
       { descriptor: salesSummaryQuery, handler: salesSummaryHandler },
     ],
+    pages: orderPages,
   });
 }

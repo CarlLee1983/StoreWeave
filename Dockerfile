@@ -34,6 +34,7 @@ COPY packages/platform/jobs/package.json packages/platform/jobs/
 COPY packages/platform/kernel/package.json packages/platform/kernel/
 COPY packages/platform/mail/package.json packages/platform/mail/
 COPY packages/platform/notifications/package.json packages/platform/notifications/
+COPY packages/platform/site/package.json packages/platform/site/
 COPY packages/platform/outbox/package.json packages/platform/outbox/
 COPY packages/platform/query-bus/package.json packages/platform/query-bus/
 COPY packages/platform/storage/package.json packages/platform/storage/
@@ -59,6 +60,7 @@ COPY packages/extensions/mcp/package.json packages/extensions/mcp/
 COPY packages/extensions/mock-invoice/package.json packages/extensions/mock-invoice/
 COPY packages/extensions/mock-payment/package.json packages/extensions/mock-payment/
 COPY packages/themes/default/package.json packages/themes/default/
+COPY packages/themes/base/package.json packages/themes/base/
 COPY tools/cli/package.json tools/cli/
 
 RUN pnpm install --frozen-lockfile

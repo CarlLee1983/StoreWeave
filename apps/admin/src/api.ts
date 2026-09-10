@@ -385,9 +385,48 @@ export type ContactMessage = {
   createdAt: string;
 };
 
-export type CurrentUser = { id: string; email: string; displayName: string; role: string };
+export type CurrentUser = {
+  id: string; email: string; displayName: string; role: string;
+  /** 這個角色的權限鍵；admin 是 `['*']`。側欄用它決定列出哪幾頁（B13 片3）。 */
+  permissions: readonly string[];
+  /** 這個 release 實際載入了哪些模組。沒有 rma 模組就不該有退貨頁。 */
+  modules: readonly string[];
+};
 
 export type Paged<T> = { items: T[]; total: number };
+
+/** 後台操作者帳號（B13 片4）。 */
+export type Operator = {
+  id: string; email: string; displayName: string; role: string;
+  status: 'active' | 'disabled'; createdAt: string; lastLoginAt: string | null;
+};
+
+/** API token 的摘要；秘密只在簽發那一次出現（ADR 0043）。 */
+export type ApiToken = {
+  id: string; name: string; role: string;
+  createdAt: string; expiresAt: string; lastUsedAt: string | null; revokedAt: string | null;
+};
+
+export type IssuedApiToken = ApiToken & { secret: string };
+
+/** 站內通知（B07、B13 片5）。 */
+export type InboxNotification = {
+  id: string; notificationId: string; reference: string; templateId: string;
+  title: string; body: string; createdAt: string; readAt: string | null;
+};
+
+export type MfaStatus = { enrolled: boolean; confirmed: boolean; recoveryCodesRemaining: number };
+
+/**
+ * 登入的回應。它沒有權限與模組清單——那兩份由 `me()` 提供，因為它們是「這個人現在
+ * 看得到什麼」而不是登入這件事的結果。`mfaEnrolmentRequired` 只在角色要求第二因素
+ * 而帳號還沒註冊時出現（ADR 0044）。
+ */
+export type LoginResult = {
+  id: string; email: string; displayName: string; role: string;
+  cartNotice: string | null;
+  mfaEnrolmentRequired?: true;
+};
 
 /** localStorage 儲存 token 的 key */
 export const TOKEN_STORAGE_KEY = 'commerce.admin.token';
@@ -414,6 +453,13 @@ export function setToken(token: string): void {
 }
 
 /** API 回傳的錯誤資訊 */
+/**
+ * 登入缺第二因素時後端回的訊息（`MFA_REQUIRED`，見 `packages/platform/identity/src/auth-service.ts`）。
+ * 錯誤碼與「密碼錯了」同樣是 UNAUTHENTICATED，所以只能靠訊息分辨——
+ * 它是伺服器常數，不隨語系變動，`tests/integration/account-security.test.ts` 釘住它。
+ */
+export const MFA_REQUIRED_MESSAGE = 'A multi-factor code is required';
+
 export class ApiError extends Error {
   code: string;
   readonly status: number;
@@ -870,8 +916,65 @@ export const api = {
       idempotencyKey,
     });
   },
-  login(email: string, password: string) {
-    return request<CurrentUser>('/api/v1/auth/login', { method: 'POST', body: { email, password }, withAuth: false });
+  // ---- 後台操作者帳號與 API token（B13 片4）----
+  listOperators(params: { limit?: number; offset?: number } = {}, signal?: AbortSignal) {
+    return request<Paged<Operator>>(`/api/v1/users${toQuery(params)}`, { signal });
+  },
+  createOperator(body: { email: string; password: string; displayName: string; role: string }, idempotencyKey?: string) {
+    return request<Operator>('/api/v1/users', { method: 'POST', body, idempotent: true, idempotencyKey });
+  },
+  setOperatorStatus(id: string, status: Operator['status'], idempotencyKey?: string) {
+    return request<Operator>(`/api/v1/users/${id}/status`, { method: 'POST', body: { status }, idempotent: true, idempotencyKey });
+  },
+  listApiTokens(signal?: AbortSignal) {
+    return request<{ items: ApiToken[] }>('/api/v1/system/api-tokens', { signal });
+  },
+  issueApiToken(body: { name: string; role: string; ttlDays: number }, idempotencyKey?: string) {
+    return request<IssuedApiToken>('/api/v1/system/api-tokens', { method: 'POST', body, idempotent: true, idempotencyKey });
+  },
+  revokeApiToken(name: string, idempotencyKey?: string) {
+    return request<ApiToken>(`/api/v1/system/api-tokens/${encodeURIComponent(name)}/revoke`, { method: 'POST', body: {}, idempotent: true, idempotencyKey });
+  },
+
+  // ---- 站內收件匣與帳號自助（B13 片5）----
+  listInbox(params: { limit?: number; offset?: number; unreadOnly?: boolean } = {}, signal?: AbortSignal) {
+    return request<Paged<InboxNotification> & { unread: number }>(`/api/v1/notifications${toQuery(params)}`, { signal });
+  },
+  markInboxRead(ids: string[], idempotencyKey?: string) {
+    return request<{ updated: number; readAt: string }>('/api/v1/notifications/read', { method: 'POST', body: { ids }, idempotent: true, idempotencyKey });
+  },
+  changePassword(body: { currentPassword: string; newPassword: string }) {
+    return request<{ changed: true }>('/api/v1/auth/change-password', { method: 'POST', body, withAuth: false });
+  },
+  changeEmail(body: { currentPassword: string; newEmail: string }) {
+    return request<{ accepted: true }>('/api/v1/auth/change-email', { method: 'POST', body, withAuth: false });
+  },
+  resendVerification() {
+    return request<{ accepted: true }>('/api/v1/auth/resend-verification', { method: 'POST', body: {}, withAuth: false });
+  },
+  revokeOtherSessions() {
+    return request<{ accepted: true }>('/api/v1/auth/revoke-other-sessions', { method: 'POST', body: {}, withAuth: false });
+  },
+  mfaStatus(signal?: AbortSignal) {
+    return request<MfaStatus>('/api/v1/auth/mfa', { withAuth: false, signal });
+  },
+  mfaEnroll() {
+    return request<{ secret: string; uri: string }>('/api/v1/auth/mfa/enroll', { method: 'POST', body: {}, withAuth: false });
+  },
+  mfaConfirm(code: string) {
+    return request<{ recoveryCodes: string[] }>('/api/v1/auth/mfa/confirm', { method: 'POST', body: { code }, withAuth: false });
+  },
+  mfaRecoveryCodes(code: string) {
+    return request<{ recoveryCodes: string[] }>('/api/v1/auth/mfa/recovery-codes', { method: 'POST', body: { code }, withAuth: false });
+  },
+  mfaDisable(body: { currentPassword: string; code: string }) {
+    return request<{ accepted: true }>('/api/v1/auth/mfa/disable', { method: 'POST', body, withAuth: false });
+  },
+
+  login(email: string, password: string, second?: { mfaCode?: string; recoveryCode?: string }) {
+    return request<LoginResult>('/api/v1/auth/login', {
+      method: 'POST', body: { email, password, ...second }, withAuth: false,
+    });
   },
   logout() {
     return request<void>('/api/v1/auth/logout', { method: 'POST', body: {}, withAuth: false });

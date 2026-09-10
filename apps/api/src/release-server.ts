@@ -48,7 +48,7 @@ export async function createReleaseServer(options: ReleaseServerOptions): Promis
     adapter.getInstance().get(route.path, handler as never);
   };
   try {
-    selectedControllers = options.httpAdapter.controllers(runtime.config);
+    selectedControllers = options.httpAdapter.controllers(runtime.config, { runtime, theme });
     app = await NestFactory.create<NestFastifyApplication>(
       AppModule.forRuntime(runtime, theme, release, options.httpAdapter, selectedControllers),
       adapter,
@@ -191,7 +191,10 @@ export async function createReleaseServer(options: ReleaseServerOptions): Promis
 
     // Resolve again at the delivery boundary. A long-lived development watcher
     // can retain an older release descriptor while the source artwork changes.
-    const themeAssetsDir = theme && resolveThemeAssetsDir({ configuredDir: release.themeAssetsDir });
+    // 只有宣告了編輯照片的 Theme 才掛這條路徑（ADR 0034）。base theme 沒有自己的媒體，
+    // 掛上去只會讓它從 checkout 端撿到別的 Theme 的美術資產。
+    const ownsEditorialMedia = Boolean(theme?.editorialImageKeys?.length);
+    const themeAssetsDir = ownsEditorialMedia && resolveThemeAssetsDir({ configuredDir: release.themeAssetsDir });
     if (theme && themeAssetsDir && existsSync(themeAssetsDir)) {
       const prefix = '/storefront-assets/';
       // Theme artwork has a deliberately narrow, separate public path. It is not

@@ -369,11 +369,14 @@
           "properties": {
             "id": {
               "type": "string",
-              "default": "none"
+              "default": "base"
             },
             "options": {
               "type": "object",
-              "additionalProperties": {},
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": {}
+              },
               "default": {}
             }
           },

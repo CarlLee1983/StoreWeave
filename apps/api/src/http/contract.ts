@@ -6,12 +6,19 @@ import { zodToJsonSchema, type JsonSchema7Type } from 'zod-to-json-schema';
 import { z } from 'zod';
 import { declaredInputKeys, PlatformError } from '@storeweave/contracts';
 import type { ShippingProvider } from '@storeweave/extension-sdk';
+import type {
+  RateLimitBucket, StorefrontAssetHttpContract, StorefrontCookieEffect, StorefrontHttpContract, StorefrontResponse,
+} from '@storeweave/kernel';
 import type { Runtime } from '@storeweave/kernel';
+
+// 前台的契約型別跟著頁面宣告住進 kernel（ADR 0045）；這裡沿用原本的匯出路徑。
+export type {
+  RateLimitBucket, StorefrontAssetHttpContract, StorefrontCookieEffect, StorefrontHttpContract, StorefrontResponse,
+};
 import { IS_ANONYMOUS, IS_EXTERNAL_CALLBACK, IS_PUBLIC } from './auth';
 import { httpErrorSchema } from './envelope';
 import { MCP_METHOD_LIST, MCP_PROTOCOL_VERSION, jsonRpcRequest } from '../mcp/jsonrpc';
 
-export type RateLimitBucket = 'auth' | 'coupon' | 'cart' | 'callback';
 
 export interface BusHttpContract {
   readonly kind: 'bus';
@@ -99,38 +106,6 @@ export interface ProviderCallbackHttpContract {
  * Storefront handlers render Theme HTML or perform browser redirects.  They do
  * not have a Bus/REST envelope to describe.
  */
-export interface StorefrontHttpContract {
-  readonly kind: 'storefront';
-  readonly request: 'none' | 'query' | 'form';
-  readonly rateLimit?: RateLimitBucket;
-  readonly input: JsonSchema7Type;
-  /** HTTP path parameter -> documented caller input name. */
-  readonly params?: Readonly<Record<string, string>>;
-  /** The handler redirects non-customers; this is not a guard requirement. */
-  readonly audience?: 'customer';
-  /** An external picker callback is authorized by its opaque token, not a session. */
-  readonly auth?: 'opaque-capability';
-  readonly responses: readonly StorefrontResponse[];
-  readonly cookieEffects?: readonly StorefrontCookieEffect[];
-}
-
-export type StorefrontResponse =
-  | { readonly kind: 'html'; readonly status: number | 'platform-error'; readonly contentType: 'text/html; charset=utf-8'; readonly body: 'theme' }
-  | { readonly kind: 'redirect'; readonly status: 303; readonly location:
-    | { readonly kind: 'fixed'; readonly value: string }
-    | { readonly kind: 'server-constructed' }
-    | { readonly kind: 'validated-same-origin' } };
-export type StorefrontCookieEffect = 'session-start' | 'session-clear' | 'guest-cart-ensure' | 'cart-notice-consume';
-
-/** The small release-owned artwork fallback is binary, unlike Theme pages. */
-export interface StorefrontAssetHttpContract {
-  readonly kind: 'storefront-asset';
-  readonly request: 'none';
-  readonly input: JsonSchema7Type;
-  readonly params: Readonly<Record<string, string>>;
-  readonly allowedFiles: readonly string[];
-}
-
 export type ExtensionHttpContract = ExtensionCommandHttpContract | ExtensionQueryHttpContract;
 export type HttpRouteContract = BusHttpContract | ComposedHttpContract | DirectHttpContract | StorageHttpContract | RawHttpContract | ExtensionHttpContract | McpHttpContract | ProviderCallbackHttpContract | StorefrontHttpContract | StorefrontAssetHttpContract;
 export type HttpRouteConfig = { readonly storeweaveContract?: HttpRouteContract };

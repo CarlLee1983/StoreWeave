@@ -17,6 +17,7 @@ import {
   createNotifyExpiringRewardsJob, createRecalculateTiersJob,
 } from './jobs';
 import { loyaltyMigrations } from './migrations';
+import { createLoyaltyPages } from './pages';
 import {
   createGetCustomerLoyaltyHandler, getCustomerLoyaltyQuery,
   getMyRewardsHandler, getMyRewardsQuery,
@@ -80,5 +81,6 @@ export function createLoyaltyModule(options: Omit<LoyaltyModuleDeps, 'notificati
     { descriptor: listTiersQuery, handler: listTiersHandler },
     { descriptor: getCustomerLoyaltyQuery, handler: createGetCustomerLoyaltyHandler(deps) },
   ],
+  pages: createLoyaltyPages(deps),
   });
 }

@@ -36,14 +36,15 @@ async function configPath() {
 }
 
 describe('selected release bootstrap', () => {
-  it('Base starts and migrates without currency, Commerce modules, or a storefront theme', async () => {
+  it('Base starts and migrates without currency or Commerce modules, and brings its own site theme', async () => {
     const result = await bootstrapRelease(baseRelease, { configPath: await configPath(), loggerName: 'base-test' });
     const { runtime } = result;
     runtimes.push(runtime);
-    expect(result.theme).toBeUndefined();
+    // base 也是一個網站：site 模組帶來設定與導覽，base theme 只實作通用頁（ADR 0046）。
+    expect(result.theme?.id).toBe('base');
     expect(runtime.config.store).not.toHaveProperty('currency');
-    expect(runtime.modules.map(module => module.name).sort()).toEqual(['platform', 'platform-cache', 'platform-identity', 'platform-mail', 'platform-notifications', 'platform-ops', 'platform-storage']);
-    expect(Object.keys(runtime.roles).sort()).toEqual(['admin', 'member', 'readonly', 'staff']);
+    expect(runtime.modules.map(module => module.name).sort()).toEqual(['platform', 'platform-cache', 'platform-identity', 'platform-mail', 'platform-notifications', 'platform-ops', 'platform-site', 'platform-storage']);
+    expect(Object.keys(runtime.roles).sort()).toEqual(['admin', 'member', 'readonly', 'staff', 'visitor']);
     await runtime.migrate();
     await expect(runtime.migrate()).resolves.toEqual([]);
     const tables = await runtime.database.pool.query<{ tablename: string }>(
@@ -54,11 +55,12 @@ describe('selected release bootstrap', () => {
       'platform_idempotency', 'platform_identity_tokens', 'platform_job_quarantine', 'platform_job_schedules', 'platform_jobs', 'platform_mail_messages', 'platform_mfa_recovery_codes', 'platform_migration_baselines', 'platform_migrations',
       'platform_notification_deliveries', 'platform_notifications', 'platform_outbox',
       'platform_outbox_quarantine', 'platform_outbox_quarantine_audit',
-      'platform_release_history', 'platform_sessions', 'platform_storage_objects', 'platform_user_mfa', 'platform_users', 'platform_worker_heartbeat',
+      'platform_release_history', 'platform_sessions', 'platform_site_navigation_items', 'platform_site_settings',
+      'platform_storage_objects', 'platform_user_mfa', 'platform_users', 'platform_worker_heartbeat',
     ]);
   });
 
-  it('Base HTTP authenticates with Base permissions and exposes no Commerce routes or assets', async () => {
+  it('Base HTTP authenticates with Base permissions, renders its own storefront, and exposes no Commerce routes', async () => {
     const result = await bootstrapRelease(baseRelease, { configPath: await configPath(), loggerName: 'base-http' });
     const { runtime } = result;
     runtimes.push(runtime);
@@ -70,16 +72,22 @@ describe('selected release bootstrap', () => {
     const issued = await runtime.database.transaction(tx => runtime.apiTokens.issue(tx, {
       name: 'readonly', role: 'readonly', ttlMs: 60 * 60_000,
     }));
-    const app = await createReleaseServer({ runtime, httpAdapter,
+    const app = await createReleaseServer({ runtime, theme: result.theme, httpAdapter,
       release: { version: baseRelease.version, configPath: result.loaded.sourcePath } });
     try {
       expect((await app.inject({ url: '/health/live' })).statusCode).toBe(200);
       expect((await app.inject({ url: '/api/v1/system/jobs/dead' })).statusCode).toBe(401);
       expect((await app.inject({ url: '/api/v1/system/jobs/dead',
         headers: { authorization: `Bearer ${issued.secret}` } })).statusCode).toBe(200);
-      for (const url of ['/', '/api/v1/products', '/api/v1/orders', '/mcp', '/storefront-assets/woven-day-hero.png']) {
+      for (const url of ['/api/v1/products', '/api/v1/orders', '/mcp', '/storefront-assets/woven-day-hero.png']) {
         expect((await app.inject({ url })).statusCode, url).toBe(404);
       }
+      // 一個沒有商務模組的 release 渲染得出可瀏覽的網站，導覽來自 release 預設值（ADR 0046）。
+      const home = await app.inject({ url: '/' });
+      expect(home.statusCode).toBe(200);
+      expect(home.headers['content-type']).toContain('text/html');
+      expect(home.body).toContain('<a href="/">首頁</a>');
+      expect(home.body).toContain('Release Test');
       const login = await app.inject({ method: 'POST', url: '/api/v1/auth/login',
         payload: { email: 'base@example.com', password } });
       expect(login.statusCode).toBe(200);
@@ -89,6 +97,10 @@ describe('selected release bootstrap', () => {
       const me = await app.inject({ url: '/api/v1/auth/me', cookies: { [SESSION_COOKIE]: cookie!.value } });
       expect(me.statusCode).toBe(200);
       expect(me.json().data.role).toBe('staff');
+      // 後台的側欄靠這兩份清單決定列出哪幾頁（B13 片3）。
+      expect(me.json().data.permissions).toContain('jobs:read');
+      expect(me.json().data.permissions).not.toContain('*');
+      expect(me.json().data.modules).toContain('platform-site');
 
       const boundary = 'b09-test-boundary';
       const upload = await app.inject({
@@ -120,7 +132,7 @@ describe('selected release bootstrap', () => {
     runtimes.push(result.runtime);
     expect(result.theme?.id).toBe('default');
     expect(result.runtime.config.store.currency).toBe('TWD');
-    expect(result.runtime.modules).toHaveLength(21);
+    expect(result.runtime.modules).toHaveLength(22);
     expect(result.runtime.actorForRole('staff').permissions).toContain('erp:write');
     await result.runtime.migrate();
     await expect(result.runtime.migrate()).resolves.toEqual([]);

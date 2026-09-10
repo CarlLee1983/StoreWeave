@@ -1,5 +1,8 @@
 import { loadReleaseConfig, type BaseConfig, type LoadedConfig } from '@storeweave/config';
-import { closeInReverse, withCleanupDeadline, createLogger, createRuntime, type Runtime, type StorefrontTheme } from '@storeweave/kernel';
+import {
+  assertThemeCoversPages, closeInReverse, withCleanupDeadline, createLogger, createRuntime,
+  type Runtime, type StorefrontTheme,
+} from '@storeweave/kernel';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
 import { PlatformError } from '@storeweave/contracts';
 import type { ReleaseDefinition } from './release';
@@ -38,13 +41,16 @@ export async function bootstrapRelease<C extends BaseConfig>(
       throw PlatformError.validation(`Theme "${config.theme.id}" is not part of release "${release.id}"`);
     }
     if (theme) {
-      const parsed = theme.optionsSchema.safeParse(config.theme.options);
+      // 只驗證並回寫目前選用的那一組：其他 theme 的設定原封留著（ADR 0045）。
+      const parsed = theme.optionsSchema.safeParse(config.theme.options[theme.id] ?? {});
       if (!parsed.success) throw PlatformError.validation(`Invalid theme options for "${theme.id}"`, parsed.error.issues);
-      config.theme.options = parsed.data as Record<string, unknown>;
+      config.theme.options = { ...config.theme.options, [theme.id]: parsed.data as Record<string, unknown> };
     }
     const providers = new ProviderRegistry(logger);
     const modules = release.createModules({ config, providers });
     const manifest = assertReleaseComposition(release, modules);
+    // 缺頁在啟動時拒絕，不留到某位客人按下結帳的那一刻才變成 404（ADR 0045）。
+    if (theme) assertThemeCoversPages(modules, theme);
     const expectedChecksum = process.env.STOREWEAVE_BUILD_MANIFEST_SHA;
     if (expectedChecksum && catalogDigest(manifest) !== expectedChecksum) {
       throw new Error('Release manifest does not match the built artifact');

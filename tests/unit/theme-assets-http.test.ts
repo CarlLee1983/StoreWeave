@@ -74,22 +74,6 @@ describe('Theme-owned storefront assets', () => {
     ]));
   });
 
-  it('keeps an optional Theme layout mounted and renders its missing-layout 404', async () => {
-    const missingLayout = await createReleaseServer({
-      runtime,
-      httpAdapter: storefrontAdapter,
-      theme: { ...defaultTheme, renderContact: undefined },
-      release: { version: 'test', configPath: '<test>' },
-    });
-    try {
-      const response = await missingLayout.inject({ method: 'GET', url: '/contact' });
-      expect(response.statusCode).toBe(404);
-      expect(response.headers['content-type']).toContain('text/html');
-      expect(response.body).toContain('404');
-    } finally {
-      await missingLayout.close();
-    }
-  });
 
   it('adds CORS to the real optional static routes only when configured', async () => {
     const cors = runtime.config.http.cors;

@@ -1,16 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type {
-  ThemeAccountCouponsView,
-  ThemeArticleView,
-  ThemeAccountProfileView,
-  ThemeAccountRewardsView,
-  ThemeAuthView,
-  ThemeCartView,
-  ThemeCheckoutView,
-  ThemeContext,
-  ThemeOrderView,
-  ThemeProductView,
-} from '@storeweave/kernel';
+import type { ThemeAuthView, ThemeContext } from '@storeweave/kernel';
+import type { ThemeCartView, ThemeCheckoutView } from '@storeweave/cart';
+import type { ThemeProductView } from '@storeweave/catalog';
+import type { ThemeArticleView } from '@storeweave/content';
+import type { ThemeAccountCouponsView } from '@storeweave/coupon';
+import type { ThemeAccountProfileView } from '@storeweave/customer';
+import type { ThemeAccountRewardsView } from '@storeweave/loyalty';
+import type { ThemeOrderView } from '@storeweave/order';
 import { defaultTheme } from '../src/index';
 
 /**
@@ -45,7 +41,14 @@ const context = (overrides: Partial<ThemeContext> = {}): ThemeContext => ({
   timeZone: 'Asia/Taipei',
   publicUrl: 'https://woven-day.example.test',
   supportEmail: PROBE,
-  options: { accentColor: '#8C3E28', tagline: PROBE, showSku: true },
+  options: { accentColor: '#8C3E28', showSku: true },
+  tagline: PROBE,
+  footerNote: PROBE,
+  // 導覽現在是後台可編輯的資料，所以它也是一個注入面（ADR 0046）。
+  navigation: {
+    primary: [{ label: PROBE, href: `/${PROBE}` }],
+    footer: [{ label: PROBE, href: `/${PROBE}`, group: PROBE }],
+  },
   customerName: PROBE,
   csrfToken: PROBE,
   notice: PROBE,
@@ -171,34 +174,34 @@ const probeArticle = (kind: ThemeArticleView['kind']): ThemeArticleView => ({
 });
 
 const surfaces: [name: string, render: () => string][] = [
-  ['renderHome', () => defaultTheme.renderHome(context(), {
+  ['renderHome', () => defaultTheme.renderers['commerce.catalog.home'](context(), {
     products: [product], q: PROBE, minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1,
     story: probeArticle('story'), journal: [probeArticle('journal')], news: [probeArticle('news')],
   })],
-  ['renderStory', () => defaultTheme.renderStory!(context(), { article: probeArticle('story') })],
-  ['renderJournalList', () => defaultTheme.renderJournalList!(context(), { kind: 'journal', articles: [probeArticle('journal')] })],
-  ['renderJournalArticle', () => defaultTheme.renderJournalArticle!(context(), { article: probeArticle('journal') })],
-  ['renderNewsList', () => defaultTheme.renderNewsList!(context(), { kind: 'news', articles: [probeArticle('news')] })],
-  ['renderNewsArticle', () => defaultTheme.renderNewsArticle!(context(), { article: probeArticle('news') })],
-  ['renderFaq', () => defaultTheme.renderFaq!(context(), { kind: 'faq', articles: [probeArticle('faq')] })],
+  ['renderStory', () => defaultTheme.renderers['commerce.content.story'](context(), { article: probeArticle('story') })],
+  ['renderJournalList', () => defaultTheme.renderers['commerce.content.journalList'](context(), { kind: 'journal', articles: [probeArticle('journal')] })],
+  ['renderJournalArticle', () => defaultTheme.renderers['commerce.content.journalArticle'](context(), { article: probeArticle('journal') })],
+  ['renderNewsList', () => defaultTheme.renderers['commerce.content.newsList'](context(), { kind: 'news', articles: [probeArticle('news')] })],
+  ['renderNewsArticle', () => defaultTheme.renderers['commerce.content.newsArticle'](context(), { article: probeArticle('news') })],
+  ['renderFaq', () => defaultTheme.renderers['commerce.content.faq'](context(), { kind: 'faq', articles: [probeArticle('faq')] })],
   // The only surface that reflects an attacker's own submission straight back.
-  ['renderContact', () => defaultTheme.renderContact!(context(), {
+  ['renderContact', () => defaultTheme.renderers['commerce.content.contact'](context(), {
     submitted: false, error: PROBE, values: { name: PROBE, email: PROBE, subject: PROBE, message: PROBE },
   })],
-  ['renderProduct', () => defaultTheme.renderProduct(context(), { product })],
-  ['renderCart', () => defaultTheme.renderCart(context(), cart)],
-  ['renderCheckout', () => defaultTheme.renderCheckout(context(), checkout)],
-  ['renderOrder', () => defaultTheme.renderOrder(context(), { order })],
-  ['renderAccountRewards', () => defaultTheme.renderAccountRewards(context(), rewards)],
-  ['renderAccountCoupons', () => defaultTheme.renderAccountCoupons(context(), coupons)],
-  ['renderAccountProfile', () => defaultTheme.renderAccountProfile(context(), profile)],
-  ['renderAccountOrders', () => defaultTheme.renderAccountOrders(context(), {
+  ['renderProduct', () => defaultTheme.renderers['commerce.catalog.product'](context(), { product })],
+  ['renderCart', () => defaultTheme.renderers['commerce.cart.view'](context(), cart)],
+  ['renderCheckout', () => defaultTheme.renderers['commerce.checkout.view'](context(), checkout)],
+  ['renderOrder', () => defaultTheme.renderers['commerce.order.view'](context(), { order })],
+  ['renderAccountRewards', () => defaultTheme.renderers['commerce.loyalty.rewards'](context(), rewards)],
+  ['renderAccountCoupons', () => defaultTheme.renderers['commerce.coupon.accountList'](context(), coupons)],
+  ['renderAccountProfile', () => defaultTheme.renderers['commerce.customer.profile'](context(), profile)],
+  ['renderAccountOrders', () => defaultTheme.renderers['commerce.order.accountList'](context(), {
     orders: [{ number: PROBE, status: PROBE, currency: 'TWD', totalCents: 118_000, placedAt: DATE, lineCount: 1 }],
     limit: 20,
     offset: 0,
     total: 1,
   })],
-  ['renderError', () => defaultTheme.renderError(context(), { status: 404, message: PROBE })],
+  ['renderError', () => defaultTheme.renderers['platform.error'](context(), { status: 404, message: PROBE })],
 ];
 
 const authModes: ThemeAuthView[] = [
@@ -217,13 +220,13 @@ describe('Default Theme 把資料當文字輸出', () => {
   });
 
   it.each(authModes.map((view) => [view.mode, view] as const))('renderAuth（%s）不讓資料變成標記', (_mode, view) => {
-    const html = defaultTheme.renderAuth(context(), view);
+    const html = defaultTheme.renderers['platform.auth'](context(), view);
 
     expectNoMarkupInjection(html);
   });
 
   it('未登入的訪客頁面同樣不被 notice 與店名注入', () => {
-    const html = defaultTheme.renderHome(
+    const html = defaultTheme.renderers['commerce.catalog.home'](
       context({ customerName: null, csrfToken: null }),
       { products: [product], q: PROBE, minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] },
     );
@@ -232,7 +235,7 @@ describe('Default Theme 把資料當文字輸出', () => {
   });
 
   it('CSRF token 進到表單隱藏欄位時是轉義過的值', () => {
-    const html = defaultTheme.renderProduct(context(), { product });
+    const html = defaultTheme.renderers['commerce.catalog.product'](context(), { product });
 
     expectNoMarkupInjection(html);
     expect(html).toContain(`name="_csrf" value="${ESCAPED_PROBE}"`);

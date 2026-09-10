@@ -4,14 +4,14 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LoginPage } from './LoginPage';
 import { I18nProvider } from '../i18n';
-import { api, type CurrentUser } from '../api';
+import { api, type LoginResult } from '../api';
 
 vi.mock('../api', async () => {
   const actual = await vi.importActual<typeof import('../api')>('../api');
   return { ...actual, api: { login: vi.fn() } };
 });
 
-const user: CurrentUser = { id: 'user-1', email: 'owner@storeweave.dev', displayName: 'Owner', role: 'admin' };
+const user: LoginResult = { id: 'user-1', email: 'owner@storeweave.dev', displayName: 'Owner', role: 'admin', cartNotice: null };
 
 function renderPage(onLoggedIn = vi.fn()) {
   return render(<I18nProvider><LoginPage onLoggedIn={onLoggedIn} /></I18nProvider>);
@@ -31,7 +31,7 @@ describe('LoginPage', () => {
     await userEvent.type(screen.getByLabelText('密碼'), 'correct-horse');
     await userEvent.click(screen.getByRole('button', { name: '登入' }));
 
-    expect(api.login).toHaveBeenCalledWith('owner@storeweave.dev', 'correct-horse');
+    expect(api.login).toHaveBeenCalledWith('owner@storeweave.dev', 'correct-horse', undefined);
     await vi.waitFor(() => expect(onLoggedIn).toHaveBeenCalledWith(user));
   });
 
@@ -47,7 +47,7 @@ describe('LoginPage', () => {
   });
 
   it('送出過程中按鈕是 disabled', async () => {
-    let resolveLogin: (value: CurrentUser) => void = () => {};
+    let resolveLogin: (value: LoginResult) => void = () => {};
     vi.mocked(api.login).mockReturnValue(new Promise((resolve) => { resolveLogin = resolve; }));
 
     renderPage();

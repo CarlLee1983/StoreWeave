@@ -26,10 +26,11 @@ worker:
 
 theme:
   id: default
+  # 視覺設定依 theme id 分開保存；標語與導覽是網站資料，不在這裡（ADR 0045、0046）。
   options:
-    accentColor: "#7c3aed"
-    tagline: 每週選書與獨立出版
-    showSku: false
+    default:
+      accentColor: "#7c3aed"
+      showSku: false
 
 admin:
   enabled: true

@@ -5,6 +5,7 @@ import type { MigrationSet } from '@storeweave/db';
 import type { PermissionDefinition, PolicyDefinition } from '@storeweave/authorization';
 import type { JobHandler } from '@storeweave/jobs';
 import type { NotificationsPort } from '@storeweave/notifications';
+import type { PageMap } from './page';
 import type { ScheduleDeclaration } from './schedule-spec';
 import type { JobPayloadContract } from './job-registry';
 
@@ -91,6 +92,11 @@ export interface PlatformModule {
     commands?: readonly ModuleCommandRequirement[];
   }[];
   readonly policies?: readonly PolicyDefinition[];
+  /**
+   * 這個模組帶來的前台頁面。平台只知道「頁面」，領域由模組自己宣告（ADR 0045）；
+   * 沒有前台的模組不宣告這個欄位。
+   */
+  readonly pages?: PageMap;
   /**
    * One-shot composition hook. Modules are built before the runtime exists, so a
    * module that notifies people receives the capability here rather than looking

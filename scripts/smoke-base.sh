@@ -36,6 +36,9 @@ expect 'Base jobs endpoint' 200 /api/v1/system/jobs/dead -H "authorization: Bear
 expect 'Base quarantined jobs endpoint' 200 /api/v1/system/jobs/quarantined -H "authorization: Bearer $ADMIN_TOKEN"
 expect 'Base outbox failures endpoint' 200 /api/v1/system/outbox/failures -H "authorization: Bearer $ADMIN_TOKEN"
 
-for path in / /api/v1/products /admin /storefront-assets/woven-day-hero.png /mcp; do
+# base 也是一個網站：首頁渲染得出來，導覽來自 release 預設值（ADR 0046）。
+expect 'Base storefront home' 200 /
+
+for path in /api/v1/products /admin /storefront-assets/woven-day-hero.png /mcp; do
   expect "Commerce path absent: $path" 404 "$path"
 done

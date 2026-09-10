@@ -13,6 +13,7 @@ import {
 import { getCustomerHandler, getCustomerQuery, getMyProfileHandler, getMyProfileQuery, listCustomersHandler, listCustomersQuery } from './queries';
 import { customerEvents } from './events';
 import { customerMigrations } from './migrations';
+import { customerPages } from './pages';
 
 export const customerModule = defineModule({
   name: 'customer',
@@ -42,4 +43,5 @@ export const customerModule = defineModule({
     { descriptor: listCustomersQuery, handler: listCustomersHandler },
     { descriptor: getCustomerQuery, handler: getCustomerHandler },
   ],
+  pages: customerPages,
 });

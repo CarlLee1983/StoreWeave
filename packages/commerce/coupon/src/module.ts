@@ -11,6 +11,7 @@ import {
 } from './commands';
 import { BIRTHDAY_COUPONS_JOB, createBirthdayCouponsJob } from './jobs';
 import { couponMigrations } from './migrations';
+import { couponPages } from './pages';
 import {
   attributionSummaryQuery, createAttributionSummaryHandler,
   createPromotionPerformanceHandler, promotionPerformanceQuery,
@@ -83,5 +84,6 @@ export function createCouponModule(options: Omit<CouponModuleDeps, 'notification
     { descriptor: promotionPerformanceQuery, handler: createPromotionPerformanceHandler(deps) },
     { descriptor: listMyCouponsQuery, handler: createListMyCouponsHandler(deps) },
   ],
+  pages: couponPages,
   });
 }

@@ -46,6 +46,19 @@ const user = {
   type: 'object', required: ['id', 'email', 'displayName', 'role'], additionalProperties: false,
   properties: { id: { type: 'string' }, email: { type: 'string' }, displayName: { type: 'string' }, role: { type: 'string' } },
 } as const satisfies JsonSchema7Type;
+/**
+ * `me` 比登入多回兩份清單：這個角色有哪些權限，以及這個 release 載入了哪些模組。
+ * 後台的側欄與命令面板靠它決定列出哪幾頁（B13 片3）——隱藏不是權限檢查，
+ * 直接打 URL 仍然由後端授權，這裡管的是不要給人按不動的按鈕。
+ */
+const currentUser = {
+  ...user, required: [...user.required, 'permissions', 'modules'], additionalProperties: false,
+  properties: {
+    ...user.properties,
+    permissions: { type: 'array', items: { type: 'string' } },
+    modules: { type: 'array', items: { type: 'string' } },
+  },
+} as const satisfies JsonSchema7Type;
 const accepted = {
   type: 'object', required: ['accepted'], additionalProperties: false,
   properties: { accepted: { type: 'boolean', const: true } },
@@ -66,7 +79,7 @@ const routes = {
   logout: { kind: 'direct', request: 'none', input: emptyInput, output: response({
     type: 'object', required: ['loggedOut'], additionalProperties: false, properties: { loggedOut: { type: 'boolean', const: true } },
   }) },
-  me: { kind: 'direct', request: 'none', auth: 'session', input: emptyInput, output: response(user) },
+  me: { kind: 'direct', request: 'none', auth: 'session', input: emptyInput, output: response(currentUser) },
   changePassword: { kind: 'direct', request: 'body', auth: 'session', input: zodToJsonSchema(changePasswordInput as never, { target: 'jsonSchema7' }), output: response({
     type: 'object', required: ['changed'], additionalProperties: false, properties: { changed: { type: 'boolean', const: true } },
   }) },
@@ -157,6 +170,9 @@ export class AuthController {
       email: resolved.user.email,
       displayName: resolved.user.displayName,
       role: resolved.user.role,
+      // 角色的權限由 release 的角色目錄決定，不是由前端猜的。
+      permissions: [...(roleFor(this.runtime.roles, resolved.user.role)?.permissions ?? [])],
+      modules: this.runtime.modules.map(module => module.name),
     });
   }
 

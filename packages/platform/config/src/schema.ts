@@ -206,7 +206,11 @@ const commonConfigSchema = z.object({
   shutdown: z.object({ timeoutMs: z.number().int().positive().default(25_000) }).default({}),
   theme: z.object({
     id: z.string().default('default'),
-    options: z.record(z.unknown()).default({}),
+    /**
+     * 視覺設定依 theme id 分開保存（ADR 0045）：換過去再換回來，原本的配色與設定還在。
+     * 舊的扁平寫法會在這裡被擋下來，不會被當成某個 theme 的設定安靜吃掉。
+     */
+    options: z.record(z.record(z.unknown())).default({}),
   }).default({}),
   admin: z.object({
     enabled: z.boolean().default(true),
@@ -257,7 +261,8 @@ export const baseConfigSchema = commonConfigSchema.extend({
   store: commonConfigSchema.shape.store.extend({
     locale: z.string().default('en'), timezone: timeZoneSchema.default('UTC'),
   }).strict(),
-  theme: commonConfigSchema.shape.theme.removeDefault().extend({ id: z.string().default('none') }).default({}),
+  // base release 有自己的通用 theme；沒有商務模組不代表沒有網站（ADR 0046）。
+  theme: commonConfigSchema.shape.theme.removeDefault().extend({ id: z.string().default('base') }).default({}),
   admin: commonConfigSchema.shape.admin.removeDefault().extend({ enabled: z.boolean().default(false) }).default({}),
   mcp: commonConfigSchema.shape.mcp.removeDefault().extend({ enabled: z.boolean().default(false) }).default({}),
   logging: commonConfigSchema.shape.logging.removeDefault().extend({

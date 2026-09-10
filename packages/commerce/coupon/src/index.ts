@@ -6,5 +6,6 @@ export * from './jobs';
 export * from './commands';
 export * from './migrations';
 export * from './module';
+export * from './pages';
 export * from './queries';
 export * from './service';

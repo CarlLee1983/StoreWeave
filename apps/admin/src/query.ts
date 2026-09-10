@@ -49,3 +49,9 @@ export const erpDeliveryKeys = { all: ['erp-deliveries'] as const, lists: ['erp-
 export const deadJobKeys = { all: ['dead-jobs'] as const, lists: ['dead-jobs', 'list'] as const, list: (input: { limit: number; offset: number }) => [...deadJobKeys.lists, input] as const };
 export const healthKeys = { all: ['health'] as const, dependencies: ['health', 'dependencies'] as const };
 export const contactMessageKeys = { all: ['contact-messages'] as const, lists: ['contact-messages', 'list'] as const, list: (input: { status?: string; limit: number; offset: number }) => [...contactMessageKeys.lists, input] as const };
+
+// B13 片4／片5：平台分組的頁面。
+export const operatorKeys = { all: ['operators'] as const, lists: ['operators', 'list'] as const, list: (input: { limit: number; offset: number }) => [...operatorKeys.lists, input] as const };
+export const apiTokenKeys = { all: ['api-tokens'] as const, list: ['api-tokens', 'list'] as const };
+export const inboxKeys = { all: ['inbox'] as const, lists: ['inbox', 'list'] as const, list: (input: { limit: number; offset: number; unreadOnly: boolean }) => [...inboxKeys.lists, input] as const };
+export const accountKeys = { all: ['account'] as const, mfa: ['account', 'mfa'] as const };
