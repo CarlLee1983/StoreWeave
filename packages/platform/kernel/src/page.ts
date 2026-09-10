@@ -175,9 +175,9 @@ export function collectPages(modules: readonly PlatformModule[]): readonly Store
  * 沒有自己的路由，但任何 release 都會用到的頁面。錯誤頁是別條路由失敗時的結果，
  * 所以不由誰「宣告」，而是每個 Theme 都必須提供。
  *
- * `platform.auth` 是註冊、忘記密碼與重設密碼共用的版型，還留在這裡：登入與登出已經
- * 由 `platform-auth` 模組宣告（工單 94），其餘三者待工單 95、96。工單 98 會把這個清單
- * 收到只剩錯誤頁。
+ * `platform.auth` 是四種認證模式共用的聯集版型，還留在這裡：四頁都已經由 `platform-auth`
+ * 模組宣告（工單 94、95、96），但拆成四個各自獨立的 view 型別是工單 98 的工作，
+ * 那一票才會把這個清單收到只剩錯誤頁。
  */
 export const SYSTEM_PAGE_IDS = ['platform.error', 'platform.auth'] as const;
 

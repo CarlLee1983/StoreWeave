@@ -644,14 +644,15 @@ describe('Storefront SSR', () => {
     expect(pages.filter(route => route.request === 'none')).toHaveLength(17);
     expect(pages.filter(route => route.request === 'query')).toHaveLength(8);
     expect(pages.filter(route => route.request === 'form')).toHaveLength(15);
-    // 登入與登出從 anonymous 變成 session-or-anonymous：宣告頁面沒有 per-page 的強制匿名，
-    // 而拿掉登出的 CSRF 豁免正是工單 94 的決定（ADR 0047）。
-    expect(pages.filter(route => route.auth === 'session-or-anonymous')).toHaveLength(33);
-    expect(pages.filter(route => route.auth === 'anonymous')).toHaveLength(6);
+    // 四組認證頁全部從 anonymous 變成 session-or-anonymous：宣告頁面沒有 per-page 的強制
+    // 匿名，而拿掉登出的 CSRF 豁免正是工單 94 的決定（ADR 0047）。前台已經沒有強制匿名的頁面。
+    expect(pages.filter(route => route.auth === 'session-or-anonymous')).toHaveLength(39);
+    expect(pages.filter(route => route.auth === 'anonymous')).toHaveLength(0);
     expect(pages.filter(route => route.auth === 'opaque-capability')).toHaveLength(1);
-    // 登入頁的 GET 現在也宣告了 303（已登入者被轉走），所以它從「只有 HTML」那一組移到混合那一組。
-    expect(pages.filter(route => route.responses.every(response => response.kind === 'html'))).toHaveLength(16);
-    expect(pages.filter(route => route.responses.some(response => response.kind === 'html') && route.responses.some(response => response.kind === 'redirect'))).toHaveLength(24);
+    // 登入頁與註冊頁的 GET 都宣告了 303（已登入者被轉走），所以兩者從「只有 HTML」那一組
+    // 移到混合那一組。
+    expect(pages.filter(route => route.responses.every(response => response.kind === 'html'))).toHaveLength(15);
+    expect(pages.filter(route => route.responses.some(response => response.kind === 'html') && route.responses.some(response => response.kind === 'redirect'))).toHaveLength(25);
     expect(pages.filter(route => route.responses.every(response => response.kind === 'redirect'))).toHaveLength(0);
     const root = pages.find(route => route.path === '/')!;
     const pay = pages.find(route => route.path === '/orders/:number/pay')!;

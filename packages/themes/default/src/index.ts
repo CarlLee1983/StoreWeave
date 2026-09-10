@@ -170,6 +170,7 @@ function renderPasswordForm(
         ${feedback(notice)}
         ${feedback(error, 'error')}
         ${notice && forgot ? '' : `<form class="auth-form" method="post" action="${forgot ? '/forgot-password' : '/reset-password'}">
+          ${csrfField(ctx)}
           ${forgot
             ? `<label>電子郵件<input type="email" name="email" required placeholder="you@example.com" autocomplete="email"></label>`
             : `<input type="hidden" name="token" value="${escapeHtml(token ?? '')}">
@@ -1226,6 +1227,7 @@ export function renderAuth(ctx: ThemeContext, view: ThemeAuthView): string {
           </div>
           ${feedback(error, 'error')}
           <form class="auth-form" method="post" action="${login ? '/login' : '/register'}">
+            ${csrfField(ctx)}
             <input type="hidden" name="next" value="${escapeHtml(next)}">
             <label>電子郵件
               <input type="email" name="email" required placeholder="you@example.com" autocomplete="email">
@@ -1279,10 +1281,16 @@ export const defaultTheme = defineTheme<ServedPages>({
   editorialImageKeys: EDITORIAL_IMAGE_KEYS,
 
   renderers: {
-    // 登入的顯示頁與送出頁共用同一個渲染函式，和聯絡我們同一個做法。
-    // `platform.auth` 系統頁還在，因為註冊／忘記密碼／重設密碼尚未遷移（工單 95、96）。
+    // 每組認證頁的顯示與送出共用同一個 renderer，和聯絡我們同一個做法。
+    // `platform.auth` 系統頁還在：四種版型的聯集型別與這份清單要到工單 98 才收掉。
     'platform.auth.login': renderAuth,
     'platform.auth.submitLogin': renderAuth,
+    'platform.auth.forgotPassword': renderAuth,
+    'platform.auth.submitForgotPassword': renderAuth,
+    'platform.auth.resetPassword': renderAuth,
+    'platform.auth.submitResetPassword': renderAuth,
+    'platform.auth.register': renderAuth,
+    'platform.auth.submitRegister': renderAuth,
     'commerce.catalog.home': renderHome,
     'commerce.catalog.view': renderCatalog,
     'commerce.catalog.product': renderProduct,

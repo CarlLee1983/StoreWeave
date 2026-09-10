@@ -20,7 +20,6 @@ type RedirectLocation = Extract<StorefrontResponse, { kind: 'redirect' }>['locat
 const redirect = (location: RedirectLocation): StorefrontResponse =>
   ({ kind: 'redirect', status: 303, location });
 const htmlOnly = (): readonly StorefrontResponse[] => [html(), html('platform-error')];
-const plainHtml = (): readonly StorefrontResponse[] => [html()];
 const pageOrRedirect = (): readonly StorefrontResponse[] => [html(), html('platform-error'), redirect({ kind: 'server-constructed' })];
 const redirectOrError = (location: Parameters<typeof redirect>[0]): readonly StorefrontResponse[] => [html('platform-error'), redirect(location)];
 const redirectOrHtml = (status: number, location: Parameters<typeof redirect>[0]): readonly StorefrontResponse[] => [html(status), redirect(location)];
@@ -71,10 +70,4 @@ export const storefrontContracts = {
   pickupStorePicker: storefront({ request: 'query', input: query('token'), audience: 'customer', responses: pageOrRedirect(), cookieEffects: notice }),
   completePickupSelection: storefront({ request: 'form', input: form('token', 'providerStoreId'), auth: 'opaque-capability', responses: redirectOrError({ kind: 'server-constructed' }) }),
   checkout: storefront({ request: 'form', rateLimit: 'cart', input: form('cartId', 'shippingMethodId', 'pickupSelectionToken', 'pickupRecipient', 'pickupPhone', 'recipient', 'phone', 'postcode', 'city', 'district', 'line1', 'line2', 'paymentProvider', 'paymentMethod', 'invoicePreference', 'invoiceCarrierNumber', 'invoiceLoveCode'), audience: 'customer', responses: redirectOrError({ kind: 'server-constructed' }), cookieEffects: notice }),
-  forgotPasswordPage: storefront({ request: 'none', input: none(), responses: plainHtml() }),
-  forgotPassword: storefront({ request: 'form', rateLimit: 'auth', input: form('email'), responses: plainHtml() }),
-  resetPasswordPage: storefront({ request: 'query', input: query('token'), responses: plainHtml() }),
-  resetPassword: storefront({ request: 'form', rateLimit: 'auth', input: form('token', 'password'), responses: [html(400), redirect({ kind: 'fixed', value: '/login' })] }),
-  registerPage: storefront({ request: 'query', input: query('next'), responses: plainHtml() }),
-  register: storefront({ request: 'form', rateLimit: 'auth', input: form('email', 'password', 'displayName', 'next'), responses: [html(400), redirect({ kind: 'validated-same-origin' })], cookieEffects: ['session-start'] }),
 } as const;

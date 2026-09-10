@@ -342,7 +342,12 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
         // 兩者都延後取值，和同檔 mail 的做法一致：這個迴圈已經因為建構順序被搬過一次，
         // 傳值的寫法下次再搬就會靜默變成 undefined。
         get notifications() { return notifications; },
-        authentication: { authenticate: input => auth.authenticate(database.db, input) },
+        authentication: {
+          authenticate: input => auth.authenticate(database.db, input),
+          requestPasswordReset: input => auth.requestPasswordReset(input),
+          resetPassword: async input => { await auth.resetPassword(input); },
+        },
+        logger,
       });
     }
 

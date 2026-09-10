@@ -443,6 +443,101 @@ describe('CSRF 與跨站送出（真實表單路徑）', () => {
     expect(after.statusCode).toBe(401);
   });
 
+  it('註冊完成就是登入狀態，並回到指定的站內去處（工單 95）', async () => {
+    const res = await inject({
+      method: 'POST', url: '/register',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'email=register-signs-in%40example.com&password=a-good-password&next=%2Fcart',
+    });
+
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe('/cart');
+    const session = cookieValue(res, SESSION_COOKIE);
+    expect(session).toBeTruthy();
+
+    // 真的是登入狀態，不只是拿到一張 cookie。
+    const me = await inject({ url: '/api/v1/auth/me', cookies: { [SESSION_COOKIE]: session! } });
+    expect(me.statusCode).toBe(200);
+    expect(me.json().data.email).toBe('register-signs-in@example.com');
+  });
+
+  it('註冊的轉址一樣不能離站', async () => {
+    const res = await inject({
+      method: 'POST', url: '/register',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'email=register-open-redirect%40example.com&password=a-good-password&next=https%3A%2F%2Fevil.example',
+    });
+
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe('/');
+  });
+
+  it('購物站的註冊同時建立 Account 與 Customer，不留下孤兒帳號（工單 95）', async () => {
+    await inject({
+      method: 'POST', url: '/register',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'email=register-creates-customer%40example.com&password=a-good-password',
+    });
+
+    const account = await h.runtime.database.pool.query(
+      'SELECT id FROM platform_users WHERE lower(email) = lower($1)', ['register-creates-customer@example.com'],
+    );
+    expect(account.rows).toHaveLength(1);
+    const customer = await h.runtime.database.pool.query(
+      'SELECT account_id FROM customer_customers WHERE account_id = $1', [account.rows[0].id],
+    );
+    expect(customer.rows).toHaveLength(1);
+  });
+
+  it('信箱已經註冊過時回中性訊息，不告訴對方這個帳號存在（工單 95）', async () => {
+    const email = 'register-duplicate@example.com';
+    const payload = `email=${encodeURIComponent(email)}&password=a-good-password`;
+    const first = await inject({
+      method: 'POST', url: '/register',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' }, payload,
+    });
+    expect(first.statusCode).toBe(303);
+
+    const again = await inject({
+      method: 'POST', url: '/register',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' }, payload,
+    });
+
+    expect(again.statusCode).toBe(400);
+    expect(again.body).toContain('無法用這組資料註冊');
+    // 訊息裡不能出現那個信箱，否則它自己就是那條枚舉管道。
+    expect(again.body).not.toContain(email);
+    expect(cookieValue(again, SESSION_COOKIE)).toBeUndefined();
+  });
+
+  it('密碼太短時回自己的那句話，不把註冊命令的名字印給訪客看（工單 95 的 review）', async () => {
+    const res = await inject({
+      method: 'POST', url: '/register',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'email=register-short-password%40example.com&password=short',
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain('請確認電子郵件格式與密碼長度');
+    expect(res.body).not.toContain('commerce.customer.registerCustomer');
+  });
+
+  it('已經是會員的人打開註冊頁被帶走，不會拿到一張註冊不成功的表單', async () => {
+    const session = await memberSession('already-a-member@example.com');
+
+    const res = await inject({ url: '/register?next=%2Faccount', cookies: { [SESSION_COOKIE]: session } });
+
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe('/account');
+  });
+
+  it('未登入的人拿得到註冊表單', async () => {
+    const res = await inject({ url: '/register' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('form');
+  });
+
   it('缺 _csrf 的結帳被擋下來', async () => {
     const session = await memberSession('csrf-checkout@example.com');
     const product = await createProduct(h.runtime, { sku: 'CSRF-CHECKOUT', name: 'CSRF' });
@@ -524,6 +619,19 @@ describe('前台表單路由的節流', () => {
         method: 'POST', url: '/login',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         payload: 'email=throttle-front%40example.com&password=wrong-password',
+      });
+      if (res.statusCode === 429) limited = true;
+    }
+    expect(limited).toBe(true);
+  });
+
+  it('註冊也受節流，行為與遷移前一致（工單 95）', async () => {
+    let limited = false;
+    for (let attempt = 0; attempt < 25 && !limited; attempt += 1) {
+      const res = await inject({
+        method: 'POST', url: '/register',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        payload: `email=throttle-register-${attempt}%40example.com&password=a-good-password`,
       });
       if (res.statusCode === 429) limited = true;
     }

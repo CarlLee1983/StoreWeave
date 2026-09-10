@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { SESSION_COOKIE, createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
+import { csrfTokenFor } from '@storeweave/identity';
 import { createHarness, type TestHarness } from './helpers';
 
 /** 密碼重設與改密碼撤銷 session（工單 18）。 */
@@ -83,6 +84,19 @@ describe('請求重設密碼', () => {
     expect((await resetMails()).length).toBe(before);
   });
 
+  it('已登入的使用者也能送出忘記密碼表單', async () => {
+    const session = await signUp('reset-session-forgot@example.com');
+    const res = await inject({
+      method: 'POST', url: '/forgot-password',
+      cookies: { [SESSION_COOKIE]: session },
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `email=reset-session-forgot%40example.com&_csrf=${encodeURIComponent(csrfTokenFor(session))}`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('若這個電子郵件存在');
+  });
+
   it('資料庫裡沒有任何可以重建連結的材料', async () => {
     await signUp('reset3@example.com');
     await requestReset('reset3@example.com');
@@ -109,9 +123,26 @@ describe('使用重設連結', () => {
       payload: `token=${encodeURIComponent(token)}&password=brand-new-password`,
     });
     expect(done.statusCode).toBe(303);
+    expect(done.headers.location).toBe('/login');
 
     expect((await login('reset4@example.com', 'brand-new-password')).statusCode).toBe(200);
     expect((await login('reset4@example.com', 'old-password-1')).statusCode).toBe(401);
+  });
+
+  it('已登入的使用者也能送出重設密碼表單', async () => {
+    const session = await signUp('reset-session-complete@example.com');
+    await requestReset('reset-session-complete@example.com');
+    const token = await resetTokenFor('reset-session-complete@example.com');
+
+    const done = await inject({
+      method: 'POST', url: '/reset-password',
+      cookies: { [SESSION_COOKIE]: session },
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `token=${encodeURIComponent(token)}&password=brand-new-password&_csrf=${encodeURIComponent(csrfTokenFor(session))}`,
+    });
+
+    expect(done.statusCode).toBe(303);
+    expect(done.headers.location).toBe('/login');
   });
 
   it('同一個 token 只能用一次', async () => {

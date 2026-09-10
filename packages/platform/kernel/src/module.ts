@@ -1,5 +1,5 @@
 import type {
-  CommandDescriptor, CommandHandler, DomainEventDescriptor, EventHandlerFn, QueryDescriptor, QueryHandler,
+  CommandDescriptor, CommandHandler, DomainEventDescriptor, EventHandlerFn, Logger, QueryDescriptor, QueryHandler,
 } from '@storeweave/contracts';
 import type { MigrationSet } from '@storeweave/db';
 import type { PermissionDefinition, PolicyDefinition } from '@storeweave/authorization';
@@ -17,6 +17,8 @@ import type { JobPayloadContract } from './job-registry';
 export interface PlatformPorts {
   readonly notifications: NotificationsPort;
   readonly authentication: AuthenticationPort;
+  /** 模組只拿到結構化記錄能力；沒有請求、回應或資料庫等執行期握柄。 */
+  readonly logger: Logger;
 }
 
 /**
@@ -29,6 +31,9 @@ export interface AuthenticationPort {
   readonly authenticate: (input: {
     email: string; password: string; userAgent?: string; mfaCode?: string; recoveryCode?: string;
   }) => Promise<IssuedSession>;
+  /** 忘記密碼與重設密碼同樣不是 Command：此刻通常還沒有 Actor。 */
+  readonly requestPasswordReset: (input: { email: string; ttlMs?: number }) => Promise<void>;
+  readonly resetPassword: (input: { token: string; newPassword: string }) => Promise<void>;
 }
 
 export interface ModuleDependency {

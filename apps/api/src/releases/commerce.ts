@@ -42,8 +42,8 @@ export const httpAdapter: ReleaseHttpAdapter = {
     ];
     if (config.mcp.enabled) controllers.push(McpController);
     if (theme) {
-      // 前台路由來自模組宣告的頁面；StorefrontController 只剩註冊、忘記密碼、重設密碼、
-      // 外部回呼與 Theme 靜態資產（ADR 0045；登入與登出已於工單 94 遷移）。
+      // 前台路由來自模組宣告的頁面；StorefrontController 只剩外部回呼與 Theme 靜態資產
+      // （ADR 0045；登入、登出、註冊與密碼重設四組都已遷移，工單 94-96）。
       const deps = { runtime, theme, anonymousRole: 'storefront' };
       controllers.push(createStorefrontController(collectPages(runtime.modules), {
         theme,
