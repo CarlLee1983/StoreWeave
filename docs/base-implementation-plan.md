@@ -3,7 +3,7 @@
 - 規格：[Spec 0009](specs/0009-complete-modular-base.md)，能力範圍與最終驗收以該文件為準。
 - 日期／盤點基準：2026-09-07，`1f4470d`；Spec 0008 Ticket 81–90 已完成，保留已驗證的未提交工作樹。
 - 工作包 B00–B17 是本機規劃識別，不是 GitHub Issue，也不佔用既有 Ticket 92 之後的編號。
-- 執行狀態：B00–B04 `done`，見 [B00 驗證紀錄](base/b00/README.md)、[B01 紀錄](base/b01/README.md)、[B02 驗收對照](base/b02/acceptance.md)、[B03 紀錄](base/b03/README.md)（2026-09-08 結案，final-source gates 與獨立 review 齊備）、[B04 紀錄](base/b04/README.md)（五片實作與三份獨立 5b review 全部結案，P0／P1 皆已修並附量體證據；typecheck、unit、完整 integration 與 Docker／native smoke 實跑通過），依 [B01–B04 派工契約](base/b00/next-work-cards.md) 執行。B05 `in_progress`，由另一條工作線在獨立分支進行；本文件未核對其交付，結案證據以該線提出者為準。[B12](base/b12/README.md) `done`（三片實作與三份獨立審查全部結案，CRITICAL／HIGH 皆已修並補回歸；typecheck、unit、admin、完整 integration 與 Docker／native 各兩種 release 的 smoke 實跑通過）。其餘 B06–B17 `planned`，依下列前置及契約審查解鎖。planned 不代表可直接丟給多位 writer 同時開工。
+- 執行狀態：B00–B04 `done`，見 [B00 驗證紀錄](base/b00/README.md)、[B01 紀錄](base/b01/README.md)、[B02 驗收對照](base/b02/acceptance.md)、[B03 紀錄](base/b03/README.md)（2026-09-08 結案，final-source gates 與獨立 review 齊備）、[B04 紀錄](base/b04/README.md)（五片實作與三份獨立 5b review 全部結案，P0／P1 皆已修並附量體證據；typecheck、unit、完整 integration 與 Docker／native smoke 實跑通過），依 [B01–B04 派工契約](base/b00/next-work-cards.md) 執行。B05 `in_progress`，由另一條工作線在獨立分支進行；本文件未核對其交付，結案證據以該線提出者為準。[B12](base/b12/README.md) `done`（三片實作與三份獨立審查全部結案，CRITICAL／HIGH 皆已修並補回歸；typecheck、unit、admin、完整 integration 與 Docker／native 各兩種 release 的 smoke 實跑通過）。B06–B09、B11 `done`。[B13](base/b13/README.md) `in_progress`（2026-09-10 開工，決策見 [ADR 0045](adr/0045-modules-declare-storefront-pages.md)）。其餘 B10、B14–B17 `planned`，依下列前置及契約審查解鎖。planned 不代表可直接丟給多位 writer 同時開工。
 
 ## 1. 接手與派工方式
 
