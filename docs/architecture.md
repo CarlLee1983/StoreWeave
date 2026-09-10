@@ -1,5 +1,9 @@
 # 架構
 
+本文件描述目前架構。跨應用的共用目標與分工見
+[通用應用基底與產品分工](reusable-application-base.md)；該方向包含 HTTP、Admin、CLI 與建置部署工具，
+尚未全部完成拆分，不限於目前的 Commerce 產品或 kernel。
+
 ## 平台與產品
 
 `packages/platform` 是領域中立的應用平台。它只認得 Command、Query、Event、Job、Permission、Extension、Theme，不認識商品、庫存或訂單。
@@ -8,7 +12,8 @@
 
 `commerce.order.placeOrder` 這類名稱屬於 commerce 模組的公開契約，不是 kernel 的限制。事件格式只要求 `<context>.<aggregate>.<action>.vN`，`cms.post.published.v1` 與 `booking.slot.reserved.v1` 都能掛上同一套 Bus。
 
-設定檔、CLI、Admin、Storefront 目前仍是商店產品的介面（見 ADR 0010）。通用殼不在 kernel 範圍內。
+設定檔、CLI、Admin、Storefront 目前仍混有商店產品的責任（見 ADR 0010 的歷史範圍）。
+後續須區分共用機制與產品組裝；共用介面與工具有各自的責任，不全部放進 kernel。
 
 ## 目錄結構
 
