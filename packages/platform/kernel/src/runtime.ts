@@ -27,6 +27,7 @@ import type { Keyring } from '@storeweave/crypto';
 import { createHash } from 'node:crypto';
 import { cacheMigrations, PostgresCacheManager, PostgresMutexManager, type CacheScope, type MutexScope } from '@storeweave/cache';
 import { LocalObjectStore, S3ObjectStore, StorageManager, storageMigrations, type StorageScope } from '@storeweave/storage';
+import { MEDIA_NAMESPACE, MEDIA_ORPHAN_CLEANUP_JOB, MEDIA_PROCESS_JOB, MediaService, mediaMigrations, mediaOrphanCleanupPayload, mediaProcessPayload } from '@storeweave/media';
 import { MailService, createMailJob, MAIL_SEND_JOB, mailMigrations, mailSendJobPayload } from '@storeweave/mail';
 import {
   NOTIFICATION_DELIVER_JOB, NotificationService, createListDeliveriesHandler, createListInboxHandler,
@@ -107,6 +108,8 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
   readonly mcpTools: McpToolRegistry;
   readonly extensions: ExtensionHost;
   readonly storage: StorageManager;
+  /** Image identity, processing, references, and deletion policy; B09 keeps byte ownership. */
+  readonly media: MediaService;
   /** Base mail capability. SMTP is disabled unless explicitly configured. */
   readonly mail: MailService;
   /** Base notification capability: generic recipients, per-channel delivery evidence. */
@@ -125,7 +128,7 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
 }
 
 /** Pure composition shared by runtime and release metadata projection; no handlers execute here. */
-export function composeRuntimeModules({ modules, roles, logger, platformVersion, jobs, events, outbox, scheduler, cache, mail, notifications, identityCleanup }: {
+export function composeRuntimeModules({ modules, roles, logger, platformVersion, jobs, events, outbox, scheduler, cache, media, mail, notifications, identityCleanup }: {
   modules: readonly PlatformModule[];
   roles: ReleaseRoleCatalog;
   logger: Logger;
@@ -135,6 +138,7 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
   outbox: OutboxStore;
   scheduler: () => RecurringScheduler;
   cache?: () => CacheScope;
+  media?: () => MediaService | undefined;
   /** Deferred because module metadata is composed before runtime resources exist. */
   mail?: () => MailService | undefined;
   notifications?: () => NotificationService | undefined;
@@ -163,6 +167,36 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
       { key: 'storage:delete', description: 'Delete stored objects', owner: 'platform-storage' },
       { key: 'storage:share', description: 'Issue signed download URLs', owner: 'platform-storage' },
       { key: 'storage:publish', description: 'Publish objects for unauthenticated download', owner: 'platform-storage' },
+    ],
+  };
+  const mediaModule: PlatformModule = {
+    name: 'platform-media', version: packageJson.version, baseVersionRange: '^1.0.0',
+    dependencies: { required: [{ name: 'platform-storage', versionRange: '^0.1.0' }] },
+    migrations: mediaMigrations,
+    data: { owns: ['platform_media_assets', 'platform_media_references'] },
+    permissions: [
+      { key: 'media:read', description: 'Read media library metadata and previews', owner: 'platform-media' },
+      { key: 'media:write', description: 'Upload and update media library assets', owner: 'platform-media' },
+      { key: 'media:delete', description: 'Delete unreferenced media library assets', owner: 'platform-media' },
+    ],
+    jobs: [
+      { type: MEDIA_PROCESS_JOB, handler: async (payload, ctx) => {
+        const service = media?.();
+        if (!service) throw new Error('Media service is not ready');
+        await service.process(mediaProcessPayload.parse(payload), ctx);
+      }, jobContractV1: {
+        currentVersion: 1, versions: { 1: mediaProcessPayload },
+        execution: { timeoutMs: 45_000, concurrencyKey: 'platform-media-processing', concurrencyLimit: 2 },
+      } },
+      { type: MEDIA_ORPHAN_CLEANUP_JOB, handler: async (payload) => {
+        mediaOrphanCleanupPayload.parse(payload);
+        const service = media?.();
+        if (!service) throw new Error('Media service is not ready');
+        await service.cleanup();
+      }, schedule: { everyMs: 24 * 60 * 60 * 1_000, overlap: 'skip' }, jobContractV1: {
+        currentVersion: 1, versions: { 1: mediaOrphanCleanupPayload },
+        execution: { timeoutMs: 60_000, concurrencyKey: 'platform-media-cleanup', concurrencyLimit: 1 },
+      } },
     ],
   };
   const mailModule: PlatformModule = {
@@ -195,7 +229,7 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
       jobContractV1: { currentVersion: 1, versions: { 1: notificationDeliverJobPayload }, execution: { timeoutMs: 60_000, concurrencyKey: 'platform-mail-smtp', concurrencyLimit: 4 } } }],
   };
   return validateModuleGraph(
-    [platformModule, cacheModule, storageModule, mailModule, notificationsModule, createOpsModule(jobs, {
+    [platformModule, cacheModule, storageModule, mediaModule, mailModule, notificationsModule, createOpsModule(jobs, {
       events, outbox, scheduler,
       cache: cache ?? (() => { throw new Error('Cache scope is not configured'); }),
     }), createIdentityModule(roles, identityCleanup ?? (() => undefined)), ...modules], platformVersion,
@@ -225,6 +259,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
   let scheduler: RecurringScheduler | undefined;
   let opsCache: ModuleCacheScopes | undefined;
   let mail: MailService | undefined;
+  let media: MediaService | undefined;
   let notifications: NotificationService | undefined;
   let identityCleanupDeps: IdentityCleanupDeps | undefined;
   const allModules = composeRuntimeModules({
@@ -237,6 +272,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       if (!opsCache) throw new Error('Cache scope is not ready yet');
       return opsCache.cache;
     },
+    media: () => media,
     mail: () => mail,
     notifications: () => notifications,
     identityCleanup: () => identityCleanupDeps,
@@ -279,6 +315,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       });
     })();
   const storage = new StorageManager(database.pool, objectStore, config.storage.maxUploadBytes);
+  media = new MediaService(database, storage.forNamespace(MEDIA_NAMESPACE), jobs);
   mail = new MailService(database, jobs, storage, config, secrets, logger);
   notifications = new NotificationService(database, mail, logger, (tx, job) => jobs.enqueue(tx, job));
   const mutex = new PostgresMutexManager({
@@ -342,6 +379,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
         // 兩者都延後取值，和同檔 mail 的做法一致：這個迴圈已經因為建構順序被搬過一次，
         // 傳值的寫法下次再搬就會靜默變成 undefined。
         get notifications() { return notifications; },
+        get media() { return media!.references; },
         authentication: {
           authenticate: input => auth.authenticate(database.db, input),
           register: input => auth.register(input),
@@ -407,7 +445,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     let activatedRelease: Readonly<{ readonly id: string; readonly version: string }> | null = null;
 
     const runtime: Runtime<C> = {
-      roles: options.roles, config, secrets, keyring, logger, database, authorization, auth, apiTokens, mfa, audit, outbox, jobs, jobRegistry, recurring, storage, mail, notifications,
+      roles: options.roles, config, secrets, keyring, logger, database, authorization, auth, apiTokens, mfa, audit, outbox, jobs, jobRegistry, recurring, storage, media, mail, notifications,
       events, commands, queries, providers, mcpTools, extensions, migrations, platformVersion, modules: allModules,
       get activatedRelease() { return activatedRelease; },
       actorForRole(role, id) {

@@ -33,6 +33,7 @@ COPY packages/platform/extension-sdk/package.json packages/platform/extension-sd
 COPY packages/platform/jobs/package.json packages/platform/jobs/
 COPY packages/platform/kernel/package.json packages/platform/kernel/
 COPY packages/platform/mail/package.json packages/platform/mail/
+COPY packages/platform/media/package.json packages/platform/media/
 COPY packages/platform/notifications/package.json packages/platform/notifications/
 COPY packages/platform/auth/package.json packages/platform/auth/
 COPY packages/platform/site/package.json packages/platform/site/
@@ -66,15 +67,21 @@ COPY tools/cli/package.json tools/cli/
 
 RUN pnpm install --frozen-lockfile
 
+# pnpm's legacy workspace deploy emits only its package map with this hoisted
+# workspace configuration. Install Sharp in an isolated production directory
+# so its native binding is materialized for the runtime image.
 COPY . .
 RUN case "$STOREWEAVE_RELEASE" in base|commerce) ;; *) exit 1 ;; esac \
  && STOREWEAVE_RELEASE="$STOREWEAVE_RELEASE" pnpm build \
  && if [ "$STOREWEAVE_RELEASE" = commerce ]; then NAME=commerce; CONFIG=deployments/example-store/commerce.yaml; else NAME=storeweave; CONFIG=deployments/storeweave.example.yaml; fi \
- && mkdir -p "/runtime-root/opt/$NAME/current" "/runtime-root/etc/$NAME" \
+ && mkdir -p "/runtime-root/opt/$NAME/current" "/runtime-root/opt/$NAME/media-deps" "/runtime-root/etc/$NAME" \
  && cp -R dist/. "/runtime-root/opt/$NAME/current/" \
+ && pnpm --dir "/runtime-root/opt/$NAME/media-deps" add --save-exact sharp@0.35.0 \
+ && cp -R "/runtime-root/opt/$NAME/media-deps/node_modules" "/runtime-root/opt/$NAME/current/node_modules" \
  && cp "$CONFIG" "/runtime-root/etc/$NAME/$NAME.yaml.example"
 
-# 執行階段：只帶編譯後的 JavaScript 與靜態資源，沒有原始碼、沒有編譯工具。
+# 執行階段：帶編譯後的 JavaScript、靜態資源，以及 Sharp 的原生 runtime
+# 依賴；仍不帶原始碼或編譯工具。
 FROM node:22-bookworm-slim AS runtime
 ARG STOREWEAVE_RELEASE
 LABEL org.opencontainers.image.title="StoreWeave ${STOREWEAVE_RELEASE}"
@@ -84,6 +91,9 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /runtime-root/ /
+# Sharp resolves its platform binding and libvips through package-relative
+# requires. Keeping the installed runtime tree beside the bundled entrypoints
+# preserves that resolution in the production image.
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 # Keep the existing Commerce UID/GID so existing data volumes retain access.

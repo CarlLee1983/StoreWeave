@@ -72,7 +72,7 @@ describe('後台外殼的導覽', () => {
 
     const nav = screen.getByLabelText('主要導覽');
     const labels = Array.from(nav.querySelectorAll('.nav-link')).map((el) => el.getAttribute('aria-label'));
-    expect(labels).toEqual(['訂單', '商品', '配送與出貨', '退貨案件', '電子發票', '促銷活動', '優惠券', '購物金與等級', '會員', '品牌內容', '聯絡收件匣', '行銷分析', '通知紀錄', 'ERP 佇列', '死信佇列', '系統健康度', '操作者帳號', 'API Token', '站內通知', '我的帳號']);
+    expect(labels).toEqual(['訂單', '商品', '配送與出貨', '退貨案件', '電子發票', '促銷活動', '優惠券', '購物金與等級', '會員', '品牌內容', '聯絡收件匣', '行銷分析', '通知紀錄', 'ERP 佇列', '死信佇列', '系統健康度', '媒體庫', '操作者帳號', 'API Token', '站內通知', '我的帳號']);
   });
 
   it('預設進到商品頁，標題與副標題正確', async () => {
@@ -253,7 +253,7 @@ describe('命令面板', () => {
     const dialog = await screen.findByRole('dialog', { name: '命令選單' });
     const labels = Array.from(dialog.querySelectorAll('button')).map((el) => el.textContent);
 
-    expect(labels).toEqual(['訂單', '商品', '配送與出貨', '退貨案件', '電子發票', '促銷活動', '優惠券', '購物金與等級', '會員', '品牌內容', '聯絡收件匣', '行銷分析', '通知紀錄', 'ERP 佇列', '死信佇列', '系統健康度', '操作者帳號', 'API Token', '站內通知', '我的帳號']);
+    expect(labels).toEqual(['訂單', '商品', '配送與出貨', '退貨案件', '電子發票', '促銷活動', '優惠券', '購物金與等級', '會員', '品牌內容', '聯絡收件匣', '行銷分析', '通知紀錄', 'ERP 佇列', '死信佇列', '系統健康度', '媒體庫', '操作者帳號', 'API Token', '站內通知', '我的帳號']);
   });
 
   it('Esc 關閉命令面板', async () => {

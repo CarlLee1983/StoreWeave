@@ -13,6 +13,7 @@ import { SystemController } from '../controllers/system.controller';
 import { UsersController } from '../controllers/users.controller';
 import { ApiTokensController } from '../controllers/api-tokens.controller';
 import { StorageController } from '../controllers/storage.controller';
+import { MediaController } from '../controllers/media.controller';
 import { NotificationsController } from '../controllers/notifications.controller';
 
 export const httpAdapter: ReleaseHttpAdapter = {
@@ -20,7 +21,7 @@ export const httpAdapter: ReleaseHttpAdapter = {
   releaseId: 'base', anonymousRole: 'visitor', startSession,
   controllers(_config, { runtime, theme }) {
     const controllers: Type[] = [
-      HealthController, MetaController, AuthController, SystemController, StorageController,
+      HealthController, MetaController, AuthController, SystemController, StorageController, MediaController,
       NotificationsController, ExtensionsController, UsersController, ApiTokensController,
     ];
     if (theme) {

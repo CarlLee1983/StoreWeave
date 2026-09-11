@@ -45,13 +45,13 @@ export interface ComposedHttpContract extends Omit<BusHttpContract, 'kind'> {
 /** A JSON handler that is not backed by a Command/Query descriptor. */
 export interface DirectHttpContract {
   readonly kind: 'direct';
-  readonly request: 'body' | 'none';
+  readonly request: 'body' | 'none' | 'multipart';
   readonly rateLimit?: RateLimitBucket;
   /** A handler-level requirement stricter than the Nest guard's accepted credentials. */
   readonly auth?: 'session';
   readonly input: JsonSchema7Type;
   /** The complete successful JSON response, including any REST envelope. */
-  readonly output: JsonSchema7Type;
+  readonly output: JsonSchema7Type | 'binary';
 }
 
 /** Streaming object storage is deliberately not a Bus DTO: its request and response bodies are byte streams. */
@@ -119,7 +119,7 @@ type DescribedBusRoute = {
   readonly queryEncoding: Readonly<Record<string, string>>; readonly permission: unknown;
   readonly nullAsMissing: readonly string[]; readonly bodyFields: undefined; readonly serverDefaulted: readonly string[];
   readonly idempotencyKey: 'request-header'; readonly idempotency: unknown;
-  readonly input: JsonSchema7Type; readonly error: JsonSchema7Type; readonly output: JsonSchema7Type;
+  readonly input: JsonSchema7Type; readonly error: JsonSchema7Type; readonly output: JsonSchema7Type | { readonly type: 'string'; readonly format: 'binary' };
 };
 type DescribedComposedRoute = Omit<DescribedBusRoute, 'kind' | 'request' | 'bodyFields' | 'idempotencyKey'> & {
   readonly kind: 'composed'; readonly request: ComposedHttpContract['request'];
@@ -451,7 +451,7 @@ export function describeHttpRoutes(runtime: Runtime, controllers: readonly Type[
     if (contract.kind === 'direct') return [{
       method: verb, path, status: Reflect.getMetadata(HTTP_CODE_METADATA, handler) ?? (method === RequestMethod.POST ? 201 : 200),
       auth, owner: null, kind: contract.kind, request: contract.request, permission: null, idempotency: 'none', rateLimit: contract.rateLimit ?? null,
-      input: contract.input, error: errorSchema(), output: contract.output,
+      input: contract.input, error: errorSchema(), output: contract.output === 'binary' ? { type: 'string', format: 'binary' } : contract.output,
     }];
     if (contract.kind === 'mcp') return [{
       method: verb, path, status: Reflect.getMetadata(HTTP_CODE_METADATA, handler) ?? (method === RequestMethod.POST ? 201 : 200),

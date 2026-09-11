@@ -23,6 +23,7 @@ import { OperatorsPage } from './pages/OperatorsPage';
 import { ApiTokensPage } from './pages/ApiTokensPage';
 import { InboxPage } from './pages/InboxPage';
 import { AccountPage } from './pages/AccountPage';
+import { MediaLibraryPage } from './pages/MediaLibraryPage';
 
 /** 側欄的分組，順序即呈現順序。 */
 export const NAV_SECTIONS = ['commerce', 'integrations', 'platform'] as const;
@@ -244,6 +245,17 @@ const ENTRIES = [
     title: 'systemTitle',
     subtitle: 'systemSubtitle',
     render: () => <SystemPage />,
+  },
+  {
+    path: 'media',
+    permissions: ['media:read'],
+    module: 'platform-media',
+    navLabel: 'mediaLibrary',
+    icon: 'upload',
+    section: 'platform',
+    title: 'mediaLibraryTitle',
+    subtitle: 'mediaLibrarySubtitle',
+    render: () => <MediaLibraryPage />,
   },
   {
     path: 'operators',

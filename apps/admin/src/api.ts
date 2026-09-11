@@ -80,6 +80,18 @@ export type Shipment = {
   updatedAt: string;
 };
 
+export type MediaAsset = {
+  id: string;
+  altText: string;
+  status: 'pending' | 'processing' | 'ready' | 'failed';
+  generation: number;
+  width: number | null;
+  height: number | null;
+  processingError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 /** Safe operational projection from the ECPay Logistics extension. */
 export type EcpayLogisticsShipmentOperation = {
   shipmentId: string;
@@ -509,10 +521,11 @@ async function request<T>(
     idempotencyKey?: string;
     withAuth?: boolean;
     raw?: boolean;
+    formData?: FormData;
     signal?: AbortSignal;
   } = {},
 ): Promise<T> {
-  const { method = 'GET', body, idempotent = false, idempotencyKey, withAuth = true, raw = false, signal } = options;
+  const { method = 'GET', body, idempotent = false, idempotencyKey, withAuth = true, raw = false, formData, signal } = options;
   const headers: Record<string, string> = {};
 
   if (withAuth) {
@@ -521,7 +534,7 @@ async function request<T>(
       headers.Authorization = `Bearer ${token}`;
     }
   }
-  if (body !== undefined) {
+  if (body !== undefined && !formData) {
     headers['Content-Type'] = 'application/json';
   }
   if (method !== 'GET') {
@@ -537,7 +550,7 @@ async function request<T>(
   const res = await fetch(path, {
     method,
     headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: formData ?? (body !== undefined ? JSON.stringify(body) : undefined),
     signal,
   });
 
@@ -860,6 +873,23 @@ export const api = {
   /** Theme 決定哪些配圖存在（ADR 0034），這份清單只能問 API，不能寫死在畫面裡。 */
   contentImageKeys(signal?: AbortSignal) {
     return request<{ keys: string[] }>('/api/v1/content/articles/image-keys', { signal });
+  },
+  listMedia(params: { limit?: number; offset?: number } = {}, signal?: AbortSignal) {
+    return request<Paged<MediaAsset>>(`/api/v1/media${toQuery(params)}`, { signal });
+  },
+  uploadMedia(file: File) {
+    const formData = new FormData();
+    formData.set('file', file, file.name);
+    return request<MediaAsset>('/api/v1/media', { method: 'POST', formData });
+  },
+  updateMediaAltText(id: string, altText: string) {
+    return request<MediaAsset>(`/api/v1/media/${id}`, { method: 'PATCH', body: { altText } });
+  },
+  retryMedia(id: string) {
+    return request<MediaAsset>(`/api/v1/media/${id}/retry`, { method: 'POST' });
+  },
+  deleteMedia(id: string) {
+    return request<void>(`/api/v1/media/${id}`, { method: 'DELETE' });
   },
   listArticles(params: { kind?: Article['kind']; status?: Article['status']; limit?: number; offset?: number } = {}, signal?: AbortSignal) {
     return request<Paged<Article>>(`/api/v1/content/articles${toQuery(params)}`, { signal });

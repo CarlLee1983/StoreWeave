@@ -7,6 +7,7 @@ import { identityMigrations } from '@storeweave/identity';
 import { cacheMigrations } from '@storeweave/cache';
 import { storageMigrations } from '@storeweave/storage';
 import { mailMigrations } from '@storeweave/mail';
+import { mediaMigrations } from '@storeweave/media';
 import { notificationsMigrations } from '@storeweave/notifications';
 import { siteMigrations } from '@storeweave/site';
 import { buildReleaseManifest } from '../../packages/platform/bundle/src/release-manifest';
@@ -25,7 +26,7 @@ async function database() {
 }
 const foundations: ModulePin[] = buildReleaseManifest(base).modules.map(({ baseVersionRange: _range,
   requiredDependencies: _required, optionalDependencies: _optional, ...pin }) => pin);
-const baseSets = [platformMigrations, cacheMigrations, identityMigrations, storageMigrations, mailMigrations, notificationsMigrations, siteMigrations];
+const baseSets = [platformMigrations, cacheMigrations, identityMigrations, storageMigrations, mailMigrations, mediaMigrations, notificationsMigrations, siteMigrations];
 const featureSet: MigrationSet = { module: 'feature', migrations: [
   sqlMigration('0001', 'expand', 'CREATE TABLE feature_rows(id integer PRIMARY KEY); INSERT INTO feature_rows VALUES (1)'),
 ] };
@@ -161,11 +162,12 @@ describe('release transitions', () => {
       'identity/0008_login_lockout',
       'platform-storage/0001_init',
       'platform-mail/0001_init',
+      'platform-media/0001_init',
       'platform-notifications/0001_init',
       'platform-site/0001_init',
     ]);
-    // 9 個：base release 從工單 97 起多了 platform-auth（形象站自己的登入與註冊）。
-    expect(prepared.manifest.owners.filter(entry => entry.state === 'active')).toHaveLength(9);
+    // 10 個：base release 從工單 97 起多了 platform-auth（形象站自己的登入與註冊），B10 再加入 platform-media。
+    expect(prepared.manifest.owners.filter(entry => entry.state === 'active')).toHaveLength(10);
     expect(prepared.manifest.owners.filter(entry => entry.state === 'disabled')).toHaveLength(22);
     expect(JSON.stringify(prepared.manifest)).not.toContain('CREATE TABLE');
     await recordEffectiveRelease(pool, prepared, prepared.manifest);

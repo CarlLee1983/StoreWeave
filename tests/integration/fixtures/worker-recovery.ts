@@ -111,8 +111,15 @@ async function main(): Promise<void> {
     await runtime.activateRelease('require-current');
     worker = new Worker(runtime, {
       concurrency: 1, pollIntervalMs: 50, staleLockSeconds: 2, workerId: `recovery-${mode}`,
-      ...(mode !== 'heartbeat' ? { heartbeatIntervalMs: 400, databaseTimeoutMs: 100, abortGraceMs: 400 } : {}),
-      ...(mode === 'heartbeat' ? { heartbeatIntervalMs: 100, databaseTimeoutMs: 50, abortGraceMs: 100 } : {}),
+      // The recovery scenarios deliberately spawn a second PostgreSQL client
+      // for the simulated provider effect.  Keep the fixture fail-stop timing
+      // well within its two-second lease without making ordinary Docker I/O a
+      // synthetic fatal error; the heartbeat-specific case remains tight below.
+      ...(mode !== 'heartbeat' ? { heartbeatIntervalMs: 700, databaseTimeoutMs: 500, abortGraceMs: 700 } : {}),
+      // This scenario subsequently blocks the heartbeat transaction with an
+      // exclusive table lock.  Give startup normal Docker scheduling room,
+      // while retaining a bounded heartbeat failure well inside the lease.
+      ...(mode === 'heartbeat' ? { heartbeatIntervalMs: 400, databaseTimeoutMs: 200, abortGraceMs: 400 } : {}),
     });
     worker.start();
     void worker.waitForFatal().then(async (fatal) => {

@@ -36,6 +36,9 @@ const EXTERNALS = [
   '@nestjs/platform-express',
   '@fastify/view',
   '@fastify/middie',
+  // Sharp resolves its native binding relative to its package at runtime; an
+  // esbuild CJS bundle rewrites its import.meta based resolver and cannot load it.
+  'sharp',
 ];
 
 rmSync(outDir, { recursive: true, force: true });
@@ -87,7 +90,10 @@ for (const entry of [manifestEntry, ...entries, validatorEntry]) {
   }
   writeFileSync(`${entry.out}.meta.json`, `${JSON.stringify(result.metafile, null, 2)}\n`);
   if (entry === manifestEntry) {
-    const result = JSON.parse(execFileSync(process.execPath, [entry.out], { cwd: root, encoding: 'utf8' }));
+    // An artifact may be built outside the repository (release validation does
+    // this). External native modules such as Sharp still resolve from the
+    // workspace install while its manifest entrypoint is evaluated.
+    const result = JSON.parse(execFileSync(process.execPath, [entry.out], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_PATH: join(root, 'node_modules') } }));
     manifestChecksum = result.checksum;
     writeFileSync(join(outDir, 'release-manifest.json'), `${JSON.stringify(result.manifest, null, 2)}\n`);
     rmSync(entry.out);

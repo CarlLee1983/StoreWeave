@@ -30,7 +30,7 @@ async function configPath() {
   writeFileSync(config, JSON.stringify({
     version: 1, store: { id: 'release-test', name: 'Release Test' },
     database: { url: await createTestDatabase() }, logging: { level: 'error' }, extensions: [],
-    storage: { localRoot: join(directory, 'storage'), maxUploadBytes: 32 },
+    storage: { localRoot: join(directory, 'storage'), maxUploadBytes: 1024 },
     security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
   }));
   return config;
@@ -44,7 +44,7 @@ describe('selected release bootstrap', () => {
     // base 也是一個網站：site 模組帶來設定與導覽，base theme 只實作通用頁（ADR 0046）。
     expect(result.theme?.id).toBe('base');
     expect(runtime.config.store).not.toHaveProperty('currency');
-    expect(runtime.modules.map(module => module.name).sort()).toEqual(['platform', 'platform-auth', 'platform-cache', 'platform-identity', 'platform-mail', 'platform-notifications', 'platform-ops', 'platform-site', 'platform-storage']);
+    expect(runtime.modules.map(module => module.name).sort()).toEqual(['platform', 'platform-auth', 'platform-cache', 'platform-identity', 'platform-mail', 'platform-media', 'platform-notifications', 'platform-ops', 'platform-site', 'platform-storage']);
     expect(Object.keys(runtime.roles).sort()).toEqual(['admin', 'member', 'readonly', 'staff', 'visitor']);
     await runtime.migrate();
     await expect(runtime.migrate()).resolves.toEqual([]);
@@ -53,7 +53,8 @@ describe('selected release bootstrap', () => {
     );
     expect(tables.rows.map(row => row.tablename)).toEqual([
       'platform_api_tokens', 'platform_audit_log', 'platform_cache', 'platform_extension_registry', 'platform_extension_state',
-      'platform_idempotency', 'platform_identity_tokens', 'platform_job_quarantine', 'platform_job_schedules', 'platform_jobs', 'platform_mail_messages', 'platform_mfa_recovery_codes', 'platform_migration_baselines', 'platform_migrations',
+      'platform_idempotency', 'platform_identity_tokens', 'platform_job_quarantine', 'platform_job_schedules', 'platform_jobs', 'platform_mail_messages',
+      'platform_media_assets', 'platform_media_references', 'platform_mfa_recovery_codes', 'platform_migration_baselines', 'platform_migrations',
       'platform_notification_deliveries', 'platform_notifications', 'platform_outbox',
       'platform_outbox_quarantine', 'platform_outbox_quarantine_audit',
       'platform_release_history', 'platform_sessions', 'platform_site_navigation_items', 'platform_site_settings',
@@ -185,11 +186,29 @@ describe('selected release bootstrap', () => {
         method: 'POST', url: '/api/v1/storage/objects',
         headers: { 'content-type': `multipart/form-data; boundary=${boundary}`, 'x-csrf-token': csrfTokenFor(cookie!.value) },
         cookies: { [SESSION_COOKIE]: cookie!.value },
-        payload: Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="large.txt"\r\nContent-Type: text/plain\r\n\r\n${'x'.repeat(33)}\r\n--${boundary}--\r\n`),
+        payload: Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="large.txt"\r\nContent-Type: text/plain\r\n\r\n${'x'.repeat(1025)}\r\n--${boundary}--\r\n`),
       });
       expect(rejected.statusCode).not.toBe(201);
       const listed = await app.inject({ url: '/api/v1/storage/objects', cookies: { [SESSION_COOKIE]: cookie!.value } });
       expect(listed.json().data.items).toHaveLength(1);
+
+      // Media is a separate policy boundary: readonly can browse it, while the
+      // generic storage permissions do not grant upload or deletion authority.
+      const readonlyMedia = await app.inject({ url: '/api/v1/media', headers: { authorization: `Bearer ${issued.secret}` } });
+      expect(readonlyMedia.statusCode).toBe(200);
+      const mediaBoundary = 'b10-test-boundary';
+      const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
+      const mediaUpload = await app.inject({
+        method: 'POST', url: '/api/v1/media', cookies: { [SESSION_COOKIE]: cookie!.value },
+        headers: { 'content-type': `multipart/form-data; boundary=${mediaBoundary}`, 'x-csrf-token': csrfTokenFor(cookie!.value) },
+        payload: Buffer.concat([Buffer.from(`--${mediaBoundary}\r\nContent-Disposition: form-data; name="file"; filename="pixel.png"\r\nContent-Type: image/png\r\n\r\n`), Buffer.from(png, 'base64'), Buffer.from(`\r\n--${mediaBoundary}--\r\n`)]),
+      });
+      expect(mediaUpload.statusCode).toBe(202);
+      expect(mediaUpload.json().data).toMatchObject({ status: 'pending', altText: '' });
+      const forbiddenWrite = await app.inject({ method: 'POST', url: '/api/v1/media', headers: {
+        authorization: `Bearer ${issued.secret}`, 'content-type': `multipart/form-data; boundary=${mediaBoundary}`,
+      }, payload: Buffer.from(`--${mediaBoundary}--\r\n`) });
+      expect(forbiddenWrite.statusCode).toBe(403);
     } finally { await app.close(); }
   });
 
@@ -198,7 +217,7 @@ describe('selected release bootstrap', () => {
     runtimes.push(result.runtime);
     expect(result.theme?.id).toBe('default');
     expect(result.runtime.config.store.currency).toBe('TWD');
-    expect(result.runtime.modules).toHaveLength(23);
+    expect(result.runtime.modules).toHaveLength(24);
     expect(result.runtime.actorForRole('staff').permissions).toContain('erp:write');
     await result.runtime.migrate();
     await expect(result.runtime.migrate()).resolves.toEqual([]);
