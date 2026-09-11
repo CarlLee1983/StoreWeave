@@ -38,11 +38,13 @@ jobs:
           key: tsbuild-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'apps/admin/tsconfig.json') }}-${{ github.sha }}
           restore-keys: |
             tsbuild-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'apps/admin/tsconfig.json') }}-
-      - run: pnpm typecheck
-      - run: pnpm typecheck:admin
-      - run: pnpm test
+      # 每一步都是 make verify 的一個子目標：完成定義只有 Makefile 一份，
+      # CI 只是把它拆成平行 job 跑。
+      - run: make typecheck
+      - run: make typecheck-admin
+      - run: make test
       # 後台的 React 元件測試跑在 jsdom，不需要 Docker，和上面同一個 job 就夠。
-      - run: pnpm test:admin
+      - run: make test-admin
 
   # Testcontainers 會自己起 PostgreSQL，runner 內建的 Docker 就夠。
   integration:
@@ -60,7 +62,7 @@ jobs:
           cache: true
           install: false
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec vitest run --project integration --shard=${{ matrix.shard }}/2
+      - run: make test-integration-shard-${{ matrix.shard }}
 
   # 保留既有 required-check 名稱；兩個 shard 都成功才會通過。
   integration-summary:
