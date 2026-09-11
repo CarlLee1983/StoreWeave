@@ -1,7 +1,8 @@
 # B13 — 網站殼與模組頁面
 
-狀態：`in_progress`（2026-09-10 開工；五個切片實作完成，[PR #37](https://github.com/CarlLee1983/StoreWeave/pull/37)
-的五個 CI job 全綠，待獨立審查與合併後改 `done`）。前置 [B03](../b03/README.md)、[B07](../b07/README.md)、
+狀態：`done`（2026-09-10 結案）。五個切片實作完成，[PR #37](https://github.com/CarlLee1983/StoreWeave/pull/37) 的五個 CI job 全綠後合併進 main（merge commit `41a691c`）。結案證據是 CI 全綠加合併，**沒有** B04／B12 那種獨立審查——這包的證據比它們薄一層，是明知的取捨而非遺漏。
+
+前置 [B03](../b03/README.md)、[B07](../b07/README.md)、
 [B08](../b08/README.md) 與 Spec 0008 Ticket 90 全部結案；範圍依
 [Base 執行計畫的 B13 派工卡](../../base-implementation-plan.md#b13--網站殼與模組頁面)
 與 [Spec 0009](../../specs/0009-complete-modular-base.md) 的 F04／F05／F13。
