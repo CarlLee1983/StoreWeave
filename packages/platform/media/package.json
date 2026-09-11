@@ -1,0 +1,10 @@
+{
+  "name": "@storeweave/media",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "dependencies": {
+    "sharp": "0.35.0"
+  }
+}

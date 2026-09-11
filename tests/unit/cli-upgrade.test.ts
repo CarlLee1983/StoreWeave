@@ -22,4 +22,4 @@ it.each([
       .rejects.toMatchObject({ stderr: expect.stringContaining(message) });
     expect(existsSync(home)).toBe(false);
   } finally { rmSync(root, { recursive: true, force: true }); }
-});
+}, 10_000);

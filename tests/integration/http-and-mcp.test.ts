@@ -69,8 +69,9 @@ const auth = (token = ADMIN_TOKEN) => ({ authorization: `Bearer ${token}` });
 describe('REST 介面', () => {
   it('retains exact selected Commerce route identities with MCP on and off', async () => {
     const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
-    expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(29);
-    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(183);
+    expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(30);
+    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(190);
+    expect(catalog.storeweaveHttpCatalog?.some(route => route.path === '/api/v1/media/:id/preview' && route.method === 'GET')).toBe(true);
     expect(catalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
 
     const enabled = h.runtime.config.mcp.enabled;
@@ -79,8 +80,8 @@ describe('REST 介面', () => {
       httpAdapter: commerceHttpAdapter, release: { version: 'test', configPath: '<test>' } });
     try {
       const withoutMcpCatalog = withoutMcp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
-      expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(28);
-      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(181);
+      expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(29);
+      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(188);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.some(route => route.path === '/mcp')).toBe(false);
     } finally {
@@ -100,7 +101,7 @@ describe('REST 介面', () => {
       corsApp = await createReleaseServer({ runtime: h.runtime, theme: defaultTheme,
         httpAdapter: commerceHttpAdapter, release: { version: 'test', configPath: '<test>' } });
       const catalog = (corsApp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier).storeweaveHttpCatalog!;
-      expect(catalog).toHaveLength(185);
+      expect(catalog).toHaveLength(192);
       expect(catalog.filter(route => route.kind === 'cors-preflight')).toEqual([expect.objectContaining({
         method: 'OPTIONS', path: '*', automaticRoute: true, auth: 'unauthenticated', request: 'headers', rateLimit: null,
         policy: expect.objectContaining({ allowedOrigins: ['https://console.example'], credentials: true }),

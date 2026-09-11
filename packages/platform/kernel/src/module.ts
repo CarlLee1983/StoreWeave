@@ -6,6 +6,7 @@ import type { PermissionDefinition, PolicyDefinition } from '@storeweave/authori
 import type { JobHandler } from '@storeweave/jobs';
 import type { IssuedSession } from '@storeweave/identity';
 import type { NotificationsPort } from '@storeweave/notifications';
+import type { MediaReferencesPort } from '@storeweave/media';
 import type { PageMap } from './page';
 import type { ScheduleDeclaration } from './schedule-spec';
 import type { JobPayloadContract } from './job-registry';
@@ -17,6 +18,7 @@ import type { JobPayloadContract } from './job-registry';
 export interface PlatformPorts {
   readonly notifications: NotificationsPort;
   readonly authentication: AuthenticationPort;
+  readonly media: MediaReferencesPort;
   /** 模組只拿到結構化記錄能力；沒有請求、回應或資料庫等執行期握柄。 */
   readonly logger: Logger;
 }

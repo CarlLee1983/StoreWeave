@@ -1,8 +1,8 @@
 /** MVP 的角色→權限映射，由設定檔的 API token 指向角色。 */
 export const BUILT_IN_ROLES: Record<string, readonly string[]> = {
   admin: ['*'],
-  staff: ['catalog:read', 'catalog:write', 'inventory:read', 'inventory:write', 'order:read', 'order:write', 'refund:read', 'refund:write', 'rma:read', 'rma:write', 'invoice:read', 'invoice:write', 'loyalty:write', 'promotion:read', 'promotion:write', 'promotion:quote', 'customers:manage', 'shipping:read', 'shipping:shipment-read', 'shipping:label-read', 'shipping:write', 'notification:read', 'erp:read', 'erp:write', 'content:read', 'content:write', 'content:public-read', 'contact:read', 'contact:write', 'storage:read', 'storage:write', 'storage:delete', 'storage:share', 'notifications:read', 'notifications:inbox', 'site:public-read', 'site:manage'],
-  readonly: ['catalog:read', 'inventory:read', 'order:read', 'invoice:read', 'promotion:read', 'shipping:read', 'shipping:shipment-read', 'notification:read', 'erp:read', 'content:read', 'contact:read', 'storage:read', 'notifications:read', 'notifications:inbox', 'site:public-read'],
+  staff: ['catalog:read', 'catalog:write', 'inventory:read', 'inventory:write', 'order:read', 'order:write', 'refund:read', 'refund:write', 'rma:read', 'rma:write', 'invoice:read', 'invoice:write', 'loyalty:write', 'promotion:read', 'promotion:write', 'promotion:quote', 'customers:manage', 'shipping:read', 'shipping:shipment-read', 'shipping:label-read', 'shipping:write', 'notification:read', 'erp:read', 'erp:write', 'content:read', 'content:write', 'content:public-read', 'contact:read', 'contact:write', 'storage:read', 'storage:write', 'storage:delete', 'storage:share', 'media:read', 'media:write', 'media:delete', 'notifications:read', 'notifications:inbox', 'site:public-read', 'site:manage'],
+  readonly: ['catalog:read', 'inventory:read', 'order:read', 'invoice:read', 'promotion:read', 'shipping:read', 'shipping:shipment-read', 'notification:read', 'erp:read', 'content:read', 'contact:read', 'storage:read', 'media:read', 'notifications:read', 'notifications:inbox', 'site:public-read'],
   mcp: ['catalog:read', 'inventory:read', 'inventory:write', 'order:read', 'analytics:read'],
   // 匿名訪客。刻意沒有 order:read：無範圍的訂單讀取等於任何人猜到訂單號就能讀別人的
   // 訂單。訂單頁在工單 21 之後需要登入，訪客沒有訂單可看。
@@ -62,8 +62,8 @@ const memberAccount = {
 
 export const BASE_ROLES: ReleaseRoleCatalog = {
   admin: { permissions: ['*'], tokenAllowed: true, account: operatorAccount },
-  staff: { permissions: ['users:read', 'jobs:read', 'jobs:write', 'storage:read', 'storage:write', 'storage:delete', 'storage:share', 'notifications:read', 'notifications:inbox', 'site:public-read', 'site:manage'], tokenAllowed: true, account: operatorAccount },
-  readonly: { permissions: ['users:read', 'jobs:read', 'storage:read', 'notifications:read', 'notifications:inbox', 'site:public-read'], tokenAllowed: true, account: operatorAccount },
+  staff: { permissions: ['users:read', 'jobs:read', 'jobs:write', 'storage:read', 'storage:write', 'storage:delete', 'storage:share', 'media:read', 'media:write', 'media:delete', 'notifications:read', 'notifications:inbox', 'site:public-read', 'site:manage'], tokenAllowed: true, account: operatorAccount },
+  readonly: { permissions: ['users:read', 'jobs:read', 'storage:read', 'media:read', 'notifications:read', 'notifications:inbox', 'site:public-read'], tokenAllowed: true, account: operatorAccount },
   // 權限是空的：自助帳號能做的事都是「對自己」，走 AuthService 而不是 Command Bus。
   // （站內收件匣要不要給 member，留給 B14 決定，不在合併裡順手加——B13 已結案而未處理，見 ADR 0047。）
   member: { permissions: [], tokenAllowed: false, account: memberAccount },

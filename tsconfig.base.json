@@ -33,6 +33,7 @@
       "@storeweave/audit": ["packages/platform/audit/src/index.ts"],
       "@storeweave/cache": ["packages/platform/cache/src/index.ts"],
       "@storeweave/storage": ["packages/platform/storage/src/index.ts"],
+      "@storeweave/media": ["packages/platform/media/src/index.ts"],
       "@storeweave/mail": ["packages/platform/mail/src/index.ts"],
       "@storeweave/notifications": ["packages/platform/notifications/src/index.ts"],
       "@storeweave/auth": ["packages/platform/auth/src/index.ts"],
