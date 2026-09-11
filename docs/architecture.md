@@ -123,6 +123,10 @@ Worker 每一輪確保「當下這個切片」已排入。沒有自我續排的�
 靜態相依決定固定註冊順序；constructor 注入的操作與非同步 subscriber links 分別驗證，不混為初始化 cycle。
 Core subscriber 預設只能執行自身 command，外部 command 必須精確宣告 owner／name／version，且 owner 有已驗證的相依或 binding。
 契約與適用邊界見 [ADR 0036](adr/0036-validate-module-composition-before-runtime.md)；這些檢查不把 trusted Node 程式變成 SQL sandbox。
+模組要 Cache／Mutex／Storage 時以 `resources` 宣告、由 `bindResources` 一次取得固定在自己 namespace 的 scope；
+要收檔案時以 `uploads` 宣告，由通用的 `POST /api/v1/modules/:module/uploads/:upload` 先授權、串流進該 scope，再執行宣告的收件 Command。
+非商務模組的後台畫面是 `audience: 'operator'` 的模組頁面。見 [ADR 0050](adr/0050-modules-declare-resources-and-upload-intakes.md)，
+可執行範例是 `packages/examples/file-requests` 與 `file-requests` release，步驟在 [模組開發](module-development.md)。
 
 - 每個模組各自擁有自己的資料表與 migration。**Commerce 模組的前綴即模組名**——
   `cart_*`、`catalog_*`、`content_*`、`coupon_*`、`customer_*`、`inventory_*`、`invoice_*`、

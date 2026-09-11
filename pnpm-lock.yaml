@@ -298,6 +298,8 @@ importers:
 
   packages/commerce/shipping: {}
 
+  packages/examples/file-requests: {}
+
   packages/extensions/demo-erp: {}
 
   packages/extensions/ecpay: {}

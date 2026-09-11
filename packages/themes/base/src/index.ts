@@ -263,4 +263,10 @@ export const baseTheme = defineTheme<SitePages & AuthPages & ContentPages>({
   },
 });
 
+/**
+ * 版面外框。模組替自己的頁面寫 renderer 時用它，頁面才會和 base Theme 其他頁同一個外框：
+ * 導覽、標語與頁尾仍然只來自資料（ADR 0046）。
+ */
+export { layout as renderBaseLayout };
+
 export default baseTheme;

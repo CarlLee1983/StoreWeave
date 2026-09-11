@@ -2,8 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { startSession } from '../../apps/api/src/http/session-start';
-import { httpAdapter as baseAdapter } from '../../apps/api/src/releases/base';
-import { httpAdapter as commerceAdapter } from '../../apps/api/src/releases/commerce';
+import type { ReleaseHttpAdapter } from '../../apps/api/src/release-adapter';
 import { ROOT, importsOf, sourceFiles } from './source-graph';
 
 /**
@@ -32,12 +31,15 @@ describe('簽發 session 的唯一入口', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('每個 release 接上的就是那一份實作，不是自己另外組一個', () => {
+  it('每個 release 接上的就是那一份實作，不是自己另外組一個', async () => {
     // 比對值而不是比對字串：import 了再指派一個自己寫的函式，文字檢查看不出來。
-    expect(baseAdapter.startSession).toBe(startSession);
-    expect(commerceAdapter.startSession).toBe(startSession);
-    expect(releaseFiles).toHaveLength(2);
-  });
+    // 逐一載入目錄裡的每個 release，新增 release 不必回來改這條守衛。
+    expect(releaseFiles).toEqual(expect.arrayContaining(['releases/base.ts', 'releases/commerce.ts']));
+    for (const release of releaseFiles) {
+      const { httpAdapter } = await import(join(ROOT, API_SRC, release)) as { httpAdapter: ReleaseHttpAdapter };
+      expect(httpAdapter.startSession, release).toBe(startSession);
+    }
+  }, 30_000);
 
   it('只有具名的那兩份實作可以直接動 session cookie', () => {
     // 簽發與清除各有唯一實作，其他人呼叫它們而不是自己寫一份。
@@ -55,11 +57,16 @@ describe('簽發 session 的唯一入口', () => {
     }
   });
 
-  it('兩個 release 把頁面用的簽發接到自己的 adapter 上，不是接自由變數', () => {
+  it('每個 release 把頁面用的簽發接到自己的 adapter 上，不是接自由變數', () => {
     // 值比對只釘得住 adapter 對外那一份；頁面走的是 sessionEffects.start，那是第二條接線。
+    // 只換 release id、完全沿用 base 組裝的 release 沒有自己的 controllers 也不碰 startSession，
+    // 它的接線就是 base 那一份（呼叫時 this 指向自己）。自己組 controllers 的一律要自己接。
     for (const release of releaseFiles) {
       const body = readFileSync(join(ROOT, API_SRC, release), 'utf8');
-      expect(body, release).toMatch(/start:\s*\([^)]*\)\s*=>\s*this\.startSession\(/);
+      const wiresItself = /start:\s*\([^)]*\)\s*=>\s*this\.startSession\(/.test(body);
+      const delegatesToBase = /from '\.\/base'/.test(body) && /\.\.\.baseHttpAdapter/.test(body)
+        && !/controllers\s*[(:]/.test(body) && !/startSession/.test(body);
+      expect(wiresItself || delegatesToBase, release).toBe(true);
     }
   });
 });

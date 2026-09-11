@@ -69,6 +69,7 @@ pnpm "dev:worker"    # 需要 API token 時：pnpm commerce token:create --name 
 | [docs/architecture.md](docs/architecture.md) | 模組邊界、Command/Query/Event 流向、目錄結構 |
 | [docs/reusable-application-base.md](docs/reusable-application-base.md) | 通用基底與產品分工、前後端及工具復用原則、完成標準 |
 | [apps/admin/DESIGN.md](apps/admin/DESIGN.md) | 管理後台設計系統與資料／互動邊界 |
+| [docs/module-development.md](docs/module-development.md) | 有自己資料表的模組：宣告、組進 release、契約測試與可執行範例 |
 | [docs/extension-development.md](docs/extension-development.md) | Extension SDK 十項契約與完整開發範例 |
 | [docs/deployment-docker.md](docs/deployment-docker.md) | Docker 安裝與維運 |
 | [docs/deployment-native.md](docs/deployment-native.md) | 原生 Ubuntu / Debian 安裝、升級與回退 |

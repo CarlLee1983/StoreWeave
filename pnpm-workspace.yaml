@@ -9,6 +9,7 @@ packages:
   - 'packages/commerce/*'
   - 'packages/extensions/*'
   - 'packages/themes/*'
+  - 'packages/examples/*'
   - 'tools/*'
 # pnpm 11 起，依賴的 build script 要在這裡逐一表態（pnpm 10 是一律不跑）。
 # 四支全部維持 false，也就是升級前的實際行為：esbuild 自 0.18 起靠 optional 的
