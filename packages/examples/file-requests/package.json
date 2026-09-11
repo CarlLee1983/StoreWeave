@@ -1,0 +1,7 @@
+{
+  "name": "@storeweave/example-file-requests",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "src/index.ts"
+}

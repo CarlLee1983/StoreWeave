@@ -225,6 +225,43 @@ describe('module graph', () => {
     ], BASE))).toEqual(['owner', 'listener', 'producer']);
   });
 
+  it('requires declared resources and their binding hook to come as a pair', () => {
+    const bindResources = () => undefined;
+    expect(validateModuleGraph([module('files', { resources: ['cache', 'storage'], bindResources })], BASE)).toHaveLength(1);
+    expectInvalid([module('files', { resources: ['storage'] })], 'module "files" declares resources but has no bindResources');
+    expectInvalid([module('files', { bindResources })], 'module "files" has bindResources but declares no resources');
+    expectInvalid([module('files', { resources: ['queue' as never], bindResources })], 'module "files" declares unknown resource "queue"');
+    expectInvalid([module('files', { resources: ['cache', 'cache'], bindResources })], 'module "files" repeats resource "cache"');
+  });
+
+  it('validates upload intakes against the module’s own storage, commands, and permissions', () => {
+    const intakeCommand = {
+      descriptor: defineCommand({
+        name: 'test.files.receive', input: z.object({ storageObjectId: z.string().uuid(), title: z.string() }).strict(),
+        output: z.unknown(), permission: 'files:submit',
+      }),
+      handler: async () => undefined,
+    };
+    const files = (overrides: Partial<PlatformModule> = {}) => module('files', {
+      resources: ['storage'], bindResources: () => undefined,
+      permissions: [permission('files:submit', 'files')], commands: [intakeCommand],
+      uploads: [{ name: 'attachment', contentTypes: ['text/plain'], command: 'test.files.receive' }],
+      ...overrides,
+    });
+    expect(validateModuleGraph([files()], BASE)).toHaveLength(1);
+    expectInvalid([files({ resources: ['cache'] })], 'module "files" declares uploads but not the storage resource');
+    expectInvalid([files({ uploads: [{ name: 'Not Valid', contentTypes: ['text/plain'], command: 'test.files.receive' }] })], 'invalid upload name "Not Valid"');
+    expectInvalid([files({ uploads: [
+      { name: 'attachment', contentTypes: ['text/plain'], command: 'test.files.receive' },
+      { name: 'attachment', contentTypes: ['text/plain'], command: 'test.files.receive' },
+    ] })], 'repeats upload "attachment"');
+    expectInvalid([files({ uploads: [{ name: 'attachment', contentTypes: [], command: 'test.files.receive' }] })], 'upload "attachment" accepts no content types');
+    expectInvalid([files({ uploads: [{ name: 'attachment', contentTypes: ['text/*'], command: 'test.files.receive' }] })], 'upload "attachment" has invalid content type "text/*"');
+    expectInvalid([files({ uploads: [{ name: 'attachment', contentTypes: ['text/plain'], command: 'test.other.receive' }] })], 'upload "attachment" targets "test.other.receive", which is not a command of module "files"');
+    expectInvalid([files({ commands: [{ ...intakeCommand, descriptor: { ...intakeCommand.descriptor, input: z.object({ title: z.string() }).strict() } }] })], 'command "test.files.receive" does not accept storageObjectId');
+    expectInvalid([files({ commands: [{ ...intakeCommand, descriptor: { ...intakeCommand.descriptor, idempotency: 'required' } }] })], 'command "test.files.receive" must not require an idempotency key');
+  });
+
   it('accepts the real commerce assembly, including reciprocal shipping/refund capabilities', () => {
     const modules = [
       platform(), identityModule, createOpsModule({} as never, {} as never),

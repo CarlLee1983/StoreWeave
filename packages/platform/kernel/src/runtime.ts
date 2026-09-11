@@ -75,8 +75,11 @@ export interface ModuleStorageBinding {
   bind(scope: StorageScope): void;
 }
 
-/** Module ids are not length-limited, while persisted cache namespaces deliberately are. */
-function cacheNamespaceForModule(module: string): string {
+/**
+ * The cache, mutex, and storage namespace a module's scopes are fixed to. Module
+ * ids are not length-limited, while persisted namespaces deliberately are.
+ */
+export function moduleResourceNamespace(module: string): string {
   return `m-${createHash('sha256').update(module, 'utf8').digest('hex').slice(0, 62)}`;
 }
 
@@ -332,25 +335,45 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     const moduleNames = new Set(allModules.map(module => module.name));
     const boundModules = new Set<string>();
     const boundNamespaces = new Set<string>();
+    // Declared resources are bound through the same checked seam as the explicit
+    // composition bindings, then handed to each module once (ADR 0050).
+    const declaredResources = new Map<string, { cache?: CacheScope; mutex?: MutexScope; storage?: StorageScope }>();
+    const declared = (module: string) => {
+      let entry = declaredResources.get(module);
+      if (!entry) { entry = {}; declaredResources.set(module, entry); }
+      return entry;
+    };
     const cacheBindings: readonly ModuleCacheBinding[] = [
       { module: OPS_MODULE_NAME, bind: scopes => { opsCache = scopes; } },
       ...(options.cacheBindings ?? []),
+      ...allModules.filter(mod => mod.resources?.includes('cache')).map((mod): ModuleCacheBinding => ({
+        module: mod.name, bind: scopes => { Object.assign(declared(mod.name), { cache: scopes.cache, mutex: scopes.mutex }); },
+      })),
     ];
     for (const binding of cacheBindings) {
       if (!moduleNames.has(binding.module)) throw PlatformError.validation(`Cache binding targets unknown module "${binding.module}"`);
       if (boundModules.has(binding.module)) throw PlatformError.validation(`Duplicate cache binding for module "${binding.module}"`);
       boundModules.add(binding.module);
-      const namespace = cacheNamespaceForModule(binding.module);
+      const namespace = moduleResourceNamespace(binding.module);
       if (boundNamespaces.has(namespace)) throw PlatformError.validation(`Cache namespace collision for module "${binding.module}"`);
       boundNamespaces.add(namespace);
       binding.bind(Object.freeze({ cache: cache.forNamespace(namespace), mutex: mutex.forNamespace(namespace) }));
     }
     const boundStorageModules = new Set<string>();
-    for (const binding of options.storageBindings ?? []) {
+    const storageBindings: readonly ModuleStorageBinding[] = [
+      ...(options.storageBindings ?? []),
+      ...allModules.filter(mod => mod.resources?.includes('storage')).map((mod): ModuleStorageBinding => ({
+        module: mod.name, bind: scope => { declared(mod.name).storage = scope; },
+      })),
+    ];
+    for (const binding of storageBindings) {
       if (!moduleNames.has(binding.module)) throw PlatformError.validation(`Storage binding targets unknown module "${binding.module}"`);
       if (boundStorageModules.has(binding.module)) throw PlatformError.validation(`Duplicate storage binding for module "${binding.module}"`);
       boundStorageModules.add(binding.module);
-      binding.bind(storage.forNamespace(cacheNamespaceForModule(binding.module)));
+      binding.bind(storage.forNamespace(moduleResourceNamespace(binding.module)));
+    }
+    for (const mod of allModules) {
+      if (mod.resources?.length) mod.bindResources?.(Object.freeze({ ...declaredResources.get(mod.name) }));
     }
     const authorization = new AuthorizationService();
     // 重設與驗證連結是 base 一定會用到的簽發值，所以簽章金鑰不是選配（ADR 0042）。

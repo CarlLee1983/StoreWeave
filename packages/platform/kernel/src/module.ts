@@ -7,6 +7,8 @@ import type { JobHandler } from '@storeweave/jobs';
 import type { IssuedSession } from '@storeweave/identity';
 import type { NotificationsPort } from '@storeweave/notifications';
 import type { MediaReferencesPort } from '@storeweave/media';
+import type { CacheScope, MutexScope } from '@storeweave/cache';
+import type { StorageScope } from '@storeweave/storage';
 import type { PageMap } from './page';
 import type { ScheduleDeclaration } from './schedule-spec';
 import type { JobPayloadContract } from './job-registry';
@@ -40,6 +42,35 @@ export interface AuthenticationPort {
   /** 忘記密碼與重設密碼同樣不是 Command：此刻通常還沒有 Actor。 */
   readonly requestPasswordReset: (input: { email: string; ttlMs?: number }) => Promise<void>;
   readonly resetPassword: (input: { token: string; newPassword: string }) => Promise<void>;
+}
+
+/**
+ * Runtime-owned resources a module can ask for by declaration (ADR 0050). Every
+ * scope is fixed to a namespace derived from the module id, so a module never
+ * receives a manager and cannot reach another module's entries or objects.
+ */
+export type ModuleResourceKind = 'cache' | 'storage';
+
+export interface ModuleResources {
+  /** Present when `resources` lists `cache`; the mutex shares the same namespace. */
+  readonly cache?: CacheScope;
+  readonly mutex?: MutexScope;
+  /** Present when `resources` lists `storage`. */
+  readonly storage?: StorageScope;
+}
+
+/**
+ * A named, authorized way to hand the module a file. The generic HTTP intake
+ * checks `command`'s own permission before reading the body, streams the bytes
+ * into the module's private storage scope, and then runs `command` as the same
+ * actor with `{ storageObjectId, ...query }` (ADR 0050).
+ */
+export interface ModuleUploadIntake {
+  readonly name: string;
+  /** Exact MIME types, compared without parameters. */
+  readonly contentTypes: readonly string[];
+  /** One of this module's own commands; its strict input must accept `storageObjectId`. */
+  readonly command: string;
 }
 
 export interface ModuleDependency {
@@ -128,6 +159,12 @@ export interface PlatformModule {
    * it up: there is still no registry to ask, and the edge stays visible.
    */
   readonly bindPorts?: (ports: PlatformPorts) => void;
+  /** Declared resources; the runtime rejects a declaration without `bindResources` and vice versa. */
+  readonly resources?: readonly ModuleResourceKind[];
+  /** One-shot, like `bindPorts`: called once before any handler runs, with only the declared scopes. */
+  readonly bindResources?: (resources: ModuleResources) => void;
+  /** File intakes served by the generic module upload endpoint; requires the `storage` resource. */
+  readonly uploads?: readonly ModuleUploadIntake[];
 }
 
 export function defineModule(mod: PlatformModule): PlatformModule {

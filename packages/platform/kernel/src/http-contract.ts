@@ -5,7 +5,7 @@ import type { JsonSchema7Type } from 'zod-to-json-schema';
  * 模組宣告自己的頁面時要一併宣告契約，不能反過來依賴應用層（ADR 0045）。
  * 啟動時的 route catalog 掃描仍在 apps/api，讀的就是這份形狀。
  */
-export type RateLimitBucket = 'auth' | 'coupon' | 'cart' | 'callback';
+export type RateLimitBucket = 'auth' | 'coupon' | 'cart' | 'callback' | 'upload';
 
 export interface StorefrontHttpContract {
   readonly kind: 'storefront';

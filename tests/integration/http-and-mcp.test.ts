@@ -69,8 +69,8 @@ const auth = (token = ADMIN_TOKEN) => ({ authorization: `Bearer ${token}` });
 describe('REST 介面', () => {
   it('retains exact selected Commerce route identities with MCP on and off', async () => {
     const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
-    expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(33);
-    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(196);
+    expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(34);
+    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(197);
     expect(catalog.storeweaveHttpCatalog?.some(route => route.path === '/api/v1/media/:id/preview' && route.method === 'GET')).toBe(true);
     expect(catalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
 
@@ -80,8 +80,8 @@ describe('REST 介面', () => {
       httpAdapter: commerceHttpAdapter, release: { version: 'test', configPath: '<test>' } });
     try {
       const withoutMcpCatalog = withoutMcp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
-      expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(32);
-      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(194);
+      expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(33);
+      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(195);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.some(route => route.path === '/mcp')).toBe(false);
     } finally {
@@ -101,7 +101,7 @@ describe('REST 介面', () => {
       corsApp = await createReleaseServer({ runtime: h.runtime, theme: defaultTheme,
         httpAdapter: commerceHttpAdapter, release: { version: 'test', configPath: '<test>' } });
       const catalog = (corsApp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier).storeweaveHttpCatalog!;
-      expect(catalog).toHaveLength(198);
+      expect(catalog).toHaveLength(199);
       expect(catalog.filter(route => route.kind === 'cors-preflight')).toEqual([expect.objectContaining({
         method: 'OPTIONS', path: '*', automaticRoute: true, auth: 'unauthenticated', request: 'headers', rateLimit: null,
         policy: expect.objectContaining({ allowedOrigins: ['https://console.example'], credentials: true }),
@@ -123,7 +123,7 @@ describe('REST 介面', () => {
     const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
     const routes = catalog.storeweaveHttpCatalog!;
     expect(routes.every(route => Object.hasOwn(route, 'rateLimit') &&
-      (route.rateLimit === null || route.rateLimit === 'auth' || route.rateLimit === 'coupon' || route.rateLimit === 'cart' || route.rateLimit === 'callback'))).toBe(true);
+      (route.rateLimit === null || route.rateLimit === 'auth' || route.rateLimit === 'coupon' || route.rateLimit === 'cart' || route.rateLimit === 'callback' || route.rateLimit === 'upload'))).toBe(true);
     const limited = routes
       .filter(route => route.rateLimit !== null)
       .map(route => `${route.rateLimit} ${route.method} ${route.path}`)
@@ -159,6 +159,7 @@ describe('REST 介面', () => {
       'cart POST /orders/:number/pay',
       'coupon POST /api/v1/cart/coupon',
       'coupon POST /cart/coupon',
+      'upload POST /api/v1/modules/:module/uploads/:upload',
     ]);
   });
 

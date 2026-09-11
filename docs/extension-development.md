@@ -3,6 +3,8 @@
 Extension 是客戶特殊需求的唯一落腳處。它只能透過 `@storeweave/extension-sdk` 接入平台 ——
 拿不到資料庫、拿不到交易、也碰不到其他模組或其他 Extension 的資料。
 
+需要自己的資料表、前後台頁面或背景工作的功能不是 Extension，是模組：照 [模組開發](module-development.md)。
+
 ## SDK 的十項契約
 
 | # | 契約 | 型別／檔案 |

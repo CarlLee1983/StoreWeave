@@ -12,6 +12,7 @@ RELEASE_ID="${STOREWEAVE_RELEASE:-commerce}"
 case "$RELEASE_ID" in
   commerce) NAME=commerce ;;
   base) NAME=storeweave ;;
+  file-requests) NAME=storeweave-file-requests ;;
   *) echo "Unknown release: $RELEASE_ID" >&2; exit 1 ;;
 esac
 VERSION="${STOREWEAVE_RELEASE_VERSION:-${COMMERCE_RELEASE_VERSION:-$(node -p "require('./package.json').version")}}"
