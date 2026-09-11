@@ -10,6 +10,7 @@ import { mailMigrations } from '@storeweave/mail';
 import { mediaMigrations } from '@storeweave/media';
 import { notificationsMigrations } from '@storeweave/notifications';
 import { siteMigrations } from '@storeweave/site';
+import { contentMigrations } from '@storeweave/content';
 import { buildReleaseManifest } from '../../packages/platform/bundle/src/release-manifest';
 import { release as base } from '../../packages/platform/bundle/src/releases/base';
 import { release as commerce } from '../../packages/platform/bundle/src/releases/commerce';
@@ -26,7 +27,7 @@ async function database() {
 }
 const foundations: ModulePin[] = buildReleaseManifest(base).modules.map(({ baseVersionRange: _range,
   requiredDependencies: _required, optionalDependencies: _optional, ...pin }) => pin);
-const baseSets = [platformMigrations, cacheMigrations, identityMigrations, storageMigrations, mailMigrations, mediaMigrations, notificationsMigrations, siteMigrations];
+const baseSets = [platformMigrations, cacheMigrations, identityMigrations, storageMigrations, mailMigrations, mediaMigrations, notificationsMigrations, siteMigrations, contentMigrations];
 const featureSet: MigrationSet = { module: 'feature', migrations: [
   sqlMigration('0001', 'expand', 'CREATE TABLE feature_rows(id integer PRIMARY KEY); INSERT INTO feature_rows VALUES (1)'),
 ] };
@@ -165,10 +166,12 @@ describe('release transitions', () => {
       'platform-media/0001_init',
       'platform-notifications/0001_init',
       'platform-site/0001_init',
+      'platform-site/0002_contact_notification',
+      'content/0002_media_expand',
     ]);
-    // 10 個：base release 從工單 97 起多了 platform-auth（形象站自己的登入與註冊），B10 再加入 platform-media。
-    expect(prepared.manifest.owners.filter(entry => entry.state === 'active')).toHaveLength(10);
-    expect(prepared.manifest.owners.filter(entry => entry.state === 'disabled')).toHaveLength(22);
+    // 11 個：base release 有 platform-auth、platform-media，B14 再加入 content。
+    expect(prepared.manifest.owners.filter(entry => entry.state === 'active')).toHaveLength(11);
+    expect(prepared.manifest.owners.filter(entry => entry.state === 'disabled')).toHaveLength(21);
     expect(JSON.stringify(prepared.manifest)).not.toContain('CREATE TABLE');
     await recordEffectiveRelease(pool, prepared, prepared.manifest);
     expect((await pool.query('SELECT name, price_cents FROM catalog_products WHERE id=$1', [productId])).rows)

@@ -20,6 +20,7 @@ vi.mock('../api', async () => {
       publishArticle: vi.fn(),
       unpublishArticle: vi.fn(),
       deleteArticle: vi.fn(),
+      setArticleMedia: vi.fn(),
       contentImageKeys: vi.fn(),
     },
   };
@@ -34,6 +35,7 @@ const article: Article = {
   section: '公告',
   body: [{ heading: null, text: '因應連假，出貨將順延一天。' }],
   imageKey: 'hero',
+  mediaAssetId: null,
   position: 0,
   status: 'draft',
   publishedAt: null,
@@ -50,6 +52,7 @@ beforeEach(() => {
   vi.mocked(api.publishArticle).mockReset().mockResolvedValue({ ...article, status: 'published' });
   vi.mocked(api.unpublishArticle).mockReset().mockResolvedValue({ ...article, status: 'draft' });
   vi.mocked(api.deleteArticle).mockReset().mockResolvedValue(article);
+  vi.mocked(api.setArticleMedia).mockReset().mockResolvedValue(article);
   vi.mocked(api.contentImageKeys).mockReset().mockResolvedValue({ keys: ['hero', 'story', 'journal-room', 'journal-pause', 'journal-occasion'] });
 });
 

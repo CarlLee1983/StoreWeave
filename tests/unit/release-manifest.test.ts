@@ -32,7 +32,7 @@ describe('release build manifest', () => {
       registeredQueries: [], registeredProviders: [], registeredJobs: ['ext.manifest-probe.run'],
     }, setup });
     const manifest = buildReleaseManifest({ ...base, availableExtensions: { 'manifest-probe': extension } });
-    expect(manifest.modules.map(module => module.id)).toEqual(['platform', 'platform-auth', 'platform-cache', 'platform-identity', 'platform-mail', 'platform-media', 'platform-notifications', 'platform-ops', 'platform-site', 'platform-storage']);
+    expect(manifest.modules.map(module => module.id)).toEqual(['content', 'platform', 'platform-auth', 'platform-cache', 'platform-identity', 'platform-mail', 'platform-media', 'platform-notifications', 'platform-ops', 'platform-site', 'platform-storage']);
     expect(manifest.modules.find(module => module.id === 'platform')?.dataRelations)
       .toContain('platform_job_quarantine');
     expect(manifest.modules.find(module => module.id === 'platform')?.dataRelations)
@@ -79,9 +79,9 @@ describe('release build manifest', () => {
       jobs: [{ type: 'platform.event.deliver', handler: async () => {} }],
     }])).toThrow('declared by both');
     const manifest = buildReleaseManifest(base);
-    const [platform] = manifest.modules;
+    const platform = manifest.modules.find(module => module.id === 'platform');
     if (!platform) throw new Error('Missing platform module');
-    expect(() => validateWorkOwnership([...manifest.modules, { ...platform, id: 'other' }])).toThrow('jobTypes ownership');
+    expect(() => validateWorkOwnership([...manifest.modules, { ...platform, id: 'other', work: { ...platform.work, emittedEventNames: [] } }])).toThrow('jobTypes ownership');
     expect(catalogDigest({ a: 1, b: { c: 2 } })).toBe(catalogDigest({ b: { c: 2 }, a: 1 }));
     expect(catalogDigest(['one', 'two'])).not.toBe(catalogDigest(['two', 'one']));
   });

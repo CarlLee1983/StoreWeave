@@ -69,8 +69,8 @@ const auth = (token = ADMIN_TOKEN) => ({ authorization: `Bearer ${token}` });
 describe('REST 介面', () => {
   it('retains exact selected Commerce route identities with MCP on and off', async () => {
     const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
-    expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(30);
-    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(190);
+    expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(33);
+    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(196);
     expect(catalog.storeweaveHttpCatalog?.some(route => route.path === '/api/v1/media/:id/preview' && route.method === 'GET')).toBe(true);
     expect(catalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
 
@@ -80,8 +80,8 @@ describe('REST 介面', () => {
       httpAdapter: commerceHttpAdapter, release: { version: 'test', configPath: '<test>' } });
     try {
       const withoutMcpCatalog = withoutMcp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
-      expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(29);
-      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(188);
+      expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(32);
+      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(194);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.some(route => route.path === '/mcp')).toBe(false);
     } finally {
@@ -101,7 +101,7 @@ describe('REST 介面', () => {
       corsApp = await createReleaseServer({ runtime: h.runtime, theme: defaultTheme,
         httpAdapter: commerceHttpAdapter, release: { version: 'test', configPath: '<test>' } });
       const catalog = (corsApp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier).storeweaveHttpCatalog!;
-      expect(catalog).toHaveLength(192);
+      expect(catalog).toHaveLength(198);
       expect(catalog.filter(route => route.kind === 'cors-preflight')).toEqual([expect.objectContaining({
         method: 'OPTIONS', path: '*', automaticRoute: true, auth: 'unauthenticated', request: 'headers', rateLimit: null,
         policy: expect.objectContaining({ allowedOrigins: ['https://console.example'], credentials: true }),
@@ -184,7 +184,7 @@ describe('REST 介面', () => {
       RefundController, InvoiceController, NotificationController, ShippingController,
       OrderController, PromotionController, CouponController, RmaController, LoyaltyController,
       ContentContactController, ContentArticleController, CustomerController, CartController]);
-    expect(routes).toHaveLength(96);
+    expect(routes).toHaveLength(97);
     for (const route of routes) {
       expect(app.getHttpAdapter().getInstance().hasRoute({ method: route.method, url: route.path })).toBe(true);
     }
@@ -642,8 +642,8 @@ describe('Storefront SSR', () => {
     expect(asset).toMatchObject({ method: 'GET', path: '/storefront-assets/:file', auth: 'session-or-anonymous',
       allowedFiles: expect.arrayContaining(['woven-day-hero.png']), success: { contentType: 'image/png', cacheControl: 'public, max-age=0' },
       notFound: { status: 404, contentType: 'application/json' }, guardError: { statuses: [401] } });
-    expect(pages.filter(route => route.request === 'none')).toHaveLength(17);
-    expect(pages.filter(route => route.request === 'query')).toHaveLength(8);
+    expect(pages.filter(route => route.request === 'none')).toHaveLength(14);
+    expect(pages.filter(route => route.request === 'query')).toHaveLength(11);
     expect(pages.filter(route => route.request === 'form')).toHaveLength(15);
     // 四組認證頁全部從 anonymous 變成 session-or-anonymous：宣告頁面沒有 per-page 的強制
     // 匿名，而拿掉登出的 CSRF 豁免正是工單 94 的決定（ADR 0047）。前台已經沒有強制匿名的頁面。

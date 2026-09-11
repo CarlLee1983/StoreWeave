@@ -31,12 +31,18 @@ export const siteSettingsDto = z.object({
   footerNote: z.string().max(200),
 }).strict();
 
+/** Private operator configuration; never return it from the public chrome query. */
+export const siteSettingsRecordDto = siteSettingsDto.extend({
+  /** Optional recipient for a B07 email when a public contact message arrives. */
+  contactNotificationEmail: z.string().email().nullable(),
+}).strict();
+
 export const siteChromeDto = z.object({
   settings: siteSettingsDto,
   navigation: z.array(navigationItemDto),
 }).strict();
 
-export const updateSiteSettingsInput = siteSettingsDto.partial();
+export const updateSiteSettingsInput = siteSettingsRecordDto.partial();
 
 export const replaceNavigationInput = z.object({
   menu: menuSlug,
@@ -46,5 +52,5 @@ export const replaceNavigationInput = z.object({
 export const replaceNavigationOutput = z.object({ menu: menuSlug, items: z.number().int().min(0) }).strict();
 
 export type SiteNavigationItem = z.infer<typeof navigationItemDto>;
-export type SiteSettings = z.infer<typeof siteSettingsDto>;
+export type SiteSettings = z.infer<typeof siteSettingsRecordDto>;
 export type SiteChrome = z.infer<typeof siteChromeDto>;

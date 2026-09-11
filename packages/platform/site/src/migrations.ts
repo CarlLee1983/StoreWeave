@@ -25,5 +25,7 @@ CREATE TABLE IF NOT EXISTS public.platform_site_navigation_items (
 );
 CREATE INDEX IF NOT EXISTS platform_site_navigation_items_menu_idx
   ON public.platform_site_navigation_items (menu, position);
+`), sqlMigration('0002_contact_notification', 'expand', `
+ALTER TABLE public.platform_site_settings ADD COLUMN IF NOT EXISTS contact_notification_email text;
 `)],
 };

@@ -274,7 +274,7 @@ importers:
 
   packages/commerce/catalog: {}
 
-  packages/commerce/content: {}
+  packages/platform/content: {}
 
   packages/commerce/coupon: {}
 

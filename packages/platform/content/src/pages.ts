@@ -13,12 +13,16 @@ export interface ThemeArticleView {
   section: string;
   body: { heading: string | null; text: string }[];
   imageKey: string | null;
+  /** Optional during the expand phase so older Theme callers continue to dual-read imageKey. */
+  mediaAssetId?: string | null;
   publishedAt: Date | null;
 }
 
 export interface ThemeArticleListView {
   kind: ThemeArticleView['kind'];
   articles: ThemeArticleView[];
+  /** Older Theme packages may omit this during the pagination expand phase. */
+  pagination?: { page: number; pageSize: number; total: number; basePath: string };
 }
 
 /**
@@ -35,13 +39,13 @@ interface ArticleDtoShape {
   kind: ThemeArticleView['kind'];
   slug: string; title: string; summary: string; section: string;
   body: { heading: string | null; text: string }[];
-  imageKey: string | null; publishedAt: string | Date | null;
+  imageKey: string | null; mediaAssetId: string | null; publishedAt: string | Date | null;
 }
 
 export function toArticleView(article: ArticleDtoShape): ThemeArticleView {
   return {
     kind: article.kind, slug: article.slug, title: article.title, summary: article.summary,
-    section: article.section, body: article.body ?? [], imageKey: article.imageKey,
+    section: article.section, body: article.body ?? [], imageKey: article.imageKey, mediaAssetId: article.mediaAssetId,
     publishedAt: article.publishedAt ? new Date(article.publishedAt) : null,
   };
 }
@@ -81,12 +85,12 @@ function recordContactLanding(key: string): void {
 
 /** Published-only by construction: the storefront never sees the staff queries. */
 async function publishedArticles(
-  ctx: PageResolveContext, kind: ThemeArticleView['kind'], limit: number,
-): Promise<ThemeArticleView[]> {
-  const result = await ctx.queries.execute<{ items: ArticleDtoShape[] }>(
-    'commerce.content.listPublishedArticles', { kind, limit }, { actor: ctx.actor },
+  ctx: PageResolveContext, kind: ThemeArticleView['kind'], limit: number, offset = 0,
+): Promise<{ items: ThemeArticleView[]; total: number }> {
+  const result = await ctx.queries.execute<{ items: ArticleDtoShape[]; total: number }>(
+    'commerce.content.listPublishedArticles', { kind, limit, offset }, { actor: ctx.actor },
   );
-  return result.items.map(toArticleView);
+  return { items: result.items.map(toArticleView), total: result.total };
 }
 
 /** Content that has not been published is, for the storefront, not there at all. */
@@ -116,10 +120,13 @@ const html = (status: number | 'platform-error' = 200): StorefrontHttpContract['
 
 const htmlOnly: StorefrontHttpContract['responses'] = [html(), html('platform-error')];
 
-const articleListView = (kind: ThemeArticleView['kind']) => async (ctx: PageResolveContext) => {
-  const articles = await publishedArticles(ctx, kind, 50);
-  if (!articles.length) return { kind: 'not-found' as const };
-  return { kind: 'view' as const, view: { kind, articles } };
+const PAGE_SIZE = 12;
+const articleListView = (kind: ThemeArticleView['kind'], basePath: string) => async (ctx: PageResolveContext, { page }: { page: number }) => {
+  const offset = (page - 1) * PAGE_SIZE;
+  const { items, total } = await publishedArticles(ctx, kind, PAGE_SIZE, offset);
+  if (!items.length && page === 1) return { kind: 'not-found' as const };
+  if (!items.length) return { kind: 'not-found' as const };
+  return { kind: 'view' as const, view: { kind, articles: items, pagination: { page, pageSize: PAGE_SIZE, total, basePath } } };
 };
 
 const articlePageView = (kind: 'journal' | 'news') => async (ctx: PageResolveContext, { slug }: { slug: string }) => {
@@ -160,7 +167,7 @@ export const contentPages = {
     },
     resolve: async ctx => {
       // At most one published story is expected; the first is the one the store means.
-      const [article] = await publishedArticles(ctx, 'story', 1);
+      const { items: [article] } = await publishedArticles(ctx, 'story', 1);
       if (!article) return { kind: 'not-found' };
       return { kind: 'view', view: { article } };
     },
@@ -171,13 +178,13 @@ export const contentPages = {
     path: '/journal',
     method: 'get',
     audience: 'public',
-    input: z.object({}),
+    input: z.object({ page: z.coerce.number().int().min(1).default(1) }),
     required: false,
     contract: {
-      kind: 'storefront', request: 'none', input: jsonSchema([]),
+      kind: 'storefront', request: 'query', input: jsonSchema(['page']),
       responses: htmlOnly, cookieEffects: ['cart-notice-consume'],
     },
-    resolve: articleListView('journal'),
+    resolve: articleListView('journal', '/journal'),
   }),
 
   journalArticle: definePage({
@@ -199,13 +206,13 @@ export const contentPages = {
     path: '/news',
     method: 'get',
     audience: 'public',
-    input: z.object({}),
+    input: z.object({ page: z.coerce.number().int().min(1).default(1) }),
     required: false,
     contract: {
-      kind: 'storefront', request: 'none', input: jsonSchema([]),
+      kind: 'storefront', request: 'query', input: jsonSchema(['page']),
       responses: htmlOnly, cookieEffects: ['cart-notice-consume'],
     },
-    resolve: articleListView('news'),
+    resolve: articleListView('news', '/news'),
   }),
 
   newsArticle: definePage({
@@ -227,13 +234,13 @@ export const contentPages = {
     path: '/faq',
     method: 'get',
     audience: 'public',
-    input: z.object({}),
+    input: z.object({ page: z.coerce.number().int().min(1).default(1) }),
     required: false,
     contract: {
-      kind: 'storefront', request: 'none', input: jsonSchema([]),
+      kind: 'storefront', request: 'query', input: jsonSchema(['page']),
       responses: htmlOnly, cookieEffects: ['cart-notice-consume'],
     },
-    resolve: articleListView('faq'),
+    resolve: articleListView('faq', '/faq'),
   }),
 
   contact: definePage({

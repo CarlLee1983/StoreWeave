@@ -26,7 +26,8 @@ export function createSiteModule(options: SiteModuleOptions = {}) {
     name: 'platform-site',
     version: packageJson.version,
     baseVersionRange: '^1.0.0',
-    dependencies: { required: [{ name: 'platform', versionRange: '^0.1.0' }] },
+  dependencies: { required: [{ name: 'platform', versionRange: '^0.1.0' }] },
+    capabilities: { provides: ['platform.site.contact-notification-recipient'] },
     data: { owns: ['platform_site_settings', 'platform_site_navigation_items'] },
     migrations: siteMigrations,
     permissions: [

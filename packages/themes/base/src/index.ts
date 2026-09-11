@@ -5,6 +5,7 @@ import type {
   AuthPages, ThemeForgotPasswordView, ThemeLoginView, ThemeRegisterView, ThemeResetPasswordView,
 } from '@storeweave/auth';
 import type { SitePages } from '@storeweave/site';
+import type { ContentPages, ThemeArticleListView, ThemeArticleView, ThemeContactView } from '@storeweave/content';
 
 /**
  * Base Theme：只實作通用頁，完全不認得任何商務概念（ADR 0045）。
@@ -19,7 +20,7 @@ function links(items: readonly ThemeNavigationItem[]): string {
   return items.map(item => `<a href="${escapeHtml(item.href)}">${escapeHtml(item.label)}</a>`).join('');
 }
 
-function layout(ctx: ThemeContext, title: string, body: string): string {
+function layout(ctx: ThemeContext, title: string, body: string, seo: { description?: string; canonicalPath?: string } = {}): string {
   const accent = escapeHtml((ctx.options.accentColor as string | undefined) ?? '#2F5D62');
   const tagline = ctx.tagline ? escapeHtml(ctx.tagline) : '';
   const footerNote = ctx.footerNote ? escapeHtml(ctx.footerNote) : '';
@@ -29,6 +30,8 @@ function layout(ctx: ThemeContext, title: string, body: string): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)} · ${escapeHtml(ctx.storeName)}</title>
+${seo.description ? `<meta name="description" content="${escapeHtml(seo.description)}">` : ''}
+${seo.canonicalPath ? `<link rel="canonical" href="${escapeHtml(new URL(seo.canonicalPath, ctx.publicUrl).toString())}">` : ''}
 <style>${styles(accent)}</style>
 </head>
 <body>
@@ -67,9 +70,11 @@ body { margin: 0; background: var(--canvas); color: var(--ink); font-family: sys
 .notice { background: #fff5d8; border: 1px solid #e6d089; padding: .75rem 1rem; border-radius: .5rem; }
 h1 { font-size: 1.8rem; margin: 0 0 .5rem; }
 label { display: block; margin: .75rem 0 .25rem; font-weight: 600; }
-input { width: 100%; padding: .55rem .7rem; border: 1px solid var(--line); border-radius: .4rem; font: inherit; }
+input, textarea { width: 100%; padding: .55rem .7rem; border: 1px solid var(--line); border-radius: .4rem; font: inherit; }
+textarea { min-height: 9rem; resize: vertical; }
 button { margin-top: 1rem; padding: .6rem 1.2rem; border: 0; border-radius: .4rem; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
 .error { color: #a12d2d; font-weight: 600; }
+.contact-hp { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 `;
 }
 
@@ -82,6 +87,63 @@ function renderHome(ctx: ThemeContext): string {
     <h1>${escapeHtml(ctx.storeName)}</h1>
     ${ctx.tagline ? `<p>${escapeHtml(ctx.tagline)}</p>` : ''}
   `);
+}
+
+function articleBody(article: ThemeArticleView): string {
+  return article.body.map(block => `${block.heading ? `<h2>${escapeHtml(block.heading)}</h2>` : ''}<p>${escapeHtml(block.text)}</p>`).join('');
+}
+
+/** B10 previews stay private unless Content has proved a published reference. */
+function articleImage(article: ThemeArticleView): string {
+  return article.mediaAssetId ? `<img src="/content/media/${escapeHtml(article.mediaAssetId)}/preview" alt="${escapeHtml(article.summary || article.title)}" loading="lazy">` : '';
+}
+
+function canonicalArticlePath(article: ThemeArticleView): string {
+  if (article.kind === 'story') return '/story';
+  return `/${article.kind}/${encodeURIComponent(article.slug)}`;
+}
+
+function renderArticle(ctx: ThemeContext, article: ThemeArticleView): string {
+  return layout(ctx, article.title, `<article>
+    ${article.section ? `<p>${escapeHtml(article.section)}</p>` : ''}
+    <h1>${escapeHtml(article.title)}</h1>
+    ${article.summary ? `<p>${escapeHtml(article.summary)}</p>` : ''}${articleImage(article)}
+    ${articleBody(article)}
+  </article>`, { description: article.summary || article.title, canonicalPath: canonicalArticlePath(article) });
+}
+
+function renderArticleList(ctx: ThemeContext, view: ThemeArticleListView): string {
+  const labels: Record<ThemeArticleListView['kind'], string> = {
+    story: '品牌故事', journal: '生活誌', news: '最新消息', faq: '常見問題',
+  };
+  const basePath: Record<ThemeArticleListView['kind'], string> = {
+    story: '/story', journal: '/journal', news: '/news', faq: '/faq',
+  };
+  const body = view.articles.map(article => {
+    if (view.kind === 'faq') return `<article><h2>${escapeHtml(article.title)}</h2>${articleBody(article)}</article>`;
+    const href = view.kind === 'story' ? basePath.story : `${basePath[view.kind]}/${encodeURIComponent(article.slug)}`;
+    return `<article>${articleImage(article)}<h2><a href="${href}">${escapeHtml(article.title)}</a></h2>${article.summary ? `<p>${escapeHtml(article.summary)}</p>` : ''}</article>`;
+  }).join('');
+  const page = view.pagination;
+  const controls = !page || page.total <= page.pageSize ? '' : `<nav aria-label="內容分頁">${page.page > 1 ? `<a href="${page.basePath}?page=${page.page - 1}" rel="prev">上一頁</a>` : ''} 第 ${page.page} 頁 ${page.page * page.pageSize < page.total ? `<a href="${page.basePath}?page=${page.page + 1}" rel="next">下一頁</a>` : ''}</nav>`;
+  const pageSuffix = view.pagination && view.pagination.page > 1 ? `?page=${view.pagination.page}` : '';
+  return layout(ctx, labels[view.kind], `<h1>${labels[view.kind]}</h1>${body}${controls}`, { description: `${labels[view.kind]}文章與資訊`, canonicalPath: `${view.pagination?.basePath ?? basePath[view.kind]}${pageSuffix}` });
+}
+
+function renderContact(ctx: ThemeContext, view: ThemeContactView): string {
+  if (view.submitted) return layout(ctx, '聯絡我們', '<h1>聯絡我們</h1><p role="status">訊息已送出，我們會盡快回覆。</p>', { canonicalPath: '/contact' });
+  const csrf = ctx.csrfToken ? `<input type="hidden" name="_csrf" value="${escapeHtml(ctx.csrfToken)}">` : '';
+  const value = (name: keyof ThemeContactView['values']) => escapeHtml(view.values[name]);
+  return layout(ctx, '聯絡我們', `<h1>聯絡我們</h1>
+    ${view.error ? `<p class="error" role="alert">${escapeHtml(view.error)}</p>` : ''}
+    <form method="post" action="/contact">
+      ${csrf}<label for="name">姓名</label><input id="name" name="name" value="${value('name')}" required>
+      <label for="email">電子郵件</label><input id="email" name="email" type="email" value="${value('email')}" required>
+      <label for="subject">主旨</label><input id="subject" name="subject" value="${value('subject')}" required>
+      <label for="message">訊息</label><textarea id="message" name="message" required>${value('message')}</textarea>
+      <label class="contact-hp" aria-hidden="true">請不要填寫<input name="website" tabindex="-1" autocomplete="off"></label>
+      <button type="submit">送出訊息</button>
+    </form>`, { canonicalPath: '/contact' });
 }
 
 /**
@@ -174,7 +236,7 @@ function renderError(ctx: ThemeContext, view: { status: number; message: string 
   `);
 }
 
-export const baseTheme = defineTheme<SitePages & AuthPages>({
+export const baseTheme = defineTheme<SitePages & AuthPages & ContentPages>({
   id: 'base',
   name: 'Base Site',
   optionsSchema: baseThemeOptions,
@@ -189,6 +251,14 @@ export const baseTheme = defineTheme<SitePages & AuthPages>({
     'platform.auth.submitForgotPassword': renderForgotPassword,
     'platform.auth.resetPassword': renderResetPassword,
     'platform.auth.submitResetPassword': renderResetPassword,
+    'commerce.content.story': (ctx, view) => renderArticle(ctx, view.article),
+    'commerce.content.journalList': renderArticleList,
+    'commerce.content.journalArticle': (ctx, view) => renderArticle(ctx, view.article),
+    'commerce.content.newsList': renderArticleList,
+    'commerce.content.newsArticle': (ctx, view) => renderArticle(ctx, view.article),
+    'commerce.content.faq': renderArticleList,
+    'commerce.content.contact': renderContact,
+    'commerce.content.submitContact': renderContact,
     'platform.error': renderError,
   },
 });

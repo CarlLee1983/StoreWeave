@@ -5,10 +5,10 @@ import { SITE_SETTINGS_ID, siteNavigationItems, siteSettings, type SiteNavigatio
 import type { SiteNavigationItem, SiteSettings } from './types';
 
 /** 還沒有人動過設定時的樣子。空字串而不是 null：Theme 拿到的永遠是可直接輸出的值。 */
-export const EMPTY_SITE_SETTINGS: SiteSettings = { tagline: '', footerNote: '' };
+export const EMPTY_SITE_SETTINGS: SiteSettings = { tagline: '', footerNote: '', contactNotificationEmail: null };
 
 export function toSiteSettings(row: SiteSettingsRow | undefined): SiteSettings {
-  return row ? { tagline: row.tagline, footerNote: row.footerNote } : EMPTY_SITE_SETTINGS;
+  return row ? { tagline: row.tagline, footerNote: row.footerNote, contactNotificationEmail: row.contactNotificationEmail } : EMPTY_SITE_SETTINGS;
 }
 
 export function toNavigationItem(row: SiteNavigationRow): SiteNavigationItem {
@@ -52,3 +52,9 @@ export class SiteRepository {
     return items.length;
   }
 }
+
+const contactSettingsRepository = new SiteRepository();
+/** Bound capability for modules that create a website-originated notification. */
+export const siteSettingsService = Object.freeze({
+  contactNotificationEmail: async (db: DrizzleDb | Tx) => (await contactSettingsRepository.settings(db)).contactNotificationEmail,
+});

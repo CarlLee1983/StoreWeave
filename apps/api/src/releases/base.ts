@@ -15,6 +15,8 @@ import { ApiTokensController } from '../controllers/api-tokens.controller';
 import { StorageController } from '../controllers/storage.controller';
 import { MediaController } from '../controllers/media.controller';
 import { NotificationsController } from '../controllers/notifications.controller';
+import { ContentArticleController, ContentContactController, ContentDiscoveryController, ContentPublicMediaController } from '../controllers/content.controller';
+import { SiteController } from '../controllers/site.controller';
 
 export const httpAdapter: ReleaseHttpAdapter = {
   // 匿名訪客也讀得到導覽與網站設定；base 有前台之後就需要一個名字（ADR 0046）。
@@ -22,7 +24,7 @@ export const httpAdapter: ReleaseHttpAdapter = {
   controllers(_config, { runtime, theme }) {
     const controllers: Type[] = [
       HealthController, MetaController, AuthController, SystemController, StorageController, MediaController,
-      NotificationsController, ExtensionsController, UsersController, ApiTokensController,
+      NotificationsController, ContentArticleController, ContentContactController, ContentPublicMediaController, ContentDiscoveryController, SiteController, ExtensionsController, UsersController, ApiTokensController,
     ];
     if (theme) {
       const deps = { runtime, theme, anonymousRole: 'visitor' };

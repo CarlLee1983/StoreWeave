@@ -25,7 +25,8 @@ import { InvoiceController } from '../controllers/invoice.controller';
 import { LoyaltyController } from '../controllers/loyalty.controller';
 import { NotificationController } from '../controllers/notification.controller';
 import { NotificationsController } from '../controllers/notifications.controller';
-import { ContentArticleController, ContentContactController } from '../controllers/content.controller';
+import { ContentArticleController, ContentContactController, ContentDiscoveryController, ContentPublicMediaController } from '../controllers/content.controller';
+import { SiteController } from '../controllers/site.controller';
 import { RmaController } from '../controllers/rma.controller';
 import { McpController } from '../mcp/mcp.controller';
 import { StorefrontController } from '../storefront/storefront.controller';
@@ -39,7 +40,7 @@ export const httpAdapter: ReleaseHttpAdapter = {
   controllers(config, { runtime, theme }) {
     const controllers: Type[] = [
       HealthController, MetaController, AuthController, CatalogController, InventoryController, SystemController, StorageController, MediaController, UsersController, ApiTokensController,
-      OrderController, PromotionController, CouponController, CustomerController, CartController, ShippingController, RefundController, RmaController, InvoiceController, LoyaltyController, NotificationController, NotificationsController, CallbackController, AnalyticsController, ContentArticleController, ContentContactController, ExtensionsController, StorefrontController,
+      OrderController, PromotionController, CouponController, CustomerController, CartController, ShippingController, RefundController, RmaController, InvoiceController, LoyaltyController, NotificationController, NotificationsController, CallbackController, AnalyticsController, ContentArticleController, ContentContactController, ContentPublicMediaController, ContentDiscoveryController, SiteController, ExtensionsController, StorefrontController,
     ];
     if (config.mcp.enabled) controllers.push(McpController);
     if (theme) {

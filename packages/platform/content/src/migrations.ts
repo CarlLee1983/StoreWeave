@@ -17,4 +17,16 @@ CREATE TABLE IF NOT EXISTS content_contact_messages (
  CHECK ((status = 'handled') = (handled_at IS NOT NULL))
 );
 CREATE INDEX IF NOT EXISTS content_contact_messages_inbox_idx ON content_contact_messages (status, created_at DESC);
+`),sqlMigration('0002_media_expand','expand',`
+ALTER TABLE public.content_articles ADD COLUMN IF NOT EXISTS media_asset_id uuid;
+CREATE INDEX IF NOT EXISTS content_articles_media_asset_idx ON public.content_articles (media_asset_id) WHERE media_asset_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS public.content_legacy_media_mappings (
+ theme_id text NOT NULL, image_key text NOT NULL, source_digest text NOT NULL,
+ media_asset_id uuid, status text NOT NULL CHECK (status IN ('pending','ready','failed')),
+ error text, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY (theme_id, image_key, source_digest),
+ CHECK (status <> 'ready' OR media_asset_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS content_legacy_media_mappings_pending_idx
+ ON public.content_legacy_media_mappings (status, updated_at) WHERE status <> 'ready';
 `)]};

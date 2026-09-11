@@ -20,9 +20,12 @@ const context = (overrides: Partial<ThemeContext> = {}): ThemeContext => ({
 });
 
 describe('Base Theme', () => {
-  it('服務通用頁與認證頁，沒有任何商務頁的 renderer', () => {
+  it('服務通用、認證與網站內容頁；不認得購物車或商品', () => {
     expect(Object.keys(baseTheme.renderers).sort())
       .toEqual([
+        'commerce.content.contact', 'commerce.content.faq', 'commerce.content.journalArticle',
+        'commerce.content.journalList', 'commerce.content.newsArticle', 'commerce.content.newsList',
+        'commerce.content.story', 'commerce.content.submitContact',
         'platform.auth.forgotPassword', 'platform.auth.login',
         'platform.auth.register', 'platform.auth.resetPassword', 'platform.auth.submitForgotPassword',
         'platform.auth.submitLogin', 'platform.auth.submitRegister', 'platform.auth.submitResetPassword',
@@ -100,6 +103,13 @@ describe('Base Theme', () => {
       baseTheme.renderers['platform.auth.register'](ctx, { mode: 'register', next: PROBE, error: PROBE }),
       baseTheme.renderers['platform.auth.forgotPassword'](ctx, { mode: 'forgot-password', next: PROBE, notice: PROBE }),
       baseTheme.renderers['platform.auth.resetPassword'](ctx, { mode: 'reset-password', next: PROBE, error: PROBE, token: PROBE }),
+      baseTheme.renderers['commerce.content.newsArticle'](ctx, {
+        article: { kind: 'news', slug: 'probe', title: PROBE, summary: PROBE, section: PROBE,
+          body: [{ heading: PROBE, text: PROBE }], imageKey: null, publishedAt: null },
+      }),
+      baseTheme.renderers['commerce.content.submitContact'](ctx, {
+        submitted: false, error: PROBE, values: { name: PROBE, email: PROBE, subject: PROBE, message: PROBE },
+      }),
     ]) {
       expect(html).not.toContain('<script>alert(1)</script>');
       expect(html).toContain('&lt;script&gt;');

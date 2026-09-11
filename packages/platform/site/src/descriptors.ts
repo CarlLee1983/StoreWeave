@@ -3,7 +3,7 @@ import { defineCommand, defineQuery, type CommandContext, type QueryContext } fr
 import { resolveNavigation } from './navigation';
 import { SiteRepository } from './repository';
 import {
-  replaceNavigationInput, replaceNavigationOutput, siteChromeDto, siteSettingsDto, updateSiteSettingsInput,
+  replaceNavigationInput, replaceNavigationOutput, siteChromeDto, siteSettingsDto, siteSettingsRecordDto, updateSiteSettingsInput,
   type SiteNavigationItem,
 } from './types';
 
@@ -24,7 +24,7 @@ export const getSiteChromeQuery = defineQuery({
 export function createGetSiteChromeHandler(defaultNavigation: readonly SiteNavigationItem[]) {
   return async (_input: unknown, ctx: QueryContext) => {
     const [settings, stored] = await Promise.all([repository.settings(ctx.db), repository.navigation(ctx.db)]);
-    return { settings, navigation: [...resolveNavigation(stored, defaultNavigation)] };
+    return { settings: { tagline: settings.tagline, footerNote: settings.footerNote }, navigation: [...resolveNavigation(stored, defaultNavigation)] };
   };
 }
 
@@ -32,10 +32,10 @@ export const updateSiteSettingsCommand = defineCommand({
   name: 'platform.site.updateSettings',
   summary: '修改網站設定',
   input: updateSiteSettingsInput,
-  output: siteSettingsDto,
+  output: siteSettingsRecordDto,
   permission: 'site:manage',
   idempotency: 'optional',
-  audit: { action: 'site.settings.updated', resourceType: 'site', resourceId: () => 'site', redact: input => ({ ...input }) },
+  audit: { action: 'site.settings.updated', resourceType: 'site', resourceId: () => 'site', redact: input => ({ ...input, ...(input.contactNotificationEmail !== undefined ? { contactNotificationEmail: input.contactNotificationEmail ? '[configured]' : null } : {}) }) },
 });
 
 export const updateSiteSettingsHandler = async (

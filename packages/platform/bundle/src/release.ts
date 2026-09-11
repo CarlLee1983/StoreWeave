@@ -3,6 +3,7 @@ import type { BaseConfig, ReleaseConfigDefinition } from '@storeweave/config';
 import type { ReleaseRoleCatalog } from '@storeweave/authorization';
 import type { ProviderRegistry } from '@storeweave/extension-sdk';
 import type { PlatformModule, RuntimeOptions, StorefrontTheme } from '@storeweave/kernel';
+import type { LegacyMediaManifestEntry } from '@storeweave/content';
 
 /** Statically selected by every entrypoint in a release. No runtime discovery. */
 export interface ReleaseDefinition<C extends BaseConfig> {
@@ -19,6 +20,8 @@ export interface ReleaseDefinition<C extends BaseConfig> {
   readonly createModules: (context: { config: C; providers: ProviderRegistry }) => readonly PlatformModule[];
   readonly availableExtensions: RuntimeOptions<C>['availableExtensions'];
   readonly availableThemes: Readonly<Record<string, StorefrontTheme>>;
+  /** Closed legacy Theme media catalog. Only Commerce carries the Default Theme's B14 source assets. */
+  readonly legacyContentMediaManifest?: readonly LegacyMediaManifestEntry[];
 }
 
 export interface BuildModuleManifest extends ModulePin {

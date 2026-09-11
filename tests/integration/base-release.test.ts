@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
 import { sql } from 'drizzle-orm';
 import { createReleaseServer } from '../../apps/api/src/release-server';
 import { httpAdapter } from '../../apps/api/src/releases/base';
@@ -44,7 +45,7 @@ describe('selected release bootstrap', () => {
     // base 也是一個網站：site 模組帶來設定與導覽，base theme 只實作通用頁（ADR 0046）。
     expect(result.theme?.id).toBe('base');
     expect(runtime.config.store).not.toHaveProperty('currency');
-    expect(runtime.modules.map(module => module.name).sort()).toEqual(['platform', 'platform-auth', 'platform-cache', 'platform-identity', 'platform-mail', 'platform-media', 'platform-notifications', 'platform-ops', 'platform-site', 'platform-storage']);
+    expect(runtime.modules.map(module => module.name).sort()).toEqual(['content', 'platform', 'platform-auth', 'platform-cache', 'platform-identity', 'platform-mail', 'platform-media', 'platform-notifications', 'platform-ops', 'platform-site', 'platform-storage']);
     expect(Object.keys(runtime.roles).sort()).toEqual(['admin', 'member', 'readonly', 'staff', 'visitor']);
     await runtime.migrate();
     await expect(runtime.migrate()).resolves.toEqual([]);
@@ -52,6 +53,7 @@ describe('selected release bootstrap', () => {
       "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename",
     );
     expect(tables.rows.map(row => row.tablename)).toEqual([
+      'content_articles', 'content_contact_messages', 'content_legacy_media_mappings',
       'platform_api_tokens', 'platform_audit_log', 'platform_cache', 'platform_extension_registry', 'platform_extension_state',
       'platform_idempotency', 'platform_identity_tokens', 'platform_job_quarantine', 'platform_job_schedules', 'platform_jobs', 'platform_mail_messages',
       'platform_media_assets', 'platform_media_references', 'platform_mfa_recovery_codes', 'platform_migration_baselines', 'platform_migrations',
@@ -152,6 +154,19 @@ describe('selected release bootstrap', () => {
       expect(home.headers['content-type']).toContain('text/html');
       expect(home.body).toContain('<a href="/">首頁</a>');
       expect(home.body).toContain('Release Test');
+      // Content is a website module: an empty base site still accepts contact
+      // messages while unpublished editorial routes remain absent.
+      expect((await app.inject({ url: '/news' })).statusCode).toBe(404);
+      const contact = await app.inject({
+        method: 'POST', url: '/contact', headers: { origin: 'http://localhost:3000', 'content-type': 'application/x-www-form-urlencoded' },
+        payload: 'name=Visitor&email=visitor%40example.test&subject=Hello&message=Base+content+works',
+      });
+      expect(contact.statusCode).toBe(200);
+      expect(contact.body).toContain('訊息已送出');
+      const inbox = await runtime.queries.execute<{ total: number }>('commerce.content.listContactMessages', {}, {
+        actor: runtime.actorForRole('staff'), channel: 'rest',
+      });
+      expect(inbox.total).toBe(1);
       // 形象站與購物站共用同一份簽發實作（工單 92）：帶著購物車 cookie 進來也不會有東西可以併，
       // 因為這個 release 根本沒有註冊那個 command——而且不能因此在 log 裡留下失敗。
       const login = await app.inject({ method: 'POST', url: '/api/v1/auth/login',
@@ -168,6 +183,70 @@ describe('selected release bootstrap', () => {
       expect(me.json().data.permissions).toContain('jobs:read');
       expect(me.json().data.permissions).not.toContain('*');
       expect(me.json().data.modules).toContain('platform-site');
+
+      // B14's public projection must be an actual HTTP boundary: a ready
+      // asset remains private while its article is a draft, then becomes
+      // readable only through the content-owned preview after publishing.
+      const csrf = csrfTokenFor(cookie!.value);
+      const staffHeaders = { 'x-csrf-token': csrf };
+      const article = await app.inject({
+        method: 'POST', url: '/api/v1/content/articles', cookies: { [SESSION_COOKIE]: cookie!.value },
+        headers: { ...staffHeaders, 'idempotency-key': 'base-b14-create' },
+        payload: { kind: 'news', slug: 'base-b14-published', title: 'Published Base Article', summary: 'Visible only after publishing.' },
+      });
+      expect(article.statusCode).toBe(200);
+      const mediaAsset = await runtime.media.upload({
+        stream: Readable.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64')),
+        originalName: 'base-content.png', contentType: 'image/png', ownerActorId: 'user:base',
+      });
+      await runtime.media.process({ assetId: mediaAsset.id, generation: mediaAsset.generation }, { signal: new AbortController().signal });
+      const setMedia = await app.inject({
+        method: 'POST', url: `/api/v1/content/articles/${article.json().data.id}/media`, cookies: { [SESSION_COOKIE]: cookie!.value },
+        headers: { ...staffHeaders, 'idempotency-key': 'base-b14-set-media' }, payload: { mediaAssetId: mediaAsset.id },
+      });
+      expect(setMedia.statusCode).toBe(200);
+      expect((await app.inject({ url: `/content/media/${mediaAsset.id}/preview` })).statusCode).toBe(404);
+      expect((await app.inject({ url: `/api/v1/media/${mediaAsset.id}/preview` })).statusCode).toBe(401);
+      expect((await app.inject({
+        method: 'POST', url: `/api/v1/content/articles/${article.json().data.id}/publish`, cookies: { [SESSION_COOKIE]: cookie!.value },
+        headers: { ...staffHeaders, 'idempotency-key': 'base-b14-publish' },
+      })).statusCode).toBe(200);
+      const publicMedia = await app.inject({ url: `/content/media/${mediaAsset.id}/preview` });
+      expect(publicMedia.statusCode).toBe(200);
+      expect(publicMedia.headers['content-type']).toContain('image/webp');
+      for (const url of ['/robots.txt', '/sitemap.xml', '/rss.xml']) expect((await app.inject({ url })).statusCode, url).toBe(200);
+      const sitemap = await app.inject({ url: '/sitemap.xml' });
+      const rss = await app.inject({ url: '/rss.xml' });
+      expect(sitemap.body).toContain('/news/base-b14-published');
+      expect(rss.body).toContain('Published Base Article');
+
+      // The notification recipient is operator configuration, not public
+      // chrome. The API provides a deployable way to set it; a missing value
+      // intentionally creates no notification, while a configured value does.
+      const anonymousContact = (subject: string) => app.inject({
+        method: 'POST', url: '/contact', headers: { origin: 'http://localhost:3000', 'content-type': 'application/x-www-form-urlencoded' },
+        payload: `name=Visitor&email=visitor%40example.test&subject=${encodeURIComponent(subject)}&message=Contact+notification+test`,
+      });
+      expect((await anonymousContact('No recipient')).statusCode).toBe(200);
+      expect((await runtime.database.pool.query("SELECT count(*)::text AS count FROM platform_notifications WHERE template_id = 'site.contact.submitted'"))
+        .rows[0]?.count).toBe('0');
+      const settings = await app.inject({
+        method: 'POST', url: '/api/v1/site/settings', cookies: { [SESSION_COOKIE]: cookie!.value },
+        headers: { ...staffHeaders, 'idempotency-key': 'base-b14-contact-recipient' }, payload: { contactNotificationEmail: 'editor@example.test' },
+      });
+      expect(settings.statusCode).toBe(200);
+      expect(settings.json().data.contactNotificationEmail).toBe('editor@example.test');
+      const chrome = await runtime.queries.execute<{ settings: Record<string, unknown> }>('platform.site.getChrome', {}, { actor: runtime.actorForRole('visitor') });
+      expect(chrome.settings).not.toHaveProperty('contactNotificationEmail');
+      expect((await anonymousContact('Configured recipient')).statusCode).toBe(200);
+      const notification = await runtime.database.pool.query<{ recipient_email: string; template_id: string }>(
+        "SELECT recipient_email, template_id FROM platform_notifications WHERE template_id = 'site.contact.submitted'",
+      );
+      expect(notification.rows).toEqual([{ recipient_email: 'editor@example.test', template_id: 'site.contact.submitted' }]);
+      const audit = await runtime.database.pool.query<{ payload: { contactNotificationEmail: string } }>(
+        "SELECT payload FROM platform_audit_log WHERE action = 'site.settings.updated' ORDER BY occurred_at DESC LIMIT 1",
+      );
+      expect(audit.rows[0]?.payload.contactNotificationEmail).toBe('[configured]');
 
       const boundary = 'b09-test-boundary';
       const upload = await app.inject({

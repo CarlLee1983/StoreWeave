@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import { PlatformError,defineQuery,type QueryContext } from '@storeweave/contracts';
-import { articleDto,articleIdInput,contactMessageDto,emptyInput,getPublishedArticleInput,listArticlesInput,listArticlesOutput,listContactMessagesInput,listContactMessagesOutput,listPublishedArticlesInput,listPublishedArticlesOutput,publishedKindsOutput } from './dto';
+import { articleDto,articleIdInput,contactMessageDto,emptyInput,getPublishedArticleInput,listArticlesInput,listArticlesOutput,listContactMessagesInput,listContactMessagesOutput,listPublishedArticlesInput,listPublishedArticlesOutput,listPublishedSiteContentInput,listPublishedSiteContentOutput,publishedKindsOutput,publishedMediaInput,publishedMediaOutput } from './dto';
 import { ContentRepository,toArticleDto } from './repository';
 const repository=new ContentRepository();
 
@@ -15,9 +15,19 @@ export const getArticleHandler=async(input:z.infer<typeof articleIdInput>,ctx:Qu
  * depend on every caller remembering to pass it.
  */
 export const listPublishedArticlesQuery=defineQuery({name:'commerce.content.listPublishedArticles',summary:'列出已發布的品牌內容',input:listPublishedArticlesInput,output:listPublishedArticlesOutput,permission:'content:public-read'});
-export const listPublishedArticlesHandler=async(input:z.infer<typeof listPublishedArticlesInput>,ctx:QueryContext)=>({items:await repository.listPublished(ctx.db,input.kind,input.limit)});
+export const listPublishedArticlesHandler=async(input:z.infer<typeof listPublishedArticlesInput>,ctx:QueryContext)=>repository.listPublished(ctx.db,input.kind,input.limit,input.offset);
+export const listPublishedSiteContentQuery=defineQuery({name:'commerce.content.listPublishedSiteContent',summary:'列出網站探索用的已發布內容',input:listPublishedSiteContentInput,output:listPublishedSiteContentOutput,permission:'content:public-read'});
+export const listPublishedSiteContentHandler=async(input:z.infer<typeof listPublishedSiteContentInput>,ctx:QueryContext)=>repository.listPublishedSiteContent(ctx.db,input.limit,input.offset);
 export const getPublishedArticleQuery=defineQuery({name:'commerce.content.getPublishedArticle',summary:'取得一篇已發布的品牌內容',input:getPublishedArticleInput,output:articleDto,permission:'content:public-read'});
 export const getPublishedArticleHandler=async(input:z.infer<typeof getPublishedArticleInput>,ctx:QueryContext)=>{const article=await repository.findPublished(ctx.db,input.kind,input.slug);if(!article)throw PlatformError.notFound('Article',`${input.kind}/${input.slug}`);return article;};
+
+/** A binary route may expose only a preview referenced by currently published content. */
+export const getPublishedMediaQuery=defineQuery({name:'commerce.content.getPublishedMedia',summary:'確認公開文章引用的媒體',input:publishedMediaInput,output:publishedMediaOutput,permission:'content:public-read'});
+export const getPublishedMediaHandler=async(input:z.infer<typeof publishedMediaInput>,ctx:QueryContext)=>{
+ const mediaAssetId=await repository.hasPublishedMedia(ctx.db,input.mediaAssetId);
+ if(!mediaAssetId)throw PlatformError.notFound('Published media',input.mediaAssetId);
+ return {mediaAssetId};
+};
 
 /** One grouped read so the site navigation does not cost four queries per page. */
 export const getPublishedKindsQuery=defineQuery({name:'commerce.content.getPublishedKinds',summary:'哪幾種品牌內容已經有發布的文章',input:emptyInput,output:publishedKindsOutput,permission:'content:public-read'});

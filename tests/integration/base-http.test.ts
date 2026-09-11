@@ -76,11 +76,11 @@ afterAll(async () => {
 });
 
 describe('Base HTTP input boundary', () => {
-  it('selects Base controllers once and retains the validated 10-controller, 59-route catalog', () => {
+  it('selects Base controllers once and retains the validated 15-controller, 76-route catalog', () => {
     expect(controllerFactory).toHaveBeenCalledTimes(1);
-    expect(controllerFactory.mock.results[0]?.value).toHaveLength(10);
+    expect(controllerFactory.mock.results[0]?.value).toHaveLength(15);
     const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
-    expect(catalog.storeweaveHttpCatalog).toHaveLength(59);
+    expect(catalog.storeweaveHttpCatalog).toHaveLength(76);
     expect(catalog.storeweaveHttpCatalog?.some(route => route.path === '/api/v1/media/:id/preview' && route.method === 'GET')).toBe(true);
     expect(catalog.storeweaveHttpCatalog?.filter(route => route.method === 'GET').every(route => route.automaticMethods?.[0] === 'HEAD')).toBe(true);
     expect(app.getHttpAdapter().getInstance().hasRoute({ method: 'OPTIONS', url: '*' })).toBe(false);
@@ -326,7 +326,7 @@ describe('Base HTTP input boundary', () => {
       cors.credentials = false;
       withoutCredentials = await createReleaseServer({ runtime, httpAdapter, release: { version: 'test', configPath: '<test>' } });
       const catalog = (withoutCredentials.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier).storeweaveHttpCatalog!;
-      expect(catalog).toHaveLength(60);
+      expect(catalog).toHaveLength(77);
       expect(catalog.find(route => route.kind === 'cors-preflight')).toMatchObject({
         method: 'OPTIONS', path: '*', automaticRoute: true, auth: 'unauthenticated', request: 'headers', rateLimit: null,
         policy: { allowedOrigins: ['https://console.example'], credentials: false,
@@ -427,7 +427,7 @@ describe('Base HTTP input boundary', () => {
           output: zodToJsonSchema(descriptor.output as never, { target: 'jsonSchema7' }),
         });
       }
-      expect(items.every((item: { name: string }) => item.name.startsWith('platform.'))).toBe(true);
+      expect(items.every((item: { name: string }) => item.name.startsWith('platform.') || item.name.startsWith('commerce.content.'))).toBe(true);
     }
   });
 

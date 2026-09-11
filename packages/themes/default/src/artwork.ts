@@ -38,6 +38,22 @@ const WOVEN_DAY_EDITORIAL_IMAGES: Record<WovenDayEditorialImage, { file: string;
  * the merchant's: staff pick from it, they never supply a path.
  */
 export const EDITORIAL_IMAGE_KEYS = Object.keys(WOVEN_DAY_EDITORIAL_IMAGES) as readonly WovenDayEditorialImage[];
+export function editorialImageAltText(image: string): string | null {
+  return Object.hasOwn(WOVEN_DAY_EDITORIAL_IMAGES, image) ? WOVEN_DAY_EDITORIAL_IMAGES[image as WovenDayEditorialImage].alt : null;
+}
+
+/**
+ * B14's closed import catalog.  The digest is deliberately the source PNG's
+ * SHA-256, not a URL or an inferred filename, so an operator can stop before
+ * importing bytes that no longer match the release being migrated.
+ */
+export const WOVEN_DAY_LEGACY_MEDIA_MANIFEST = Object.freeze([
+  { themeId: 'default', imageKey: 'hero', file: 'woven-day-hero.png', altText: WOVEN_DAY_EDITORIAL_IMAGES.hero.alt, sourceDigest: '8b339f031fecc3e6842f32fdb29e6af53883f25d59eebcc7ca73d48eece95d55' },
+  { themeId: 'default', imageKey: 'story', file: 'woven-day-story.png', altText: WOVEN_DAY_EDITORIAL_IMAGES.story.alt, sourceDigest: '27f150db98b993b290a61ba40a2a78915f9e5c0a42a9135a48bf64dff10bfbf3' },
+  { themeId: 'default', imageKey: 'journal-room', file: 'woven-day-story.png', altText: WOVEN_DAY_EDITORIAL_IMAGES['journal-room'].alt, sourceDigest: '27f150db98b993b290a61ba40a2a78915f9e5c0a42a9135a48bf64dff10bfbf3' },
+  { themeId: 'default', imageKey: 'journal-pause', file: 'woven-day-hero.png', altText: WOVEN_DAY_EDITORIAL_IMAGES['journal-pause'].alt, sourceDigest: '8b339f031fecc3e6842f32fdb29e6af53883f25d59eebcc7ca73d48eece95d55' },
+  { themeId: 'default', imageKey: 'journal-occasion', file: 'woven-day-journal.png', altText: WOVEN_DAY_EDITORIAL_IMAGES['journal-occasion'].alt, sourceDigest: '9d74eba66805f1dda87e8e18205eaf2ceeec3135a9ac6048aaa2bc01ad861a03' },
+] as const);
 
 /**
  * These are campaign/editorial photographs owned by the built-in Woven Day

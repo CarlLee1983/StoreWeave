@@ -37,6 +37,7 @@ COPY packages/platform/media/package.json packages/platform/media/
 COPY packages/platform/notifications/package.json packages/platform/notifications/
 COPY packages/platform/auth/package.json packages/platform/auth/
 COPY packages/platform/site/package.json packages/platform/site/
+COPY packages/platform/content/package.json packages/platform/content/
 COPY packages/platform/outbox/package.json packages/platform/outbox/
 COPY packages/platform/query-bus/package.json packages/platform/query-bus/
 COPY packages/platform/storage/package.json packages/platform/storage/
@@ -51,7 +52,6 @@ COPY packages/commerce/notification/package.json packages/commerce/notification/
 COPY packages/commerce/order/package.json packages/commerce/order/
 COPY packages/commerce/promotion/package.json packages/commerce/promotion/
 COPY packages/commerce/refund/package.json packages/commerce/refund/
-COPY packages/commerce/content/package.json packages/commerce/content/
 COPY packages/commerce/rma/package.json packages/commerce/rma/
 COPY packages/commerce/shipping/package.json packages/commerce/shipping/
 COPY packages/extensions/demo-erp/package.json packages/extensions/demo-erp/

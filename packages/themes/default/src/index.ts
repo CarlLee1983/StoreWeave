@@ -12,7 +12,8 @@ import type { createLoyaltyPages, ThemeAccountRewardsView } from '@storeweave/lo
 import type { orderPages, ThemeAccountOrdersView, ThemeOrderView } from '@storeweave/order';
 import { csrfField, escapeHtml, formatMoney, layout } from './layout';
 import { formatDate, formatDateTime, safeUrlAttribute } from '@storeweave/i18n';
-import { EDITORIAL_IMAGE_KEYS, renderStorefrontArtwork, renderWovenDayEditorialImage, renderWovenDayProductImage, type WovenDayEditorialImage } from './artwork';
+import { EDITORIAL_IMAGE_KEYS, editorialImageAltText, renderStorefrontArtwork, renderWovenDayEditorialImage, renderWovenDayProductImage, type WovenDayEditorialImage } from './artwork';
+export { WOVEN_DAY_LEGACY_MEDIA_MANIFEST } from './artwork';
 
 type AccountSection = 'orders' | 'coupons' | 'rewards' | 'profile';
 
@@ -30,6 +31,7 @@ type ArticleLike = {
   section: string;
   body: { heading: string | null; text: string }[];
   imageKey: string | null;
+  mediaAssetId?: string | null;
   publishedAt: Date | null;
 };
 
@@ -398,6 +400,12 @@ function isWovenDay(ctx: ThemeContext): boolean {
  * page down with it.
  */
 function editorialImage(article: ArticleLike, loading: 'eager' | 'lazy' = 'lazy'): string {
+  // B10 originals and previews remain private. This route verifies the asset
+  // is referenced by published content before it exposes the derived preview.
+  if (article.mediaAssetId) {
+    const alt = article.imageKey ? (editorialImageAltText(article.imageKey) ?? article.summary ?? article.title) : (article.summary || article.title);
+    return `<img class="storefront-editorial-image" src="/content/media/${encodeURIComponent(article.mediaAssetId)}/preview" alt="${escapeHtml(alt)}" loading="${loading}" decoding="async">`;
+  }
   const key = article.imageKey;
   if (!key || !EDITORIAL_IMAGE_KEYS.includes(key as WovenDayEditorialImage)) return '';
   return renderWovenDayEditorialImage(key as WovenDayEditorialImage, loading);
@@ -451,7 +459,7 @@ function articlePage(ctx: ThemeContext, article: ThemeArticleView, base: string,
       <div class="article-content">${articleBody(article)}</div>
       <p class="article-return"><a class="secondary-action" href="${base}">回到${escapeHtml(listLabel)}</a></p>
     </article>`;
-  return layout({ title: article.title, body, ctx });
+  return layout({ title: article.title, body, ctx, description: article.summary || article.title, canonicalPath: `${base}/${encodeURIComponent(article.slug)}` });
 }
 
 /**
@@ -635,36 +643,47 @@ export function renderStory(ctx: ThemeContext, { article }: { article: ThemeArti
           <p class="eyebrow">選物從使用開始</p><h2>把真正會回到手邊的，留在生活裡。</h2><a class="cta" href="/catalog">瀏覽商品型錄</a>
         </section>
       </article>`;
-    return layout({ title: article.title, body, ctx });
+    return layout({ title: article.title, body, ctx, description: article.summary || article.title, canonicalPath: '/story' });
 }
 
-export function renderJournalList(ctx: ThemeContext, { articles }: ThemeArticleListView): string {
+function pagination(view: ThemeArticleListView): string {
+  const page = view.pagination;
+  if (!page || page.total <= page.pageSize) return '';
+  const previous = page.page > 1 ? `<a href="${page.basePath}?page=${page.page - 1}" rel="prev">上一頁</a>` : '';
+  const next = page.page * page.pageSize < page.total ? `<a href="${page.basePath}?page=${page.page + 1}" rel="next">下一頁</a>` : '';
+  return `<nav class="content-pagination" aria-label="內容分頁">${previous}<span>第 ${page.page} 頁</span>${next}</nav>`;
+}
+
+export function renderJournalList(ctx: ThemeContext, view: ThemeArticleListView): string {
+  const { articles } = view;
   const body = `
       <article class="journal-page">
         <header class="page-heading"><p class="eyebrow">Woven Journal</p><h1>生活誌</h1><p class="page-heading__copy">記下物件、空間與日常之間，慢慢形成的關係。</p></header>
-        <section class="journal-grid journal-grid--three" aria-label="生活誌文章">${articles.map((article) => articleCard(article, '/journal')).join('')}</section>
+        <section class="journal-grid journal-grid--three" aria-label="生活誌文章">${articles.map((article) => articleCard(article, '/journal')).join('')}</section>${pagination(view)}
       </article>`;
-  return layout({ title: '生活誌', body, ctx });
+  return layout({ title: '生活誌', body, ctx, description: '記下物件、空間與日常之間的關係。', canonicalPath: `/journal${view.pagination && view.pagination.page > 1 ? `?page=${view.pagination.page}` : ''}` });
 }
 
 export function renderJournalArticle(ctx: ThemeContext, { article }: { article: ThemeArticleView }): string {
   return articlePage(ctx, article, '/journal', '生活誌');
 }
 
-export function renderNewsList(ctx: ThemeContext, { articles }: ThemeArticleListView): string {
+export function renderNewsList(ctx: ThemeContext, view: ThemeArticleListView): string {
+  const { articles } = view;
   const body = `
       <article class="news-page">
         <header class="page-heading"><p class="eyebrow">店務公告</p><h1>最新消息</h1><p class="page-heading__copy">出貨安排、活動與服務調整，都會先公布在這裡。</p></header>
-        <ul class="news-list" aria-label="最新消息">${articles.map(newsRow).join('')}</ul>
+        <ul class="news-list" aria-label="最新消息">${articles.map(newsRow).join('')}</ul>${pagination(view)}
       </article>`;
-  return layout({ title: '最新消息', body, ctx });
+  return layout({ title: '最新消息', body, ctx, description: '出貨安排、活動與服務調整。', canonicalPath: `/news${view.pagination && view.pagination.page > 1 ? `?page=${view.pagination.page}` : ''}` });
 }
 
 export function renderNewsArticle(ctx: ThemeContext, { article }: { article: ThemeArticleView }): string {
   return articlePage(ctx, article, '/news', '最新消息');
 }
 
-export function renderFaq(ctx: ThemeContext, { articles }: ThemeArticleListView): string {
+export function renderFaq(ctx: ThemeContext, view: ThemeArticleListView): string {
+    const { articles } = view;
     // Grouped by the merchant's own section labels; ungrouped entries keep their order.
     const groups = new Map<string, ThemeArticleView[]>();
     for (const article of articles) {
@@ -684,9 +703,9 @@ export function renderFaq(ctx: ThemeContext, { articles }: ThemeArticleListView)
         </section>`).join('')}
         <section class="faq-closing">
           <p>沒有找到答案？<a href="/contact">寫訊息給我們</a>，我們會盡快回覆。</p>
-        </section>
+        </section>${pagination(view)}
       </article>`;
-    return layout({ title: '常見問題', body, ctx });
+    return layout({ title: '常見問題', body, ctx, description: '訂購、付款、出貨與退換貨的常見問題。', canonicalPath: `/faq${view.pagination && view.pagination.page > 1 ? `?page=${view.pagination.page}` : ''}` });
 }
 
 export function renderContact(ctx: ThemeContext, { submitted, values, error }: ThemeContactView): string {
@@ -713,7 +732,7 @@ export function renderContact(ctx: ThemeContext, { submitted, values, error }: T
           : form}
         ${support}
       </article>`;
-    return layout({ title: '聯絡我們', body, ctx });
+    return layout({ title: '聯絡我們', body, ctx, canonicalPath: '/contact' });
 }
 
 export function renderProduct(ctx: ThemeContext, { product }: { product: ThemeProductView }): string {
