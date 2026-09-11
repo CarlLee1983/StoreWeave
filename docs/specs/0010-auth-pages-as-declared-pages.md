@@ -1,7 +1,7 @@
 # Spec 0010 — 認證頁面成為模組宣告的頁面
 
 - 日期：2026-09-10；程式盤點基準：`41a691c`（B13 合併後）。
-- 狀態：ready-for-agent。
+- 狀態：done（2026-09-11，工單 92–98 全部完成；單元與整合回歸全綠，ADR 0047 同日改為 accepted）。
 - 決策來源：[ADR 0047](../adr/0047-session-is-a-page-outcome.md)（session 是頁面的 outcome），
   前置決策 [ADR 0045](../adr/0045-modules-declare-storefront-pages.md)、
   [ADR 0046](../adr/0046-site-settings-and-navigation-are-release-data.md)、

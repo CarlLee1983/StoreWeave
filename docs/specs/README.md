@@ -20,7 +20,7 @@ GitHub 派工入口：[Spec 0008 總單 #17](https://github.com/CarlLee1983/Stor
 | [0007](0007-brand-content-and-contact.md) | 品牌內容與聯絡我們 | 0001–0006 | ready-for-agent |
 | [0008](0008-admin-foundations-and-contracts.md) | 後台共用元件、資料狀態與 HTTP 契約收斂 | 既有後台 | done（本機驗收；未提交） |
 | [0009](0009-complete-modular-base.md) | 完整應用基礎服務、模組契約與建站基底 | 既有 platform；Admin 部分銜接 0008 | in-progress；B00–B01 done，B02 已解鎖 |
-| [0010](0010-auth-pages-as-declared-pages.md) | 認證頁面成為模組宣告的頁面 | 0009 的 B13；ADR 0047 | ready-for-agent |
+| [0010](0010-auth-pages-as-declared-pages.md) | 認證頁面成為模組宣告的頁面 | 0009 的 B13；ADR 0047 | done（工單 92–98） |
 
 0001 與 0002 沒有相依，可並行；兩條線在 0003 會合。加價購接在 0004 之後，
 是定價引擎輸出「可加購清單」的延伸，不獨立成規格。
