@@ -241,6 +241,7 @@ focused tests／必要整合 gates／測試資源／執行時段：
 
 - **讀取／ownership**：`commerce/content`、brand/contact API、Theme article types、Admin content 頁、seed；主代理，依確定契約派 UI。
 - **工作**：將內容／聯絡功能獨立為網站模組，保留已發布 slug／資料 id；補齊 F14；舊 Theme image key 映射為 media reference，透過 B09／B10 匯入原始資產。
+- **一併決定**：`member` 角色登入後看得到什麼，特別是站內收件匣要不要給它（`packages/platform/authorization/src/roles.ts` 的註解原本指名 B13，B13 結案時未處理，見 [ADR 0047](adr/0047-session-is-a-page-outcome.md) 的「不涵蓋」）。
 - **出口**：形象站與 Blog 發布流程不建立 Customer／order；草稿、權限、分頁、RSS／sitemap、換 Theme 的內容與照片保留。聯絡表單可按網站設定透過 B07 通知，原收件匣流程保留。
 - **驗證／回復**：內容／contact 回歸、XSS／未發布資料隔離、舊 DB＋照片 backfill 可重跑且有比對；migration history 不重置，未映射資料阻擋 contract 階段而非默默丟圖。
 

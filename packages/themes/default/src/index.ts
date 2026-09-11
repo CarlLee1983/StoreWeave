@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { defineTheme, type ThemeAuthView, type ThemeContext } from '@storeweave/kernel';
+import { defineTheme, type ThemeContext } from '@storeweave/kernel';
+import type {
+  AuthPages, ThemeForgotPasswordView, ThemeLoginView, ThemeRegisterView, ThemeResetPasswordView,
+} from '@storeweave/auth';
 import type { cartPages, ThemeCartView, ThemeCheckoutView, ThemePickupStorePickerView } from '@storeweave/cart';
 import type { catalogPages, ThemeCatalogView, ThemeHomeView, ThemeProductView } from '@storeweave/catalog';
 import type { contentPages, ThemeArticleListView, ThemeArticleView, ThemeContactView } from '@storeweave/content';
@@ -7,7 +10,7 @@ import type { couponPages, ThemeAccountCouponsView } from '@storeweave/coupon';
 import type { customerPages, ThemeAccountProfileView } from '@storeweave/customer';
 import type { createLoyaltyPages, ThemeAccountRewardsView } from '@storeweave/loyalty';
 import type { orderPages, ThemeAccountOrdersView, ThemeOrderView } from '@storeweave/order';
-import { escapeHtml, formatMoney, layout } from './layout';
+import { csrfField, escapeHtml, formatMoney, layout } from './layout';
 import { formatDate, formatDateTime, safeUrlAttribute } from '@storeweave/i18n';
 import { EDITORIAL_IMAGE_KEYS, renderStorefrontArtwork, renderWovenDayEditorialImage, renderWovenDayProductImage, type WovenDayEditorialImage } from './artwork';
 
@@ -147,15 +150,16 @@ function paymentContinuation(payment: NonNullable<ThemeOrderView['payment']>): s
   </section>`;
 }
 
-/** 忘記密碼與重設密碼：兩張表單長得夠像，共用一支。 */
+/**
+ * 忘記密碼與重設密碼：兩個 view 型別各自獨立（ADR 0047），但兩張表單長得夠像，
+ * 版面共用一支，欄位由呼叫端填。
+ */
 function renderPasswordForm(
   ctx: ThemeContext,
-  view: Extract<ThemeAuthView, { mode: 'forgot-password' | 'reset-password' }>,
+  { forgot, error, notice, token }: {
+    forgot: boolean; error?: string; notice?: string; token?: string;
+  },
 ): string {
-  const forgot = view.mode === 'forgot-password';
-  const error = view.error;
-  const notice = forgot ? view.notice : undefined;
-  const token = forgot ? undefined : view.token;
   const body = `
     <article class="auth-page">
       <section class="auth-card" aria-labelledby="auth-title">
@@ -169,6 +173,7 @@ function renderPasswordForm(
         ${feedback(notice)}
         ${feedback(error, 'error')}
         ${notice && forgot ? '' : `<form class="auth-form" method="post" action="${forgot ? '/forgot-password' : '/reset-password'}">
+          ${csrfField(ctx)}
           ${forgot
             ? `<label>電子郵件<input type="email" name="email" required placeholder="you@example.com" autocomplete="email"></label>`
             : `<input type="hidden" name="token" value="${escapeHtml(token ?? '')}">
@@ -360,11 +365,6 @@ function couponStateText(coupon: ThemeAccountCouponsView['coupons'][number]): st
   }
   if (coupon.unusableReason) return '<span class="badge">目前不可使用</span>';
   return coupon.expiringSoon ? '<span class="badge expiring">即將到期</span>' : '<span class="badge">可使用</span>';
-}
-
-/** 伺服器渲染的表單以隱藏欄位做 CSRF 雙提交——瀏覽器的原生表單送不出自訂 header。 */
-function csrfField(ctx: { csrfToken?: string | null }): string {
-  return ctx.csrfToken ? `<input type="hidden" name="_csrf" value="${escapeHtml(ctx.csrfToken)}">` : '';
 }
 
 function productCard(ctx: ThemeContext, product: ThemeCatalogView['products'][number]): string {
@@ -690,7 +690,7 @@ export function renderFaq(ctx: ThemeContext, { articles }: ThemeArticleListView)
 }
 
 export function renderContact(ctx: ThemeContext, { submitted, values, error }: ThemeContactView): string {
-    const csrf = ctx.csrfToken ? `<input type="hidden" name="_csrf" value="${escapeHtml(ctx.csrfToken)}">` : '';
+    const csrf = csrfField(ctx);
     const support = ctx.supportEmail
       ? `<p class="contact-support">也可以直接寫信到 <a href="mailto:${escapeHtml(ctx.supportEmail)}">${escapeHtml(ctx.supportEmail)}</a>。</p>`
       : '';
@@ -1212,12 +1212,27 @@ export function renderAccountProfile(ctx: ThemeContext, { displayName, phone, bi
     return layout({ title: '個人資料', body, ctx });
 }
 
-export function renderAuth(ctx: ThemeContext, view: ThemeAuthView): string {
-  if (view.mode === 'forgot-password' || view.mode === 'reset-password') {
-    return renderPasswordForm(ctx, view);
-  }
-  const { next, error } = view;
-  const login = view.mode === 'login';
+export function renderForgotPassword(ctx: ThemeContext, view: ThemeForgotPasswordView): string {
+  return renderPasswordForm(ctx, { forgot: true, notice: view.notice });
+}
+
+export function renderResetPassword(ctx: ThemeContext, view: ThemeResetPasswordView): string {
+  return renderPasswordForm(ctx, { forgot: false, error: view.error, token: view.token });
+}
+
+export function renderLogin(ctx: ThemeContext, view: ThemeLoginView): string {
+  return renderCredentials(ctx, { login: true, next: view.next, error: view.error, email: view.email });
+}
+
+export function renderRegister(ctx: ThemeContext, view: ThemeRegisterView): string {
+  return renderCredentials(ctx, { login: false, next: view.next, error: view.error });
+}
+
+/** 登入與註冊：同一張表單，註冊多一個顯示名稱欄位。 */
+function renderCredentials(
+  ctx: ThemeContext,
+  { login, next, error, email }: { login: boolean; next: string; error?: string; email?: string },
+): string {
   const body = `
       <article class="auth-page">
         <section class="auth-card" aria-labelledby="auth-title">
@@ -1230,9 +1245,11 @@ export function renderAuth(ctx: ThemeContext, view: ThemeAuthView): string {
           </div>
           ${feedback(error, 'error')}
           <form class="auth-form" method="post" action="${login ? '/login' : '/register'}">
+            ${csrfField(ctx)}
             <input type="hidden" name="next" value="${escapeHtml(next)}">
             <label>電子郵件
-              <input type="email" name="email" required placeholder="you@example.com" autocomplete="email">
+              <input type="email" name="email" required placeholder="you@example.com" autocomplete="email"${
+                email === undefined ? '' : ` value="${escapeHtml(email)}"`}>
             </label>
             ${login ? '' : `<label>顯示名稱
               <input type="text" name="displayName" maxlength="120" placeholder="怎麼稱呼你" autocomplete="name">
@@ -1274,7 +1291,7 @@ export function renderError(ctx: ThemeContext, { status, message }: { status: nu
  */
 type ServedPages = typeof catalogPages & typeof cartPages & typeof orderPages
   & typeof contentPages & typeof customerPages & typeof couponPages
-  & ReturnType<typeof createLoyaltyPages>;
+  & ReturnType<typeof createLoyaltyPages> & AuthPages;
 
 export const defaultTheme = defineTheme<ServedPages>({
   id: 'default',
@@ -1283,6 +1300,15 @@ export const defaultTheme = defineTheme<ServedPages>({
   editorialImageKeys: EDITORIAL_IMAGE_KEYS,
 
   renderers: {
+    // 每組認證頁的顯示與送出共用同一個 renderer，和聯絡我們同一個做法。
+    'platform.auth.login': renderLogin,
+    'platform.auth.submitLogin': renderLogin,
+    'platform.auth.forgotPassword': renderForgotPassword,
+    'platform.auth.submitForgotPassword': renderForgotPassword,
+    'platform.auth.resetPassword': renderResetPassword,
+    'platform.auth.submitResetPassword': renderResetPassword,
+    'platform.auth.register': renderRegister,
+    'platform.auth.submitRegister': renderRegister,
     'commerce.catalog.home': renderHome,
     'commerce.catalog.view': renderCatalog,
     'commerce.catalog.product': renderProduct,
@@ -1305,7 +1331,6 @@ export const defaultTheme = defineTheme<ServedPages>({
     'commerce.order.accountList': renderAccountOrders,
     'commerce.customer.profile': renderAccountProfile,
     'commerce.customer.saveProfile': renderAccountProfile,
-    'platform.auth': renderAuth,
     'platform.error': renderError,
   },
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ThemeAuthView, ThemeContext } from '@storeweave/kernel';
+import type { ThemeContext } from '@storeweave/kernel';
 import type { ThemeCartView, ThemeCheckoutView } from '@storeweave/cart';
 import type { ThemeProductView } from '@storeweave/catalog';
 import type { ThemeArticleView } from '@storeweave/content';
@@ -204,11 +204,16 @@ const surfaces: [name: string, render: () => string][] = [
   ['renderError', () => defaultTheme.renderers['platform.error'](context(), { status: 404, message: PROBE })],
 ];
 
-const authModes: ThemeAuthView[] = [
-  { mode: 'login', next: PROBE, error: PROBE },
-  { mode: 'register', next: PROBE, error: PROBE },
-  { mode: 'forgot-password', next: PROBE, error: PROBE, notice: PROBE },
-  { mode: 'reset-password', next: PROBE, error: PROBE, token: PROBE },
+/** 拆開之後每個版型有自己的欄位，轉義的案例跟著一頁一頁列（工單 98）。 */
+const authSurfaces: readonly (readonly [string, () => string])[] = [
+  ['login', () => defaultTheme.renderers['platform.auth.login'](
+    context(), { mode: 'login', next: PROBE, error: PROBE, email: PROBE })],
+  ['register', () => defaultTheme.renderers['platform.auth.register'](
+    context(), { mode: 'register', next: PROBE, error: PROBE })],
+  ['forgot-password', () => defaultTheme.renderers['platform.auth.forgotPassword'](
+    context(), { mode: 'forgot-password', next: PROBE, notice: PROBE })],
+  ['reset-password', () => defaultTheme.renderers['platform.auth.resetPassword'](
+    context(), { mode: 'reset-password', next: PROBE, error: PROBE, token: PROBE })],
 ];
 
 describe('Default Theme 把資料當文字輸出', () => {
@@ -219,10 +224,8 @@ describe('Default Theme 把資料當文字輸出', () => {
     expect(html).toContain(ESCAPED_PROBE);
   });
 
-  it.each(authModes.map((view) => [view.mode, view] as const))('renderAuth（%s）不讓資料變成標記', (_mode, view) => {
-    const html = defaultTheme.renderers['platform.auth'](context(), view);
-
-    expectNoMarkupInjection(html);
+  it.each(authSurfaces)('認證版型（%s）不讓資料變成標記', (_mode, render) => {
+    expectNoMarkupInjection(render());
   });
 
   it('未登入的訪客頁面同樣不被 notice 與店名注入', () => {

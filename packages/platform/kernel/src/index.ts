@@ -6,6 +6,7 @@ export * from './keyring';
 export * from './mcp-registry';
 export * from './logger';
 export * from './module';
+export * from './safe-redirect';
 export * from './http-contract';
 export * from './page';
 export * from './module-graph';

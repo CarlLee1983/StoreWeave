@@ -16,6 +16,18 @@ A temporary claim on sellable stock made for every Order line. It increases `res
 
 一個會下單的人。Customer 擁有生日、會員等級、等級積分與購物金餘額。Customer 與後台操作者共用同一套帳號與 session 機制，但兩者的資料分屬不同模組：帳號只知道「這是一個帳號」，不知道他是顧客還是店員。結帳必須是已登入的 Customer。
 
+## Account
+
+一個可以登入的身分，存在 `platform_users`。帳號只知道「這是一個帳號」——它不知道持有者是顧客、店員還是形象站的會員，那由角色與各模組自己的資料決定。Customer 擴充在帳號旁邊，不是帳號的前提（ADR 0041）。
+
+## Member
+
+Base 的一般人：可以自己註冊、驗證信箱、登入、看自己東西的帳號，但沒有任何商務資料。Member 不是 Customer——base release 裡根本沒有商務資料——兩者也不是同一個角色。一個 release 至多有一個可自助註冊的角色。
+
+## Session
+
+一次登入的持續狀態。認證發生在 Actor 存在之前——那一刻還沒有身分可以檢查權限——所以簽發與解析 session 不是 Command，而是 Interface Adapter 直接呼叫的服務。前台頁面不能自己簽發 session，它把簽發當成渲染的結果交出去（ADR 0047）。
+
 ## 顧客前台（Storefront）
 
 顧客與匿名訪客瀏覽商品、管理購物車並完成下單的商店介面。它以建立品牌信任與促成商品探索、結帳為目的，和營運後台（Admin）是不同的產品體驗。

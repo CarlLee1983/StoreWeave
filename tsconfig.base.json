@@ -35,6 +35,7 @@
       "@storeweave/storage": ["packages/platform/storage/src/index.ts"],
       "@storeweave/mail": ["packages/platform/mail/src/index.ts"],
       "@storeweave/notifications": ["packages/platform/notifications/src/index.ts"],
+      "@storeweave/auth": ["packages/platform/auth/src/index.ts"],
       "@storeweave/site": ["packages/platform/site/src/index.ts"],
       "@storeweave/crypto": ["packages/platform/crypto/src/index.ts"],
       "@storeweave/http-client": ["packages/platform/http-client/src/index.ts"],

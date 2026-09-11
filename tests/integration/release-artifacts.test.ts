@@ -108,7 +108,7 @@ describe('release process artifacts', () => {
       const manifest = JSON.parse(readFileSync(join(output, 'release-manifest.json'), 'utf8'));
       expect(manifest).toMatchObject({ schemaVersion: 1, releaseId, releaseVersion: '0.1.2-test' });
       expect(info.manifestChecksum).toBe(catalogDigest(manifest));
-      expect(manifest.modules).toHaveLength(releaseId === 'base' ? 8 : 22);
+      expect(manifest.modules).toHaveLength(releaseId === 'base' ? 9 : 23);
       if (releaseId === 'base') {
         expect(manifest.availableExtensions).toEqual([]);
         for (const file of ['release-manifest.js.meta.json', 'scripts/validate-release.js.meta.json']) {

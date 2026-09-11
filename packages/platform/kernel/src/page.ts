@@ -1,3 +1,4 @@
+import type { IssuedSession } from '@storeweave/identity';
 import { z } from 'zod';
 import type { ZodType, ZodTypeAny, ZodTypeDef } from 'zod';
 import type { Actor } from '@storeweave/contracts';
@@ -19,6 +20,14 @@ export type PageAudience = 'public' | 'customer' | 'operator';
 export type PageOutcome<View> =
   | { readonly kind: 'view'; readonly view: View; readonly status?: number }
   | { readonly kind: 'redirect'; readonly location: string }
+  /**
+   * 「請簽發這個 session，然後轉到那裡」。頁面自己碰不到 cookie——簽發、訪客購物車合併
+   * 與轉址都由路由層執行（ADR 0047）。kind 的名字與契約的 `cookieEffects` 同名，
+   * 兩邊因此對得起來，而不是靠人維持一致。
+   */
+  | { readonly kind: 'session-start'; readonly session: IssuedSession; readonly location: string }
+  /** 「請清掉目前的 session，然後轉到那裡」。要作廢哪一張由路由層從請求上決定。 */
+  | { readonly kind: 'session-clear'; readonly location: string }
   | { readonly kind: 'not-found' };
 
 /**
@@ -166,11 +175,10 @@ export function collectPages(modules: readonly PlatformModule[]): readonly Store
  * 沒有自己的路由，但任何 release 都會用到的頁面。錯誤頁是別條路由失敗時的結果，
  * 所以不由誰「宣告」，而是每個 Theme 都必須提供。
  *
- * 登入表單暫時也在這裡：它的寫入端點要簽發 session cookie，而頁面能碰的 cookie
- * 只有訪客購物車那兩個動作。identity 的頁面遷移（B13 片5）會把它改成模組宣告，
- * 屆時這個清單應該只剩錯誤頁。
+ * 只有錯誤頁：認證版型隨 `platform-auth` 模組進來，沒有載入認證模組的 Theme
+ * 不必提供登入表單（ADR 0047）。
  */
-export const SYSTEM_PAGE_IDS = ['platform.error', 'platform.auth'] as const;
+export const SYSTEM_PAGE_IDS = ['platform.error'] as const;
 
 /**
  * 在開始服務之前比對已載入模組宣告的必需頁面與 Theme 提供的 renderer。

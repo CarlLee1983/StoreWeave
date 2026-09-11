@@ -34,6 +34,7 @@ COPY packages/platform/jobs/package.json packages/platform/jobs/
 COPY packages/platform/kernel/package.json packages/platform/kernel/
 COPY packages/platform/mail/package.json packages/platform/mail/
 COPY packages/platform/notifications/package.json packages/platform/notifications/
+COPY packages/platform/auth/package.json packages/platform/auth/
 COPY packages/platform/site/package.json packages/platform/site/
 COPY packages/platform/outbox/package.json packages/platform/outbox/
 COPY packages/platform/query-bus/package.json packages/platform/query-bus/

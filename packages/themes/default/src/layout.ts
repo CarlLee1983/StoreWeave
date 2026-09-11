@@ -16,6 +16,11 @@ export interface LayoutOptions {
   ctx: ThemeContext;
 }
 
+/** 伺服器渲染的表單以隱藏欄位做 CSRF 雙提交——瀏覽器的原生表單送不出自訂 header。 */
+export function csrfField(ctx: { csrfToken?: string | null }): string {
+  return ctx.csrfToken ? `<input type="hidden" name="_csrf" value="${escapeHtml(ctx.csrfToken)}">` : '';
+}
+
 /** 結帳需要身分之後，「我是誰、怎麼登出」必須在每一頁都看得到。 */
 function accountNav(ctx: ThemeContext): string {
   if (!ctx.customerName) {
@@ -23,6 +28,7 @@ function accountNav(ctx: ThemeContext): string {
   }
   return `<a href="/account/orders">會員中心</a><span class="account__name">${escapeHtml(ctx.customerName)}</span>
     <form method="post" action="/logout" class="inline">
+      ${csrfField(ctx)}
       <button type="submit" class="linklike">登出</button>
     </form>`;
 }

@@ -15,6 +15,16 @@ GitHub 派工入口：[Spec 0008 總單 #17](https://github.com/CarlLee1983/Stor
 由 `docs/specs/` 的五份規格拆出，共 49 張，之後補了第 50、51、52、53、54、55 張。依相依順序編號。詞彙見根目錄 `CONTEXT.md`，
 決策見 `docs/adr/`（本批為 0013、0014、0015，並補充了 0009）。
 
+**ForgeFlow 協定採用（2026-09-11）**：工單 91 的 discovery 做完了，結論見
+[docs/research/91-forgeflow-protocol-adoption.md](../research/91-forgeflow-protocol-adoption.md)——
+ForgeFlowV2 是開發協定，不是 workflow engine，所以「整合」是這個 repo 要不要採用一套流程契約。
+拆成 [99](99-make-verify-and-agents-guide.md)（`make verify` 與 `AGENTS.md`，獨立有價值）與
+[100](100-story-format-pilot.md)（Story 格式試點，等 B14 第一張工作）。既有 01–99 不轉換。
+
+**認證頁面遷移（2026-09-10）**：[Spec 0010](../specs/0010-auth-pages-as-declared-pages.md) 拆為
+92–98，決策見 [ADR 0047](../adr/0047-session-is-a-page-outcome.md)。92 是預備工且必須先做——
+它修掉 ADR 0047 落在自己身上的那條 falsification。95 與 96 可並行；98 是收尾，做完才把 0047 轉 accepted。
+
 **已完成**：01–56。定價引擎、顧客身分、購物車、優惠券與行銷碼、
 購物金與會員等級、行銷分析頁都已落地。50 是後補的契約收斂票，51 與 52 是它做完之後
 從「刻意沒做」那一段畢業的兩張：前者把 extension 的輸入也收進 ADR 0024，
@@ -171,7 +181,9 @@ GitHub 派工入口：[Spec 0008 總單 #17](https://github.com/CarlLee1983/Stor
 | [88](88-admin-commerce-query-migration.md) | 收斂商務編輯與操作頁的 Query 狀態（**done**） | 81, 84, 85, 87 |
 | [89](89-admin-operations-query-migration.md) | 收斂營運查詢、重送與外殼徽章的 Query 狀態（**done**） | 86, 88 |
 | [90](90-admin-migration-closure.md) | 完成後台遷移清理、文件與整體驗收（**done**） | 81, 84, 85, 86, 88, 89 |
-| [91](91-forgeflowv2-integration-discovery.md) | 釐清 ForgeFlowv2 整合責任與契約（discovery）（**needs-information**） | — |
+| [91](91-forgeflowv2-integration-discovery.md) | 釐清 ForgeFlowv2 整合責任與契約（discovery）（**done**） | — |
+| [99](99-make-verify-and-agents-guide.md) | 一個指令代表「做完了」：`make verify` 與 `AGENTS.md` | 91 |
+| [100](100-story-format-pilot.md) | 用一張真工作試 Story 格式（**blocked**） | 99 |
 
 **76–80 是 Spec 0007 的回填紀錄**（2026-08-26）：這一批不是先開工單再做，而是照
 [Spec 0007](../specs/0007-brand-content-and-contact.md) 直接實作完再補上工單。

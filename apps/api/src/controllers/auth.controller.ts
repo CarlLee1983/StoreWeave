@@ -4,7 +4,8 @@ import { PlatformError } from '@storeweave/contracts';
 import { roleFor } from '@storeweave/authorization';
 import { ok } from '../http/envelope';
 import { Anonymous, Public, type AuthenticatedRequest } from '../http/auth';
-import { clearSessionCookies, sessionTokenOf } from '../http/session-cookies';
+import { sessionTokenOf } from '../http/session-cookies';
+import { clearSession } from '../http/session-clear';
 import { HTTP_ADAPTER, type ReleaseHttpAdapter } from '../release-adapter';
 import { RUNTIME, type Runtime } from '../tokens';
 import { z } from 'zod';
@@ -154,9 +155,7 @@ export class AuthController {
   @HttpCode(200)
   @HttpContract(routes.logout)
   async logout(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) reply: FastifyReply) {
-    const token = sessionTokenOf(req, this.runtime.config.http.publicUrl);
-    if (token) await this.runtime.auth.revokeSession(this.runtime.database.db, token);
-    clearSessionCookies(reply, this.runtime.config.http.publicUrl);
+    await clearSession(this.runtime, req, reply);
     return ok({ loggedOut: true });
   }
 

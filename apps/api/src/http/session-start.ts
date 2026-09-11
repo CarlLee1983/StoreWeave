@@ -7,6 +7,8 @@ import { setSessionCookies } from './session-cookies';
 import type { AuthenticatedRequest } from './auth';
 import type { Runtime } from '../tokens';
 
+const MERGE_GUEST_CART = 'commerce.cart.mergeGuestCart';
+
 /**
  * 簽發 session 的**唯一**入口。
  *
@@ -27,13 +29,21 @@ export async function startSession(
   const guestToken = readCookie(req.cookies, CART_COOKIE, publicUrl);
   if (!guestToken) return null;
 
+  // 沒有購物車模組的 release（形象站）沒有東西可以併。問註冊表而不是問 release id：
+  // 「這個網站有沒有購物車」是組裝的結果，不是 adapter 該各寫一份實作的理由。
+  //
+  // 代價：這個判斷之所以安全，是因為現在只有這一個合併命令。哪天出現第二種購物車而命令
+  // 換了名字，「沒註冊」與「這個網站沒有購物車」就分不出來，合併會安靜地停掉——那時這個
+  // 名字要改成 adapter 傳進來的值或 kernel 的一種能力，不能再是字面常數。
+  if (!runtime.commands.has(MERGE_GUEST_CART)) return null;
+
   try {
     const resolved = await runtime.auth.resolveSession(runtime.database.db, session.token);
     // 後台帳號沒有購物車可以併；訪客那台車留著，登出後還找得回來。
     if (!resolved || resolved.actor.type !== 'customer') return null;
 
     const merged = await runtime.commands.execute<{ removedNames: string[] }>(
-      'commerce.cart.mergeGuestCart',
+      MERGE_GUEST_CART,
       { guestToken },
       // 冪等鍵用現產的值：session token 與訪客 token 都是秘密，不進資料表。
       // 合併本身取較大值又會把來源車作廢，重跑一次不會多算。

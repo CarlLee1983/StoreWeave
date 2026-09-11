@@ -65,7 +65,7 @@ export const BASE_ROLES: ReleaseRoleCatalog = {
   staff: { permissions: ['users:read', 'jobs:read', 'jobs:write', 'storage:read', 'storage:write', 'storage:delete', 'storage:share', 'notifications:read', 'notifications:inbox', 'site:public-read', 'site:manage'], tokenAllowed: true, account: operatorAccount },
   readonly: { permissions: ['users:read', 'jobs:read', 'storage:read', 'notifications:read', 'notifications:inbox', 'site:public-read'], tokenAllowed: true, account: operatorAccount },
   // 權限是空的：自助帳號能做的事都是「對自己」，走 AuthService 而不是 Command Bus。
-  // （站內收件匣要不要給 member，留給 B13 決定，不在合併裡順手加。）
+  // （站內收件匣要不要給 member，留給 B14 決定，不在合併裡順手加——B13 已結案而未處理，見 ADR 0047。）
   member: { permissions: [], tokenAllowed: false, account: memberAccount },
   /**
    * base 前台的匿名訪客。它不是帳號（`account: false`），只是「還沒登入的人看得到什麼」

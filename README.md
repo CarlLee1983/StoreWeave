@@ -1,5 +1,7 @@
 # StoreWeave
 
+跨應用的共用目標見 [通用應用基底與產品分工](docs/reusable-application-base.md)：
+後端、前端與工具可按需復用，Commerce 是第一個產品，後續也能以相同基底建構 ERP 等應用。
 目標定位與完整基底規劃見 [Spec 0009](docs/specs/0009-complete-modular-base.md)；
 能力盤點、套件策略與派工順序見 [Base 執行計畫](docs/base-implementation-plan.md)。
 以下介紹目前已實作的 Commerce 產品，不代表通用基底目標已完成。
@@ -65,6 +67,7 @@ pnpm "dev:worker"    # 需要 API token 時：pnpm commerce token:create --name 
 | --- | --- |
 | [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | **全功能 Demo 演示指南（示範帳號、前台體驗、折扣碼測試與後台操作）** |
 | [docs/architecture.md](docs/architecture.md) | 模組邊界、Command/Query/Event 流向、目錄結構 |
+| [docs/reusable-application-base.md](docs/reusable-application-base.md) | 通用基底與產品分工、前後端及工具復用原則、完成標準 |
 | [apps/admin/DESIGN.md](apps/admin/DESIGN.md) | 管理後台設計系統與資料／互動邊界 |
 | [docs/extension-development.md](docs/extension-development.md) | Extension SDK 十項契約與完整開發範例 |
 | [docs/deployment-docker.md](docs/deployment-docker.md) | Docker 安裝與維運 |

@@ -1,7 +1,8 @@
 import type { Type } from '@nestjs/common';
 import { collectPages } from '@storeweave/kernel';
 import type { ReleaseHttpAdapter } from '../release-adapter';
-import { setSessionCookies } from '../http/session-cookies';
+import { startSession } from '../http/session-start';
+import { clearSession } from '../http/session-clear';
 import { createStorefrontController } from '../storefront/storefront-routes';
 import { buildResolveContext, buildThemeContext, renderStorefrontError } from '../storefront/storefront-context';
 import { AuthController } from '../controllers/auth.controller';
@@ -16,7 +17,7 @@ import { NotificationsController } from '../controllers/notifications.controller
 
 export const httpAdapter: ReleaseHttpAdapter = {
   // 匿名訪客也讀得到導覽與網站設定；base 有前台之後就需要一個名字（ADR 0046）。
-  releaseId: 'base', anonymousRole: 'visitor',
+  releaseId: 'base', anonymousRole: 'visitor', startSession,
   controllers(_config, { runtime, theme }) {
     const controllers: Type[] = [
       HealthController, MetaController, AuthController, SystemController, StorageController,
@@ -29,14 +30,14 @@ export const httpAdapter: ReleaseHttpAdapter = {
         buildContext: (req, reply) => buildThemeContext(deps, req, reply),
         resolveContext: (req, reply) => buildResolveContext(deps, req, reply),
         renderError: (req, reply, error) => renderStorefrontError(deps, reply, error, req),
+        sessionEffects: {
+          // 走 this.startSession 而不是自由變數：頁面用的簽發實作與 adapter 對外那份
+          // 因此不可能分岔（工單 92 消滅的正是這種第二份實作）。
+          start: (req, reply, session) => this.startSession(runtime, req, reply, session),
+          clear: (req, reply) => clearSession(runtime, req, reply),
+        },
       }));
     }
     return controllers;
-  },
-  async startSession(runtime, _request, reply, session) {
-    setSessionCookies(reply, {
-      publicUrl: runtime.config.http.publicUrl, token: session.token, expiresAt: session.expiresAt,
-    });
-    return null;
   },
 };

@@ -4,7 +4,7 @@ import { BusController } from './base';
 import { ok } from '../http/envelope';
 import { HttpContract, type BusHttpContract, type ComposedHttpContract } from '../http/contract';
 import { Anonymous, Public, type AuthenticatedRequest } from '../http/auth';
-import { startSession } from '../http/session-start';
+import { HTTP_ADAPTER, type ReleaseHttpAdapter } from '../release-adapter';
 import { RUNTIME, type Runtime } from '../tokens';
 
 const routes = {
@@ -34,7 +34,10 @@ interface RegisterBody {
 
 @Controller('api/v1/customers')
 export class CustomerController extends BusController {
-  constructor(@Inject(RUNTIME) runtime: Runtime) {
+  constructor(
+    @Inject(RUNTIME) runtime: Runtime,
+    @Inject(HTTP_ADAPTER) private readonly http: ReleaseHttpAdapter,
+  ) {
     super(runtime);
   }
 
@@ -62,7 +65,7 @@ export class CustomerController extends BusController {
       email: registered.email,
       password: body.password!,
     });
-    const cartNotice = await startSession(this.runtime, req, reply, session);
+    const cartNotice = await this.http.startSession(this.runtime, req, reply, session);
 
     return ok({
       id: registered.customer.id,

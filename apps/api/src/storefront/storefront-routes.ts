@@ -1,6 +1,8 @@
 import 'reflect-metadata';
 import { Controller, Get, Post, Req, Res, type Type } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import type { IssuedSession } from '@storeweave/identity';
+import { safeRedirectPath } from '@storeweave/kernel';
 import type { PageOutcome, PageResolveContext, StorefrontPage, StorefrontTheme, ThemeContext } from '@storeweave/kernel';
 import { PlatformError } from '@storeweave/contracts';
 import { ZodError } from 'zod';
@@ -14,6 +16,14 @@ export interface StorefrontRouteDeps {
   readonly buildContext: (req: AuthenticatedRequest, reply: FastifyReply) => Promise<ThemeContext>;
   /** 交給模組 resolve 的執行環境；actor 由請求決定。 */
   readonly resolveContext: (req: AuthenticatedRequest, reply: FastifyReply) => PageResolveContext;
+  /**
+   * 頁面交出來的 session outcome 由誰執行。簽發那一端是 release 的事（要不要合併訪客
+   * 購物車由組裝決定），所以它是注入進來的，不是這裡自己 import 的（ADR 0047、工單 92）。
+   */
+  readonly sessionEffects: {
+    readonly start: (req: AuthenticatedRequest, reply: FastifyReply, session: IssuedSession) => Promise<unknown>;
+    readonly clear: (req: AuthenticatedRequest, reply: FastifyReply) => Promise<unknown>;
+  };
   /** 錯誤頁。沒有提供時直接把 PlatformError 往上拋給例外過濾器。 */
   readonly renderError?: (req: AuthenticatedRequest, reply: FastifyReply, error: unknown) => Promise<void>;
 }
@@ -53,6 +63,12 @@ export function createStorefrontController(
       };
       try {
         if (requiresIdentity(page) && !identityMatches(page, req)) {
+          // 匿名身分一律是 service type（`anonymousActor`／`actorForRole`）。已經是真身分卻
+          // 不符這一頁要的，不是「請先登入」——把他送去登入頁只會和登入頁的「已登入就轉回來」
+          // 互踢成無限轉址（工單 94 的 review）。
+          if (req.actor && req.actor.type !== 'service') {
+            throw PlatformError.forbidden('這個頁面不屬於目前登入的身分');
+          }
           const next = page.loginNext ? page.loginNext(source.params ?? {}) : page.path;
           void reply.status(303).header('location', `/login?next=${encodeURIComponent(next)}`).send();
           return;
@@ -67,8 +83,23 @@ export function createStorefrontController(
         const input = parsed.data;
         const outcome = (await page.resolve(deps.resolveContext(req, reply), input)) as PageOutcome<unknown>;
 
+        // 清洗在這裡做一次，頁面因此不必各帶一份（ADR 0047）。固定目的地經過它不會變，
+        // 從輸入長出來的目的地則不可能離站。
         if (outcome.kind === 'redirect') {
-          void reply.status(303).header('location', outcome.location).send();
+          void reply.status(303).header('location', safeRedirectPath(outcome.location)).send();
+          return;
+        }
+        // 先做完 cookie 那一側再送轉址：失敗就不送 303，錯誤交給錯誤頁。
+        // 注意這不等於「失敗就沒登入」——session 在 resolve 裡已經寫進資料庫，
+        // cookie 也可能已經掛在 reply 上。工單 94 決定不回滾（ADR 0047 的「不涵蓋」）。
+        if (outcome.kind === 'session-start') {
+          await deps.sessionEffects.start(req, reply, outcome.session);
+          void reply.status(303).header('location', safeRedirectPath(outcome.location)).send();
+          return;
+        }
+        if (outcome.kind === 'session-clear') {
+          await deps.sessionEffects.clear(req, reply);
+          void reply.status(303).header('location', safeRedirectPath(outcome.location)).send();
           return;
         }
         if (outcome.kind === 'not-found') throw PlatformError.notFound('Page', page.path);

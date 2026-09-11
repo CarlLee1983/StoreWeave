@@ -2,6 +2,7 @@ import type { Type } from '@nestjs/common';
 import { collectPages } from '@storeweave/kernel';
 import type { ReleaseHttpAdapter } from '../release-adapter';
 import { startSession } from '../http/session-start';
+import { clearSession } from '../http/session-clear';
 import { AnalyticsController } from '../controllers/analytics.controller';
 import { AuthController } from '../controllers/auth.controller';
 import { CatalogController } from '../controllers/catalog.controller';
@@ -41,14 +42,20 @@ export const httpAdapter: ReleaseHttpAdapter = {
     ];
     if (config.mcp.enabled) controllers.push(McpController);
     if (theme) {
-      // 前台路由來自模組宣告的頁面；StorefrontController 只剩登入表單、
-      // 外部回呼與 Theme 靜態資產（ADR 0045）。
+      // 前台路由來自模組宣告的頁面；StorefrontController 只剩外部回呼與 Theme 靜態資產
+      // （ADR 0045；登入、登出、註冊與密碼重設四組都已遷移，工單 94-96）。
       const deps = { runtime, theme, anonymousRole: 'storefront' };
       controllers.push(createStorefrontController(collectPages(runtime.modules), {
         theme,
         buildContext: (req, reply) => buildThemeContext(deps, req, reply),
         resolveContext: (req, reply) => buildResolveContext(deps, req, reply),
         renderError: (req, reply, error) => renderStorefrontError(deps, reply, error, req),
+        sessionEffects: {
+          // 走 this.startSession 而不是自由變數：頁面用的簽發實作與 adapter 對外那份
+          // 因此不可能分岔（工單 92 消滅的正是這種第二份實作）。
+          start: (req, reply, session) => this.startSession(runtime, req, reply, session),
+          clear: (req, reply) => clearSession(runtime, req, reply),
+        },
       }));
     }
 

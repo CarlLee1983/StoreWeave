@@ -4,7 +4,7 @@ import type { ThemeCartView } from '@storeweave/cart';
 import type { ThemeProductView } from '@storeweave/catalog';
 import type { ThemeArticleView } from '@storeweave/content';
 import type { ThemeOrderView } from '@storeweave/order';
-import { defaultTheme } from '../src/index';
+import { defaultTheme, renderForgotPassword, renderLogin, renderRegister, renderResetPassword } from '../src/index';
 
 /**
  * 導覽是資料，不是 Theme 的一部分（ADR 0046）：這份是 storefront 組好之後交進來的樣子。
@@ -145,6 +145,46 @@ const order: ThemeOrderView = {
 };
 
 describe('Default Theme 的商品瀏覽切片', () => {
+  it('把註冊的 GET／POST 頁接到既有認證版型，表單帶得出 _csrf', () => {
+    for (const id of ['platform.auth.register', 'platform.auth.submitRegister']) {
+      expect(defaultTheme.renderers[id]).toBe(renderRegister);
+    }
+    // 帶著 session 的人送出註冊表單要出示 token，否則守衛回的是一頁 JSON 403（工單 95 的 review）。
+    const html = defaultTheme.renderers['platform.auth.register'](
+      context({ csrfToken: 'csrf-token' }), { mode: 'register', next: '/' },
+    );
+    expect(html).toContain('name="_csrf" value="csrf-token"');
+    expect(defaultTheme.renderers['platform.auth.login']).toBe(renderLogin);
+    expect(defaultTheme.renderers['platform.auth.login'](
+      context({ csrfToken: 'csrf-token' }), { mode: 'login', next: '/' },
+    )).toContain('name="_csrf" value="csrf-token"');
+  });
+
+  it('登入失敗重新渲染時把填過的信箱放回欄位（工單 98）', () => {
+    const html = defaultTheme.renderers['platform.auth.submitLogin'](context(), {
+      mode: 'login', next: '/', error: '登入失敗：請確認電子郵件與密碼。', email: 'someone@example.com',
+    });
+
+    expect(html).toContain('value="someone@example.com"');
+    // 密碼永遠不回填——比對的是「任何帶 value 的密碼欄位」，不是某一組屬性順序。
+    expect(html).not.toMatch(/type="password"[^>]*value=/);
+  });
+
+  it('把忘記與重設密碼的 GET／POST 頁都接到既有認證版型', () => {
+    for (const id of ['platform.auth.forgotPassword', 'platform.auth.submitForgotPassword']) {
+      expect(defaultTheme.renderers[id]).toBe(renderForgotPassword);
+    }
+    for (const id of ['platform.auth.resetPassword', 'platform.auth.submitResetPassword']) {
+      expect(defaultTheme.renderers[id]).toBe(renderResetPassword);
+    }
+    expect(defaultTheme.renderers['platform.auth.forgotPassword'](
+      context({ csrfToken: 'csrf-token' }), { mode: 'forgot-password', next: '/' },
+    )).toContain('name="_csrf" value="csrf-token"');
+    expect(defaultTheme.renderers['platform.auth.resetPassword'](
+      context({ csrfToken: 'csrf-token' }), { mode: 'reset-password', next: '/', token: 'signed-token' },
+    )).toContain('name="_csrf" value="csrf-token"');
+  });
+
   it('以 ThemeProductView 的資料建立可連到商品頁的型錄', () => {
     const html = defaultTheme.renderers['commerce.catalog.home'](context(), { products: [product], q: '', minPrice: null, maxPrice: null, page: 1, pageSize: 24, total: 1, story: null, journal: [], news: [] });
 
@@ -412,7 +452,7 @@ describe('Default Theme 的商品瀏覽切片', () => {
   });
 
   it('讓帳戶存取與個人資料沿用同一套頁面結構，而不改變欄位名稱', () => {
-    const login = defaultTheme.renderers['platform.auth'](context(), { mode: 'login', next: '/checkout', error: '登入失敗' });
+    const login = defaultTheme.renderers['platform.auth.login'](context(), { mode: 'login', next: '/checkout', error: '登入失敗' });
     const profile = defaultTheme.renderers['commerce.customer.profile'](context({ customerName: '小美', csrfToken: 'csrf-token' }), {
       displayName: '小美',
       phone: '0911222333',
