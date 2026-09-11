@@ -2,6 +2,7 @@ export * from './commands';
 export * from './dto';
 export * from './events';
 export * from './migrations';
+export * from './legacy-media';
 export * from './module';
 export * from './pages';
 export * from './queries';

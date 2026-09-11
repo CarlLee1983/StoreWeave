@@ -19,7 +19,7 @@ import { baselineMigrations, catalogDigest, readSnapshotDatabase } from '@storew
 import 'reflect-metadata';
 import { execFileSync } from 'node:child_process';
 import {
-  chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync,
+  chmodSync, closeSync, copyFileSync, createReadStream, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync,
   readlinkSync, renameSync, symlinkSync, unlinkSync, writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -33,6 +33,7 @@ import { resolvePaths } from './paths';
 import { installReleaseArchive, validateLegacyB01Directory, validateReleaseDirectory } from './release-validation';
 import { runPgTool, writePgBackup } from './pg-tool';
 import { SERVICES, serviceManager, startServices, statusServices, stopServices } from './service';
+import { LegacyContentMediaBackfill } from '@storeweave/content';
 
 interface ScheduleListItem {
   type: string;
@@ -192,6 +193,30 @@ migrateCommand.command('baseline')
       const result = await baselineMigrations(runtime.database.pool, runtime.migrations, baseline, options.evidence,
         runtime.config.extensions.filter(entry => entry.enabled).map(entry => entry.id));
       line(JSON.stringify(result));
+    });
+  });
+
+program
+  .command('content:backfill-legacy-media')
+  .description('匯入預設 Theme 的舊文章圖片；可安全重跑，待 Worker 完成後再執行一次以附掛文章')
+  .requiredOption('--assets-dir <path>', '含 woven-day-*.png 的已驗證 Theme assets 目錄')
+  .action(async (options: { assetsDir: string }) => {
+    const manifest = release.legacyContentMediaManifest;
+    if (release.id !== 'commerce' || !manifest) fail('此 manifest 只屬於舊 Commerce Default Theme；Base 沒有可回填的 Theme 圖片');
+    const assetsDir = resolve(options.assetsDir);
+    for (const entry of manifest) {
+      const asset = resolve(assetsDir, entry.file);
+      if (!asset.startsWith(`${assetsDir}/`)) fail(`不安全的 Theme asset path：${entry.file}`);
+    }
+    await withRuntime(async runtime => {
+      await runtime.activateRelease('require-current');
+      const operation = new LegacyContentMediaBackfill(runtime.database, runtime.media, runtime.media.references, {
+        open: async entry => ({ stream: createReadStream(resolve(assetsDir, entry.file)), contentType: 'image/png' }),
+      });
+      const report = await operation.run(manifest);
+      const reconciliation = await operation.reconcile(manifest);
+      line(JSON.stringify({ report, reconciliation }, null, 2));
+      if (report.failed.length || report.waiting || reconciliation.unmappedKeys.length || reconciliation.incompleteKeys.length) process.exitCode = 2;
     });
   });
 

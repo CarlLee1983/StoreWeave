@@ -14,6 +14,9 @@ export interface LayoutOptions {
   title: string;
   body: string;
   ctx: ThemeContext;
+  /** A module-owned path, never request-derived markup. */
+  description?: string;
+  canonicalPath?: string;
 }
 
 /** 伺服器渲染的表單以隱藏欄位做 CSRF 雙提交——瀏覽器的原生表單送不出自訂 header。 */
@@ -52,7 +55,7 @@ function footerColumns(items: readonly ThemeNavigationItem[]): string {
     </div>`).join('');
 }
 
-export function layout({ title, body, ctx }: LayoutOptions): string {
+export function layout({ title, body, ctx, description, canonicalPath }: LayoutOptions): string {
   const accent = escapeHtml(ctx.options.accentColor ?? '#8C3E28');
   const tagline = escapeHtml(ctx.tagline ?? '');
   const supportEmail = ctx.supportEmail ? escapeHtml(ctx.supportEmail) : '';
@@ -65,6 +68,8 @@ export function layout({ title, body, ctx }: LayoutOptions): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)} · ${escapeHtml(ctx.storeName)}</title>
+${description ? `<meta name="description" content="${escapeHtml(description)}">` : ''}
+${canonicalPath ? `<link rel="canonical" href="${escapeHtml(new URL(canonicalPath, ctx.publicUrl).toString())}">` : ''}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="${escapeHtml(GOOGLE_FONTS_HREF)}">

@@ -377,6 +377,7 @@ export type Article = {
   body: ArticleBlock[];
   /** 封閉清單的 key；不存在的圖由前台自己降級呈現，這裡只負責存字串。 */
   imageKey: string | null;
+  mediaAssetId: string | null;
   position: number;
   status: 'draft' | 'published';
   publishedAt: string | null;
@@ -931,6 +932,9 @@ export const api = {
   },
   deleteArticle(id: string, idempotencyKey?: string) {
     return request<Article>(`/api/v1/content/articles/${id}`, { method: 'DELETE', idempotent: true, idempotencyKey });
+  },
+  setArticleMedia(id: string, mediaAssetId: string | null, idempotencyKey?: string) {
+    return request<Article>(`/api/v1/content/articles/${id}/media`, { method: 'POST', body: { mediaAssetId }, idempotent: true, idempotencyKey });
   },
   listContactMessages(params: { status?: ContactMessage['status']; limit?: number; offset?: number } = {}, signal?: AbortSignal) {
     return request<Paged<ContactMessage>>(`/api/v1/content/contact-messages${toQuery(params)}`, { signal });

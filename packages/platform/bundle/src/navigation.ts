@@ -30,9 +30,14 @@ export const COMMERCE_NAVIGATION: readonly SiteNavigationItem[] = [
 ];
 
 /**
- * Base release 的預設導覽。沒有商務模組的網站只有首頁——它存在是為了證明
- * 一個 base-only release 渲染得出可瀏覽的網站，不是為了好看。
+ * Base release 的預設導覽。內容模組是網站能力，不需要 Commerce；尚未發布
+ * 對應內容時，requiresContentKind 會把入口隱藏起來。
  */
 export const BASE_NAVIGATION: readonly SiteNavigationItem[] = [
   navigationItem({ menu: 'primary', label: '首頁', href: '/', position: 0 }),
+  navigationItem({ menu: 'primary', label: '品牌故事', href: '/story', position: 10, requiresContentKind: 'story' }),
+  navigationItem({ menu: 'primary', label: '生活誌', href: '/journal', position: 20, requiresContentKind: 'journal' }),
+  navigationItem({ menu: 'primary', label: '最新消息', href: '/news', position: 30, requiresContentKind: 'news' }),
+  navigationItem({ menu: 'primary', label: '常見問題', href: '/faq', position: 40, requiresContentKind: 'faq' }),
+  navigationItem({ menu: 'primary', label: '聯絡我們', href: '/contact', position: 50 }),
 ];

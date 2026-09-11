@@ -8,6 +8,7 @@ export const siteSettings = pgTable('platform_site_settings', {
   id: text('id').primaryKey(),
   tagline: text('tagline').notNull().default(''),
   footerNote: text('footer_note').notNull().default(''),
+  contactNotificationEmail: text('contact_notification_email'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

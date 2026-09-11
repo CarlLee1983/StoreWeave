@@ -35,7 +35,7 @@ describe('故事頁', () => {
     const outcome = await contentPages.story.resolve(ctxWith(execute as never), {});
 
     expect(execute).toHaveBeenCalledWith(
-      'commerce.content.listPublishedArticles', { kind: 'story', limit: 1 }, { actor: anonymous },
+      'commerce.content.listPublishedArticles', { kind: 'story', limit: 1, offset: 0 }, { actor: anonymous },
     );
     expect(outcome).toEqual({ kind: 'view', view: { article: expect.objectContaining({ slug: 'a-slug' }) } });
   });
@@ -52,28 +52,28 @@ describe('故事頁', () => {
 describe('生活誌／消息／FAQ 列表頁', () => {
   it('列出已發布內容', async () => {
     const execute = vi.fn(async (_name: string, input: { kind: string; limit: number }) =>
-      ({ items: [article({ kind: input.kind })] }));
+      ({ items: [article({ kind: input.kind })], total: 1 }));
 
-    const outcome = await contentPages.journal.resolve(ctxWith(execute as never), {});
+    const outcome = await contentPages.journal.resolve(ctxWith(execute as never), { page: 1 });
 
     expect(execute).toHaveBeenCalledWith(
-      'commerce.content.listPublishedArticles', { kind: 'journal', limit: 50 }, { actor: anonymous },
+      'commerce.content.listPublishedArticles', { kind: 'journal', limit: 12, offset: 0 }, { actor: anonymous },
     );
     expect(outcome).toMatchObject({ kind: 'view', view: { kind: 'journal', articles: [{ slug: 'a-slug' }] } });
   });
 
   it('news 列表沒有已發布內容就是 not-found', async () => {
-    const execute = vi.fn(async () => ({ items: [] }));
+    const execute = vi.fn(async () => ({ items: [], total: 0 }));
 
-    const outcome = await contentPages.news.resolve(ctxWith(execute as never), {});
+    const outcome = await contentPages.news.resolve(ctxWith(execute as never), { page: 1 });
 
     expect(outcome).toEqual({ kind: 'not-found' });
   });
 
   it('faq 列表沒有已發布內容就是 not-found', async () => {
-    const execute = vi.fn(async () => ({ items: [] }));
+    const execute = vi.fn(async () => ({ items: [], total: 0 }));
 
-    const outcome = await contentPages.faq.resolve(ctxWith(execute as never), {});
+    const outcome = await contentPages.faq.resolve(ctxWith(execute as never), { page: 1 });
 
     expect(outcome).toEqual({ kind: 'not-found' });
   });

@@ -7,7 +7,7 @@ import { createInvoiceModule } from '@storeweave/invoice';
 import { createRefundModule, refundShipmentGuard } from '@storeweave/refund';
 import { createContentModule } from '@storeweave/content';
 import { createRmaModule } from '@storeweave/rma';
-import { customerModule } from '@storeweave/customer';
+import { customerModule, customerService } from '@storeweave/customer';
 import { createCart } from '@storeweave/cart';
 import { createShippingModule, shippingService } from '@storeweave/shipping';
 import { createCouponModule } from '@storeweave/coupon';
@@ -15,7 +15,7 @@ import { createLoyaltyModule } from '@storeweave/loyalty';
 import { createPromotionModule } from '@storeweave/promotion';
 import { createNotificationModule } from '@storeweave/notification';
 import { createAuthModule } from '@storeweave/auth';
-import { createSiteModule } from '@storeweave/site';
+import { createSiteModule, siteSettingsService } from '@storeweave/site';
 import { COMMERCE_NAVIGATION } from './navigation';
 import { mockPaymentExtension } from '@storeweave/ext-mock-payment';
 import { mockInvoiceExtension } from '@storeweave/ext-mock-invoice';
@@ -70,7 +70,12 @@ export function coreModules(options: {
       bindModuleCapability('order', 'commerce.order.return-operations', orderReturnService),
       bindModuleCapability('shipping', 'commerce.shipping.return-lookup', { hasReturnableShipment: shippingService.hasReturnableShipment }),
     ),
-    createContentModule(),
+    // Content is reusable by a base website. Commerce supplies only this optional
+    // weak Customer projection for contact messages.
+    createContentModule({
+      customerIdForActor: bindModuleCapability('customer', 'commerce.customer.contact-link', customerService.customerIdOf.bind(customerService)),
+      contactNotificationRecipient: bindModuleCapability('platform-site', 'platform.site.contact-notification-recipient', siteSettingsService.contactNotificationEmail),
+    }),
     // `/` 由 catalog 宣告，所以 site 模組在這裡不提供首頁；它帶來的是網站設定與導覽（ADR 0046）。
     createSiteModule({ defaultNavigation: COMMERCE_NAVIGATION }),
     createAuthModule({

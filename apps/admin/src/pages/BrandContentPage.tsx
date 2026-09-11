@@ -48,6 +48,7 @@ interface FormState {
   section: string;
   bodyText: string;
   imageKey: string;
+  mediaAssetId: string;
   position: string;
 }
 
@@ -59,6 +60,7 @@ const EMPTY_FORM: FormState = {
   section: '',
   bodyText: '',
   imageKey: '',
+  mediaAssetId: '',
   position: '0',
 };
 
@@ -71,6 +73,7 @@ function formStateOf(article: Article): FormState {
     section: article.section,
     bodyText: bodyToText(article.body),
     imageKey: article.imageKey ?? '',
+    mediaAssetId: article.mediaAssetId ?? '',
     position: String(article.position),
   };
 }
@@ -152,7 +155,7 @@ export function BrandContentPage() {
       setEditingArticle(articles.find((article) => article.id === operation.articleId) ?? {
         id: operation.articleId, kind: operation.draft.kind, slug: operation.draft.slug, title: operation.draft.title,
         summary: operation.draft.summary, section: operation.draft.section, body: textToBody(operation.draft.bodyText),
-        imageKey: operation.draft.imageKey || null, position: Number(operation.draft.position), status: 'draft', publishedAt: null, createdAt: '', updatedAt: '',
+        imageKey: operation.draft.imageKey || null, mediaAssetId: operation.draft.mediaAssetId || null, position: Number(operation.draft.position), status: 'draft', publishedAt: null, createdAt: '', updatedAt: '',
       });
     }
   };
@@ -421,6 +424,7 @@ function ArticleFields({
   kindLocked,
   imageKeys,
   imageKeysError,
+  includeMedia = false,
   slugRef,
 }: {
   form: FormState;
@@ -428,6 +432,7 @@ function ArticleFields({
   kindLocked: boolean;
   imageKeys: string[];
   imageKeysError?: unknown;
+  includeMedia?: boolean;
   slugRef?: React.RefObject<HTMLInputElement>;
 }) {
   const { t } = useI18n();
@@ -466,6 +471,11 @@ function ArticleFields({
         </select>
         {imageKeysError ? <p className="field-hint">{t('imageKeysLoadError')}</p> : null}
       </label>
+
+      {includeMedia ? <label>Media asset ID
+        <input value={form.mediaAssetId} placeholder="ready media UUID" onChange={(e) => onChange({ mediaAssetId: e.target.value })} />
+        <p className="field-hint">Use a ready asset from the media library; it takes precedence over the legacy image key.</p>
+      </label> : null}
 
       <label>{t('position')}
         <input value={form.position} onChange={(e) => onChange({ position: e.target.value })} inputMode="numeric" />
@@ -560,6 +570,7 @@ function CreateArticleDrawer({
               kindLocked={false}
               imageKeys={imageKeys}
               imageKeysError={imageKeysError}
+              includeMedia={false}
               slugRef={slugRef}
               onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
             />
@@ -625,13 +636,18 @@ function EditArticleDrawer({
     if (JSON.stringify(payloadNoKind.body) !== JSON.stringify(article.body)) patch.body = payloadNoKind.body;
     if (payloadNoKind.imageKey !== (article.imageKey ?? null)) patch.imageKey = payloadNoKind.imageKey;
     if (payloadNoKind.position !== article.position) patch.position = payloadNoKind.position;
-    if (Object.keys(patch).length === 0) {
+    const mediaChanged = (form.mediaAssetId || null) !== article.mediaAssetId;
+    if (Object.keys(patch).length === 0 && !mediaChanged) {
       setError(new Error(t('noFieldsChanged')));
       return;
     }
     setSubmitting(true);
     setError(null);
-    const result = await onRunOperation({ area: 'article', scope: `article:${article.id}`, kind: 'edit', articleId: article.id, request: patch, draft: { ...form }, idempotencyKey: crypto.randomUUID() });
+    const result = Object.keys(patch).length ? await onRunOperation({ area: 'article', scope: `article:${article.id}`, kind: 'edit', articleId: article.id, request: patch, draft: { ...form }, idempotencyKey: crypto.randomUUID() }) : { state: 'success' as const };
+    if (result.state === 'success' && mediaChanged) {
+      try { await api.setArticleMedia(article.id, form.mediaAssetId || null, crypto.randomUUID()); }
+      catch (mediaError) { setError(mediaError); setSubmitting(false); return; }
+    }
     if (result.state === 'success') onSaved();
     if (result.state === 'rejected') setError(result.error);
     setSubmitting(false);
@@ -676,6 +692,7 @@ function EditArticleDrawer({
               kindLocked
               imageKeys={imageKeys}
               imageKeysError={imageKeysError}
+              includeMedia
               slugRef={slugRef}
               onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
             />

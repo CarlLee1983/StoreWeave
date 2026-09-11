@@ -108,7 +108,7 @@ describe('release process artifacts', () => {
       const manifest = JSON.parse(readFileSync(join(output, 'release-manifest.json'), 'utf8'));
       expect(manifest).toMatchObject({ schemaVersion: 1, releaseId, releaseVersion: '0.1.2-test' });
       expect(info.manifestChecksum).toBe(catalogDigest(manifest));
-      expect(manifest.modules).toHaveLength(releaseId === 'base' ? 10 : 24);
+      expect(manifest.modules).toHaveLength(releaseId === 'base' ? 11 : 24);
       if (releaseId === 'base') {
         expect(manifest.availableExtensions).toEqual([]);
         for (const file of ['release-manifest.js.meta.json', 'scripts/validate-release.js.meta.json']) {
@@ -176,6 +176,8 @@ describe('release process artifacts', () => {
               'platform-media/0001_init',
               'platform-notifications/0001_init',
               'platform-site/0001_init',
+              'platform-site/0002_contact_notification',
+              'content/0002_media_expand',
               'identity/0004_identity_tokens',
               'identity/0005_drop_password_resets',
               'identity/0006_api_tokens',
@@ -190,6 +192,9 @@ describe('release process artifacts', () => {
             DROP TABLE public.platform_mail_messages;
             DROP TABLE public.platform_media_references;
             DROP TABLE public.platform_media_assets;
+            DROP TABLE public.content_legacy_media_mappings;
+            DROP INDEX public.content_articles_media_asset_idx;
+            ALTER TABLE public.content_articles DROP COLUMN media_asset_id;
             DROP TABLE public.platform_mfa_recovery_codes;
             DROP TABLE public.platform_user_mfa;
             DROP TABLE public.platform_api_tokens;

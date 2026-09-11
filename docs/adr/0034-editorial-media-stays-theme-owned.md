@@ -1,6 +1,6 @@
 # 0034. 編輯照片仍由 Theme 擁有，Core 只存一個封閉的圖片 key
 
-- 狀態：accepted
+- 狀態：superseded by ADR 0049（legacy static assets 在 contract 前仍保留）
 - 日期：2026-08-26
 - 修訂：ADR 0026
 

@@ -23,6 +23,7 @@ export const customerModule = defineModule({
     { name: 'platform', versionRange: '^0.1.0' },
     { name: 'platform-identity', versionRange: '^0.1.0' },
   ] },
+  capabilities: { provides: ['commerce.customer.contact-link'] },
   data: { owns: ['customer_customers'] },
   migrations: customerMigrations,
   events: customerEvents,
