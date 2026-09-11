@@ -1,11 +1,14 @@
 import semver from 'semver';
-import { PlatformError } from '@storeweave/contracts';
+import { PlatformError, declaredInputKeys } from '@storeweave/contracts';
 import { PermissionRegistry } from '@storeweave/authorization';
 import type { ModuleDependency, PlatformModule } from './module';
 
 const MODULE_NAME = /^[a-z][a-z0-9-]*$/;
 const CAPABILITY_NAME = /^[a-z][a-zA-Z0-9-]*(\.[a-z][a-zA-Z0-9-]*)+$/;
 const DATA_NAME = /^[a-z][a-z0-9_]*$/;
+const UPLOAD_NAME = /^[a-z][a-z0-9-]*$/;
+const MIME_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/;
+const RESOURCE_KINDS: ReadonlySet<string> = new Set(['cache', 'storage']);
 const compareNames = (a: PlatformModule, b: PlatformModule) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 
 /** Validate the complete release before constructing a database or registering a handler. */
@@ -62,6 +65,14 @@ export function validateModuleGraph(
       if (policy.owner !== mod.name) fail(`policy "${policy.id}" has owner "${policy.owner}", expected "${mod.name}"`);
       claim('policy', policy.id, mod.name);
     }
+    const resources = new Set<string>();
+    for (const resource of mod.resources ?? []) {
+      if (!RESOURCE_KINDS.has(resource)) fail(`module "${mod.name}" declares unknown resource "${resource}"`);
+      if (resources.has(resource)) fail(`module "${mod.name}" repeats resource "${resource}"`);
+      resources.add(resource);
+    }
+    if (resources.size > 0 && !mod.bindResources) fail(`module "${mod.name}" declares resources but has no bindResources`);
+    if (resources.size === 0 && mod.bindResources) fail(`module "${mod.name}" has bindResources but declares no resources`);
     for (const event of mod.events ?? []) claim('event', event.name, mod.name);
     for (const command of mod.commands ?? []) claim('command', command.descriptor.name, mod.name);
     for (const query of mod.queries ?? []) claim('query', query.descriptor.name, mod.name);
@@ -128,6 +139,28 @@ export function validateModuleGraph(
     }
     for (const policy of mod.policies ?? []) {
       for (const permission of policy.appliesTo) permissions.assertKnown(permission, `policy "${policy.id}"`);
+    }
+    if ((mod.uploads ?? []).length > 0 && !mod.resources?.includes('storage')) {
+      fail(`module "${mod.name}" declares uploads but not the storage resource`);
+    }
+    const uploadNames = new Set<string>();
+    for (const upload of mod.uploads ?? []) {
+      if (!UPLOAD_NAME.test(upload.name)) fail(`module "${mod.name}" has invalid upload name "${upload.name}"`);
+      if (uploadNames.has(upload.name)) fail(`module "${mod.name}" repeats upload "${upload.name}"`);
+      uploadNames.add(upload.name);
+      if (upload.contentTypes.length === 0) fail(`module "${mod.name}" upload "${upload.name}" accepts no content types`);
+      for (const type of upload.contentTypes) {
+        if (!MIME_TYPE.test(type)) fail(`module "${mod.name}" upload "${upload.name}" has invalid content type "${type}"`);
+      }
+      const target = mod.commands?.find(entry => entry.descriptor.name === upload.command);
+      if (!target) fail(`module "${mod.name}" upload "${upload.name}" targets "${upload.command}", which is not a command of module "${mod.name}"`);
+      // Each upload stores new bytes, so a replayed idempotent result would point at an earlier object.
+      if (target!.descriptor.idempotency === 'required') {
+        fail(`module "${mod.name}" upload "${upload.name}" command "${upload.command}" must not require an idempotency key`);
+      }
+      if (!declaredInputKeys(target!.descriptor.input)?.has('storageObjectId')) {
+        fail(`module "${mod.name}" upload "${upload.name}" command "${upload.command}" does not accept storageObjectId`);
+      }
     }
     for (const sub of mod.subscribers ?? []) {
       if (!claims.has(`event:${sub.eventName}`)) fail(`module "${mod.name}" subscribes to unknown event "${sub.eventName}"`);

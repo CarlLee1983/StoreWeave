@@ -114,6 +114,12 @@ export async function createReleaseServer(options: ReleaseServerOptions): Promis
       timeWindow: '1 minute',
       keyGenerator: (request) => `coupon:${request.ip}`,
     });
+    // 模組上傳入口：每次請求都寫入位元組，自助註冊的帳號也拿得到（ADR 0050）。
+    const uploadLimiter = app.getHttpAdapter().getInstance().createRateLimit({
+      max: 30,
+      timeWindow: '1 minute',
+      keyGenerator: (request) => `upload:${request.ip}`,
+    });
     const callbackLimiter = app.getHttpAdapter().getInstance().createRateLimit({
       max: 300,
       timeWindow: '1 minute',
@@ -129,7 +135,8 @@ export async function createReleaseServer(options: ReleaseServerOptions): Promis
       const limiters = bucket === 'auth' ? [perIpLimiter, perAccountLimiter]
         : bucket === 'coupon' ? [couponLimiter]
           : bucket === 'cart' ? [cartLimiter]
-            : bucket === 'callback' ? [callbackLimiter] : [];
+            : bucket === 'callback' ? [callbackLimiter]
+              : bucket === 'upload' ? [uploadLimiter] : [];
       if (limiters.length === 0) return;
 
       for (const limiter of limiters) {

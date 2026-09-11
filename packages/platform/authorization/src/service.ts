@@ -2,6 +2,20 @@ import { PlatformError, type Actor } from '@storeweave/contracts';
 import { PermissionRegistry } from './permissions';
 import { PolicyRegistry, type PolicyEvaluationInput } from './policy';
 
+/**
+ * actor 是否持有這個權限鍵（含 `*` 與 `scope:*`），不評估 policy。
+ * 需要自己依權限限縮範圍的 handler 用它，而不是各寫一份比對。
+ */
+export function actorHolds(actor: Actor, permission: string): boolean {
+  if (actor.type === 'system') return true;
+  for (const granted of actor.permissions) {
+    if (granted === '*' || granted === permission) return true;
+    // `catalog:*` 這種 scope wildcard
+    if (granted.endsWith(':*') && permission.startsWith(granted.slice(0, -1))) return true;
+  }
+  return false;
+}
+
 export class AuthorizationService {
   constructor(
     readonly permissions: PermissionRegistry = new PermissionRegistry(),
@@ -9,13 +23,7 @@ export class AuthorizationService {
   ) {}
 
   private holds(actor: Actor, permission: string): boolean {
-    if (actor.type === 'system') return true;
-    for (const granted of actor.permissions) {
-      if (granted === '*' || granted === permission) return true;
-      // `catalog:*` 這種 scope wildcard
-      if (granted.endsWith(':*') && permission.startsWith(granted.slice(0, -1))) return true;
-    }
-    return false;
+    return actorHolds(actor, permission);
   }
 
   check(input: PolicyEvaluationInput): { allowed: boolean; reason?: string } {

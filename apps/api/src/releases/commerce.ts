@@ -34,12 +34,13 @@ import { createStorefrontController } from '../storefront/storefront-routes';
 import { buildResolveContext, buildThemeContext, renderStorefrontError } from '../storefront/storefront-context';
 import { StorageController } from '../controllers/storage.controller';
 import { MediaController } from '../controllers/media.controller';
+import { ModuleUploadsController } from '../controllers/module-uploads.controller';
 
 export const httpAdapter: ReleaseHttpAdapter = {
   releaseId: 'commerce', anonymousRole: 'storefront', startSession,
   controllers(config, { runtime, theme }) {
     const controllers: Type[] = [
-      HealthController, MetaController, AuthController, CatalogController, InventoryController, SystemController, StorageController, MediaController, UsersController, ApiTokensController,
+      HealthController, MetaController, AuthController, CatalogController, InventoryController, SystemController, StorageController, MediaController, ModuleUploadsController, UsersController, ApiTokensController,
       OrderController, PromotionController, CouponController, CustomerController, CartController, ShippingController, RefundController, RmaController, InvoiceController, LoyaltyController, NotificationController, NotificationsController, CallbackController, AnalyticsController, ContentArticleController, ContentContactController, ContentPublicMediaController, ContentDiscoveryController, SiteController, ExtensionsController, StorefrontController,
     ];
     if (config.mcp.enabled) controllers.push(McpController);

@@ -68,6 +68,7 @@
       "@storeweave/ext-mcp": ["packages/extensions/mcp/src/index.ts"],
       "@storeweave/theme-default": ["packages/themes/default/src/index.ts"],
       "@storeweave/theme-base": ["packages/themes/base/src/index.ts"],
+      "@storeweave/example-file-requests": ["packages/examples/file-requests/src/index.ts"],
       "@storeweave/selected-release": ["packages/platform/bundle/src/releases/commerce.ts"],
       "@storeweave/selected-http": ["apps/api/src/releases/commerce.ts"],
       "@storeweave/selected-seed": ["scripts/seeds/commerce.ts"],

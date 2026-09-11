@@ -69,6 +69,9 @@ export interface JobFailResult extends JobMutationResult {
   outcome?: 'retry' | 'dead' | 'replaced' | 'cancelled';
 }
 
+/** enqueue 沒指定 `maxAttempts` 時的上限；handler 靠它判斷這是不是最後一次嘗試。 */
+export const DEFAULT_JOB_MAX_ATTEMPTS = 5;
+
 export interface JobContext {
   readonly logger: Logger;
   readonly attempt: number;
@@ -154,7 +157,7 @@ export class JobQueue {
     // 佇列的時間權威只有資料庫：預設 run_at 用伺服器 now()，避免呼叫端與 PG 之間的
     // 時鐘偏移讓剛入列的工作在 `run_at <= now()` 底下暫時取不到。明確指定的排程時間才用呼叫端的值。
     const runAt = input.runAt ? sql`CAST(${input.runAt.toISOString()} AS timestamptz)` : sql`now()`;
-    const maxAttempts = input.maxAttempts ?? 5;
+    const maxAttempts = input.maxAttempts ?? DEFAULT_JOB_MAX_ATTEMPTS;
     let res = await tx.execute<{ id: string }>(sql`
       INSERT INTO platform_jobs (id, occurrence_id, type, payload, payload_version, dedupe_key, run_at, max_attempts)
       VALUES (${id}, ${occurrenceId}, ${input.type}, ${JSON.stringify(input.payload ?? {})}::jsonb,

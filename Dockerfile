@@ -63,6 +63,7 @@ COPY packages/extensions/mock-invoice/package.json packages/extensions/mock-invo
 COPY packages/extensions/mock-payment/package.json packages/extensions/mock-payment/
 COPY packages/themes/default/package.json packages/themes/default/
 COPY packages/themes/base/package.json packages/themes/base/
+COPY packages/examples/file-requests/package.json packages/examples/file-requests/
 COPY tools/cli/package.json tools/cli/
 
 RUN pnpm install --frozen-lockfile
