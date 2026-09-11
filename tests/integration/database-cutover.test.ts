@@ -1,7 +1,25 @@
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { Client } from 'pg';
 import { expect, it, vi } from 'vitest';
-import { cutOverOrRecognize } from '../../tools/cli/src/database-cutover';
+import { cutOverEmptyOrRecognize, cutOverOrRecognize } from '../../tools/cli/src/database-cutover';
+
+it('publishes scratch as the configured live name only when clean-cluster recovery has no live database', async () => {
+  const container = await new PostgreSqlContainer('postgres:17-alpine').withDatabase('maintenance')
+    .withUsername('commerce').withPassword('clean-cutover-password').start();
+  const url = new URL(container.getConnectionUri());
+  url.pathname = '/maintenance';
+  const client = new Client({ connectionString: url.toString() });
+  await client.connect();
+  try {
+    await client.query('CREATE DATABASE scratch_clean TEMPLATE template0');
+    const scratch = (await client.query<{ oid: string }>("SELECT oid::text AS oid FROM pg_database WHERE datname = 'scratch_clean'" )).rows[0]!;
+    const systemIdentifier = (await client.query('SELECT system_identifier::text FROM pg_control_system()')).rows[0].system_identifier;
+    const intent = { systemIdentifier, liveName: 'recovered_live', scratch: { name: 'scratch_clean', oid: scratch.oid } };
+    expect(await cutOverEmptyOrRecognize(url.toString(), intent)).toBe('committed');
+    expect(await cutOverEmptyOrRecognize(url.toString(), intent)).toBe('already-committed');
+    await expect(cutOverEmptyOrRecognize(url.toString(), { ...intent, liveName: 'maintenance' })).rejects.toThrow('maintenance connection');
+  } finally { await client.end(); await container.stop(); }
+});
 
 it('atomically cuts over verified OIDs, retains quarantine, recognizes committed intent and refuses active sessions or mismatches', async () => {
   const container = await new PostgreSqlContainer('postgres:17-alpine').withDatabase('live_test')

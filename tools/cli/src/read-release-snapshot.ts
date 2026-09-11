@@ -58,15 +58,16 @@ function openPrivate(path: string) {
 
 
 /** Shared private metadata reader for snapshot descriptors and their transition journals. */
-export function readPrivateJson(file: string): unknown {
+export function readPrivateJson(file: string, maximumBytes = 1024 * 1024): unknown {
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1 || maximumBytes > 128 * 1024 * 1024) throw new Error('Invalid private metadata size limit');
   const root = lstatSync(dirname(file));
   if (!root.isDirectory() || (root.mode & 0o077)) throw new Error('Metadata directory must be private');
   const metadata = openPrivate(file);
   let raw: unknown;
   try {
     const size = fstatSync(metadata).size;
-    if (size > 1024 * 1024) throw new Error('Snapshot descriptor exceeds 1 MiB');
-    const buffer = Buffer.alloc(1024 * 1024 + 1);
+    if (size > maximumBytes) throw new Error('Snapshot descriptor exceeds its size limit');
+    const buffer = Buffer.alloc(maximumBytes + 1);
     let length = 0;
     while (length < buffer.length) {
       const count = readSync(metadata, buffer, length, buffer.length - length, null);

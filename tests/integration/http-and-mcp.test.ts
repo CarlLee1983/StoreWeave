@@ -70,7 +70,7 @@ describe('REST 介面', () => {
   it('retains exact selected Commerce route identities with MCP on and off', async () => {
     const catalog = app.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
     expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(33);
-    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(196);
+    expect(catalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(197);
     expect(catalog.storeweaveHttpCatalog?.some(route => route.path === '/api/v1/media/:id/preview' && route.method === 'GET')).toBe(true);
     expect(catalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
 
@@ -81,7 +81,7 @@ describe('REST 介面', () => {
     try {
       const withoutMcpCatalog = withoutMcp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier;
       expect(commerceHttpAdapter.controllers(h.runtime.config, { runtime: h.runtime, theme: defaultTheme })).toHaveLength(32);
-      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(194);
+      expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => !route.kind.startsWith('static-'))).toHaveLength(195);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.filter(route => route.kind === 'static-theme-assets')).toHaveLength(1);
       expect(withoutMcpCatalog.storeweaveHttpCatalog?.some(route => route.path === '/mcp')).toBe(false);
     } finally {
@@ -101,7 +101,7 @@ describe('REST 介面', () => {
       corsApp = await createReleaseServer({ runtime: h.runtime, theme: defaultTheme,
         httpAdapter: commerceHttpAdapter, release: { version: 'test', configPath: '<test>' } });
       const catalog = (corsApp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier).storeweaveHttpCatalog!;
-      expect(catalog).toHaveLength(198);
+      expect(catalog).toHaveLength(199);
       expect(catalog.filter(route => route.kind === 'cors-preflight')).toEqual([expect.objectContaining({
         method: 'OPTIONS', path: '*', automaticRoute: true, auth: 'unauthenticated', request: 'headers', rateLimit: null,
         policy: expect.objectContaining({ allowedOrigins: ['https://console.example'], credentials: true }),
@@ -245,6 +245,9 @@ describe('REST 介面', () => {
     expect(routes.find(route => route.path === '/health/dependencies')).toMatchObject({
       guardError: { statuses: [401], contentType: 'application/json' },
     });
+    expect(routes.find(route => route.path === '/health/metrics')).toMatchObject({
+      guardError: { statuses: [401], contentType: 'application/json' },
+    });
     expect((await inject({ url: '/health/dependencies' })).statusCode).toBe(401);
   });
 
@@ -351,6 +354,7 @@ describe('REST 介面', () => {
       { kind: 'raw', path: '/health/live', auth: 'anonymous', statuses: [200] },
       { kind: 'raw', path: '/health/ready', auth: 'anonymous', statuses: [200, 503] },
       { kind: 'raw', path: '/health/dependencies', auth: 'bearer-or-session', statuses: [200, 503] },
+      { kind: 'raw', path: '/health/metrics', auth: 'bearer', statuses: [200, 503] },
     ]);
     const live = await inject({ url: '/health/live' });
     expect(live.json()).toMatchObject({ status: 'ok' });

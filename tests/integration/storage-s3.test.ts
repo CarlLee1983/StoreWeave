@@ -41,6 +41,17 @@ describe('S3ObjectStore against a MinIO S3-compatible server', () => {
     await expect(store.open('platform-storage/object-1')).rejects.toThrow();
   });
 
+  it('uses S3 conditional creation for recovery and never overwrites an existing key', async () => {
+    const store = new S3ObjectStore({ bucket, region: 'us-east-1', endpoint, forcePathStyle: true, prefix: 'b15', credentials: { accessKeyId, secretAccessKey } });
+    const key = `platform-storage/recovery-${randomUUID()}`;
+    await store.put(key, Readable.from(['original']));
+    await expect(store.putIfAbsent(key, Buffer.byteLength('replacement'), Readable.from(['replacement']))).resolves.toEqual({ created: false });
+    const opened = await store.open(key);
+    const chunks: Buffer[] = [];
+    for await (const chunk of opened.stream) chunks.push(Buffer.from(chunk));
+    expect(Buffer.concat(chunks)).toEqual(Buffer.from('original'));
+  });
+
   it('removes abandoned temporary objects from an interrupted upload', async () => {
     const store = new S3ObjectStore({ bucket, region: 'us-east-1', endpoint, forcePathStyle: true, prefix: 'b09', credentials: { accessKeyId, secretAccessKey } });
     const client = new S3Client({ region: 'us-east-1', endpoint, forcePathStyle: true, credentials: { accessKeyId, secretAccessKey } });

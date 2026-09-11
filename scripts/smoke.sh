@@ -29,26 +29,35 @@ check "/health/live" "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/healt
 check "/health/ready" "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/health/ready")" "200"
 check "/health/dependencies 需要授權" "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/health/dependencies")" "401"
 check "/health/dependencies（帶 token）" "$(api GET /health/dependencies)" "200"
+check "/health/metrics 需要授權" "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/health/metrics")" "401"
+METRICS_CODE=$(api GET /health/metrics)
+check "/health/metrics（帶 token）" "$METRICS_CODE" "200"
+check "metrics 是穩定計數 JSON" "$(jqr 'typeof j.outbox.pending === "number" && typeof j.jobs.pending === "number" && typeof j.scheduler.total === "number" && typeof j.storage.available === "boolean"' < /tmp/smoke_body)" "true"
 
 say "流程一：商品與庫存"
 check "未帶 token 會被擋" "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/products")" "401"
-check "建立商品 (201)" "$(api POST /api/v1/products "{\"sku\":\"$SKU\",\"name\":\"Smoke 測試商品\",\"priceCents\":12500,\"currency\":\"TWD\",\"status\":\"active\"}" "smoke-product-$SKU")" "201"
+PRODUCT_JSON="{\"sku\":\"$SKU\",\"name\":\"Smoke 測試商品\",\"priceCents\":12500,\"currency\":\"TWD\",\"status\":\"active\"}"
+check "建立商品 (201)" "$(api POST /api/v1/products "$PRODUCT_JSON" "smoke-product-$SKU")" "201"
 PRODUCT_ID=$(jqr 'j.data.id' < /tmp/smoke_body)
 [ -n "$PRODUCT_ID" ] || { echo "  FAIL 沒有拿到 productId"; exit 1; }
 echo "  productId=$PRODUCT_ID"
 
-check "重複 SKU 會衝突" "$(api POST /api/v1/products "{\"sku\":\"$SKU\",\"name\":\"重複\",\"priceCents\":1,\"currency\":\"TWD\"}" "smoke-dup-$SKU")" "409"
+DUPLICATE_PRODUCT_JSON="{\"sku\":\"$SKU\",\"name\":\"重複\",\"priceCents\":1,\"currency\":\"TWD\"}"
+check "重複 SKU 會衝突" "$(api POST /api/v1/products "$DUPLICATE_PRODUCT_JSON" "smoke-dup-$SKU")" "409"
 check "查詢商品" "$(api GET "/api/v1/products/$PRODUCT_ID")" "200"
 check "搜尋商品" "$(api GET "/api/v1/products?q=$SKU")" "200"
 
 ADJ_KEY="smoke-adjust-$SKU"
-check "調整庫存 +10" "$(api POST /api/v1/inventory/adjust "{\"productId\":\"$PRODUCT_ID\",\"delta\":10,\"reason\":\"restock\"}" "$ADJ_KEY")" "200"
-check "缺少 Idempotency-Key 會被拒" "$(api POST /api/v1/inventory/adjust "{\"productId\":\"$PRODUCT_ID\",\"delta\":5,\"reason\":\"restock\"}")" "400"
-check "相同 Idempotency-Key 重放" "$(api POST /api/v1/inventory/adjust "{\"productId\":\"$PRODUCT_ID\",\"delta\":10,\"reason\":\"restock\"}" "$ADJ_KEY")" "200"
+ADJUST_TEN_JSON="{\"productId\":\"$PRODUCT_ID\",\"delta\":10,\"reason\":\"restock\"}"
+ADJUST_FIVE_JSON="{\"productId\":\"$PRODUCT_ID\",\"delta\":5,\"reason\":\"restock\"}"
+ADJUST_NINETY_NINE_JSON="{\"productId\":\"$PRODUCT_ID\",\"delta\":99,\"reason\":\"restock\"}"
+check "調整庫存 +10" "$(api POST /api/v1/inventory/adjust "$ADJUST_TEN_JSON" "$ADJ_KEY")" "200"
+check "缺少 Idempotency-Key 會被拒" "$(api POST /api/v1/inventory/adjust "$ADJUST_FIVE_JSON")" "400"
+check "相同 Idempotency-Key 重放" "$(api POST /api/v1/inventory/adjust "$ADJUST_TEN_JSON" "$ADJ_KEY")" "200"
 api GET "/api/v1/inventory/$PRODUCT_ID" >/dev/null
 ON_HAND=$(jqr 'j.data.onHand' < /tmp/smoke_body)
 check "重放後庫存仍是 10" "$ON_HAND" "10"
-check "同 key 不同內容會被擋" "$(api POST /api/v1/inventory/adjust "{\"productId\":\"$PRODUCT_ID\",\"delta\":99,\"reason\":\"restock\"}" "$ADJ_KEY")" "422"
+check "同 key 不同內容會被擋" "$(api POST /api/v1/inventory/adjust "$ADJUST_NINETY_NINE_JSON" "$ADJ_KEY")" "422"
 
 say "流程二：訂單與付款"
 # 下單者由身分決定（工單 21）：訂單只能由登入的顧客建立，服務 token 會被擋成 403。
@@ -69,17 +78,21 @@ buyer_api() { # method path body [idempotency-key] -> http code
   curl "${args[@]}"
 }
 
-check "建立訂單 (201)" "$(buyer_api POST /api/v1/orders "{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":2}]}" "smoke-order-$SKU")" "201"
+ORDER_JSON="{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":2}]}"
+check "建立訂單 (201)" "$(buyer_api POST /api/v1/orders "$ORDER_JSON" "smoke-order-$SKU")" "201"
 ORDER_ID=$(jqr 'j.data.id' < /tmp/smoke_body)
 ORDER_NUMBER=$(jqr 'j.data.number' < /tmp/smoke_body)
 echo "  orderId=$ORDER_ID number=$ORDER_NUMBER"
 api GET "/api/v1/inventory/$PRODUCT_ID" >/dev/null
 check "下單後實體庫存仍為 10" "$(jqr 'j.data.onHand' < /tmp/smoke_body)" "10"
 check "下單後預留庫存為 2" "$(jqr 'j.data.reserved' < /tmp/smoke_body)" "2"
-check "庫存不足會被擋" "$(buyer_api POST /api/v1/orders "{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":999}]}" "smoke-oversell-$SKU")" "409"
-check "多帶一個不認得的欄位會被擋 (400)" "$(buyer_api POST /api/v1/orders "{\"customerEmail\":\"$BUYER_EMAIL\",\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":1}]}" "smoke-strict-$SKU")" "400"
+OVERSELL_ORDER_JSON="{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":999}]}"
+STRICT_ORDER_JSON="{\"customerEmail\":\"$BUYER_EMAIL\",\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":1}]}"
+check "庫存不足會被擋" "$(buyer_api POST /api/v1/orders "$OVERSELL_ORDER_JSON" "smoke-oversell-$SKU")" "409"
+check "多帶一個不認得的欄位會被擋 (400)" "$(buyer_api POST /api/v1/orders "$STRICT_ORDER_JSON" "smoke-strict-$SKU")" "400"
 check "400 說得出是哪一個欄位" "$(jqr 'JSON.stringify(j.error.details).includes("customerEmail")' < /tmp/smoke_body)" "true"
-check "服務 token 不能替別人下單 (403)" "$(api POST /api/v1/orders "{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":1}]}" "smoke-svc-order-$SKU")" "403"
+SERVICE_ORDER_JSON="{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":1}]}"
+check "服務 token 不能替別人下單 (403)" "$(api POST /api/v1/orders "$SERVICE_ORDER_JSON" "smoke-svc-order-$SKU")" "403"
 rm -f "$BUYER_JAR"
 check "標記付款" "$(api POST "/api/v1/orders/$ORDER_ID/pay" '{}' "smoke-pay-$SKU")" "200"
 check "付款請求進入處理中" "$(jqr 'j.data.status' < /tmp/smoke_body)" "payment_processing"
@@ -119,7 +132,8 @@ if [ -n "${DEMO_ERP_API_KEY:-}" ]; then
   check "ERP payload inspector 不含 API key" "$(jqr '!JSON.stringify(j.data.payload).includes(process.env.DEMO_ERP_API_KEY)' < /tmp/smoke_body)" "true"
 fi
 
-check "人工重送" "$(api POST /api/v1/extensions/demo-erp/commands/ext.demo-erp.resendOrder "{\"orderId\":\"$ORDER_ID\"}" "smoke-resend-$SKU")" "200"
+RESEND_JSON="{\"orderId\":\"$ORDER_ID\"}"
+check "人工重送" "$(api POST /api/v1/extensions/demo-erp/commands/ext.demo-erp.resendOrder "$RESEND_JSON" "smoke-resend-$SKU")" "200"
 sleep 3
 api GET "/api/v1/extensions/demo-erp/queries/ext.demo-erp.listDeliveries?limit=50" >/dev/null
 check "重送後遠端 id 不變（沒有重複建單）" "$(jqr "(j.data.items.find(i=>i.orderId==='$ORDER_ID')||{}).remoteId" < /tmp/smoke_body)" "$REMOTE_ID"

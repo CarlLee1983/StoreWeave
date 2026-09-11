@@ -69,7 +69,8 @@ sudo rm -rf -- "$work"
 
 重新 configure、更新或移除 `.deb` 只管理媒體，已安裝的程式、設定與資料由原本的安裝／CLI
 流程管理。需要保存候選媒體時，先複製 tarball 到獨立備存目錄；更新或移除套件會移除舊媒體。
-套件不代為安裝 PostgreSQL client，請依下方升級／備份需求準備 `pg_dump` 與 `pg_restore`。
+套件不代為安裝 PostgreSQL client，請依下方升級／備份需求準備 `pg_dump` 與 `pg_restore`；連線到本專案的 PostgreSQL 17
+時，兩者必須是 17 或相容的較新版本，不能使用較舊的 `pg_dump`。
 
 媒體套件使用獨立的 `commerce-release-media` 名稱，可與舊 `commerce` 套件共存。
 它不接管舊套件的正式安裝檔案；不要移除仍持有執行中或還原版本檔案的舊套件。
@@ -235,6 +236,53 @@ Query password 的加號需寫成 `%2B`，空白寫成 `%20`；拒絕有歧義�
 連線端點／使用者放在 URI authority，database 放在 path；拒絕 query 的 host／hostaddr／port／user／dbname 覆寫、
 service／passfile／sslpassword 與明確空密碼，避免憑證被送至不同的連線目標。
 `/etc/commerce/` 底下的設定與機密請另外備份 —— 它們不在資料庫裡。
+
+### 完整資料與媒體備份
+
+單純 `backup` 是相容用的資料庫 dump；它不包含 local storage 或 S3 中的物件。要取得可重建媒體與其他
+storage 物件的備份，先停止 **API、Worker 與所有外部寫入者**，再明確確認這個事實：
+
+```bash
+sudo systemctl stop commerce-api commerce-worker
+sudo -u commerce commerce backup --include-media --external-writers-stopped \
+  --out /mnt/backup/commerce-$(date +%F).bundle
+```
+
+完整 bundle 是 private directory，內含已由 `pg_restore --list` 驗過的 `database.dump`、嚴格 manifest，
+以及以 SHA-256 命名的物件副本。每一個 database `ready` object 的 namespace、immutable storage key、
+大小與 hash 都要與實際位元組相符，任一不符就不發布 bundle。它不記錄 bucket URL、S3 憑證或 local 路徑，
+所以可在受支援的 local／S3 adapter 間復原。
+
+完整還原也必須保持服務停止。指令先驗證整份 bundle，將 DB 還原到 scratch database，並在那個資料庫
+驗證 ready-object 集合、重建或驗證同 key 的物件；所有驗證通過後才以 ADR 0037 的 journaled cutover
+切換 DB，原 DB 會保留為 quarantine。若物件已存在但 hash 不同，指令拒絕覆寫並保持服務停止，讓操作者調查。它不刪除
+bucket／storage root 中 manifest 沒列出的 key——那可能屬於共享 bucket 的別的部署；已還原的資料庫不會參照
+它們。
+
+```bash
+sudo -u commerce commerce restore --bundle /mnt/backup/commerce-2026-09-11.bundle \
+  --maintenance-database postgres --yes --external-writers-stopped
+sudo -u commerce commerce doctor
+sudo systemctl start commerce-api commerce-worker
+```
+
+完整 bundle 還原不是 ADR 0037 的 release rollback：它不切換到另一個 release，但使用相同 scratch／journal
+cutover 邊界，且不刪除 quarantine database。
+完整 recovery journal 位於 `/var/lib/commerce/.transitions/<UUID>/journal.json`；若程序在已建立 scratch 後中斷，
+保留它供診斷，只有已完成 database restore 的 journal 才能續跑。續跑仍要給同一個 bundle，讓 CLI 重新核對
+manifest、dump 與 storage catalogue：
+
+```bash
+sudo -u commerce commerce restore --bundle /mnt/backup/commerce-2026-09-11.bundle \
+  --resume /var/lib/commerce/.transitions/<UUID>/journal.json \
+  --maintenance-database postgres --yes --external-writers-stopped
+```
+
+完整 restore 比對的是 selected release 的 id、version 與 build-manifest checksum，不假設 Docker 的 `dist/`
+等同 native release archive；來源 PostgreSQL system identifier 與 OID 是 provenance，不是乾淨目標 cluster 的前提。
+跨版升級／回退仍走前面的 `upgrade`／`rollback` 流程；在 contract migration 前，先保存一份完整 bundle 作為
+資料與媒體的獨立復原點。備份中的 jobs 是資料庫列，會保留 id、payload、dedupe 與狀態；只在 matching release
+通過 `doctor` 後才重新啟動 Worker。
 
 ## 端到端驗證
 

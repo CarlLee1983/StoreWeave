@@ -37,6 +37,7 @@ import {
 import packageJson from '../package.json';
 import { projectModulePins, projectExtensionPin } from './release-pins';
 import { join } from 'node:path';
+import type { PoolClient } from 'pg';
 
 
 export interface RuntimeOptions<C extends BaseConfig = BaseConfig> {
@@ -123,7 +124,13 @@ export interface Runtime<C extends BaseConfig = BaseConfig> {
   migrate(): Promise<string[]>;
   activateRelease(mode: 'apply' | 'require-current'): Promise<readonly string[]>;
   migrationStatus(): ReturnType<typeof releaseMigrationStatus>;
-  withReleaseSnapshot<T>(dump: (snapshot: ReleaseSnapshot) => Promise<T>): Promise<T>;
+  /**
+   * Runs the callback under the same exported, read-only PostgreSQL snapshot
+   * used by the release dump.  Operational captures may use the client to
+   * enumerate metadata that must agree with that dump (for example storage
+   * objects); they must not write through it.
+   */
+  withReleaseSnapshot<T>(dump: (snapshot: ReleaseSnapshot, client: PoolClient) => Promise<T>): Promise<T>;
   close(): Promise<void>;
 }
 
