@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { escapeHtml } from '@storeweave/i18n';
-import { defineTheme, type ThemeAuthView, type ThemeContext, type ThemeNavigationItem } from '@storeweave/kernel';
-import type { AuthPages } from '@storeweave/auth';
+import { defineTheme, type ThemeContext, type ThemeNavigationItem } from '@storeweave/kernel';
+import type {
+  AuthPages, ThemeForgotPasswordView, ThemeLoginView, ThemeRegisterView, ThemeResetPasswordView,
+} from '@storeweave/auth';
 import type { SitePages } from '@storeweave/site';
 
 /**
@@ -82,37 +84,86 @@ function renderHome(ctx: ThemeContext): string {
   `);
 }
 
-const AUTH_TITLES: Record<ThemeAuthView['mode'], string> = {
-  'login': '登入',
-  'register': '註冊',
-  'forgot-password': '忘記密碼',
-  'reset-password': '重設密碼',
-};
+/**
+ * 設定新密碼時的前端下限，與 Default Theme 同一個數字。真正的政策在後端，
+ * 這裡只是讓人不必送出才知道太短。
+ */
+const PASSWORD_MIN_LENGTH = 8;
 
-function renderAuth(ctx: ThemeContext, view: ThemeAuthView): string {
-  const title = AUTH_TITLES[view.mode];
+/**
+ * 四種認證版型共用的骨架。四個 view 型別各自獨立（ADR 0047），但版面差異只有
+ * 標題與哪幾個欄位要出現，所以這裡收一份參數化的表單，四個 renderer 各自把
+ * 自己的欄位填進來——複製四份 HTML 只會讓其中一份先長歪。
+ */
+interface AuthForm {
+  readonly mode: 'login' | 'register' | 'forgot-password' | 'reset-password';
+  readonly title: string;
+  readonly next: string;
+  readonly error?: string;
+  readonly notice?: string;
+  readonly token?: string;
+  /** 沒有這個 key 就是這一頁沒有信箱欄位；`value` 是預填值，空字串代表欄位留空。 */
+  readonly emailField?: { readonly value: string };
+  readonly passwordField?: {
+    readonly autocomplete: 'current-password' | 'new-password';
+    /** 設定新密碼的兩頁才有下限；登入不設，舊密碼比現行政策短的人照樣登得進來。 */
+    readonly minLength?: number;
+  };
+}
+
+function renderAuthForm(ctx: ThemeContext, form: AuthForm): string {
   const csrf = ctx.csrfToken ? `<input type="hidden" name="_csrf" value="${escapeHtml(ctx.csrfToken)}">` : '';
-  const next = `<input type="hidden" name="next" value="${escapeHtml(view.next)}">`;
-  const email = view.mode === 'reset-password' ? '' : `<label for="email">電子郵件</label>
-      <input id="email" name="email" type="email" autocomplete="email" required>`;
-  const passwordAutocomplete = view.mode === 'reset-password' ? 'new-password' : 'current-password';
-  const password = view.mode === 'forgot-password' ? '' : `<label for="password">密碼</label>
-      <input id="password" name="password" type="password" autocomplete="${passwordAutocomplete}" required>`;
-  const token = view.mode === 'reset-password'
-    ? `<input type="hidden" name="token" value="${escapeHtml(view.token)}">` : '';
-  const notice = view.mode === 'forgot-password' && view.notice
-    ? `<p class="notice" role="status">${escapeHtml(view.notice)}</p>` : '';
-  return layout(ctx, title, `
-    <h1>${title}</h1>
-    ${view.error ? `<p class="error" role="alert">${escapeHtml(view.error)}</p>` : ''}
+  const next = `<input type="hidden" name="next" value="${escapeHtml(form.next)}">`;
+  const email = form.emailField === undefined ? '' : `<label for="email">電子郵件</label>
+      <input id="email" name="email" type="email" autocomplete="email" value="${escapeHtml(form.emailField.value)}" required>`;
+  const minLength = form.passwordField?.minLength;
+  const password = form.passwordField === undefined ? '' : `<label for="password">密碼</label>
+      <input id="password" name="password" type="password" autocomplete="${form.passwordField.autocomplete}"${
+        minLength === undefined ? '' : ` minlength="${minLength}"`} required>`;
+  const token = form.token === undefined
+    ? '' : `<input type="hidden" name="token" value="${escapeHtml(form.token)}">`;
+  const notice = form.notice ? `<p class="notice" role="status">${escapeHtml(form.notice)}</p>` : '';
+  return layout(ctx, form.title, `
+    <h1>${form.title}</h1>
+    ${form.error ? `<p class="error" role="alert">${escapeHtml(form.error)}</p>` : ''}
     ${notice}
-    <form method="post" action="/${view.mode}">
+    <form method="post" action="/${form.mode}">
       ${csrf}${next}${token}
       ${email}
       ${password}
-      <button type="submit">${title}</button>
+      <button type="submit">${form.title}</button>
     </form>
   `);
+}
+
+function renderLogin(ctx: ThemeContext, view: ThemeLoginView): string {
+  return renderAuthForm(ctx, {
+    mode: 'login', title: '登入', next: view.next, error: view.error,
+    emailField: { value: view.email ?? '' }, passwordField: { autocomplete: 'current-password' },
+  });
+}
+
+function renderRegister(ctx: ThemeContext, view: ThemeRegisterView): string {
+  return renderAuthForm(ctx, {
+    mode: 'register', title: '註冊', next: view.next, error: view.error,
+    emailField: { value: '' },
+    passwordField: { autocomplete: 'new-password', minLength: PASSWORD_MIN_LENGTH },
+  });
+}
+
+function renderForgotPassword(ctx: ThemeContext, view: ThemeForgotPasswordView): string {
+  return renderAuthForm(ctx, {
+    mode: 'forgot-password', title: '忘記密碼', next: view.next, notice: view.notice,
+    emailField: { value: '' },
+  });
+}
+
+function renderResetPassword(ctx: ThemeContext, view: ThemeResetPasswordView): string {
+  return renderAuthForm(ctx, {
+    mode: 'reset-password', title: '重設密碼', next: view.next, error: view.error,
+    token: view.token,
+    passwordField: { autocomplete: 'new-password', minLength: PASSWORD_MIN_LENGTH },
+  });
 }
 
 function renderError(ctx: ThemeContext, view: { status: number; message: string }): string {
@@ -129,15 +180,15 @@ export const baseTheme = defineTheme<SitePages & AuthPages>({
   optionsSchema: baseThemeOptions,
   renderers: {
     'platform.site.home': renderHome,
-    'platform.auth.login': renderAuth,
-    'platform.auth.submitLogin': renderAuth,
-    'platform.auth.register': renderAuth,
-    'platform.auth.submitRegister': renderAuth,
-    'platform.auth.forgotPassword': renderAuth,
-    'platform.auth.submitForgotPassword': renderAuth,
-    'platform.auth.resetPassword': renderAuth,
-    'platform.auth.submitResetPassword': renderAuth,
-    'platform.auth': renderAuth,
+    // 每一組認證頁的顯示與送出共用同一個渲染函式：送出失敗時要重新渲染的就是同一張表單。
+    'platform.auth.login': renderLogin,
+    'platform.auth.submitLogin': renderLogin,
+    'platform.auth.register': renderRegister,
+    'platform.auth.submitRegister': renderRegister,
+    'platform.auth.forgotPassword': renderForgotPassword,
+    'platform.auth.submitForgotPassword': renderForgotPassword,
+    'platform.auth.resetPassword': renderResetPassword,
+    'platform.auth.submitResetPassword': renderResetPassword,
     'platform.error': renderError,
   },
 });

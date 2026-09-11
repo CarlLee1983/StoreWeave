@@ -1,22 +1,6 @@
 import type { ZodTypeAny } from 'zod';
 import type { PageMap, PageRenderer, ViewOf } from './page';
 
-interface ThemeAuthBase {
-  /** 完成後要回到哪裡。只接受站內路徑。 */
-  next: string;
-  error?: string;
-}
-
-/**
- * discriminated union 而不是「全部 optional」：`token` 只對重設密碼有意義，
- * `notice` 只對忘記密碼有意義。攤平成選填欄位會讓 Theme 得自己記住哪個模式該讀哪個。
- */
-export type ThemeAuthView =
-  | (ThemeAuthBase & { mode: 'login' | 'register' })
-  | (ThemeAuthBase & { mode: 'forgot-password'; notice?: string })
-  | (ThemeAuthBase & { mode: 'reset-password'; token: string });
-
-
 /**
  * 購物車的呈現資料。金額全部是**當下**重算的結果——購物車不凍結價格，
  * Theme 拿到的永遠是現在的數字。
@@ -114,10 +98,12 @@ export interface StorefrontTheme {
 /**
  * 沒有路由的必需頁面各自的 view。SYSTEM_PAGE_IDS 是同一份清單的執行期形式，
  * 兩邊要一起改——啟動檢查看 id，型別看形狀。
+ *
+ * 只剩錯誤頁：認證版型由 `platform-auth` 模組宣告，因此是「有載入才要提供」的頁面，
+ * 純展示的 Theme 不必寫登入表單（ADR 0047，工單 98）。
  */
 export interface SystemPageViews {
   'platform.error': { status: number; message: string };
-  'platform.auth': ThemeAuthView;
 }
 
 export function defineTheme<Pages extends PageMap>(

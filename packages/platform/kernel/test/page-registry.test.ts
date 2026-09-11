@@ -65,6 +65,30 @@ describe('頁面註冊表', () => {
       .toThrow(/platform\.error/);
   });
 
+  it('沒有載入認證模組時，只提供錯誤頁的 Theme 也啟動得起來（工單 98）', () => {
+    const bare: StorefrontTheme = {
+      id: 'display-only', name: 'Display Only', optionsSchema: z.object({}),
+      renderers: { 'platform.error': () => '<html></html>' },
+    };
+
+    expect(() => assertThemeCoversPages([moduleWith('a', { home: page('platform.home', '/') })], {
+      ...bare, renderers: { ...bare.renderers, 'platform.home': () => '<html></html>' },
+    })).not.toThrow();
+  });
+
+  it('載入認證模組之後，缺認證版型仍在啟動時被拒絕並列出缺哪幾頁（工單 98）', () => {
+    const modules = [moduleWith('platform-auth', {
+      login: page('platform.auth.login', '/login'),
+      logout: page('platform.auth.logout', '/logout', false),
+    })];
+
+    expect(() => assertThemeCoversPages(modules, themeWith()))
+      .toThrow(/platform\.auth\.login/);
+    // 登出只轉址、沒有畫面，所以不列進缺頁。
+    expect(() => assertThemeCoversPages(modules, themeWith()))
+      .not.toThrow(/platform\.auth\.logout/);
+  });
+
   it('theme 缺必需頁面時拒絕啟動，訊息列出缺的是哪幾頁', () => {
     const modules = [moduleWith('a', {
       home: page('platform.home', '/'),

@@ -1,8 +1,8 @@
 # 0047. Session 是頁面的 outcome，不是頁面的能力
 
-- 狀態：proposed；2026-09-10 定案，實作與整合回歸通過後改 accepted。下面「Falsified if」
+- 狀態：accepted（2026-09-11，工單 92–98 完成、單元與整合回歸全綠）。下面「Falsified if」
   第四條在定案當下就是違反狀態——`startSession` 被三個呼叫端繞過——已於工單 92 消除；
-  其餘條件待工單 93–98。
+  其餘條件由工單 93–98 逐一兌現。
 - 日期：2026-09-10
 
 ADR 0045 把前台頁面從 Theme 挪到模組宣告，但登入／註冊／忘記密碼／重設密碼四頁留在
@@ -63,10 +63,11 @@ base release 不傳、走 `AuthService.register()`。這是 `createSiteModule({ 
 連帶好處是 `apps/api/src/releases/base.ts` 那份不合併購物車的 `startSession` 分支可以移除——
 合併與否變成 release 有沒有購物車模組的自然結果，不需要兩份實作。
 
-**theme 的 auth view 拆成四個。** `ThemeAuthView` 現在是一個四模式的 discriminated union，
-因為只有一個 renderer。拆成九個 page（四組 GET／POST 加 logout）之後，每個 renderer 都會
-收到一個它只處理其中一支的 union，所以型別跟著頁面拆開。theme 的 renderer map 多八個 key，
-實際渲染函式仍是四個——`commerce.content.contact` 與 `commerce.content.submitContact` 指向
+**theme 的 auth view 拆成四個。** 定案當下 `ThemeAuthView` 是一個四模式的 discriminated
+union，因為只有一個 renderer。拆成九個 page（四組 GET／POST 加 logout）之後，每個 renderer
+都會收到一個它只處理其中一支的 union，所以型別跟著頁面拆開（工單 98：四個型別改由
+`packages/platform/auth/src/pages.ts` 擁有，kernel 的 `SYSTEM_PAGE_IDS` 只剩錯誤頁）。
+theme 的 renderer map 多八個 key，實際渲染函式仍是四個——`commerce.content.contact` 與 `commerce.content.submitContact` 指向
 同一個函式已經是既有先例。`logout` 設 `required: false`（只轉址、沒有畫面）。REST 版的
 logout（`apps/api/src/controllers/auth.controller.ts`）原樣保留：它的呼叫端要 JSON，
 表單版要 303，合併只會逼出一個判斷 Accept header 的分支。

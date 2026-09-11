@@ -85,7 +85,8 @@ customer 2、coupon 1、loyalty 1），`storefront.controller.ts` 從 1356 行�
 目前選用的那一組。舊的扁平寫法會在啟動時被 schema 擋下來，沒有相容路徑。
 
 base release 因此有了前台：`packages/themes/base` 只實作 `platform.site.home`、
-`platform.auth` 與 `platform.error`，`/` 回 200 而不是 404，匿名訪客用新的 `visitor` 角色。
+當時的 `platform.auth` 與 `platform.error`（認證那一項在工單 98 拆成八個具名頁面，見下），
+`/` 回 200 而不是 404，匿名訪客用新的 `visitor` 角色。
 `tests/integration/base-release.test.ts` 與 `scripts/smoke-base.sh` 已改成斷言這件事。
 
 一項行為變更：頁尾的支援信箱從自己一欄移到品牌欄，`寫訊息給我們` 成為導覽資料的一項。
@@ -107,13 +108,17 @@ API token 從 runtime service 搬上 Command Bus（`platform.identity.issueApiTo
 登入頁多了第二因素挑戰（後端回 `A multi-factor code is required` 時才出現輸入框），
 `mfaEnrolmentRequired` 會把人帶到我的帳號並顯示提示（ADR 0044）。
 
-## 還沒收掉的一件事
+## 認證頁的收尾（工單 92-98）
 
-`storefront.controller.ts` 的登入／註冊／忘記密碼表單仍然是 decorator 路由，
-`SYSTEM_PAGE_IDS` 因此還留著 `platform.auth`。把它變成模組宣告的頁面需要在
-`PageResolveContext` 上開一個具名的 session 入口（簽發與撤銷 session、密碼重設），
-而 ADR 0045 的 falsification 條件正好守著這個介面——它是一次新的邊界決策，
-應該先寫 ADR 再動手，不適合夾在片5 收工時順手改。
+上面片1 留下的那一件事已經收掉。它確實是一次新的邊界決策，寫成
+[ADR 0047](../../adr/0047-session-is-a-page-outcome.md)：session 變成 `resolve` 的回傳值
+（`session-start`／`session-clear` 兩個 outcome kind），`PageResolveContext` 一個欄位都沒動，
+所以 ADR 0045 的條件連重開都不必。
+
+九頁（登入、註冊、忘記密碼、重設密碼各一組 GET／POST，加上登出）由新的 `platform-auth`
+模組宣告，`storefront.controller.ts` 只剩 theme 靜態資產與物流商取貨回呼兩條路由。
+四種認證版型拆成四個各自獨立的 view 型別，`SYSTEM_PAGE_IDS` 因此只剩錯誤頁——
+做一個純展示 Theme 的人不必再為了通過啟動檢查寫一份登入表單。
 
 ## 出口
 

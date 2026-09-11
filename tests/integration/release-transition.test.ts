@@ -164,7 +164,8 @@ describe('release transitions', () => {
       'platform-notifications/0001_init',
       'platform-site/0001_init',
     ]);
-    expect(prepared.manifest.owners.filter(entry => entry.state === 'active')).toHaveLength(8);
+    // 9 個：base release 從工單 97 起多了 platform-auth（形象站自己的登入與註冊）。
+    expect(prepared.manifest.owners.filter(entry => entry.state === 'active')).toHaveLength(9);
     expect(prepared.manifest.owners.filter(entry => entry.state === 'disabled')).toHaveLength(22);
     expect(JSON.stringify(prepared.manifest)).not.toContain('CREATE TABLE');
     await recordEffectiveRelease(pool, prepared, prepared.manifest);

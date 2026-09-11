@@ -115,6 +115,18 @@ describe('送出登入', () => {
     expect((outcome as { view: { error?: string } }).view.error).toBe('登入失敗：請確認電子郵件與密碼。');
   });
 
+  it('帳密錯誤時把填過的信箱放回表單，人不必重打一次', async () => {
+    const authentication = port({
+      authenticate: vi.fn(async () => { throw new PlatformError('UNAUTHENTICATED', 'Invalid credentials'); }),
+    });
+
+    const outcome = await pagesWith(authentication).submitLogin.resolve(ctx(visitor), {
+      email: 'someone@example.com', password: 'wrong',
+    });
+
+    expect(outcome).toMatchObject({ kind: 'view', view: { email: 'someone@example.com' } });
+  });
+
   it('認證以外的失敗照樣往上拋，不會被當成密碼錯誤吞掉', async () => {
     const authentication = port({
       authenticate: vi.fn(async () => { throw new Error('database is on fire'); }),

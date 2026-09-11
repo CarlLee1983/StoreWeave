@@ -175,11 +175,10 @@ export function collectPages(modules: readonly PlatformModule[]): readonly Store
  * 沒有自己的路由，但任何 release 都會用到的頁面。錯誤頁是別條路由失敗時的結果，
  * 所以不由誰「宣告」，而是每個 Theme 都必須提供。
  *
- * `platform.auth` 是四種認證模式共用的聯集版型，還留在這裡：四頁都已經由 `platform-auth`
- * 模組宣告（工單 94、95、96），但拆成四個各自獨立的 view 型別是工單 98 的工作，
- * 那一票才會把這個清單收到只剩錯誤頁。
+ * 只有錯誤頁：認證版型隨 `platform-auth` 模組進來，沒有載入認證模組的 Theme
+ * 不必提供登入表單（ADR 0047）。
  */
-export const SYSTEM_PAGE_IDS = ['platform.error', 'platform.auth'] as const;
+export const SYSTEM_PAGE_IDS = ['platform.error'] as const;
 
 /**
  * 在開始服務之前比對已載入模組宣告的必需頁面與 Theme 提供的 renderer。

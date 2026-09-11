@@ -1,6 +1,8 @@
 import { z } from 'zod';
-import { defineTheme, type ThemeAuthView, type ThemeContext } from '@storeweave/kernel';
-import type { AuthPages } from '@storeweave/auth';
+import { defineTheme, type ThemeContext } from '@storeweave/kernel';
+import type {
+  AuthPages, ThemeForgotPasswordView, ThemeLoginView, ThemeRegisterView, ThemeResetPasswordView,
+} from '@storeweave/auth';
 import type { cartPages, ThemeCartView, ThemeCheckoutView, ThemePickupStorePickerView } from '@storeweave/cart';
 import type { catalogPages, ThemeCatalogView, ThemeHomeView, ThemeProductView } from '@storeweave/catalog';
 import type { contentPages, ThemeArticleListView, ThemeArticleView, ThemeContactView } from '@storeweave/content';
@@ -148,15 +150,16 @@ function paymentContinuation(payment: NonNullable<ThemeOrderView['payment']>): s
   </section>`;
 }
 
-/** 忘記密碼與重設密碼：兩張表單長得夠像，共用一支。 */
+/**
+ * 忘記密碼與重設密碼：兩個 view 型別各自獨立（ADR 0047），但兩張表單長得夠像，
+ * 版面共用一支，欄位由呼叫端填。
+ */
 function renderPasswordForm(
   ctx: ThemeContext,
-  view: Extract<ThemeAuthView, { mode: 'forgot-password' | 'reset-password' }>,
+  { forgot, error, notice, token }: {
+    forgot: boolean; error?: string; notice?: string; token?: string;
+  },
 ): string {
-  const forgot = view.mode === 'forgot-password';
-  const error = view.error;
-  const notice = forgot ? view.notice : undefined;
-  const token = forgot ? undefined : view.token;
   const body = `
     <article class="auth-page">
       <section class="auth-card" aria-labelledby="auth-title">
@@ -1209,12 +1212,27 @@ export function renderAccountProfile(ctx: ThemeContext, { displayName, phone, bi
     return layout({ title: '個人資料', body, ctx });
 }
 
-export function renderAuth(ctx: ThemeContext, view: ThemeAuthView): string {
-  if (view.mode === 'forgot-password' || view.mode === 'reset-password') {
-    return renderPasswordForm(ctx, view);
-  }
-  const { next, error } = view;
-  const login = view.mode === 'login';
+export function renderForgotPassword(ctx: ThemeContext, view: ThemeForgotPasswordView): string {
+  return renderPasswordForm(ctx, { forgot: true, notice: view.notice });
+}
+
+export function renderResetPassword(ctx: ThemeContext, view: ThemeResetPasswordView): string {
+  return renderPasswordForm(ctx, { forgot: false, error: view.error, token: view.token });
+}
+
+export function renderLogin(ctx: ThemeContext, view: ThemeLoginView): string {
+  return renderCredentials(ctx, { login: true, next: view.next, error: view.error, email: view.email });
+}
+
+export function renderRegister(ctx: ThemeContext, view: ThemeRegisterView): string {
+  return renderCredentials(ctx, { login: false, next: view.next, error: view.error });
+}
+
+/** 登入與註冊：同一張表單，註冊多一個顯示名稱欄位。 */
+function renderCredentials(
+  ctx: ThemeContext,
+  { login, next, error, email }: { login: boolean; next: string; error?: string; email?: string },
+): string {
   const body = `
       <article class="auth-page">
         <section class="auth-card" aria-labelledby="auth-title">
@@ -1230,7 +1248,8 @@ export function renderAuth(ctx: ThemeContext, view: ThemeAuthView): string {
             ${csrfField(ctx)}
             <input type="hidden" name="next" value="${escapeHtml(next)}">
             <label>電子郵件
-              <input type="email" name="email" required placeholder="you@example.com" autocomplete="email">
+              <input type="email" name="email" required placeholder="you@example.com" autocomplete="email"${
+                email === undefined ? '' : ` value="${escapeHtml(email)}"`}>
             </label>
             ${login ? '' : `<label>顯示名稱
               <input type="text" name="displayName" maxlength="120" placeholder="怎麼稱呼你" autocomplete="name">
@@ -1282,15 +1301,14 @@ export const defaultTheme = defineTheme<ServedPages>({
 
   renderers: {
     // 每組認證頁的顯示與送出共用同一個 renderer，和聯絡我們同一個做法。
-    // `platform.auth` 系統頁還在：四種版型的聯集型別與這份清單要到工單 98 才收掉。
-    'platform.auth.login': renderAuth,
-    'platform.auth.submitLogin': renderAuth,
-    'platform.auth.forgotPassword': renderAuth,
-    'platform.auth.submitForgotPassword': renderAuth,
-    'platform.auth.resetPassword': renderAuth,
-    'platform.auth.submitResetPassword': renderAuth,
-    'platform.auth.register': renderAuth,
-    'platform.auth.submitRegister': renderAuth,
+    'platform.auth.login': renderLogin,
+    'platform.auth.submitLogin': renderLogin,
+    'platform.auth.forgotPassword': renderForgotPassword,
+    'platform.auth.submitForgotPassword': renderForgotPassword,
+    'platform.auth.resetPassword': renderResetPassword,
+    'platform.auth.submitResetPassword': renderResetPassword,
+    'platform.auth.register': renderRegister,
+    'platform.auth.submitRegister': renderRegister,
     'commerce.catalog.home': renderHome,
     'commerce.catalog.view': renderCatalog,
     'commerce.catalog.product': renderProduct,
@@ -1313,7 +1331,6 @@ export const defaultTheme = defineTheme<ServedPages>({
     'commerce.order.accountList': renderAccountOrders,
     'commerce.customer.profile': renderAccountProfile,
     'commerce.customer.saveProfile': renderAccountProfile,
-    'platform.auth': renderAuth,
     'platform.error': renderError,
   },
 });

@@ -20,16 +20,21 @@ const PASSWORD_RESET_NOTICE = '若這個電子郵件存在，我們已經把重�
 const PASSWORD_RESET_FAILED = '設定新密碼失敗，請重新申請一次。';
 
 /**
- * 登入頁的畫面資料。工單 98 會把四種認證版型拆成各自獨立的型別；在那之前這個形狀
- * 刻意與 `ThemeAuthView` 的 login 那一支相同，Theme 因此可以沿用同一個渲染函式。
+ * 登入頁的畫面資料。四種認證版型各有自己的型別而不是一個四模式的聯集：`token`
+ * 只對重設密碼有意義，`notice` 只對忘記密碼有意義，攤在同一個型別裡會讓每個
+ * renderer 都得自己記住哪一支該讀哪個欄位（ADR 0047）。`mode` 留著當渲染時的
+ * 標題與表單 action 依據，不再是分辨型別的判別欄位。
  */
 export interface ThemeLoginView {
   readonly mode: 'login';
   /** 完成後要回到哪裡。只接受站內路徑，清洗在路由層（ADR 0047）。 */
   readonly next: string;
   readonly error?: string;
+  /** 上一次填的信箱。失敗後重新渲染時放回欄位，人不必把它重打一次。 */
+  readonly email?: string;
 }
 
+/** 忘記密碼只會成功——回應對存在與不存在的信箱一致，所以沒有 `error`。 */
 export interface ThemeForgotPasswordView {
   readonly mode: 'forgot-password';
   readonly next: string;
@@ -57,10 +62,7 @@ const FAILED = '登入失敗：請確認電子郵件與密碼。';
 const signedIn = (types: readonly string[], type: string | undefined): boolean =>
   type !== undefined && types.includes(type);
 
-/**
- * 註冊頁的畫面資料。與登入頁同理，形狀刻意與 `ThemeAuthView` 的 register 那一支相同，
- * 拆分留到工單 98。
- */
+/** 註冊頁的畫面資料。 */
 export interface ThemeRegisterView {
   readonly mode: 'register';
   /** 註冊完成後要回到哪裡。只接受站內路徑，清洗在路由層（ADR 0047）。 */
@@ -133,7 +135,7 @@ export function createAuthPages(deps: AuthPageDeps) {
         // 已經登入的人不必再看一次表單——重新渲染會讓人以為自己被登出了。
         return signedIn(deps.signedInActorTypes, ctx.actor?.type)
           ? { kind: 'redirect' as const, location: target }
-          : { kind: 'view' as const, view: { mode: 'login' as const, next: target } };
+          : { kind: 'view' as const, view: { mode: 'login', next: target } satisfies ThemeLoginView };
       },
     }),
 
@@ -161,7 +163,10 @@ export function createAuthPages(deps: AuthPageDeps) {
         } catch (error) {
           // 認證失敗是輸入問題，不是伺服器故障：回到表單並保留信箱，不洩漏是哪一半錯了。
           if (error instanceof PlatformError && error.code === 'UNAUTHENTICATED') {
-            return { kind: 'view' as const, status: 401, view: { mode: 'login' as const, next: location, error: FAILED } };
+            return {
+              kind: 'view' as const, status: 401,
+              view: { mode: 'login', next: location, error: FAILED, email } satisfies ThemeLoginView,
+            };
           }
           throw error;
         }
@@ -179,7 +184,7 @@ export function createAuthPages(deps: AuthPageDeps) {
       },
       resolve: async () => ({
         kind: 'view' as const,
-        view: { mode: 'forgot-password' as const, next: '/' },
+        view: { mode: 'forgot-password', next: '/' } satisfies ThemeForgotPasswordView,
       }),
     }),
 
@@ -201,7 +206,7 @@ export function createAuthPages(deps: AuthPageDeps) {
         }
         return {
           kind: 'view' as const,
-          view: { mode: 'forgot-password' as const, next: '/', notice: PASSWORD_RESET_NOTICE },
+          view: { mode: 'forgot-password', next: '/', notice: PASSWORD_RESET_NOTICE } satisfies ThemeForgotPasswordView,
         };
       },
     }),
@@ -217,7 +222,7 @@ export function createAuthPages(deps: AuthPageDeps) {
       },
       resolve: async (_ctx, { token }) => ({
         kind: 'view' as const,
-        view: { mode: 'reset-password' as const, next: '/', token: token ?? '' },
+        view: { mode: 'reset-password', next: '/', token: token ?? '' } satisfies ThemeResetPasswordView,
       }),
     }),
 
@@ -240,7 +245,7 @@ export function createAuthPages(deps: AuthPageDeps) {
           return {
             kind: 'view' as const,
             status: 400,
-            view: { mode: 'reset-password' as const, next: '/', token, error: message },
+            view: { mode: 'reset-password', next: '/', token, error: message } satisfies ThemeResetPasswordView,
           };
         }
       },
@@ -263,7 +268,7 @@ export function createAuthPages(deps: AuthPageDeps) {
         // 一個註冊不成功的表單（他沒有 `customer:register`）。
         return signedIn(deps.signedInActorTypes, ctx.actor?.type)
           ? { kind: 'redirect' as const, location: target }
-          : { kind: 'view' as const, view: { mode: 'register' as const, next: target } };
+          : { kind: 'view' as const, view: { mode: 'register', next: target } satisfies ThemeRegisterView };
       },
     }),
 
@@ -304,7 +309,7 @@ export function createAuthPages(deps: AuthPageDeps) {
           if (message === undefined) throw error;
           return {
             kind: 'view' as const, status: 400,
-            view: { mode: 'register' as const, next: location, error: message },
+            view: { mode: 'register', next: location, error: message } satisfies ThemeRegisterView,
           };
         }
       },
