@@ -9,7 +9,7 @@ import { release } from '@storeweave/selected-release';
 import type { BaseConfig } from '@storeweave/config';
 import { cutOverEmptyOrRecognize, cutOverOrRecognize } from './database-cutover';
 import { restoreDumpToScratch } from './database-scratch';
-import { fullRecoveryJournalSchema, readFullRecoveryJournal, writeFullRecoveryJournal, type FullRecoveryJournal } from './full-recovery-journal';
+import { fullRecoveryJournalSchema, readFullRecoveryJournal, writeFullRecoveryJournal, writeRestoredKeys, type FullRecoveryJournal } from './full-recovery-journal';
 import { parsePgUrl } from './pg-tool';
 import { readPrivateJson, verifyPrivateDump } from './read-release-snapshot';
 import { assertStorageBackupMatchesDatabase, fullBackupSchema, readStorageBackupCatalog, restoreStorageBackup, type FullBackup, type StorageBackup } from './storage-backup';
@@ -29,7 +29,25 @@ export async function runFullRestore(input: {
   readonly config: BaseConfig;
   readonly lockFd?: number;
   readonly resumeJournal?: string;
-}): Promise<{ journalFile: string; quarantineName: string | null; objects: number }> {
+}): Promise<{ journalFile: string; quarantineName: string | null; objects: number; restoredObjects: number }> {
+  let record: ReturnType<typeof readFullRecoveryJournal> | undefined;
+  try {
+    return await advanceFullRestore(input, journal => { record = journal; });
+  } catch (error) {
+    if (record && !['planned', 'verified', 'failed'].includes(record.journal.phase)) {
+      // Without this the scratch database and its journal are indistinguishable
+      // from a run still in progress, and nothing can reclaim either.
+      try { writeFullRecoveryJournal(record.file, { ...record.journal, phase: 'failed' }, record.operationRoot); }
+      catch (cleanup) { throw new AggregateError([error, cleanup], 'Full recovery failed and its journal could not be marked failed'); }
+    }
+    throw error;
+  }
+}
+
+async function advanceFullRestore(
+  input: Parameters<typeof runFullRestore>[0],
+  observe: (record: ReturnType<typeof readFullRecoveryJournal>) => void,
+): Promise<{ journalFile: string; quarantineName: string | null; objects: number; restoredObjects: number }> {
   const bundle = await readFullBundle(input.bundleDirectory);
   assertCompiledRelease(bundle.manifest);
   const liveName = databaseName(input.config.database.url);
@@ -40,6 +58,7 @@ export async function runFullRestore(input: {
   let record: ReturnType<typeof readFullRecoveryJournal>;
   if (input.resumeJournal) {
     record = readFullRecoveryJournal(input.resumeJournal, input.operationRoot);
+    observe(record);
     assertBundleMatchesJournal(bundle, record.journal);
     if (record.journal.target.live.name !== liveName) throw new Error('Full recovery journal is for a different configured live database');
   } else {
@@ -54,9 +73,11 @@ export async function runFullRestore(input: {
       target: { systemIdentifier: target.systemIdentifier, live: { name: liveName, oid: target.liveOid } },
       scratch: { name: `storeweave_full_recovery_${id.replaceAll('-', '')}`, oid: null },
       quarantineName: target.liveOid === null ? null : `storeweave_retained_${id.replaceAll('-', '')}`,
+      restored: null,
     });
     writeFullRecoveryJournal(file, journal, input.operationRoot);
     record = readFullRecoveryJournal(file, input.operationRoot);
+    observe(record);
   }
 
   const target = await inspectTarget(maintenance.toString(), liveName);
@@ -71,33 +92,50 @@ export async function runFullRestore(input: {
       maintenanceUrl: maintenance.toString(), liveName, source: bundle.manifest.evidence.database,
       dump: join(bundle.directory, bundle.manifest.database.file), lockFd: input.lockFd,
       namePrefix: 'storeweave_full_recovery_', id: record.journal.id,
-      onCreated: created => writeFullRecoveryJournal(record.file, { ...record.journal, phase: 'scratch-created',
-        target: { systemIdentifier: created.systemIdentifier, live: { name: liveName, oid: created.targetOid } },
-        scratch: { name: created.name, oid: created.oid } }, record.operationRoot),
+      // The planned target is not re-adopted here: a live database that appears
+      // between the two readings would be journaled with a null quarantine name
+      // and every later read of this journal would fail its own invariant.
+      onCreated: created => {
+        if (created.systemIdentifier !== record.journal.target.systemIdentifier || created.targetOid !== record.journal.target.live.oid) {
+          throw new Error('Target cluster changed while the scratch database was being created; discard this recovery and start a new one');
+        }
+        writeFullRecoveryJournal(record.file, { ...record.journal, phase: 'scratch-created',
+          scratch: { name: created.name, oid: created.oid } }, record.operationRoot);
+      },
     });
     record = readFullRecoveryJournal(record.file, record.operationRoot);
+    observe(record);
     await verifyFullDatabase(scratch.name, maintenance.toString(), bundle.manifest, scratch.oid);
     writeFullRecoveryJournal(record.file, { ...record.journal, phase: 'database-restored' }, record.operationRoot);
     record = readFullRecoveryJournal(record.file, record.operationRoot);
+    observe(record);
   }
   if (record.journal.phase === 'scratch-created') {
-    throw new Error('Scratch database creation was recorded but its dump did not finish; preserve it for diagnosis and start a new recovery');
+    throw new Error('Scratch database creation was recorded but its dump did not finish; inspect it, then reclaim it with restore --discard before starting a new recovery');
+  }
+  if (record.journal.phase === 'failed') {
+    throw new Error('This full recovery already failed; inspect it, then reclaim it with restore --discard before starting a new recovery');
   }
   if (!record.journal.scratch.oid) throw new Error('Full recovery journal has no scratch database');
   const scratchOid = record.journal.scratch.oid;
 
   if (record.journal.phase === 'database-restored') {
-    await restoreAndVerifyMedia(input, maintenance.toString(), record.journal.scratch.name, bundle);
+    const created = await restoreAndVerifyMedia(input, maintenance.toString(), record.journal.scratch.name, bundle, 'replay');
     await verifyFullDatabase(record.journal.scratch.name, maintenance.toString(), bundle.manifest, scratchOid);
-    writeFullRecoveryJournal(record.file, { ...record.journal, phase: 'media-restored' }, record.operationRoot);
+    const restored = writeRestoredKeys(record.file, created, record.operationRoot);
+    writeFullRecoveryJournal(record.file, { ...record.journal, phase: 'media-restored', restored }, record.operationRoot);
     record = readFullRecoveryJournal(record.file, record.operationRoot);
+    observe(record);
   }
 
   if (record.journal.phase === 'media-restored') {
-    await restoreAndVerifyMedia(input, maintenance.toString(), record.journal.scratch.name, bundle);
-    await verifyFullDatabase(record.journal.scratch.name, maintenance.toString(), bundle.manifest, scratchOid);
+    // Only reachable once every object has been published and verified against
+    // the restored database: this phase is written after that check passes.
+    // Replaying again would re-read every byte of the media set, which on a
+    // large store is the difference between minutes and hours of recovery time.
     writeFullRecoveryJournal(record.file, { ...record.journal, phase: 'cutover-intent' }, record.operationRoot);
     record = readFullRecoveryJournal(record.file, record.operationRoot);
+    observe(record);
   }
   if (record.journal.phase === 'cutover-intent') {
     if (record.journal.target.live.oid === null) {
@@ -110,15 +148,21 @@ export async function runFullRestore(input: {
     }
     writeFullRecoveryJournal(record.file, { ...record.journal, phase: 'cutover-committed' }, record.operationRoot);
     record = readFullRecoveryJournal(record.file, record.operationRoot);
+    observe(record);
   }
   if (record.journal.phase === 'cutover-committed') {
-    await restoreAndVerifyMedia(input, maintenance.toString(), liveName, bundle);
+    // The cutover renames a database; it does not move bytes. The objects are
+    // already published, so the live database only has to agree with the
+    // manifest — re-hashing the whole media set proves nothing further.
+    await restoreAndVerifyMedia(input, maintenance.toString(), liveName, bundle, 'verify');
     await verifyFullDatabase(liveName, maintenance.toString(), bundle.manifest, scratchOid);
     writeFullRecoveryJournal(record.file, { ...record.journal, phase: 'verified' }, record.operationRoot);
     record = readFullRecoveryJournal(record.file, record.operationRoot);
+    observe(record);
   }
   if (record.journal.phase !== 'verified') throw new Error('Full recovery did not reach a verified terminal phase');
-  return { journalFile: record.file, quarantineName: record.journal.quarantineName, objects: bundle.storage.objects.length };
+  return { journalFile: record.file, quarantineName: record.journal.quarantineName,
+    objects: bundle.storage.objects.length, restoredObjects: record.journal.restored?.count ?? 0 };
 }
 
 async function readFullBundle(directory: string): Promise<VerifiedBundle> {
@@ -160,21 +204,58 @@ async function inspectTarget(maintenanceUrl: string, liveName: string): Promise<
   } finally { await client.end(); }
 }
 
-async function restoreAndVerifyMedia(input: Parameters<typeof runFullRestore>[0], maintenanceUrl: string, database: string, bundle: VerifiedBundle): Promise<void> {
+/**
+ * `replay` publishes the bundle's objects and returns the keys it created;
+ * `verify` only re-checks that the database describes exactly those objects.
+ *
+ * The staged configuration deliberately carries no password: the file is
+ * removed on every normal path, but a SIGKILL would leave it behind, and a
+ * recovery has no reason to write a credential to disk at all. `pg` reads
+ * `PGPASSWORD` when the connection string omits one.
+ */
+async function restoreAndVerifyMedia(input: Parameters<typeof runFullRestore>[0], maintenanceUrl: string, database: string,
+  bundle: VerifiedBundle, mode: 'replay' | 'verify'): Promise<readonly string[]> {
+  return withStagedRuntime({ operationRoot: input.operationRoot, config: input.config, maintenanceUrl, database }, async runtime => {
+    await runtime.activateRelease('require-current');
+    await assertStorageBackupMatchesDatabase(runtime, bundle.storage);
+    if (mode === 'verify') return [];
+    if (bundle.storage.objects.length > 0) await runtime.storage.assertConditionalCreateSupport(bundle.storage.objects[0]!.namespace);
+    const created = await restoreStorageBackup(runtime, bundle.directory, bundle.storage);
+    await assertStorageBackupMatchesDatabase(runtime, bundle.storage);
+    return created;
+  });
+}
+
+/**
+ * Boots the selected release against one database on the recovery cluster.
+ *
+ * The staged configuration deliberately carries no password: the file is
+ * removed on every normal path, but a SIGKILL would leave it behind, and a
+ * recovery has no reason to write a credential to disk at all. `pg` reads
+ * `PGPASSWORD` when the connection string omits one.
+ */
+export async function withStagedRuntime<T>(input: {
+  readonly operationRoot: string;
+  readonly config: BaseConfig;
+  readonly maintenanceUrl: string;
+  readonly database: string;
+}, use: (runtime: Awaited<ReturnType<typeof bootstrapRelease>>['runtime']) => Promise<T>): Promise<T> {
   const directory = mkdtempSync(join(resolve(input.operationRoot), '.full-restore-config-'));
-  const url = new URL(maintenanceUrl);
-  url.pathname = `/${encodeURIComponent(database)}`;
+  const url = new URL(input.maintenanceUrl);
+  url.pathname = `/${encodeURIComponent(input.database)}`;
+  const password = decodeURIComponent(url.password);
+  url.password = '';
   const configFile = join(directory, 'config.json');
+  const previousPassword = process.env.PGPASSWORD;
   try {
+    if (password) process.env.PGPASSWORD = password;
     writeFileSync(configFile, JSON.stringify({ ...input.config, database: { ...input.config.database, url: url.toString() } }), { flag: 'wx', mode: 0o600 });
     const boot = await bootstrapRelease(release, { configPath: configFile, loggerName: `${release.id}-full-restore`, logDestination: 'stderr' });
-    try {
-      await boot.runtime.activateRelease('require-current');
-      await assertStorageBackupMatchesDatabase(boot.runtime, bundle.storage);
-      await restoreStorageBackup(boot.runtime, bundle.directory, bundle.storage);
-      await assertStorageBackupMatchesDatabase(boot.runtime, bundle.storage);
-    } finally { await boot.runtime.close(); }
-  } finally { rmSync(directory, { recursive: true, force: true }); }
+    try { return await use(boot.runtime); } finally { await boot.runtime.close(); }
+  } finally {
+    if (previousPassword === undefined) delete process.env.PGPASSWORD; else process.env.PGPASSWORD = previousPassword;
+    rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 async function verifyFullDatabase(name: string, maintenanceUrl: string, manifest: FullBackup, expectedOid: string): Promise<void> {

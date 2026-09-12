@@ -543,42 +543,108 @@ export class StorageManager {
   }
 
   /**
-   * Recreates bytes for an already-restored ready row. This is reserved for
-   * the operator backup path: normal callers must use `upload`, which creates
-   * a new id and metadata row. An existing key is only reused after its bytes
-   * agree with the database digest; a divergent object is never overwritten.
+   * Recreates bytes for already-restored ready rows. This is reserved for the
+   * operator backup path: normal callers must use `upload`, which creates a new
+   * id and metadata row. An existing key is only reused after its bytes agree
+   * with the database digest; a divergent object is never overwritten.
    *
    * The CLI requires writers to be stopped for snapshot consistency. A retry
    * or an unexpected external writer still cannot replace a key: adapters use
    * exclusive local publication or S3 `If-None-Match: *`.
+   *
+   * Metadata for every entry is read in one statement: the caller has just
+   * compared the whole ready-object table against its manifest, so a query per
+   * object only multiplies round trips over a restore's entire object count.
+   *
+   * Returns the keys this call actually published. A restore replays into the
+   * live object store before the database cutover, so a later failure leaves
+   * bytes the live database does not reference; the caller journals these keys
+   * so `discardRestored` can take them back out.
    */
-  async restoreExact(input: StorageRestore): Promise<void> {
-    assertNamespace(input.namespace);
-    if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 0 || !/^[a-f0-9]{64}$/.test(input.sha256)) throw new Error('Invalid storage restore metadata');
-    const object = await this.get(input.namespace, input.id);
-    if (!object || object.storageKey !== input.storageKey || object.byteSize !== input.byteSize || object.sha256 !== input.sha256) {
-      throw new Error('Restored database does not match the storage backup manifest');
+  async restoreExactBatch(inputs: readonly StorageRestore[]): Promise<readonly string[]> {
+    for (const input of inputs) {
+      assertNamespace(input.namespace);
+      if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 0 || !/^[a-f0-9]{64}$/.test(input.sha256)) throw new Error('Invalid storage restore metadata');
     }
+    const objects = await this.readyObjects(inputs);
+    const created: string[] = [];
+    for (const input of inputs) {
+      const object = objects.get(`${input.namespace}/${input.id}`);
+      if (!object || object.storageKey !== input.storageKey || object.byteSize !== input.byteSize || object.sha256 !== input.sha256) {
+        throw new Error('Restored database does not match the storage backup manifest');
+      }
+      if (await this.publishRestoredObject(object.storageKey, input)) created.push(object.storageKey);
+    }
+    return created;
+  }
+
+  /** True when this call published the bytes; false when the key already held them. */
+  private async publishRestoredObject(storageKey: string, input: StorageRestore): Promise<boolean> {
     try {
-      const current = await this.store.open(object.storageKey);
+      const current = await this.store.open(storageKey);
       const actual = await digestContent(current.stream);
       if (actual.byteSize !== input.byteSize || actual.sha256 !== input.sha256) throw new Error('Existing storage object conflicts with the backup manifest');
-      return;
+      return false;
     } catch (error) {
       if (!isMissingObject(error)) throw error;
     }
-    const saved = await this.store.putIfAbsent(object.storageKey, input.byteSize, input.open());
+    const saved = await this.store.putIfAbsent(storageKey, input.byteSize, input.open());
     if (!saved.created) {
-      const current = await this.store.open(object.storageKey);
+      const current = await this.store.open(storageKey);
       const actual = await digestContent(current.stream);
       if (actual.byteSize !== input.byteSize || actual.sha256 !== input.sha256) throw new Error('Existing storage object conflicts with the backup manifest');
-      return;
+      return false;
     }
     if (saved.byteSize !== input.byteSize || saved.sha256 !== input.sha256) {
       // An immutable create is never removed here: a network response can be
       // lost after the object reaches the provider, and deleting it could
       // erase another retry's successful publication.
       throw new Error('Restored storage bytes do not match the backup manifest');
+    }
+    return true;
+  }
+
+  private async readyObjects(inputs: readonly StorageRestore[]): Promise<Map<string, StorageObject>> {
+    if (inputs.length === 0) return new Map();
+    const { rows } = await this.pool.query<StoredRow>(`SELECT * FROM public.platform_storage_objects
+      WHERE state = 'ready' AND (namespace, id) IN (SELECT namespace, id FROM unnest($1::text[], $2::uuid[]) AS requested(namespace, id))`,
+    [inputs.map(input => input.namespace), inputs.map(input => input.id)]);
+    return new Map(rows.map(row => { const object = record(row); return [`${object.namespace}/${object.id}`, object]; }));
+  }
+
+  /**
+   * Removes keys a failed restore published. Only keys the caller journaled as
+   * created are accepted: anything else may be bytes the live database still
+   * references, and a cleanup must never be able to widen into a deletion.
+   */
+  async discardRestored(keys: readonly string[]): Promise<number> {
+    let removed = 0;
+    for (const key of keys) {
+      await this.store.remove(key);
+      removed += 1;
+    }
+    return removed;
+  }
+
+  /**
+   * Conditional creates are a provider claim until they are observed. Older
+   * S3-compatible implementations ignore an unknown `If-None-Match` and report
+   * a plain overwrite as a create, which would turn `restoreExactBatch`'s
+   * "a divergent object is never overwritten" guarantee into a silent lie.
+   * A restore calls this before it writes anything, so an unsupported provider
+   * fails closed instead of destroying bytes.
+   */
+  async assertConditionalCreateSupport(namespace: string): Promise<void> {
+    assertNamespace(namespace);
+    const key = `${namespace}/conditional-create-probe-${randomUUID()}`;
+    const probe = Buffer.from('storeweave-conditional-create-probe');
+    const first = await this.store.putIfAbsent(key, probe.byteLength, Readable.from([probe]));
+    if (!first.created) throw new Error('Object store refused a conditional create for an unused key');
+    try {
+      const again = await this.store.putIfAbsent(key, probe.byteLength, Readable.from([probe]));
+      if (again.created) throw new Error('Object store ignores conditional creates; a full restore could overwrite divergent bytes');
+    } finally {
+      await this.store.remove(key).catch(() => undefined);
     }
   }
 

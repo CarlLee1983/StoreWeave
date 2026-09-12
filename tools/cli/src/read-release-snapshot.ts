@@ -67,7 +67,10 @@ export function readPrivateJson(file: string, maximumBytes = 1024 * 1024): unkno
   try {
     const size = fstatSync(metadata).size;
     if (size > maximumBytes) throw new Error('Snapshot descriptor exceeds its size limit');
-    const buffer = Buffer.alloc(maximumBytes + 1);
+    // Sized to the file, not to the limit: the storage catalogue is read with a
+    // 128 MiB ceiling, and allocating and zeroing that for a small file is pure
+    // cost. The extra byte still lets a concurrent growth be detected below.
+    const buffer = Buffer.alloc(size + 1);
     let length = 0;
     while (length < buffer.length) {
       const count = readSync(metadata, buffer, length, buffer.length - length, null);

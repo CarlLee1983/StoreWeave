@@ -7,8 +7,8 @@ import { verifySourceRuntime } from './verify-source-runtime';
 import { createPairedSnapshot } from './release-snapshot';
 import { createUpgradeJournal, readUpgradeJournal, requireUpgradeDatabase, writeUpgradeJournal } from './upgrade-journal';
 import { runReleaseCli } from './run-release-cli';
-import { pairedSnapshotSchema, readPairedSnapshot, readPrivateJson, verifyPrivateDump } from './read-release-snapshot';
-import { readRestoreJournal, writeRestoreJournal } from './restore-journal';
+import { readPairedSnapshot } from './read-release-snapshot';
+import { readRestoreJournal } from './restore-journal';
 import { restoreSnapshotToScratch } from './restore-release-snapshot';
 import { resumeRestoreCutover } from './resume-restore';
 import { parsePgUrl } from './pg-tool';
@@ -36,6 +36,7 @@ import { SERVICES, serviceManager, startServices, statusServices, stopServices }
 import { LegacyContentMediaBackfill } from '@storeweave/content';
 import { captureStorageBackup, fullBackupSchema, writeStorageBackupCatalog, writeStorageBackupManifest } from './storage-backup';
 import { runFullRestore } from './full-restore';
+import { discardFullRecovery, listFullRecoveries } from './full-recovery-discard';
 
 interface ScheduleListItem {
   type: string;
@@ -303,10 +304,43 @@ program
   .argument('[file]', 'pg_dump 備份檔路徑')
   .option('--bundle <directory>', '完整 backup bundle 目錄')
   .option('--resume <journal>', '續跑既有完整 bundle recovery journal；仍須傳入同一個 --bundle')
+  .option('--list-recoveries', '列出尚未完成的完整 recovery，含其 scratch 資料庫與已寫入的 storage 物件數')
+  .option('--discard <journal>', '回收一個未完成的完整 recovery：刪掉它寫入的 storage 物件、drop 其 scratch 資料庫、移除 journal')
   .option('--maintenance-database <name>', '完整 bundle 的獨立 maintenance 資料庫', 'postgres')
   .option('--yes', '不詢問直接執行')
   .option('--external-writers-stopped', '完整 bundle：確認 API、Worker 與外部寫入者均已停止')
-  .action(async (file: string | undefined, options: { yes?: boolean; bundle?: string; resume?: string; maintenanceDatabase: string; externalWritersStopped?: boolean }) => {
+  .action(async (file: string | undefined, options: { yes?: boolean; bundle?: string; resume?: string; listRecoveries?: boolean; discard?: string; maintenanceDatabase: string; externalWritersStopped?: boolean }) => {
+    if (options.listRecoveries || options.discard) {
+      if (options.listRecoveries && options.discard) fail('--list-recoveries 與 --discard 請分開執行');
+      if (file || options.bundle || options.resume) fail('--list-recoveries 與 --discard 不接受備份檔或 --bundle');
+      const paths = resolvePaths(release.id);
+      const loaded = loadReleaseConfig(release.config, paths.configFile);
+      const maintenance = parsePgUrl(loaded.config.database.url);
+      if (!options.maintenanceDatabase || Buffer.byteLength(options.maintenanceDatabase) > 63 || options.maintenanceDatabase.includes('\0')) fail('Invalid maintenance database name');
+      maintenance.pathname = `/${encodeURIComponent(options.maintenanceDatabase)}`;
+      await withTransitionLock(paths.dataDir, async (directory) => {
+        if (options.listRecoveries) {
+          const recoveries = await listFullRecoveries(directory, maintenance.toString());
+          heading('未完成的完整 recovery');
+          if (recoveries.length === 0) { line(`  ${dim('（無）')}`); return; }
+          for (const recovery of recoveries) {
+            line(`  ${recovery.id}  phase=${recovery.phase}`);
+            line(`    ${dim(`journal：${recovery.journalFile}`)}`);
+            line(`    ${dim(`scratch：${recovery.scratchName}${recovery.scratchExists ? '' : '（已不存在）'}；已寫入 storage 物件：${recovery.restoredObjects}`)}`);
+            if (!recovery.discardable) line(`    ${dim('此 phase 不可回收（cutover 已生效或已結案）')}`);
+          }
+          return;
+        }
+        // Dropping a database and deleting object bytes is not reversible.
+        if (!options.yes) fail('回收會 drop scratch 資料庫並刪除該次 recovery 寫入的 storage 物件。確認後請加上 --yes 再執行。');
+        const discarded = await discardFullRecovery({ journalFile: resolve(options.discard!), operationRoot: directory,
+          maintenanceUrl: maintenance.toString(), config: loaded.config });
+        heading('完整 recovery 已回收');
+        line(`  ${dim(`scratch 資料庫：${discarded.droppedScratch ? '已 drop' : '原本就不存在'}`)}`);
+        line(`  ${dim(`已刪除該次寫入的 storage 物件：${discarded.removedObjects}`)}`);
+      });
+      return;
+    }
     if (Boolean(file) === Boolean(options.bundle)) fail('請指定一個 pg_dump 檔案，或使用 --bundle 指定完整備份目錄');
     if (options.resume && !options.bundle) fail('完整 recovery 的 --resume 必須搭配同一個 --bundle');
     if (!options.yes) fail('還原會覆寫現有資料。確認後請加上 --yes 再執行。');
@@ -327,9 +361,9 @@ program
         await stopServices();
         const restored = await runFullRestore({ bundleDirectory: bundle, operationRoot: directory, maintenanceUrl: maintenance.toString(),
           configFile: paths.configFile, config: loaded.config, lockFd, resumeJournal: options.resume });
-        line(`  ${dim(`保留原資料庫：${restored.quarantineName}`)}`);
+        line(`  ${dim(restored.quarantineName === null ? '目標 cluster 原本沒有 live 資料庫，無保留副本' : `保留原資料庫：${restored.quarantineName}`)}`);
         line(`  ${dim(`recovery journal：${restored.journalFile}`)}`);
-        line(`  ${dim(`已驗證並重建 ${restored.objects} 個 storage 物件`)}`);
+        line(`  ${dim(`已驗證 ${restored.objects} 個 storage 物件，其中 ${restored.restoredObjects} 個由本次還原寫入`)}`);
       });
       heading('完整還原完成');
       line(`  ${bundle}`);
