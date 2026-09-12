@@ -38,7 +38,7 @@ const routes = {
   } },
   ready: { kind: 'raw', request: 'none', statuses: [200, 503], output: healthSchema },
   deps: { kind: 'raw', request: 'none', statuses: [200, 503], output: healthSchema },
-  metrics: { kind: 'raw', request: 'none', statuses: [200, 503], output: metricsSchema },
+  metrics: { kind: 'raw', request: 'none', statuses: [200], output: metricsSchema },
 } as const satisfies Record<string, RawHttpContract>;
 
 @Controller('health')
@@ -74,12 +74,15 @@ export class HealthController {
 
   // Same authenticated boundary as dependencies, but only stable numeric
   // counters. Monitoring agents must never scrape provider errors or worker ids.
+  // Always 200: a scrape agent (Prometheus, Datadog, CloudWatch) drops the
+  // entire payload on a non-2xx status, so the alertable state must ride in
+  // the body's `status` field instead of the HTTP status code.
   @BearerOnly()
   @Get('metrics')
   @HttpContract(routes.metrics)
   async metrics(@Req() request: AuthenticatedRequest, @Res() reply: FastifyReply) {
     this.runtime.authorization.assert({ actor: actorOf(request), permission: 'jobs:read' });
     const result = await operationalMetrics(this.runtime);
-    void reply.status(result.status === 'down' ? 503 : 200).send(result);
+    void reply.status(200).send(result);
   }
 }

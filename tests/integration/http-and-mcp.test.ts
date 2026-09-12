@@ -101,7 +101,7 @@ describe('REST 介面', () => {
       corsApp = await createReleaseServer({ runtime: h.runtime, theme: defaultTheme,
         httpAdapter: commerceHttpAdapter, release: { version: 'test', configPath: '<test>' } });
       const catalog = (corsApp.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier).storeweaveHttpCatalog!;
-      expect(catalog).toHaveLength(199);
+      expect(catalog).toHaveLength(200);
       expect(catalog.filter(route => route.kind === 'cors-preflight')).toEqual([expect.objectContaining({
         method: 'OPTIONS', path: '*', automaticRoute: true, auth: 'unauthenticated', request: 'headers', rateLimit: null,
         policy: expect.objectContaining({ allowedOrigins: ['https://console.example'], credentials: true }),
@@ -355,7 +355,9 @@ describe('REST 介面', () => {
       { kind: 'raw', path: '/health/live', auth: 'anonymous', statuses: [200] },
       { kind: 'raw', path: '/health/ready', auth: 'anonymous', statuses: [200, 503] },
       { kind: 'raw', path: '/health/dependencies', auth: 'bearer-or-session', statuses: [200, 503] },
-      { kind: 'raw', path: '/health/metrics', auth: 'bearer', statuses: [200, 503] },
+      // Always 200: a scrape agent discards the whole payload on a non-2xx,
+      // so the alertable state rides in the body's `status` field instead.
+      { kind: 'raw', path: '/health/metrics', auth: 'bearer', statuses: [200] },
     ]);
     const live = await inject({ url: '/health/live' });
     expect(live.json()).toMatchObject({ status: 'ok' });
