@@ -131,13 +131,14 @@ describe('request hygiene', () => {
     expect(JSON.stringify(result)).not.toContain('SECRET');
   });
 
-  it('keeps the underlying cause of a transport failure', async () => {
-    const cause = new Error('connect ECONNREFUSED 127.0.0.1:443');
+  it('does not expose transport messages that echo URL or header secrets', async () => {
+    const cause = new Error('request to https://api.example.com/hooks/SECRET?token=ABC failed; authorization=Bearer DEF');
     const fetchImpl = vi.fn(async () => { throw new TypeError('fetch failed', { cause }); }) as unknown as typeof fetch;
     const client = createHttpClient({ timeoutMs: 100, fetch: fetchImpl });
     const result = await client.request({ method: 'GET', url: 'https://api.example.com/a' });
     expect(result).toMatchObject({ ok: false, reason: 'network' });
-    expect((result as { message: string }).message).toContain('ECONNREFUSED');
+    expect((result as { message: string }).message).toBe('https://api.example.com could not be reached');
+    expect(JSON.stringify(result)).not.toMatch(/SECRET|ABC|DEF/);
   });
 });
 
@@ -221,7 +222,24 @@ describe('a reused response is a caller bug, not a transport failure', () => {
 
 describe('remaining IPv4-in-IPv6 encodings', () => {
   it('blocks 6to4 and the local-use NAT64 prefix', () => {
-    for (const url of ['https://[2002:a9fe:a9fe::]/x', 'https://[2002:7f00:1::]/x', 'https://[64:ff9b:1::a9fe:a9fe]/x']) {
+    for (const url of [
+      'https://[2002:a9fe:a9fe::]/x',
+      'https://[2002:7f00:1::]/x',
+      'https://[64:ff9b:1::a9fe:a9fe]/x',
+      'https://[64:ff9b:1:abcd::1]/x',
+      'https://[64:ff9b:1:808:808::]/x',
+    ]) {
+      expect(checkDestination(url, {})).toMatchObject({ ok: false });
+    }
+  });
+
+  it('blocks the whole IPv6 link-local /10 instead of only fe80', () => {
+    for (const url of [
+      'https://[fe80::1]/x',
+      'https://[fe90::1]/x',
+      'https://[fea0::1]/x',
+      'https://[febf::1]/x',
+    ]) {
       expect(checkDestination(url, {})).toMatchObject({ ok: false });
     }
   });

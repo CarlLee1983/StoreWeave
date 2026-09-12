@@ -27,6 +27,21 @@ describe('failure classification', () => {
     expect(await pending).toMatchObject({ ok: false, reason: 'aborted' });
   });
 
+  it('classifies cancellation while reading the response body as aborted', async () => {
+    const controller = new AbortController();
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const signal = init?.signal as AbortSignal;
+      return new Response(new ReadableStream({
+        start(stream) {
+          signal.addEventListener('abort', () => stream.error(signal.reason), { once: true });
+        },
+      }));
+    }) as unknown as typeof fetch;
+    const pending = client(fetchImpl, { timeoutMs: 10_000 }).request({ method: 'GET', url, signal: controller.signal });
+    controller.abort();
+    expect(await pending).toMatchObject({ ok: false, reason: 'aborted', attempts: 1 });
+  });
+
   it('reports a non-2xx response as a status failure and keeps the status', async () => {
     const fetchImpl = (async () => new Response('nope', { status: 404 })) as unknown as typeof fetch;
     expect(await client(fetchImpl).request({ method: 'GET', url }))
@@ -119,6 +134,51 @@ describe('retry policy', () => {
     }).request({ method: 'GET', url });
     expect(waits).toHaveLength(2);
     expect(waits[1]).toBeGreaterThan(waits[0]);
+  });
+
+  it('stops an in-progress retry backoff when the caller cancels', async () => {
+    const controller = new AbortController();
+    let enteredBackoff!: () => void;
+    const backoff = new Promise<void>((resolve) => { enteredBackoff = resolve; });
+    const fetchImpl = vi.fn(async () => { throw new TypeError('fetch failed'); }) as unknown as typeof fetch;
+    const pending = createHttpClient({
+      timeoutMs: 10_000,
+      maxAttempts: 3,
+      fetch: fetchImpl,
+      sleep: async () => {
+        enteredBackoff();
+        await new Promise<void>(() => {});
+      },
+    }).request({ method: 'GET', url, signal: controller.signal });
+    await backoff;
+    controller.abort();
+    const result = await Promise.race([
+      pending,
+      new Promise<'still-waiting'>((resolve) => { setTimeout(() => resolve('still-waiting'), 0); }),
+    ]);
+    expect(result).toMatchObject({ ok: false, reason: 'aborted', attempts: 1 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the default backoff timer when the caller cancels', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const fetchImpl = vi.fn(async () => { throw new TypeError('fetch failed'); }) as unknown as typeof fetch;
+      const pending = createHttpClient({
+        timeoutMs: 10_000,
+        maxAttempts: 3,
+        fetch: fetchImpl,
+      }).request({ method: 'GET', url, signal: controller.signal });
+      await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+      await Promise.resolve();
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      controller.abort();
+      await expect(pending).resolves.toMatchObject({ ok: false, reason: 'aborted', attempts: 1 });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects a maxAttempts that would make retries unbounded', () => {

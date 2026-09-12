@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { runExtensionContractChecks, type ContractCheck } from '@storeweave/extension-sdk';
+import { defineExtension, runExtensionContractChecks, type ContractCheck } from '@storeweave/extension-sdk';
 import { AVAILABLE_EXTENSIONS, knownEventNames, knownPermissionKeys } from '@storeweave/bundle';
 
 const knownEvents = knownEventNames();
@@ -111,6 +111,61 @@ describe('Extension Contract Test', () => {
     };
     const checks = await runExtensionContractChecks(broken, { sampleConfig: {} });
     expect(checks.find((c) => c.name === 'registered queries match the manifest')?.ok).toBe(false);
+  });
+
+  it('scheduled extension job 的 current payload 必須接受 recurring occurrence', async () => {
+    const base = AVAILABLE_EXTENSIONS['ecpay-logistics'];
+    const broken = {
+      ...base,
+      async setup(ctx: any) {
+        const registration = await base.setup(ctx);
+        return {
+          ...registration,
+          jobs: registration.jobs?.map(job => job.schedule ? {
+            ...job,
+            jobContractV1: { currentVersion: 1, versions: { 1: z.object({ shipmentId: z.string() }).strict() } },
+          } : job),
+        };
+      },
+    } as typeof base;
+    const checks = await runExtensionContractChecks(broken, {
+      sampleConfig: { mode: 'fake' },
+      secrets: {
+        ECPAY_LOGISTICS_MERCHANT_ID: 'test-logistics-merchant-id',
+        ECPAY_LOGISTICS_HASH_KEY: 'test-logistics-hash-key',
+        ECPAY_LOGISTICS_HASH_IV: 'test-logistics-hash-iv',
+      },
+    });
+    const check = checks.find(entry => entry.name === 'scheduled jobs accept the payload produced by the recurring scheduler');
+    expect(check).toMatchObject({ ok: false });
+    expect(check?.message).toContain('ext.ecpay-logistics.reconcile-shipment-statuses');
+  });
+
+  it('cron payload 使用和 runtime 相同的 discriminator，mixed declaration 不會被猜成 cron', async () => {
+    const make = (id: string, schedule: any) => defineExtension({
+      manifest: {
+        id, name: id, version: '1.0.0', platformVersion: '^1.0.0', permissions: [],
+        configuration: z.object({}), subscribedEvents: [], registeredCommands: [], registeredQueries: [],
+        registeredJobs: [`ext.${id}.run`], registeredProviders: [],
+      },
+      setup: () => ({ jobs: [{
+        type: `ext.${id}.run`, schedule, handler: async () => {},
+        jobContractV1: { currentVersion: 1, versions: { 1: z.object({ scheduledFor: z.string() }).strict() } },
+      }] }),
+    });
+    const cronChecks = await runExtensionContractChecks(make('cron-contract', { cron: '15 7 * * *', timezone: 'UTC' }));
+    expect(cronChecks.find(check => check.name === 'scheduled jobs accept the payload produced by the recurring scheduler'))
+      .toMatchObject({ ok: true });
+    const mixedChecks = await runExtensionContractChecks(make('mixed-contract', {
+      everyMs: 60_000, cron: '15 7 * * *', timezone: 'UTC',
+    }));
+    expect(mixedChecks.find(check => check.name === 'scheduled jobs accept the payload produced by the recurring scheduler'))
+      .toMatchObject({ ok: false, message: 'ext.mixed-contract.run' });
+    expect(mixedChecks.find(check => check.name === 'scheduled jobs have a valid shared declaration shape'))
+      .toMatchObject({ ok: false });
+    const intervalChecks = await runExtensionContractChecks(make('invalid-interval-contract', { everyMs: 0 }));
+    expect(intervalChecks.find(check => check.name === 'scheduled jobs have a valid shared declaration shape'))
+      .toMatchObject({ ok: false });
   });
 });
 

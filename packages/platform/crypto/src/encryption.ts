@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { assertPurpose, type Keyring } from './keyring';
+import { assertPurpose, isValidKeyId, type Keyring } from './keyring';
 
 const VERSION = 'swe1';
 const PART_COUNT = 5;
@@ -56,6 +56,7 @@ export function decryptString(keyring: Keyring, input: DecryptStringInput): Decr
   if (parts.length !== PART_COUNT) return { ok: false, reason: 'malformed' };
   const [version, keyId, ivRaw, ciphertextRaw, tagRaw] = parts;
   if (version !== VERSION) return { ok: false, reason: 'malformed' };
+  if (!isValidKeyId(keyId)) return { ok: false, reason: 'malformed' };
   if (![ivRaw, ciphertextRaw, tagRaw].every(isCanonicalBase64Url)) return { ok: false, reason: 'malformed' };
   if (!keyring.has(keyId)) return { ok: false, reason: 'unknown_key' };
 

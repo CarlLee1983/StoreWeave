@@ -1,4 +1,4 @@
-import { assertPurpose, type Keyring } from './keyring';
+import { assertPurpose, isValidKeyId, type Keyring } from './keyring';
 import { hmacSha256 } from './hash';
 import { timingSafeEqual } from 'node:crypto';
 
@@ -67,10 +67,14 @@ export function signValue(keyring: Keyring, input: SignValueInput): string {
  */
 export function verifySignedValue(keyring: Keyring, input: VerifySignedValueInput): VerifiedSignedValue {
   assertPurpose(input.purpose);
+  if (!(input.now instanceof Date) || !Number.isFinite(input.now.getTime())) {
+    throw new Error('Signed value verification requires a valid clock');
+  }
   const parts = input.token.split('.');
   if (parts.length !== PART_COUNT) return { ok: false, reason: 'malformed' };
   const [version, keyId, expiresAtRaw, encodedPayload, presentedMac] = parts;
   if (version !== VERSION) return { ok: false, reason: 'malformed' };
+  if (!isValidKeyId(keyId)) return { ok: false, reason: 'malformed' };
   if (!isCanonicalInteger(expiresAtRaw)) return { ok: false, reason: 'malformed' };
   if (!isCanonicalBase64Url(encodedPayload) || !isCanonicalBase64Url(presentedMac)) {
     return { ok: false, reason: 'malformed' };

@@ -176,6 +176,133 @@ describe('runtime cleanup', () => {
     expect(seen).toEqual({ occurrenceId, idempotencyKey: occurrenceId, signal: controller.signal });
   });
 
+  it('registers an extension schedule in the durable recurring path and emits a decodable occurrence', async () => {
+    const runtime = await createRuntime(await options([]));
+    runtimes.push(runtime);
+    const type = 'ext.scheduled-probe.sweep';
+    const cronType = 'ext.scheduled-probe.daily';
+    const definition = extension('scheduled-probe', () => ({
+      jobs: [{
+        type,
+        schedule: { everyMs: 60_000 },
+        jobContractV1: { currentVersion: 1, versions: { 1: z.object({
+          bucket: z.number().int(), scheduledFor: z.string().datetime(),
+        }).strict() } },
+        handler: async () => {},
+      }, {
+        type: cronType,
+        schedule: { cron: '15 7 * * *', timezone: 'UTC' },
+        jobContractV1: { currentVersion: 1, versions: { 1: z.object({
+          scheduledFor: z.string().datetime(),
+        }).strict() } },
+        handler: async () => {},
+      }],
+    }));
+    const declared = { ...definition, manifest: { ...definition.manifest, registeredJobs: [type, cronType] } };
+    await runtime.extensions.mount(declared, {});
+
+    expect(runtime.recurring.specFor(type)).toMatchObject({ kind: 'interval', everyMs: 60_000 });
+    expect(runtime.recurring.specFor(cronType)).toMatchObject({ kind: 'cron', cron: '15 7 * * *', timezone: 'UTC' });
+    const at = new Date('2026-09-12T07:15:30.000Z');
+    const scheduled = await runtime.recurring.ensureScheduled(at);
+    expect(scheduled.failed).toBe(0);
+    expect(scheduled.enqueued).toBeGreaterThanOrEqual(1);
+    const rows = await runtime.database.pool.query(
+      'SELECT type, payload, payload_version FROM platform_jobs WHERE type = $1', [type],
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(runtime.jobRegistry.decode(type, rows.rows[0].payload, rows.rows[0].payload_version)).toEqual({
+      bucket: Math.floor(Date.parse('2026-09-12T07:15:00.000Z') / 60_000),
+      scheduledFor: '2026-09-12T07:15:00.000Z',
+    });
+    const cronRows = await runtime.database.pool.query(
+      'SELECT type, payload, payload_version FROM platform_jobs WHERE type = $1', [cronType],
+    );
+    expect(cronRows.rows).toHaveLength(1);
+    expect(runtime.jobRegistry.decode(cronType, cronRows.rows[0].payload, cronRows.rows[0].payload_version)).toEqual({
+      scheduledFor: '2026-09-12T07:15:00.000Z',
+    });
+  });
+
+  it('rejects invalid or undecodable extension schedules before publishing a job or schedule', async () => {
+    const runtime = await createRuntime(await options([]));
+    runtimes.push(runtime);
+    const cases = [
+      { id: 'invalid-interval', schedule: { everyMs: 0 }, contract: { currentVersion: 1, versions: { 1: z.object({}).strict() } }, message: 'positive everyMs' },
+      { id: 'interval-payload', schedule: { everyMs: 60_000 }, contract: { currentVersion: 1, versions: { 1: z.object({ scheduledFor: z.string() }).strict() } }, message: 'cannot decode' },
+      { id: 'cron-payload', schedule: { cron: '15 7 * * *', timezone: 'UTC' }, contract: { currentVersion: 1, versions: { 1: z.object({ bucket: z.number(), scheduledFor: z.string() }).strict() } }, message: 'cannot decode' },
+      { id: 'missing-contract', schedule: { everyMs: 60_000 }, contract: undefined, message: 'requires current jobContractV1' },
+      { id: 'mixed-schedule', schedule: { everyMs: 60_000, cron: '15 7 * * *', timezone: 'UTC' }, contract: { currentVersion: 1, versions: { 1: z.object({ bucket: z.number(), scheduledFor: z.string() }).strict() } }, message: 'exactly one' },
+    ] as const;
+    for (const testCase of cases) {
+      const type = `ext.${testCase.id}.sweep`;
+      const definition = extension(testCase.id, () => ({ jobs: [{
+        type,
+        schedule: testCase.schedule as any,
+        jobContractV1: testCase.contract,
+        handler: async () => {},
+      }] }));
+      const declared = { ...definition, manifest: { ...definition.manifest, registeredJobs: [type] } };
+      await expect(runtime.extensions.mount(declared, {})).rejects.toThrow(testCase.message);
+      expect(runtime.jobRegistry.has(type)).toBe(false);
+      expect(runtime.recurring.specFor(type)).toBeUndefined();
+    }
+  });
+
+  it('preflights a complete extension registration before publishing any shared registry entry', async () => {
+    const runtime = await createRuntime(await options([]));
+    runtimes.push(runtime);
+    const id = 'atomic-mount';
+    const permission = 'atomic-mount:write';
+    const commandName = `ext.${id}.write`;
+    const queryName = `ext.${id}.read`;
+    const jobType = `ext.${id}.sweep`;
+    const eventName = 'test.unknown.v1';
+    const before = {
+      permissions: runtime.authorization.permissions.list(),
+      policies: runtime.authorization.policies.list(),
+      commands: runtime.commands.list(),
+      queries: runtime.queries.list(),
+      tools: runtime.mcpTools.list(),
+      jobs: runtime.jobRegistry.types(),
+      schedules: runtime.recurring.types(),
+      subscriptions: runtime.events.listSubscriptions(),
+      providers: runtime.providers.list(),
+    };
+    const input = z.object({}).strict();
+    const output = z.object({ ok: z.boolean() }).strict();
+    const definition = defineExtension({
+      manifest: {
+        id, name: id, version: '1.0.0', platformVersion: '^1.0.0', permissions: [],
+        declaredPermissions: [{ key: permission, description: 'Atomic mount probe' }],
+        configuration: z.object({}), subscribedEvents: [eventName],
+        registeredCommands: [commandName], registeredQueries: [queryName], registeredJobs: [jobType],
+        registeredProviders: [{ kind: 'erp', id }],
+      },
+      setup: () => ({
+        policies: [{ id: `${id}.policy`, appliesTo: [permission], owner: id, evaluate: () => 'abstain' }],
+        commands: [{ descriptor: { name: commandName, version: 1, permission, idempotency: 'optional', input, output }, handler: async () => ({ ok: true }) }],
+        queries: [{ descriptor: { name: queryName, version: 1, permission, input, output }, handler: async () => ({ ok: true }) }],
+        mcpTools: [{ name: 'atomic_mount_read', description: 'probe', input, target: { kind: 'query', name: queryName } }],
+        providers: [{ kind: 'erp', id, push: async () => ({ accepted: true }) } as any],
+        jobs: [{ type: jobType, schedule: { everyMs: 60_000 }, jobContractV1: { currentVersion: 1, versions: { 1: z.object({ bucket: z.number(), scheduledFor: z.string() }).strict() } }, handler: async () => {} }],
+        events: [{ event: eventName, handler: async () => {} }],
+      }),
+    });
+    await expect(runtime.extensions.mount(definition, {})).rejects.toThrow(`Unknown domain event "${eventName}"`);
+    expect({
+      permissions: runtime.authorization.permissions.list(),
+      policies: runtime.authorization.policies.list(),
+      commands: runtime.commands.list(),
+      queries: runtime.queries.list(),
+      tools: runtime.mcpTools.list(),
+      jobs: runtime.jobRegistry.types(),
+      schedules: runtime.recurring.types(),
+      subscriptions: runtime.events.listSubscriptions(),
+      providers: runtime.providers.list(),
+    }).toEqual(before);
+  });
+
   it('authorizes extension mail and namespaces its local references', async () => {
     let firstContext: ExtensionContext | undefined;
     let secondContext: ExtensionContext | undefined;

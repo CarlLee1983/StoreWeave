@@ -25,10 +25,14 @@ export class PolicyRegistry {
   private readonly policies: PolicyDefinition[] = [];
 
   register(policy: PolicyDefinition): void {
-    if (this.policies.some((p) => p.id === policy.id)) {
+    if (this.has(policy.id)) {
       throw new Error(`Policy "${policy.id}" already registered`);
     }
     this.policies.push(policy);
+  }
+
+  has(id: string): boolean {
+    return this.policies.some((policy) => policy.id === id);
   }
 
   list(): readonly PolicyDefinition[] {

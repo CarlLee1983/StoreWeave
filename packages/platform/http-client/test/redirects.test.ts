@@ -79,6 +79,16 @@ describe('redirects', () => {
       .toMatchObject({ ok: false, reason: 'http_status', status: 302 });
   });
 
+  it('returns an unsafe_redirect failure for a malformed location', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, {
+      status: 302,
+      headers: { location: 'http://[' },
+    })) as unknown as typeof fetch;
+    const client = createHttpClient({ timeoutMs: 1000, fetch: fetchImpl });
+    await expect(client.request({ method: 'GET', url: 'https://api.example.com/a' }))
+      .resolves.toMatchObject({ ok: false, reason: 'unsafe_redirect', attempts: 1 });
+  });
+
   it('never lets a POST body be replayed to the redirect target', async () => {
     const methods: string[] = [];
     const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {

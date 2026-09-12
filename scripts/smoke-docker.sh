@@ -3,6 +3,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+export STOREWEAVE_SOURCE_REVISION="${STOREWEAVE_SOURCE_REVISION:-$(git rev-parse HEAD)}"
 RELEASE_ID="${STOREWEAVE_RELEASE:-commerce}"
 case "$RELEASE_ID" in
   commerce) NAME=commerce; DB_USER=commerce; DB_NAME=commerce; COMPOSE_FILE=compose.yaml; PORT="${COMMERCE_PORT:-3000}" ;;
@@ -33,6 +34,29 @@ cleanup() {
   if [ "$KEEP" != true ]; then compose down -v >/dev/null 2>&1 || true; fi
 }
 trap cleanup EXIT
+record_smoke_evidence() {
+  [ -n "${STOREWEAVE_SMOKE_EVIDENCE:-}" ] || return 0
+  local build_info="$WORK/docker-build-info.json"
+  local manifest="$WORK/docker-release-manifest.json"
+  local container image_digest tag_digest source_revision
+  container="$(compose ps -q api)"
+  [ -n "$container" ] || { echo 'Smoke API container is not running' >&2; return 1; }
+  image_digest="$(docker inspect --format '{{.Image}}' "$container")"
+  tag_digest="$(docker image inspect --format '{{.Id}}' "$STOREWEAVE_IMAGE")"
+  [ "$image_digest" = "$tag_digest" ] || { echo "Smoke image changed during the run: container=$image_digest tag=$tag_digest" >&2; return 1; }
+  docker cp "$container:/opt/$NAME/current/build-info.json" "$build_info"
+  docker cp "$container:/opt/$NAME/current/release-manifest.json" "$manifest"
+  source_revision="$STOREWEAVE_SOURCE_REVISION"
+  node scripts/record-smoke-evidence.mjs \
+    --kind docker \
+    --release "$RELEASE_ID" \
+    --build-info "$build_info" \
+    --manifest "$manifest" \
+    --artifact-name "$STOREWEAVE_IMAGE" \
+    --artifact-digest "$image_digest" \
+    --output "$STOREWEAVE_SMOKE_EVIDENCE" \
+    --source-revision "$source_revision"
+}
 if [ "$RELEASE_ID" = base ]; then
   cat > "$WORK/base.yaml" <<'CONFIG'
 version: 1
@@ -141,4 +165,5 @@ else
   compose exec -T api sh -c 'test ! -e /opt/storeweave/current/admin && test ! -e /opt/storeweave/current/theme-assets && test ! -e /etc/commerce && test ! -e /opt/commerce'
   full_recovery_smoke
 fi
+record_smoke_evidence
 printf 'Docker %s smoke passed (%s)\n' "$RELEASE_ID" "$PROJECT"

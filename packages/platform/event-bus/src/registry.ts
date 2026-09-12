@@ -51,6 +51,11 @@ export class EventBus {
     this.subscriptions.push(sub);
   }
 
+  hasSubscription(subscriberId: string, eventName: string): boolean {
+    return this.subscriptions.some((subscription) =>
+      subscription.subscriberId === subscriberId && subscription.eventName === eventName);
+  }
+
   subscribersFor(eventName: string): EventSubscription[] {
     return this.subscriptions.filter((s) => s.eventName === eventName);
   }

@@ -1,4 +1,4 @@
-import type { Actor, CommandDescriptor, QueryDescriptor } from '@storeweave/contracts';
+import type { Actor, CommandDescriptor, QueryDescriptor, ScheduleDeclaration } from '@storeweave/contracts';
 import type { PermissionDefinition, PolicyDefinition } from '@storeweave/authorization';
 import type { ExtensionContext, ExtensionEventHandler, ExtensionJobHandler } from './context';
 import type { AnyProvider } from './providers';
@@ -45,6 +45,8 @@ export interface ExtensionJobRegistration {
   handler: ExtensionJobHandler;
   /** Required for B04 fenced payload dispatch; absent legacy registrations receive a cutover diagnostic. */
   jobContractV1?: ExtensionJobContractV1;
+  /** Registered into the platform's durable recurring scheduler; no in-process timer is created. */
+  schedule?: ScheduleDeclaration;
 }
 
 /** Extension `setup()` 的回傳值 —— 全部都是宣告，實際掛載由 Kernel 執行。 */

@@ -3,6 +3,7 @@
 ARG STOREWEAVE_RELEASE=commerce
 FROM node:22-bookworm-slim AS builder
 ARG STOREWEAVE_RELEASE
+ARG STOREWEAVE_SOURCE_REVISION
 WORKDIR /src
 
 RUN corepack enable
@@ -73,7 +74,7 @@ RUN pnpm install --frozen-lockfile
 # so its native binding is materialized for the runtime image.
 COPY . .
 RUN case "$STOREWEAVE_RELEASE" in base|commerce) ;; *) exit 1 ;; esac \
- && STOREWEAVE_RELEASE="$STOREWEAVE_RELEASE" pnpm build \
+ && STOREWEAVE_RELEASE="$STOREWEAVE_RELEASE" STOREWEAVE_SOURCE_REVISION="$STOREWEAVE_SOURCE_REVISION" pnpm build \
  && if [ "$STOREWEAVE_RELEASE" = commerce ]; then NAME=commerce; CONFIG=deployments/example-store/commerce.yaml; else NAME=storeweave; CONFIG=deployments/storeweave.example.yaml; fi \
  && mkdir -p "/runtime-root/opt/$NAME/current" "/runtime-root/opt/$NAME/media-deps" "/runtime-root/etc/$NAME" \
  && cp -R dist/. "/runtime-root/opt/$NAME/current/" \

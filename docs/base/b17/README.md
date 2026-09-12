@@ -24,6 +24,28 @@ B17 把既有 B00–B16 的證據接成可重跑的驗收入口。這一輪沒�
   `setArticleMedia` 與後續 platform descriptors/jobs。B07 移到 base notification capability 的
   lifecycle job 則列在 `legacyOnly`。B17 先核對兩份清單的數量與唯一性，再逐一對照目前 registry，
   避免用後來新增的識別填補基準缺口；`recordLifecycleDelivery` 仍保留讓舊 worker／operations seed 可使用。
+- `commerce-public-contract.structural.v1.json` 以獨立、唯讀的 golden artifact 固定目前 composed Commerce
+  core 的 87 Commands／62 Queries／19 Events／14 versioned Jobs（含 recurring schedule 宣告），以及全部 7 個 available Extensions 的
+  manifest 與實際 setup registration；包含 permission、idempotency、provider、MCP tool 與
+  input/output/payload JSON Schema。檔案 SHA-256 為
+  `9e871b7019dc44a9da0f81d6f7bd64ffa37b20eaec0edd87281461b4536b1fb8`。
+  `pnpm exec tsx scripts/b17-public-contract.ts --check` 只做比較；`--output <new-path>` 只產生不覆寫的候選檔。
+  它同時以 SHA-256 引用 `commerce-http-contract.v1.json`：後者由兩次獨立 real Commerce bootstrap
+  固定 admin＋MCP compatibility profile 的 202 條 startup-validated routes，檔案 SHA-256 為
+  `1f9c5563cd8cada3c51a797a121bd3a21c17ced22329eb9e6091da8f66c7066a`。
+- `commerce-public-contract.semantic.v2.json` 把 schema／route／source hash 明確降為 provenance，不再拿
+  digest 冒充行為覆蓋。它為 composed Commerce registry 與 HTTP catalog 的 586 個 surfaces 重算 703 個
+  category-specific runtime facets，現有 140 個 executable
+  cases 只綁到自己實際驗證的 facet：24 個 composed core schema cases、ECPay logistics 的 5 個
+  `superRefine` branches、4 個 MCP input→mapper→target/idempotency flows，以及 107 個實際 bus/composed
+  HTTP input mappings。其餘 565 個 facet 逐一列在 `remaining`；這個範圍內任一新增 surface/facet 沒有 case
+  時會 fail-close 留在該清單。artifact SHA-256 為
+  `17ff4407a2421617490fcc2a71daff1b2d41c65989a8b04c89e293e268b91204`。這個 v2 ledger 讓 semantic 缺口可
+  機械追蹤，但仍不是完整 semantic catalog，也不涵蓋 SDK exports、runtime config keys 或 CLI commands，
+  更不宣稱有限 probes 能枚舉任意 predicate 的所有 input domain，因此完整 public-contract gate 保持 pending。
+- [F01–F16 owner audit](f01-f16-owner-audit.md) 已把各能力的 implementation、文件、故障測試、caller
+  與操作證據逐項定位；audit 發現並補回缺失的 [B10 owner 文件](../b10/README.md)，也揭露並修正
+  Extension schedule 宣告未接到 durable recurring scheduler 的斷線。外部 evidence 不由這份核對代填。
 - `packages/themes/base/test/base-theme.test.ts` 固定兩個 Base Theme 的 renderer 集合與預設視覺選項。
 
 ## 版本與重跑指令
@@ -75,9 +97,15 @@ tests）。PR #45 的 [CI run](https://github.com/CarlLee1983/StoreWeave/actions
 上傳 artifact，也沒有把 release-manifest checksum 寫入 smoke 證據，所以不能代替 checksum-bound 的雙 release
 smoke、真實 SMTP／S3、private-media staging、商家 UAT 與正式開通 gate。
 
-加入完整回復演練後，final-source `make verify` 再次通過（unit 99 files／1,182 tests、admin 32 files／350
-tests、integration 106 files／891 tests）；獨立 Sol/high review 的持久資料、cleanup、determinism 與複雜度
-findings 已清零。
+目前 workflow 已把 Docker／native smoke 改成 Base、Commerce 兩個 release 的 matrix。每個成功的 smoke
+會產生 schema 1 evidence，綁定 source revision、release/version、release-manifest checksum，以及實際跑過的
+tarball SHA-256 或 Docker image id；CI 也會上傳 evidence、manifest/build metadata，native 另上傳 tarball。
+這是可重跑入口，不是已完成的遠端證據；第一次全綠且 artifact 可下載的 CI run 仍是 release gate。
+
+目前工作樹的 final-source `make verify` 再次通過（unit 102 files／1,215 tests、admin 32 files／350
+tests、integration 106 files／898 tests）。B12 安全／MFA rewrap 修正與 semantic v2 ledger 分別由原
+Sol/high reviewer 複審 delta、affected callers 與 tests，兩份結論都沒有剩餘 actionable findings；先前的
+smoke provenance、Extension schedule payload／atomic mount、catalog、media cleanup 與文件修正審查也維持 clean。
 
 B17 後續補上的 `tests/integration/full-restore.test.ts` 單一演練，以目前編譯的 Commerce release 為 N，加入
 probe migration 的 patch 版為 N+1：來源同時保存 site data、待執行 media job、原圖與 preview；N+1
@@ -98,6 +126,6 @@ Theme 切換沒有 migration；回復時先把設定的 Theme id 切回舊 Theme
 DB、storage object 與 queued job 的完整 cold recovery 沿用 B15 的 paired snapshot／full bundle 流程；
 舊 binary 無法讀取新 schema 時不能直接 rollback，必須依 B15 的 restore 或 forward-fix 演練。
 
-整體 F01–F16、公開 payload 的完整 golden catalog、checksum-bound 雙 release smoke、真實 transport、
+整體 F01–F16、公開 payload 的完整 semantic coverage、checksum-bound 雙 release smoke、真實 transport、
 商家 UAT、已發布 binary 的升級證據與下一個真實案子的重用成本，仍在 [acceptance matrix](acceptance.md)
 明列為 pending、外部 gate 或後續 release evidence。

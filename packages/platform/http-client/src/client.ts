@@ -120,14 +120,6 @@ function isJson(contentType: string | null): boolean {
   return type === 'application/json' || type.endsWith('+json');
 }
 
-/** undici 的訊息幾乎永遠是 "fetch failed"，真正有用的 code 在 cause 裡。 */
-function describe(error: unknown): string {
-  const message = (error as Error)?.message ?? String(error);
-  const cause = (error as { cause?: unknown }).cause;
-  const causeMessage = cause instanceof Error ? cause.message : undefined;
-  return causeMessage && causeMessage !== message ? `${message}: ${causeMessage}` : message;
-}
-
 /** 丟掉不會再用的回應，讓底層連線可以歸還連線池。 */
 async function discard(response: Response): Promise<void> {
   try {
@@ -147,7 +139,39 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
   }
   const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
   const fetchImpl = options.fetch ?? globalThis.fetch;
-  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); }));
+  const injectedSleep = options.sleep;
+
+  /** 測試替身可能不認 AbortSignal，所以在 client 邊界自己把 backoff 與 caller signal race。 */
+  async function waitForRetry(ms: number, signal?: AbortSignal): Promise<boolean> {
+    if (!signal) {
+      await (injectedSleep?.(ms) ?? new Promise<void>((resolve) => { setTimeout(resolve, ms); }));
+      return true;
+    }
+    if (signal.aborted) return false;
+    if (!injectedSleep) {
+      return new Promise<boolean>((resolve) => {
+        const finish = (result: boolean) => {
+          clearTimeout(timer);
+          signal.removeEventListener('abort', onAbort);
+          resolve(result);
+        };
+        const onAbort = () => finish(false);
+        const timer = setTimeout(() => finish(true), ms);
+        signal.addEventListener('abort', onAbort, { once: true });
+      });
+    }
+    let removeListener = () => {};
+    const aborted = new Promise<false>((resolve) => {
+      const onAbort = () => resolve(false);
+      signal.addEventListener('abort', onAbort, { once: true });
+      removeListener = () => signal.removeEventListener('abort', onAbort);
+    });
+    try {
+      return await Promise.race([injectedSleep(ms).then(() => true as const), aborted]);
+    } finally {
+      removeListener();
+    }
+  }
 
   /** 串流讀取並在超過預算時停手，而不是先整包收下再檢查大小。 */
   async function readWithinBudget(response: Response): Promise<{ ok: true; text: string } | { ok: false }> {
@@ -213,7 +237,9 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
         }
         return {
           kind: 'failed',
-          failure: { ok: false, reason: 'network', message: `${safeUrl(currentUrl)} could not be reached: ${describe(error)}` },
+          // fetch/undici 與替身的 error/cause 可能逐字帶回 URL、header 或 provider
+          // response；公開 failure 只保留已清理的 origin。
+          failure: { ok: false, reason: 'network', message: `${safeUrl(currentUrl)} could not be reached` },
           retryable: true,
         };
       }
@@ -237,7 +263,17 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
             retryable: false,
           };
         }
-        const next = checkDestination(new URL(location, currentUrl), options);
+        let redirectUrl: URL;
+        try {
+          redirectUrl = new URL(location, currentUrl);
+        } catch {
+          return {
+            kind: 'failed',
+            failure: { ok: false, reason: 'unsafe_redirect', message: `${safeUrl(currentUrl)} returned an invalid redirect location` },
+            retryable: false,
+          };
+        }
+        const next = checkDestination(redirectUrl, options);
         if (!next.ok) {
           return { kind: 'failed', failure: { ok: false, reason: 'blocked_destination', message: `Redirect refused: ${next.message}` }, retryable: false };
         }
@@ -261,15 +297,23 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
       let body: { ok: true; text: string } | { ok: false };
       try {
         body = await readWithinBudget(response);
-      } catch (error) {
+      } catch {
         // 主體讀到一半逾時是最典型的慢速端點樣態，分類必須跟連線逾時一致，
         // 才會走同一條重試路徑。讀取已中斷，reader 仍持有 stream，明確歸還。
         await discard(response);
-        const reason = timeout.aborted ? 'timeout' : 'network';
+        const reason = input.signal?.aborted ? 'aborted' : timeout.aborted ? 'timeout' : 'network';
         return {
           kind: 'failed',
-          failure: { ok: false, reason, message: `${safeUrl(currentUrl)} response body could not be read: ${describe(error)}` },
-          retryable: !input.signal?.aborted,
+          failure: {
+            ok: false,
+            reason,
+            message: reason === 'aborted'
+              ? 'The caller cancelled the request'
+              : reason === 'timeout'
+                ? `${safeUrl(currentUrl)} did not respond within ${options.timeoutMs}ms`
+                : `${safeUrl(currentUrl)} response body could not be read`,
+          },
+          retryable: reason !== 'aborted',
         };
       }
       if (!body.ok) {
@@ -299,7 +343,17 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
     for (let attemptNumber = 1; attemptNumber <= limit; attemptNumber += 1) {
       last = await attempt(input);
       if (!last.retryable || attemptNumber === limit) return { outcome: last, attempts: attemptNumber };
-      await sleep(BASE_BACKOFF_MS * 2 ** (attemptNumber - 1));
+      const shouldRetry = await waitForRetry(BASE_BACKOFF_MS * 2 ** (attemptNumber - 1), input.signal);
+      if (!shouldRetry) {
+        return {
+          outcome: {
+            kind: 'failed',
+            failure: { ok: false, reason: 'aborted', message: 'The caller cancelled the request' },
+            retryable: false,
+          },
+          attempts: attemptNumber,
+        };
+      }
     }
     /* c8 ignore next 2 */
     return { outcome: last!, attempts: limit };

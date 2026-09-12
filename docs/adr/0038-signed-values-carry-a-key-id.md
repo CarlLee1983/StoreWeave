@@ -5,7 +5,7 @@
 
 所有由平台簽發、會離開行程的值——B09 的短效下載連結、B08 的密碼重設與驗證信連結——採同一個格式：`sw1.<keyId>.<到期秒>.<payload>.<mac>`。驗證端提供用途，MAC 以該用途的子金鑰計算。加密值另用 `swe1.` 前綴，語意相同。
 
-金鑰不是一把，而是設定裡的一組。`security.signingKeys` 宣告 `id` 與 `secretRef`，`activeSigningKeyId` 指定新值用哪一把；驗證接受所有仍在設定裡的 id。輪替因此是「加一把、改 active、等舊值到期、再移除」，不需要停機，也不需要一次作廢所有已發出的連結。只有一把時 active 可省略，兩把以上必須明說——輪替期間簽錯金鑰是無聲的錯誤。
+金鑰不是一把，而是設定裡的一組。`security.signingKeys` 宣告 `id` 與 `secretRef`，`activeSigningKeyId` 指定新值用哪一把；驗證接受所有仍在設定裡的 id。會到期的 signed value 以「加一把、所有 writer 改 active、等舊值到期、再移除」輪替，不需要停機，也不需要一次作廢所有已發出的連結。永久 sealed value 不能等到期：目前的 MFA secret 必須在新舊 key 同時存在時執行 `mfa:rewrap-secrets`，確認整批 transaction 成功且再跑一次得到 `rewrapped=0`，才能從所有程序移除舊 key。只有一把時 active 可省略，兩把以上必須明說——輪替期間簽錯金鑰是無聲的錯誤。
 
 子金鑰由 root secret 以 HKDF-SHA256 推導，info 為 `storeweave/v1/<keyId>/<purpose>`。取代「一把金鑰簽全部」的理由是跨用途偽造：若下載連結與密碼重設共用金鑰，能取得任一個下載簽章的人就能構造出重設連結的材料。推導後兩者的金鑰材料不相關，而營運端仍只需管理每個 key id 一個秘密。用途同時進 MAC 輸入，是重複的一層。
 
@@ -17,4 +17,4 @@
 
 ## Falsified if
 
-`packages/platform/crypto/src/signed-value.ts` 產出的字串不再第二段就是 key id，或 `packages/platform/crypto/src/keyring.ts` 不再以 purpose 推導子金鑰（改為所有用途共用同一把金鑰材料），或 `packages/platform/config/src/schema.ts` 的 `security.signingKeys` 退回單一金鑰欄位而無法同時保留舊 id，或 `packages/platform/kernel/src/keyring.ts` 在宣告金鑰卻讀不到秘密時不再於啟動失敗；任一成立表示輪替不再能無停機執行，須重開本決策。
+`packages/platform/crypto/src/signed-value.ts` 產出的字串不再第二段就是 key id，或 `packages/platform/crypto/src/keyring.ts` 不再以 purpose 推導子金鑰（改為所有用途共用同一把金鑰材料），或 `packages/platform/config/src/schema.ts` 的 `security.signingKeys` 退回單一金鑰欄位而無法同時保留舊 id，或 `packages/platform/kernel/src/keyring.ts` 在宣告金鑰卻讀不到秘密時不再於啟動失敗，或永久 MFA 密文不再有原子 rewrap 與可重跑的營運入口；任一成立表示輪替不再能無停機執行，須重開本決策。

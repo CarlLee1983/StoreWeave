@@ -13,10 +13,11 @@ const MINIMUM_SECRET_BYTES = 32;
  * 更是剛好 32 bytes 卻幾乎沒有熵。所以只接受 base64url 或 hex，並檢查解碼後長度。
  */
 function decodeSecret(id: string, secret: string): Buffer {
-  const encoding = /^[0-9a-fA-F]+$/.test(secret) && secret.length % 2 === 0 ? 'hex' : 'base64url';
+  const isHex = /^[0-9a-fA-F]+$/.test(secret) && secret.length % 2 === 0;
+  const encoding = isHex ? 'hex' : 'base64url';
   const decoded = Buffer.from(secret, encoding);
   // 兩種編碼都會靜默略過不合法字元，所以用來回編碼確認整串都被吃進去。
-  if (decoded.toString(encoding) !== secret) {
+  if (decoded.toString(encoding) !== (isHex ? secret.toLowerCase() : secret)) {
     throw new Error(`Signing key ${id} must be base64url- or hex-encoded random material`);
   }
   if (decoded.length < MINIMUM_SECRET_BYTES) {
@@ -63,6 +64,11 @@ function assertLabel(kind: string, value: string): void {
   if (!LABEL_PATTERN.test(value)) {
     throw new Error(`Invalid ${kind}: must match ${LABEL_PATTERN.source}`);
   }
+}
+
+/** Token parser 先用同一條規則辨識 key id，再查 keyring，維持 format-first failure。 */
+export function isValidKeyId(value: unknown): value is string {
+  return typeof value === 'string' && LABEL_PATTERN.test(value);
 }
 
 export function assertPurpose(purpose: string): void {

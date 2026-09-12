@@ -62,6 +62,19 @@ export function validateManifestShape(manifest: ExtensionManifest<any>): void {
   if (!configuration || typeof (configuration as ZodType).safeParse !== 'function') {
     throw PlatformError.validation(`Extension "${manifest.id}" must declare a Zod configuration schema`);
   }
+  const assertUnique = (label: string, values: readonly string[]) => {
+    if (new Set(values).size !== values.length) {
+      throw PlatformError.validation(`Extension "${manifest.id}" declares the same ${label} more than once`);
+    }
+  };
+  assertUnique('permission', manifest.permissions);
+  assertUnique('subscribed event', manifest.subscribedEvents);
+  assertUnique('command', manifest.registeredCommands);
+  assertUnique('query', manifest.registeredQueries);
+  assertUnique('job', manifest.registeredJobs ?? []);
+  assertUnique('provider', manifest.registeredProviders.map(provider => `${provider.kind}:${provider.id}`));
+  assertUnique('declared permission', (manifest.declaredPermissions ?? []).map(permission => permission.key));
+  assertUnique('required secret', manifest.requiredSecrets ?? []);
 }
 
 export function providerKinds(manifest: ExtensionManifest<any>): ProviderKind[] {

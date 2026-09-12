@@ -13,7 +13,7 @@ export const PERMISSION_PATTERN = /^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/;
 export class PermissionRegistry {
   private readonly byKey = new Map<string, PermissionDefinition>();
 
-  register(def: PermissionDefinition): void {
+  assertAvailable(def: PermissionDefinition): void {
     if (!PERMISSION_PATTERN.test(def.key)) {
       throw PlatformError.validation(`Invalid permission key "${def.key}"; expected e.g. catalog:write`);
     }
@@ -23,6 +23,10 @@ export class PermissionRegistry {
         `Permission "${def.key}" already declared by "${existing.owner}"`,
       );
     }
+  }
+
+  register(def: PermissionDefinition): void {
+    this.assertAvailable(def);
     this.byKey.set(def.key, def);
   }
 

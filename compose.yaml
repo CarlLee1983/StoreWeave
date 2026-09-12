@@ -23,6 +23,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        STOREWEAVE_SOURCE_REVISION: ${STOREWEAVE_SOURCE_REVISION:-}
     image: ${STOREWEAVE_IMAGE:-storeweave/commerce:local}
     depends_on:
       postgres:

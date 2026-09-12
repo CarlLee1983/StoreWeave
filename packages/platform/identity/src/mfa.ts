@@ -33,6 +33,12 @@ export interface MfaStatus {
   readonly recoveryCodesRemaining: number;
 }
 
+export interface MfaSecretRewrapReport {
+  readonly total: number;
+  readonly alreadyActive: number;
+  readonly rewrapped: number;
+}
+
 interface MfaRow extends Record<string, unknown> {
   user_id: string; secret: string; confirmed_at: Date | null; last_time_step: string | null;
 }
@@ -128,6 +134,43 @@ export class MfaService {
       `);
     }
     return codes;
+  }
+
+  /**
+   * 把所有永久 MFA 密文改用 active key 封裝。操作者必須在所有 writer 都已載入新
+   * active key、舊 key 仍在 keyring 時執行；整批在同一 transaction 內鎖定與更新，
+   * 任一列無法解密就全部回滾，不能留下「看似完成」的半套輪替。
+   */
+  async rewrapSecrets(tx: Tx): Promise<MfaSecretRewrapReport> {
+    const rows = await tx.execute<Pick<MfaRow, 'user_id' | 'secret'>>(sql`
+      SELECT user_id, secret FROM platform_user_mfa ORDER BY user_id FOR UPDATE
+    `);
+    let alreadyActive = 0;
+    let rewrapped = 0;
+    for (const row of rows.rows) {
+      const opened = decryptString(this.keyring, {
+        purpose: MFA_SECRET_PURPOSE,
+        sealed: row.secret,
+      });
+      if (!opened.ok) {
+        throw PlatformError.conflict(
+          'An MFA secret cannot be decrypted; keep every previous encryption key configured and retry',
+        );
+      }
+      if (opened.keyId === this.keyring.activeKeyId) {
+        alreadyActive += 1;
+        continue;
+      }
+      const sealed = encryptString(this.keyring, {
+        purpose: MFA_SECRET_PURPOSE,
+        plaintext: opened.plaintext,
+      });
+      await tx.execute(sql`
+        UPDATE platform_user_mfa SET secret = ${sealed} WHERE user_id = ${row.user_id}
+      `);
+      rewrapped += 1;
+    }
+    return { total: rows.rows.length, alreadyActive, rewrapped };
   }
 
   /**

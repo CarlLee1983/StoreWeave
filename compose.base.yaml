@@ -21,6 +21,7 @@ services:
       dockerfile: Dockerfile
       args:
         STOREWEAVE_RELEASE: base
+        STOREWEAVE_SOURCE_REVISION: ${STOREWEAVE_SOURCE_REVISION:-}
     image: ${STOREWEAVE_IMAGE:-storeweave/base:local}
     depends_on:
       postgres:

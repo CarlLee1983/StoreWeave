@@ -54,6 +54,15 @@ describe('symmetric encryption', () => {
       expect(decryptString(keyring, { purpose: 'provider-credential', sealed })).toEqual({ ok: false, reason: 'malformed' });
     }
   });
+
+  it('reports an invalid key id as malformed before looking it up', () => {
+    const [version, , iv, ciphertext, tag] = encryptString(keyring, {
+      purpose: 'provider-credential', plaintext: 'secret',
+    }).split('.');
+    expect(decryptString(keyring, {
+      purpose: 'provider-credential', sealed: [version, 'BAD', iv, ciphertext, tag].join('.'),
+    })).toEqual({ ok: false, reason: 'malformed' });
+  });
 });
 
 describe('sealed values are a canonical encoding', () => {

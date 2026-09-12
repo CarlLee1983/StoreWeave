@@ -68,23 +68,42 @@ export class JobRegistry {
   private readonly handlers = new Map<string, { definition?: RegisteredJobDefinition; handler: JobHandler; owner: string }>();
 
   register(type: string, handler: JobHandler, owner: string, contract?: JobPayloadContract): void {
-    if (this.handlers.has(type)) {
-      throw PlatformError.conflict(`Job type "${type}" already registered by "${this.handlers.get(type)!.owner}"`);
-    }
+    this.validateBatch([{ type, contract }]);
     const normalized = contract && normalizeContract(type, contract);
-    if (normalized?.execution?.concurrencyLimit !== undefined) {
-      const key = normalized.execution.concurrencyKey ?? type;
-      for (const existing of this.handlers.values()) {
-        const current = existing.definition?.contract.execution;
-        if (current?.concurrencyLimit !== undefined && (current.concurrencyKey ?? existing.definition!.type) === key
-          && current.concurrencyLimit !== normalized.execution.concurrencyLimit) {
-          throw PlatformError.validation(`Job concurrency key "${key}" has conflicting limits ${current.concurrencyLimit} and ${normalized.execution.concurrencyLimit}`);
-        }
-      }
-    }
     this.handlers.set(type, normalized
       ? { handler, owner, definition: Object.freeze({ type, handler, contract: normalized }) }
       : { handler, owner });
+  }
+
+  /** Validate a whole owner's registrations before any of them become visible. */
+  validateBatch(registrations: readonly { type: string; contract?: JobPayloadContract }[]): void {
+    const seen = new Set<string>();
+    const concurrency = new Map<string, number>();
+    for (const existing of this.handlers.values()) {
+      const definition = existing.definition;
+      const execution = definition?.contract.execution;
+      if (definition && execution?.concurrencyLimit !== undefined) {
+        concurrency.set(execution.concurrencyKey ?? definition.type, execution.concurrencyLimit);
+      }
+    }
+    for (const registration of registrations) {
+      if (seen.has(registration.type)) {
+        throw PlatformError.validation(`Job type "${registration.type}" is registered more than once`);
+      }
+      seen.add(registration.type);
+      if (this.handlers.has(registration.type)) {
+        throw PlatformError.conflict(`Job type "${registration.type}" already registered by "${this.handlers.get(registration.type)!.owner}"`);
+      }
+      const normalized = registration.contract && normalizeContract(registration.type, registration.contract);
+      const execution = normalized?.execution;
+      if (execution?.concurrencyLimit === undefined) continue;
+      const key = execution.concurrencyKey ?? registration.type;
+      const existingLimit = concurrency.get(key);
+      if (existingLimit !== undefined && existingLimit !== execution.concurrencyLimit) {
+        throw PlatformError.validation(`Job concurrency key "${key}" has conflicting limits ${existingLimit} and ${execution.concurrencyLimit}`);
+      }
+      concurrency.set(key, execution.concurrencyLimit);
+    }
   }
 
   get(type: string): JobHandler {

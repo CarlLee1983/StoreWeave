@@ -1,8 +1,9 @@
 # B12 — 共用工具
 
-狀態：三片實作完成，三份獨立審查的 CRITICAL／HIGH 全部修完並補回歸；完整
-integration 與四種 smoke 實跑通過，逐項見 [acceptance](acceptance.md)。片3 的修正
-尚未再取得一次獨立審查。範圍與依賴以[計畫 §3](../../base-implementation-plan.md#3-依賴圖與階段出口)為準；派工契約與現況盤點見 [assignment](assignment.md)。
+狀態：`accepted`。三片實作完成，歷次獨立審查的 CRITICAL／HIGH／MEDIUM／LOW
+全部修完並補回歸；目前整合 checkpoint 已由 Sol/high reviewer 複審，沒有剩餘
+actionable finding，且 final-source `make verify` 通過。逐項見 [acceptance](acceptance.md)。
+範圍與依賴以[計畫 §3](../../base-implementation-plan.md#3-依賴圖與階段出口)為準；派工契約與現況盤點見 [assignment](assignment.md)。
 
 ## 三片
 
@@ -21,7 +22,8 @@ integration 與四種 smoke 實跑通過，逐項見 [acceptance](acceptance.md)
 - `security.signingKeys` 宣告 `id` 與 `secretRef`，`activeSigningKeyId` 指定新值用哪一把。只有一把時可省略，兩把以上必須明說。
 - 秘密必須是 base64url 或 hex 編碼且解碼後至少 32 bytes。字元長度不等於熵——32 個 hex 字元只有 16 bytes，`please-change-me-please-change-me` 剛好 32 bytes 卻幾乎沒有熵。用 `generateSigningKeySecret()` 產生。
 - 子金鑰以 HKDF 依 purpose 推導，跨用途不能互相偽造。
-- 驗證回報 `malformed`／`unknown_key`／`bad_signature`／`expired`，順序固定為格式、金鑰、簽章、到期。簽發值是唯一編碼：`token + '='` 或前導零的到期秒數都會被判為 `malformed`，否則同一份授權會有無限多種寫法，繞過任何以 token 字串記帳的一次性連結。
+- 驗證回報 `malformed`／`unknown_key`／`bad_signature`／`expired`，順序固定為格式、金鑰、簽章、到期。key id 也先驗格式；驗證 clock 不是有效 instant 時直接拒絕，不會以 `NaN` 跳過 expiry。簽發值是唯一編碼：`token + '='` 或前導零的到期秒數都會被判為 `malformed`，否則同一份授權會有無限多種寫法，繞過任何以 token 字串記帳的一次性連結。
+- 會到期的 signed value 可等舊值到期後移除舊 key；永久 MFA sealed value 必須先讓所有 writer 使用新 active key，再於新舊 key 共存時執行 `storeweave mfa:rewrap-secrets`（Commerce binary 名稱為 `commerce`）。整批以 transaction 鎖定；任一密文打不開就全部回滾。重跑得到 `rewrapped=0` 後才可移除舊 key。
 - 宣告了金鑰卻讀不到秘密，在啟動時就失敗；完全沒宣告則該 release 沒有簽章能力，由 `requireKeyring` 給出可據以修正的訊息。
 
 ### 對外 HTTP
@@ -31,7 +33,7 @@ integration 與四種 smoke 實跑通過，逐項見 [acceptance](acceptance.md)
 - 轉址自己走每一跳並逐跳重跑目的地檢查。跨 origin 時 header 走**白名單**（accept 系列、content-type、user-agent），因為憑證放在 `x-api-key` 這類自訂 header 的 provider 很常見。帶 body 的請求遇到轉址直接失敗，不把副作用重放到新目的地。
 - 預設拒絕迴環、私有與 link-local 位址。這是字面位址檢查，**不等於防 DNS rebinding**；需要嚴格隔離的部署仍要在網路層限制出站。內網用途（demo-erp）必須明確 `allowPrivateAddresses`，讓風險留在設定裡看得見。
 - 允許清單是完全比對，支援 `host:port`，條目會正規化成 punycode。子網域不從父網域繼承。
-- 錯誤訊息只帶 origin：webhook token 與 `/v1/keys/<key>` 這類把秘密放在路徑上的設計很普遍。回應不交還 `set-cookie`。
+- 錯誤訊息只帶 origin：webhook token 與 `/v1/keys/<key>` 這類把秘密放在路徑上的設計很普遍。fetch／stream 丟出的 message 與 cause 也視為不受信任，不回傳給 caller；詳細 transport 診斷應由受控的網路觀測取得。回應不交還 `set-cookie`。
 - Extension 一律走 `ctx.http(...)`，不自己呼叫 fetch。測試情境未給替身時對外 HTTP 直接失敗，不會靜靜打到真實端點。
 
 ### 訊息與時間
@@ -59,4 +61,4 @@ integration 與四種 smoke 實跑通過，逐項見 [acceptance](acceptance.md)
 1. **字面位址檢查不是 SSRF 完整防護。** 允許清單上的 host 若解析到內網位址，這一層擋不住。
 2. **ECPay 開發票遇到轉址會硬失敗**（POST 帶 body）。這是刻意取捨，但外部端點單方面就能觸發，須寫進 runbook。
 3. **後台顯示時區寫死 `Asia/Taipei`**，與 `store.timezone` 是兩個來源。多時區營運時要一併處理。
-4. **B09 必須等整包 B12 整合驗收**，不是片1；短效 URL 依賴的是已驗收的簽章與時間契約。
+4. **真實 provider HTTP 仍是外部 gate。** 本機 client 契約與 consumer 已驗收；正式端點、商家能力與 UAT 由 B17 追蹤，不能以 fixture 代填。

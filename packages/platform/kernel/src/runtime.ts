@@ -466,7 +466,7 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
 
     extensions = new ExtensionHost({
       database, commandBus: commands, queryBus: queries, eventBus: events,
-      jobs, jobRegistry, providers, mcpTools, authorization, secrets, logger, platformVersion, mail,
+      jobs, jobRegistry, recurring, providers, mcpTools, authorization, secrets, logger, platformVersion, mail,
     });
     jobs.setPayloadVersionResolver((type) => jobRegistry.currentVersion(type));
 

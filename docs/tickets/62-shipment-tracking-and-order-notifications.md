@@ -13,6 +13,11 @@ NotificationProvider 發送下單、付款、出貨、到貨通知；顧客在�
 - [x] 訂單頁顯示標準 stage、追蹤號與安全的追蹤連結（若 provider 提供）
 - [x] 有 callback 重送、倒退狀態、通知重試、顧客資料隔離與全流程 integration 測試
 
+2026-09-12 的 B17 owner review 發現 `ecpay-logistics` 雖在 setup 回傳 reconciliation schedule，舊
+ExtensionHost 卻只註冊 job handler，沒有把 schedule 交給平台排程器；既有測試因手動 enqueue 而未察覺。
+現在 Extension job schedule 是正式 SDK 契約，mount 時會先驗證再註冊到 durable recurring path；
+runtime lifecycle 與 ECPay integration regression 分別固定真實 occurrence payload 與 30 分鐘設定。
+
 ## 不做的事
 
 - 站內通知中心、行銷 EDM、客服聊天室。

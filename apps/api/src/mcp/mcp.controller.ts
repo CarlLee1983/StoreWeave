@@ -6,18 +6,13 @@ import { actorOf, correlationIdOf, type AuthenticatedRequest } from '../http/aut
 import { HttpContract } from '../http/contract';
 import { RUNTIME, type Runtime } from '../tokens';
 import { JSON_RPC_ERRORS, MCP_METHODS, MCP_PROTOCOL_VERSION, jsonRpcRequest, rpcError, rpcResult } from './jsonrpc';
+import { prepareMcpToolInvocation } from './invocation';
 
 /**
  * MCP 是一個 Interface Adapter，和 REST、Admin、CLI 完全平行。
  * 它唯一能做的事，就是把已註冊的工具轉發給 Command Bus 或 Query Bus ——
  * 這個檔案裡沒有 repository、沒有 SQL、也拿不到資料庫連線。
  */
-function forwardable(args: unknown, kind: 'command' | 'query'): unknown {
-  if (kind !== 'command' || typeof args !== 'object' || args === null) return args;
-  const { idempotencyKey: _dropped, ...rest } = args as Record<string, unknown>;
-  return rest;
-}
-
 @Controller()
 export class McpController {
   constructor(@Inject(RUNTIME) private readonly runtime: Runtime) {}
@@ -97,23 +92,16 @@ export class McpController {
     if (!name) throw PlatformError.validation('tools/call requires a tool name');
 
     const { definition } = this.runtime.mcpTools.get(name);
-    const parsed = definition.input.safeParse(args ?? {});
-    if (!parsed.success) {
-      throw PlatformError.validation(`Invalid arguments for tool "${name}"`, parsed.error.issues);
-    }
-
     const actor = actorOf(request);
     const correlationId = correlationIdOf(request);
-    const input = definition.mapInput ? definition.mapInput(parsed.data) : forwardable(parsed.data, definition.target.kind);
+    const invocation = prepareMcpToolInvocation(definition, args);
 
     let output: unknown;
     if (definition.target.kind === 'query') {
-      output = await this.runtime.queries.execute(definition.target.name, input, { actor, correlationId, channel: 'mcp' });
+      output = await this.runtime.queries.execute(definition.target.name, invocation.input, { actor, correlationId, channel: 'mcp' });
     } else {
-      const idempotencyKey = (parsed.data as { idempotencyKey?: string }).idempotencyKey;
-      if (!idempotencyKey) throw PlatformError.validation(`Tool "${name}" requires an idempotencyKey`);
-      output = await this.runtime.commands.execute(definition.target.name, input, {
-        actor, idempotencyKey, correlationId, channel: 'mcp',
+      output = await this.runtime.commands.execute(definition.target.name, invocation.input, {
+        actor, idempotencyKey: invocation.idempotencyKey!, correlationId, channel: 'mcp',
       });
     }
 

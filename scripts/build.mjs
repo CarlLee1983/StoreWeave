@@ -18,6 +18,10 @@ const appDir = join(outDir, 'app');
 const version = process.env.STOREWEAVE_RELEASE_VERSION ?? process.env.COMMERCE_RELEASE_VERSION ?? JSON.parse(
   execFileSync('node', ['-p', 'JSON.stringify(require("./package.json"))'], { cwd: root, encoding: 'utf8' }),
 ).version;
+const sourceRevision = process.env.STOREWEAVE_SOURCE_REVISION || undefined;
+if (sourceRevision && !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(sourceRevision)) {
+  throw new Error('STOREWEAVE_SOURCE_REVISION must be a 40- or 64-character lowercase hexadecimal object id');
+}
 
 const skipAdmin = !selected.admin || process.argv.includes('--skip-admin');
 
@@ -124,7 +128,14 @@ if (defaultThemeAssets && existsSync(defaultThemeAssets)) {
 writeFileSync(join(outDir, 'VERSION'), `${version}\n`, 'utf8');
 writeFileSync(
   join(outDir, 'build-info.json'),
-  `${JSON.stringify({ releaseId, version, manifestChecksum, builtOnNode: process.version, entries: entries.map((e) => e.out.replace(root, '')) }, null, 2)}\n`,
+  `${JSON.stringify({
+    releaseId,
+    version,
+    manifestChecksum,
+    ...(sourceRevision ? { sourceRevision } : {}),
+    builtOnNode: process.version,
+    entries: entries.map((e) => e.out.replace(root, '')),
+  }, null, 2)}\n`,
   'utf8',
 );
 

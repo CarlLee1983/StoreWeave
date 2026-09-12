@@ -14,7 +14,7 @@ Extension 是客戶特殊需求的唯一落腳處。它只能透過 `@storeweave
 | 3 | Command Registry | `ExtensionRegistration.commands`（`ext.<id>.*`） |
 | 4 | Query Registry | `ExtensionRegistration.queries`（`ext.<id>.*`） |
 | — | 輸入契約 | Command / Query 的 `input` 一律 `.strict()`（ADR 0024，見下） |
-| 5 | Domain Event Subscription | `ExtensionRegistration.events` |
+| 5 | Domain Event／Job Registration | `ExtensionRegistration.events` / `ExtensionRegistration.jobs` |
 | 6 | Policy Registry | `ExtensionRegistration.policies`（deny-overrides） |
 | 7 | Permission Declaration | `manifest.permissions` / `manifest.declaredPermissions` |
 | 8 | Configuration Schema | `manifest.configuration`（Zod） |
@@ -60,6 +60,18 @@ CLI `migrate --status`、`migrate baseline`、backup／restore 不執行 setup�
 `setup()` 回傳的 `ExtensionRegistration` 可提供 `close?: () => void | Promise<void>`，釋放自己建立的 client、timer 或連線。若 setup 在回傳前拋錯，extension 必須自行清理；不要在尚未交還 cleanup handle 前啟動無法撤回的背景工作。
 
 回傳後的掛載失敗由 host 呼叫 close；正常關閉依掛載順序反向清理，每個 registration 最多一次。某個 close 拋錯不阻止其他資源清理。close 應停止接收新工作並等待已開始的工作；程序超過 `shutdown.timeoutMs` 會退出，平台不會把尚未完成的工作當作成功。此生命週期介面不提供 job cancellation 或跨 release fencing。
+
+### 排程 Extension job
+
+`ExtensionRegistration.jobs[]` 可宣告 `schedule`，格式與 Core 相同：固定間隔用
+`{ everyMs, catchUp?, overlap? }`，cron 用 `{ cron, timezone, catchUp?, overlap? }`。Host 會在發布任何
+registry entry 前驗證宣告，掛載後交給 durable recurring scheduler；不建立 process-local timer，也不由
+handler 自我續排。
+
+排程只產生普通的版本化 job payload。Interval schema 必須接受
+`{ bucket: number, scheduledFor: ISO-string }`，cron schema 必須接受 `{ scheduledFor: ISO-string }`；執行、
+retry、DLQ 與 fencing 都走同一個 Worker。`runExtensionContractChecks()` 會以這個實際 shape 驗證
+current payload version。改 schedule 或 payload version 前也要按一般 queued-work cutover 先檢查在途工作。
 
 ## ExtensionContext：Extension 唯一的執行環境
 
@@ -267,7 +279,8 @@ describe('gift-wrap 契約', () => {
 
 檢查項目包含：manifest 結構、平台版本相容性、訂閱的事件是否存在、請求的權限是否已知、
 設定 schema 是否可用且真的會擋掉錯誤設定、`setup()` 是否有副作用、
-manifest 宣告與實際註冊是否一致、命名空間是否正確、job type 是否重複。
+manifest 宣告與實際註冊是否一致、命名空間是否正確、job type 是否重複，以及 scheduled job 的
+current payload 是否接受 recurring scheduler 產生的 shape。
 
 用 `createTestExtensionContext()` 可以進一步做行為測試：它提供記憶體版 Store、
 Command/Query stub、以及 `drainJobs()` 讓你在測試裡走完整條背景工作流程

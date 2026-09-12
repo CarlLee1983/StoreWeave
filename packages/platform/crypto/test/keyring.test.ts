@@ -98,5 +98,6 @@ describe('keyring hardening', () => {
 
   it('accepts hex key material of the required length', () => {
     expect(() => createKeyring({ activeKeyId: 'k1', keys: [{ id: 'k1', secret: 'ab'.repeat(32) }] })).not.toThrow();
+    expect(() => createKeyring({ activeKeyId: 'k1', keys: [{ id: 'k1', secret: 'AB'.repeat(32) }] })).not.toThrow();
   });
 });

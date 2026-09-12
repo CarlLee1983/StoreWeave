@@ -75,9 +75,13 @@ jobs:
 
   # 映像在 Docker 內建置，所以這裡不需要 pnpm install；
   # 但 smoke.sh 的 jqr() 用 node 解析回應，runner 上仍要有 node。
-  smoke-docker:
-    name: smoke (docker compose)
+  smoke-docker-matrix:
+    name: smoke docker (${{ matrix.release }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        release: [base, commerce]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -87,9 +91,9 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: /tmp/.buildx-cache
-          key: buildx-${{ runner.os }}-${{ github.sha }}
+          key: buildx-${{ runner.os }}-${{ matrix.release }}-${{ github.sha }}
           restore-keys: |
-            buildx-${{ runner.os }}-
+            buildx-${{ runner.os }}-${{ matrix.release }}-
       - name: Build Docker smoke image with layer cache
         run: |
           cache_from=()
@@ -98,17 +102,48 @@ jobs:
           fi
           docker buildx build --load "${cache_from[@]}" \
             --cache-to type=local,dest=/tmp/.buildx-cache-next,mode=max \
-            --build-arg STOREWEAVE_RELEASE=commerce \
-            --tag storeweave/commerce:ci-smoke .
+            --build-arg STOREWEAVE_RELEASE=${{ matrix.release }} \
+            --build-arg STOREWEAVE_SOURCE_REVISION=${{ github.sha }} \
+            --tag storeweave/${{ matrix.release }}:ci-smoke .
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-next /tmp/.buildx-cache
-      - run: STOREWEAVE_IMAGE=storeweave/commerce:ci-smoke STOREWEAVE_SKIP_BUILD=true bash scripts/smoke-docker.sh
+      - name: Run checksum-bound smoke
+        env:
+          STOREWEAVE_RELEASE: ${{ matrix.release }}
+          STOREWEAVE_IMAGE: storeweave/${{ matrix.release }}:ci-smoke
+          STOREWEAVE_SKIP_BUILD: 'true'
+          STOREWEAVE_SOURCE_REVISION: ${{ github.sha }}
+          SMOKE_WORK_DIR: ${{ runner.temp }}/docker-smoke-${{ matrix.release }}
+          STOREWEAVE_SMOKE_EVIDENCE: ${{ runner.temp }}/docker-smoke-${{ matrix.release }}/evidence.json
+        run: |
+          mkdir -p "$SMOKE_WORK_DIR"
+          bash scripts/smoke-docker.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: docker-smoke-${{ matrix.release }}-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/docker-smoke-${{ matrix.release }}/evidence.json
+            ${{ runner.temp }}/docker-smoke-${{ matrix.release }}/docker-build-info.json
+            ${{ runner.temp }}/docker-smoke-${{ matrix.release }}/docker-release-manifest.json
+
+  smoke-docker:
+    name: smoke (docker compose)
+    needs: smoke-docker-matrix
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test '${{ needs.smoke-docker-matrix.result }}' = success
 
   # 在乾淨的 Debian 容器裡裝 tarball 跑完三條流程。
   # 這個 job 會自己建 release：CI 上永遠是全新 checkout，不會重用過期產物。
-  smoke-native:
-    name: smoke (native tarball)
+  smoke-native-matrix:
+    name: smoke native (${{ matrix.release }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        release: [base, commerce]
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/setup@v2
@@ -122,4 +157,28 @@ jobs:
         with:
           path: .cache
           key: node-runtime-${{ env.NODE_VERSION }}-x64
-      - run: pnpm smoke:native
+      - name: Run checksum-bound smoke
+        env:
+          STOREWEAVE_RELEASE: ${{ matrix.release }}
+          STOREWEAVE_SOURCE_REVISION: ${{ github.sha }}
+          STOREWEAVE_BUILD_DIR: ${{ runner.temp }}/native-build-${{ matrix.release }}
+          STOREWEAVE_RELEASE_DIR: ${{ runner.temp }}/native-release-${{ matrix.release }}
+          STOREWEAVE_SMOKE_EVIDENCE: ${{ runner.temp }}/native-evidence-${{ matrix.release }}.json
+        run: pnpm smoke:native
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-smoke-${{ matrix.release }}-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/native-evidence-${{ matrix.release }}.json
+            ${{ runner.temp }}/native-release-${{ matrix.release }}/*.tar.gz
+            ${{ runner.temp }}/native-build-${{ matrix.release }}/build-info.json
+            ${{ runner.temp }}/native-build-${{ matrix.release }}/release-manifest.json
+
+  smoke-native:
+    name: smoke (native tarball)
+    needs: smoke-native-matrix
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test '${{ needs.smoke-native-matrix.result }}' = success

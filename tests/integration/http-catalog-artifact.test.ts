@@ -17,6 +17,7 @@ import { httpAdapter as commerceHttpAdapter } from '../../apps/api/src/releases/
 
 const directories: string[] = [];
 const executeFile = promisify(execFile);
+const commerceHttpContractGolden = readFileSync(join(process.cwd(), 'docs/base/b17/commerce-http-contract.v1.json'));
 process.env.SW_SIGNING_KEY_TEST = Buffer.alloc(32, 3).toString('base64url');
 
 afterEach(async () => {
@@ -294,9 +295,13 @@ describe('startup HTTP catalog artifact', () => {
     const commerceOne = await exportCommerce('artifact-commerce-one', 'commerce-secret-one');
     const commerceTwo = await exportCommerce('artifact-commerce-two', 'commerce-secret-two');
     expect(commerceOne.bytes).toBe(commerceTwo.bytes);
+    expect(Buffer.from(commerceOne.bytes, 'utf8')).toEqual(commerceHttpContractGolden);
     expect(commerceOne.parsed).toEqual({ format: 'storeweave.http-catalog.v1',
       release: { id: commerceRelease.id, version: commerceRelease.version }, routes: commerceOne.routes });
     expect(commerceTwo.parsed.routes).toEqual(commerceTwo.routes);
+    expect(commerceOne.parsed.routes).toHaveLength(202);
+    expect(commerceOne.parsed.routes.filter((route: { path: string }) => route.path === '/mcp')).toHaveLength(2);
+    expect(commerceOne.parsed.routes.filter((route: { kind: string }) => route.kind.startsWith('static-admin'))).toHaveLength(2);
     expect(commerceOne.parsed.routes.find((route: { kind: string }) => route.kind === 'cors-preflight')).toMatchObject({
       method: 'OPTIONS', path: '*', automaticRoute: true,
       policy: { allowedOrigins: ['https://console.example'], credentials: true },

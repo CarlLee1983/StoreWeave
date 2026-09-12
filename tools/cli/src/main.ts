@@ -37,6 +37,7 @@ import { LegacyContentMediaBackfill } from '@storeweave/content';
 import { captureStorageBackup, fullBackupSchema, writeStorageBackupCatalog, writeStorageBackupManifest } from './storage-backup';
 import { runFullRestore } from './full-restore';
 import { discardFullRecovery, listFullRecoveries } from './full-recovery-discard';
+import { rewrapMfaSecrets } from './mfa-rewrap';
 
 interface ScheduleListItem {
   type: string;
@@ -598,6 +599,23 @@ program
       heading('已撤銷');
       line(`  ${bold(revoked.name)} ${dim(`role=${revoked.role}`)}`);
       line(dim('  下一個請求就不會通過，不需要重啟。'));
+    });
+  });
+
+program
+  .command('mfa:rewrap-secrets')
+  .description('把所有永久 MFA 密文改用目前 active signing key 封裝；移除舊 key 前必須執行')
+  .option('--json', '以 JSON 輸出')
+  .action(async (options: { json?: boolean }) => {
+    await withRuntime(async (runtime) => {
+      const report = await rewrapMfaSecrets(runtime);
+      if (options.json) {
+        line(JSON.stringify(report));
+        return;
+      }
+      heading('MFA 密文輪替完成');
+      line(`  ${dim(`total=${report.total} already-active=${report.alreadyActive} rewrapped=${report.rewrapped}`)}`);
+      line(dim('  再次執行得到 rewrapped=0 後，才可從所有程序設定移除舊 key。'));
     });
   });
 

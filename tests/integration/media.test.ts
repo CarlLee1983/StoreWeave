@@ -52,4 +52,31 @@ describe('B10 media lifecycle', () => {
       expect(retried).toMatchObject({ status: 'pending', generation: 2, processingError: null });
     } finally { await close(); }
   });
+
+  it('reconciles an interrupted deleting intent and removes an aged unowned media object', async () => {
+    const { harness: h, close } = await mediaHarness();
+    try {
+      const asset = await h.runtime.media.upload({
+        stream: Readable.from(PNG), originalName: 'interrupted.png', contentType: 'image/png', ownerActorId: 'test:admin',
+      });
+      await h.runtime.database.pool.query(
+        "UPDATE platform_media_assets SET status = 'deleting' WHERE id = $1",
+        [asset.id],
+      );
+      const orphan = await h.runtime.storage.upload('platform-media', {
+        stream: Readable.from(PNG), originalName: 'orphan.png', contentType: 'image/png',
+        visibility: 'private', ownerActorId: 'test:admin',
+      });
+      await h.runtime.database.pool.query(
+        "UPDATE platform_storage_objects SET created_at = $2 WHERE id = $1",
+        [orphan.id, new Date('2020-01-01T00:00:00.000Z')],
+      );
+
+      await expect(h.runtime.media.cleanup({ olderThan: new Date('2021-01-01T00:00:00.000Z') }))
+        .resolves.toEqual({ deleted: 2 });
+      await expect(h.runtime.media.get(asset.id)).resolves.toBeUndefined();
+      await expect(h.runtime.storage.get('platform-media', asset.originalObjectId)).resolves.toBeUndefined();
+      await expect(h.runtime.storage.get('platform-media', orphan.id)).resolves.toBeUndefined();
+    } finally { await close(); }
+  });
 });

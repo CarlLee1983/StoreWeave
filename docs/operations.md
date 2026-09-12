@@ -130,9 +130,10 @@ security:
       secretRef: COMMERCE_SIGNING_KEY_K1
 ```
 
-秘密至少 32 bytes，base64url 或 hex：`openssl rand -base64 32`。設定檔裡永遠只有名稱。
+秘密至少 32 bytes，base64url 或 hex：`openssl rand -hex 32`。設定檔裡永遠只有名稱。
 
-輪替不需要停機，順序是**加一把 → 改 `activeSigningKeyId` → 等舊連結到期 → 再移除舊的**：
+輪替不需要停機。先加一把，讓 API、Worker 與所有其他 writer 都改用同一個新的
+`activeSigningKeyId`，舊 key 此時仍須保留：
 
 ```yaml
 security:
@@ -142,7 +143,14 @@ security:
   activeSigningKeyId: k2
 ```
 
-兩把以上時 `activeSigningKeyId` 必填——輪替期間簽錯金鑰是無聲的錯誤。
+兩把以上時 `activeSigningKeyId` 必填——輪替期間簽錯金鑰是無聲的錯誤。接著分兩種資料處理：
+
+1. 密碼重設、信箱驗證與短效下載連結會到期；等最長有效期過完。
+2. MFA secret 是永久 sealed value，不會自己到期。新舊 key 都還存在時執行
+   `commerce mfa:rewrap-secrets`（Base binary 為 `storeweave`）；它會在單一 transaction 鎖定並重封
+   全部 MFA secrets，任一列打不開就全部回滾。立刻再跑一次，必須得到 `rewrapped=0`。
+
+兩項都完成後，才從所有程序設定移除舊 key 並重啟／滾動更新。
 **從設定移除一把金鑰，等同立即作廢它簽過而尚未到期的所有連結**；這是疑似外洩時
 唯一夠快的手段，但不是清理設定的順手動作。key id 一旦發行也不能改指到另一個秘密。
 

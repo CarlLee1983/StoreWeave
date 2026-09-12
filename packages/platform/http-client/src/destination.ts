@@ -35,9 +35,6 @@ const IPV4_IN_IPV6 = /^(?:::ffff:0:|::ffff:|::|64:ff9b::)([0-9a-f]{1,4}):([0-9a-
  */
 const SIXTOFOUR = /^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4}):/;
 
-/** RFC 8215 的 local-use NAT64 前綴，與 `64:ff9b::/96` 同一族。 */
-const NAT64_LOCAL = /^64:ff9b:1:(?:.*:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/;
-
 function isPrivateIpv4(host: string): boolean {
   const match = IPV4.exec(host);
   if (!match) return false;
@@ -72,10 +69,16 @@ function isPrivateHost(hostname: string): boolean {
 
   if (host.startsWith('[') && host.endsWith(']')) {
     const address = host.slice(1, -1);
-    // ::1 迴環、fe80:: link-local、fc00::/7 unique local。
-    if (address === '::1' || address === '::' || address.startsWith('fe80:') || /^f[cd]/.test(address)) return true;
+    const firstHextet = Number.parseInt(address.split(':', 1)[0]!, 16);
+    // ::1 迴環、fe80::/10 link-local、fc00::/7 unique local。
+    if (address === '::1' || address === '::'
+      || (Number.isFinite(firstHextet) && (firstHextet & 0xffc0) === 0xfe80)
+      || /^f[cd]/.test(address)) return true;
+    // RFC 8215 保留完整 64:ff9b:1::/48 給 local-use translation；其後位元的配置
+    // 由部署自行決定，不能假設最後 32 bits 必然是一個可辨識的 IPv4 位址。
+    if (address === '64:ff9b:1::' || address.startsWith('64:ff9b:1:')) return true;
     // IPv4 位址包成 IPv6 仍然連得到那個 IPv4 目的地，必須套用同一組規則。
-    for (const pattern of [IPV4_IN_IPV6, SIXTOFOUR, NAT64_LOCAL]) {
+    for (const pattern of [IPV4_IN_IPV6, SIXTOFOUR]) {
       const embedded = pattern.exec(address);
       if (embedded) return isPrivateIpv4(ipv4FromHextets(embedded[1], embedded[2]));
     }

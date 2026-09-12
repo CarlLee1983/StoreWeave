@@ -56,6 +56,12 @@ beforeAll(async () => {
 afterAll(async () => { await h?.close(); });
 
 describe('ECPay logistics adapter integration', () => {
+  it('registers proactive status reconciliation with the configured interval', () => {
+    expect(h.runtime.recurring.specFor(RECONCILE_ECPAY_LOGISTICS_SHIPMENT_STATUSES_JOB)).toMatchObject({
+      kind: 'interval', everyMs: 30 * 60_000,
+    });
+  });
+
   it('commits a paid shipment locally before the worker persists fake-carrier evidence', async () => {
     const { order } = await paidCarrierOrder(h);
     const shipment = await h.runtime.commands.execute<any>('commerce.shipping.createShipment', {

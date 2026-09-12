@@ -89,6 +89,19 @@ describe('signed values', () => {
     expect(() => signValue(keyring, { purpose: 'storage-download', payload: 'x', expiresAt: new Date('invalid') }))
       .toThrow(/expiry/i);
   });
+
+  it('refuses verification when the supplied clock is not a real instant', () => {
+    expect(() => verifySignedValue(keyring, {
+      purpose: 'storage-download', token: sign(), now: new Date('invalid'),
+    })).toThrow(/clock/i);
+  });
+
+  it('reports an invalid key id as malformed before looking it up', () => {
+    const [, , expiry, payload, mac] = sign().split('.');
+    expect(verifySignedValue(keyring, {
+      purpose: 'storage-download', token: ['sw1', 'BAD', expiry, payload, mac].join('.'), now: before,
+    })).toEqual({ ok: false, reason: 'malformed' });
+  });
 });
 
 describe('signed values are a canonical encoding', () => {

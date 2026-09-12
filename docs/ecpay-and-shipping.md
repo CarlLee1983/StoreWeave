@@ -109,5 +109,6 @@ Content-Type: application/json
 **選店回填權杖**認出要寫回哪一台購物車（詞彙見 `CONTEXT.md`）。沒有真實物流商時，
 `ecpay-logistics` 的 `mode: fake` 會提供一份假門市清單，選店流程照樣走得完。
 
-仍然沒做的是**主動查詢物流進度**：出貨階段目前靠物流商的回報推進，
-系統不會定時去問。要補的話是 `ecpay-logistics` 自己的切片，不必改寫結帳或訂單資料。
+主動查詢由 `ecpay-logistics` 的 recurring job 依 `statusQueryIntervalMinutes` 註冊到平台排程器；它只負責
+排入可重試工作，實際執行仍走共用 Worker。真實 ECPay 查詢 transport 仍須等商家確認契約並完成 UAT，
+`external_gate` 不會因此對外發送未授權請求。

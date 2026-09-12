@@ -1,5 +1,14 @@
 import { Cron } from 'croner';
-import { PlatformError } from '@storeweave/contracts';
+import {
+  PlatformError,
+  scheduleDeclarationKind,
+  type CronScheduleDeclaration,
+  type OverlapPolicy,
+  type ScheduleDeclaration,
+} from '@storeweave/contracts';
+export type {
+  CronScheduleDeclaration, IntervalScheduleDeclaration, OverlapPolicy, ScheduleDeclaration,
+} from '@storeweave/contracts';
 
 /**
  * 排程宣告的解析與時間運算。
@@ -15,27 +24,6 @@ import { PlatformError } from '@storeweave/contracts';
 
 /** 一次列舉最多算幾個 occurrence；長期停機不該算出無界的清單。 */
 export const MAX_OCCURRENCES_PER_SCAN = 1_000;
-
-export type OverlapPolicy = 'queue' | 'skip';
-
-/** 模組寫在 `PlatformModule.jobs[].schedule` 上的宣告。 */
-export interface IntervalScheduleDeclaration {
-  readonly everyMs: number;
-  /** 停機後最多補排幾次；預設 1，也就是只補最近的那一次。 */
-  readonly catchUp?: number;
-  /** 上一次還在佇列或執行中時要不要再排；預設 queue。 */
-  readonly overlap?: OverlapPolicy;
-}
-
-export interface CronScheduleDeclaration {
-  readonly cron: string;
-  /** IANA 時區識別碼。必填：DST 行為不能靠行程的本地時區猜。 */
-  readonly timezone: string;
-  readonly catchUp?: number;
-  readonly overlap?: OverlapPolicy;
-}
-
-export type ScheduleDeclaration = IntervalScheduleDeclaration | CronScheduleDeclaration;
 
 interface ScheduleCommon {
   readonly catchUp: number;
@@ -56,10 +44,6 @@ export interface CronSchedule extends ScheduleCommon {
 }
 
 export type ScheduleSpec = IntervalSchedule | CronSchedule;
-
-function isCronDeclaration(declaration: ScheduleDeclaration): declaration is CronScheduleDeclaration {
-  return 'cron' in declaration;
-}
 
 /**
  * 縮寫在不同國家指向不同位移，而 Node 的 `Intl` 會**照收**並解析成一個多數人猜不到的城市：
@@ -115,26 +99,31 @@ function parseCommon(type: string, declaration: ScheduleDeclaration): { catchUp:
 /** 註冊時解析並驗證宣告；任何無效輸入在這裡就變成啟動失敗，而不是半夜漏跑。 */
 export function parseScheduleSpec(type: string, declaration: ScheduleDeclaration): ScheduleSpec {
   const { catchUp, overlap } = parseCommon(type, declaration);
+  const kind = scheduleDeclarationKind(declaration);
+  if (!kind) {
+    throw PlatformError.validation(`Schedule "${type}" must declare exactly one of everyMs or cron`);
+  }
 
-  if (isCronDeclaration(declaration)) {
-    assertValidTimezone(type, declaration.timezone);
+  if (kind === 'cron') {
+    const cronDeclaration = declaration as CronScheduleDeclaration;
+    assertValidTimezone(type, cronDeclaration.timezone);
     let cron: Cron;
     try {
       // 建構子只驗語法；這個實例不會被留下來排任何東西。
-      cron = new Cron(declaration.cron, { timezone: declaration.timezone });
+      cron = new Cron(cronDeclaration.cron, { timezone: cronDeclaration.timezone });
     } catch (error) {
       throw PlatformError.validation(
-        `Schedule "${type}" has an invalid cron expression "${declaration.cron}": ${(error as Error).message}`,
+        `Schedule "${type}" has an invalid cron expression "${cronDeclaration.cron}": ${(error as Error).message}`,
       );
     }
 
     const spec: CronSchedule = {
       kind: 'cron',
-      cron: declaration.cron,
-      timezone: declaration.timezone,
+      cron: cronDeclaration.cron,
+      timezone: cronDeclaration.timezone,
       catchUp,
       overlap,
-      fingerprint: `cron:${declaration.cron}@${declaration.timezone}`,
+      fingerprint: `cron:${cronDeclaration.cron}@${cronDeclaration.timezone}`,
     };
 
     // 語法合法不等於算得出時間。`0 0 30 2 *` 這種永遠不會發生的組合建構子照收，
@@ -143,7 +132,7 @@ export function parseScheduleSpec(type: string, declaration: ScheduleDeclaration
     const now = new Date();
     if (cron.nextRuns(1, now).length === 0) {
       throw PlatformError.validation(
-        `Schedule "${type}" cron expression "${declaration.cron}" never occurs`,
+        `Schedule "${type}" cron expression "${cronDeclaration.cron}" never occurs`,
       );
     }
     cronRunsAtOrBefore(spec, now, 1);
@@ -151,15 +140,16 @@ export function parseScheduleSpec(type: string, declaration: ScheduleDeclaration
     return spec;
   }
 
-  if (!Number.isFinite(declaration.everyMs) || declaration.everyMs <= 0) {
+  const intervalDeclaration = declaration as import('@storeweave/contracts').IntervalScheduleDeclaration;
+  if (!Number.isFinite(intervalDeclaration.everyMs) || intervalDeclaration.everyMs <= 0) {
     throw PlatformError.validation(`Schedule "${type}" needs a positive everyMs`);
   }
   return {
     kind: 'interval',
-    everyMs: declaration.everyMs,
+    everyMs: intervalDeclaration.everyMs,
     catchUp,
     overlap,
-    fingerprint: `interval:${declaration.everyMs}`,
+    fingerprint: `interval:${intervalDeclaration.everyMs}`,
   };
 }
 

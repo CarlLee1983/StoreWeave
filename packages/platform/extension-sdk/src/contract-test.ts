@@ -1,4 +1,4 @@
-import { PLATFORM_VERSION, declaredInputKeys, inputObjectOf } from '@storeweave/contracts';
+import { PLATFORM_VERSION, declaredInputKeys, inputObjectOf, scheduleDeclarationIssue, scheduleDeclarationKind } from '@storeweave/contracts';
 import { checkPlatformCompatibility } from './compat';
 import { validateManifestShape } from './manifest';
 import { createTestExtensionContext } from './testing';
@@ -143,6 +143,32 @@ export async function runExtensionContractChecks(
 
   const duplicateJobTypes = jobTypes.filter((t, i) => jobTypes.indexOf(t) !== i);
   push('job types are unique', duplicateJobTypes.length === 0, duplicateJobTypes.join(', '));
+
+  const invalidScheduleDeclarations = (registration.jobs ?? [])
+    .filter(job => job.schedule && scheduleDeclarationIssue(job.schedule))
+    .map(job => `${job.type}: ${scheduleDeclarationIssue(job.schedule)}`);
+  push(
+    'scheduled jobs have a valid shared declaration shape',
+    invalidScheduleDeclarations.length === 0,
+    invalidScheduleDeclarations.join(', '),
+  );
+
+  const incompatibleSchedules = (registration.jobs ?? []).filter((job) => {
+    if (!job.schedule) return false;
+    const kind = scheduleDeclarationKind(job.schedule);
+    if (!kind) return true;
+    const contract = job.jobContractV1;
+    const schema = contract?.versions[contract.currentVersion];
+    if (!schema) return true;
+    const scheduledFor = '2026-01-01T00:00:00.000Z';
+    const payload = kind === 'interval' ? { bucket: 0, scheduledFor } : { scheduledFor };
+    return !schema.safeParse(payload).success;
+  }).map(job => job.type);
+  push(
+    'scheduled jobs accept the payload produced by the recurring scheduler',
+    incompatibleSchedules.length === 0,
+    incompatibleSchedules.join(', '),
+  );
 
   // Extension 的輸入與 Core 的輸入是同一個答案：未知欄位一律擋（ADR 0024）。
   // 斷言的是「真的解析一次會被擋」而不是讀 `_def.unknownKeys`——

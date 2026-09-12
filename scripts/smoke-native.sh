@@ -9,6 +9,15 @@ RELEASE_ID="${STOREWEAVE_RELEASE:-commerce}"
 # POSTGRES_DB=commerce), not the base release's real database credentials.
 case "$RELEASE_ID" in commerce) NAME=commerce; DB_USER=commerce; DB_NAME=commerce ;; base) NAME=storeweave; DB_USER=commerce; DB_NAME=commerce ;; *) echo 'Unknown release' >&2; exit 1 ;; esac
 VERSION="${STOREWEAVE_RELEASE_VERSION:-${COMMERCE_RELEASE_VERSION:-$(node -p "require('./package.json').version")}}"
+SKIP_BUILD="${STOREWEAVE_SKIP_BUILD:-false}"
+if [ "$SKIP_BUILD" = true ]; then
+  if [ -n "${STOREWEAVE_SMOKE_EVIDENCE:-}" ] && [ -z "${STOREWEAVE_SOURCE_REVISION:-}" ]; then
+    echo 'Reused native artifact evidence requires explicit STOREWEAVE_SOURCE_REVISION' >&2
+    exit 1
+  fi
+else
+  export STOREWEAVE_SOURCE_REVISION="${STOREWEAVE_SOURCE_REVISION:-$(git rev-parse HEAD)}"
+fi
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/storeweave-native-smoke.XXXXXX")"
 export STOREWEAVE_BUILD_DIR="${STOREWEAVE_BUILD_DIR:-$WORK/build}"
 export STOREWEAVE_RELEASE_DIR="${STOREWEAVE_RELEASE_DIR:-$WORK/release}"
@@ -32,7 +41,23 @@ cleanup() {
   if [ "$CREATED_NET" = true ]; then docker network rm "$NET" >/dev/null 2>&1 || true; fi
 }
 trap cleanup EXIT
-if [ "${STOREWEAVE_SKIP_BUILD:-false}" = true ]; then
+record_smoke_evidence() {
+  [ -n "${STOREWEAVE_SMOKE_EVIDENCE:-}" ] || return 0
+  local build_info="$WORK/native-build-info.json"
+  local manifest="$WORK/native-release-manifest.json"
+  local source_revision="$STOREWEAVE_SOURCE_REVISION"
+  docker cp "$APP:/tmp/rel/build-info.json" "$build_info"
+  docker cp "$APP:/tmp/rel/release-manifest.json" "$manifest"
+  node scripts/record-smoke-evidence.mjs \
+    --kind native \
+    --release "$RELEASE_ID" \
+    --build-info "$build_info" \
+    --manifest "$manifest" \
+    --artifact "$TARBALL" \
+    --output "$STOREWEAVE_SMOKE_EVIDENCE" \
+    --source-revision "$source_revision"
+}
+if [ "$SKIP_BUILD" = true ]; then
   echo "==> reusing release artifact"
 else
   STOREWEAVE_TARGET_ARCH=x64 bash scripts/build-release.sh
@@ -184,4 +209,5 @@ else
   full_recovery_smoke
 fi
 docker exec --user "$NAME" "$APP" "$NAME" stop
+record_smoke_evidence
 printf 'Native %s smoke passed; artifacts: %s\n' "$RELEASE_ID" "$STOREWEAVE_RELEASE_DIR"

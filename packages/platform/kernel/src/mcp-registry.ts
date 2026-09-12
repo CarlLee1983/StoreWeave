@@ -17,6 +17,10 @@ export class McpToolRegistry {
     this.tools.set(definition.name, { definition, owner });
   }
 
+  has(name: string): boolean {
+    return this.tools.has(name);
+  }
+
   get(name: string): RegisteredMcpTool {
     const tool = this.tools.get(name);
     if (!tool) throw PlatformError.notFound('MCP tool', name);

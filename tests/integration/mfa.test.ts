@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { generateSync } from 'otplib';
 import { doctor } from '@storeweave/kernel';
+import { createKeyring } from '@storeweave/crypto';
+import { MfaService } from '@storeweave/identity';
+import { rewrapMfaSecrets } from '../../tools/cli/src/mfa-rewrap';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ADMIN_ACTOR, createHarness, type TestHarness } from './helpers';
 
@@ -113,6 +116,107 @@ describe('operator multi-factor authentication', () => {
       'SELECT code_hash FROM platform_mfa_recovery_codes WHERE user_id = $1', [context.userId]);
     expect(stored.rows.map(row => row.code_hash)).not.toContain(codes[0]);
     expect(stored.rows.every(row => /^[0-9a-f]{64}$/.test(row.code_hash))).toBe(true);
+  });
+
+  it('rewraps every persistent MFA secret before an old encryption key is removed', async () => {
+    const context = await operator();
+    const keys = [
+      { id: 'old', secret: '11'.repeat(32) },
+      { id: 'new', secret: '22'.repeat(32) },
+    ];
+    const oldService = new MfaService(
+      createKeyring({ activeKeyId: 'old', keys }),
+      'StoreWeave',
+    );
+    const enrolment = await context.harness.runtime.database.transaction(tx =>
+      oldService.beginEnrolment(tx, { userId: context.userId, accountName: 'operator' }));
+    await context.harness.runtime.database.transaction(tx =>
+      oldService.confirmEnrolment(tx, {
+        userId: context.userId,
+        code: generateSync({ secret: enrolment.secret }),
+      }));
+
+    const rotating = new MfaService(
+      createKeyring({ activeKeyId: 'new', keys }),
+      'StoreWeave',
+    );
+    const rotationRuntime = {
+      activateRelease: context.harness.runtime.activateRelease.bind(context.harness.runtime),
+      database: context.harness.runtime.database,
+      mfa: rotating,
+    };
+    const report = await rewrapMfaSecrets(rotationRuntime);
+    expect(report).toEqual({ total: 1, alreadyActive: 0, rewrapped: 1 });
+    const stored = await context.harness.runtime.database.pool.query<{ secret: string }>(
+      'SELECT secret FROM platform_user_mfa WHERE user_id = $1',
+      [context.userId],
+    );
+    expect(stored.rows[0].secret).toMatch(/^swe1\.new\./);
+    expect(await rewrapMfaSecrets(rotationRuntime)).toEqual({
+      total: 1,
+      alreadyActive: 1,
+      rewrapped: 0,
+    });
+    const afterSecondRun = await context.harness.runtime.database.pool.query<{ secret: string }>(
+      'SELECT secret FROM platform_user_mfa WHERE user_id = $1',
+      [context.userId],
+    );
+    expect(afterSecondRun.rows[0].secret).toBe(stored.rows[0].secret);
+
+    const afterRetirement = new MfaService(
+      createKeyring({ activeKeyId: 'new', keys: [keys[1]] }),
+      'StoreWeave',
+    );
+    await expect(afterRetirement.verifyForLogin(context.db, {
+      userId: context.userId,
+      code: nextCode(enrolment.secret),
+    })).resolves.toBe(true);
+  });
+
+  it('rolls back the whole MFA rewrap when any persistent secret cannot be opened', async () => {
+    const context = await operator();
+    const second = await context.harness.runtime.commands.execute<{ id: string }>(
+      'platform.identity.createUser',
+      {
+        email: `${randomUUID()}@example.test`,
+        password: PASSWORD,
+        displayName: 'Second operator',
+        role: 'admin',
+      },
+      { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() },
+    );
+    const [validUserId, invalidUserId] = [context.userId, second.id].sort();
+    const keys = [
+      { id: 'old', secret: '11'.repeat(32) },
+      { id: 'new', secret: '22'.repeat(32) },
+    ];
+    const oldService = new MfaService(
+      createKeyring({ activeKeyId: 'old', keys }),
+      'StoreWeave',
+    );
+    await context.harness.runtime.database.transaction(tx =>
+      oldService.beginEnrolment(tx, { userId: validUserId, accountName: 'operator' }));
+    await context.harness.runtime.database.pool.query(
+      `INSERT INTO platform_user_mfa (user_id, secret) VALUES ($1, 'swe1.missing.invalid.invalid.invalid')`,
+      [invalidUserId],
+    );
+    const before = await context.harness.runtime.database.pool.query<{ secret: string }>(
+      'SELECT secret FROM platform_user_mfa WHERE user_id = $1',
+      [validUserId],
+    );
+    const rotating = new MfaService(
+      createKeyring({ activeKeyId: 'new', keys }),
+      'StoreWeave',
+    );
+
+    await expect(context.harness.runtime.database.transaction(tx => rotating.rewrapSecrets(tx)))
+      .rejects.toMatchObject({ code: 'CONFLICT' });
+    const after = await context.harness.runtime.database.pool.query<{ secret: string }>(
+      'SELECT secret FROM platform_user_mfa WHERE user_id = $1',
+      [validUserId],
+    );
+    expect(after.rows[0].secret).toBe(before.rows[0].secret);
+    expect(after.rows[0].secret).toMatch(/^swe1\.old\./);
   });
 
   it('replaces the whole batch when codes are reissued', async () => {

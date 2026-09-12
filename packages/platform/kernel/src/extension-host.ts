@@ -17,6 +17,7 @@ import {
   type AnyProvider,
   type ExtensionContext,
   type ExtensionDefinition,
+  type ExtensionManifest,
   type ExtensionRegistration,
   type ProviderKind,
 } from '@storeweave/extension-sdk';
@@ -24,6 +25,7 @@ import { DbExtensionStore } from './extension-store';
 import type { JobRegistry } from './job-registry';
 import type { McpToolRegistry } from './mcp-registry';
 import type { MailService } from '@storeweave/mail';
+import { parseScheduleSpec, scheduleOccurrencePayload, type RecurringScheduler } from './recurring';
 
 export interface MountedExtension {
   id: string;
@@ -50,6 +52,7 @@ export interface ExtensionHostDeps {
   eventBus: EventBus;
   jobs: JobQueue;
   jobRegistry: JobRegistry;
+  recurring: Pick<RecurringScheduler, 'register' | 'specFor'>;
   providers: ProviderRegistry;
   mcpTools: McpToolRegistry;
   authorization: AuthorizationService;
@@ -101,12 +104,14 @@ export class ExtensionHost {
       throw PlatformError.conflict(`Extension "${manifest.id}" is already mounted`);
     }
 
-    // Extension 自己宣告的新權限先註冊，才能在後面的 command 檢查中通過
+    const declaredPermissionKeys = new Set((manifest.declaredPermissions ?? []).map(permission => permission.key));
     for (const p of manifest.declaredPermissions ?? []) {
-      this.deps.authorization.permissions.register({ key: p.key, description: p.description, owner: manifest.id });
+      this.deps.authorization.permissions.assertAvailable({ key: p.key, description: p.description, owner: manifest.id });
     }
     for (const permission of manifest.permissions) {
-      this.deps.authorization.permissions.assertKnown(permission, `extension ${manifest.id}`);
+      if (!declaredPermissionKeys.has(permission)) {
+        this.deps.authorization.permissions.assertKnown(permission, `extension ${manifest.id}`);
+      }
     }
     for (const secretName of manifest.requiredSecrets ?? []) {
       if (!this.deps.secrets.has(secretName)) {
@@ -144,6 +149,11 @@ export class ExtensionHost {
 
     try {
       this.assertMatchesManifest(manifest.id, manifest, registration);
+      this.preflightRegistration(manifest, registration);
+
+      for (const permission of manifest.declaredPermissions ?? []) {
+        this.deps.authorization.permissions.register({ ...permission, owner: manifest.id });
+      }
 
       for (const provider of registration.providers ?? []) {
         // The manifest is the declaration checked before setup. Preserve its default
@@ -210,6 +220,9 @@ export class ExtensionHost {
           },
         });
       }
+      for (const job of registration.jobs ?? []) {
+        if (job.schedule) this.deps.recurring.register(job.type, job.schedule);
+      }
 
       const mounted: MountedExtension = {
         id: manifest.id,
@@ -238,7 +251,7 @@ export class ExtensionHost {
     }
   }
 
-  private assertMatchesManifest(id: string, manifest: any, registration: ExtensionRegistration): void {
+  private assertMatchesManifest(id: string, manifest: ExtensionManifest<any>, registration: ExtensionRegistration): void {
     const compare = (label: string, declared: readonly string[], actual: readonly string[]) => {
       const d = [...declared].sort().join(',');
       const a = [...actual].sort().join(',');
@@ -254,7 +267,7 @@ export class ExtensionHost {
     compare('subscribed events', manifest.subscribedEvents, (registration.events ?? []).map((e) => e.event));
     compare(
       'providers',
-      manifest.registeredProviders.map((p: any) => `${p.kind}:${p.id}`),
+      manifest.registeredProviders.map((p) => `${p.kind}:${p.id}`),
       (registration.providers ?? []).map((p) => `${p.kind}:${p.id}`),
     );
     for (const cmd of registration.commands ?? []) {
@@ -270,6 +283,96 @@ export class ExtensionHost {
     for (const job of registration.jobs ?? []) {
       if (!job.type.startsWith(`ext.${id}.`)) {
         throw PlatformError.validation(`Extension "${id}" may only register jobs under "ext.${id}."`);
+      }
+    }
+  }
+
+  /**
+   * All deterministic registration failures are checked before the first shared
+   * registry is mutated. Runtime activation is synchronous after this point, so
+   * a rejected extension cannot leave a partially published surface behind.
+   */
+  private preflightRegistration(manifest: ExtensionManifest<any>, registration: ExtensionRegistration): void {
+    const id = manifest.id;
+    const permissions = [
+      ...((manifest.declaredPermissions ?? []).map(permission => ({ ...permission, owner: id }))),
+      ...((registration.permissions ?? []).map(permission => ({ ...permission, owner: id }))),
+    ];
+    const assertUnique = (label: string, values: readonly string[]) => {
+      if (new Set(values).size !== values.length) {
+        throw PlatformError.validation(`Extension "${id}" registers the same ${label} more than once`);
+      }
+    };
+
+    assertUnique('permission', permissions.map(permission => permission.key));
+    assertUnique('policy', (registration.policies ?? []).map(policy => policy.id));
+    assertUnique('command', (registration.commands ?? []).map(command => command.descriptor.name));
+    assertUnique('query', (registration.queries ?? []).map(query => query.descriptor.name));
+    assertUnique('MCP tool', (registration.mcpTools ?? []).map(tool => tool.name));
+    assertUnique('job', (registration.jobs ?? []).map(job => job.type));
+    assertUnique('event subscription', (registration.events ?? []).map(event => event.event));
+    assertUnique('provider', (registration.providers ?? []).map(provider => `${provider.kind}:${provider.id}`));
+
+    for (const permission of permissions) this.deps.authorization.permissions.assertAvailable(permission);
+    for (const policy of registration.policies ?? []) {
+      if (this.deps.authorization.policies.has(policy.id)) {
+        throw PlatformError.conflict(`Policy "${policy.id}" already registered`);
+      }
+    }
+
+    const futurePermissionKeys = new Set(permissions.map(permission => permission.key));
+    for (const command of registration.commands ?? []) {
+      if (this.deps.commandBus.has(command.descriptor.name)) {
+        throw PlatformError.conflict(`Command "${command.descriptor.name}" already registered`);
+      }
+      if (!futurePermissionKeys.has(command.descriptor.permission)) {
+        this.deps.authorization.permissions.assertKnown(command.descriptor.permission, `command ${command.descriptor.name}`);
+      }
+    }
+    for (const query of registration.queries ?? []) {
+      if (this.deps.queryBus.has(query.descriptor.name)) {
+        throw PlatformError.conflict(`Query "${query.descriptor.name}" already registered`);
+      }
+      if (!futurePermissionKeys.has(query.descriptor.permission)) {
+        this.deps.authorization.permissions.assertKnown(query.descriptor.permission, `query ${query.descriptor.name}`);
+      }
+    }
+    for (const tool of registration.mcpTools ?? []) {
+      if (this.deps.mcpTools.has(tool.name)) throw PlatformError.conflict(`MCP tool "${tool.name}" already registered`);
+    }
+
+    const jobs = registration.jobs ?? [];
+    this.deps.jobRegistry.validateBatch(jobs.map(job => ({ type: job.type, contract: job.jobContractV1 })));
+    for (const job of jobs) {
+      if (!job.schedule) continue;
+      if (this.deps.recurring.specFor(job.type)) {
+        throw PlatformError.conflict(`Recurring job "${job.type}" already registered`);
+      }
+      const spec = parseScheduleSpec(job.type, job.schedule);
+      const contract = job.jobContractV1;
+      const schema = contract?.versions[contract.currentVersion];
+      if (!schema) {
+        throw PlatformError.validation(`Scheduled extension job "${job.type}" requires current jobContractV1 metadata`);
+      }
+      const payload = scheduleOccurrencePayload(spec, new Date('2026-01-01T00:00:00.000Z'));
+      const parsed = schema.safeParse(payload);
+      if (!parsed.success) {
+        throw PlatformError.validation(
+          `Scheduled extension job "${job.type}" cannot decode the recurring scheduler payload`,
+          parsed.error.issues,
+        );
+      }
+    }
+
+    for (const event of registration.events ?? []) {
+      this.deps.eventBus.getEvent(event.event);
+      if (this.deps.eventBus.hasSubscription(id, event.event)) {
+        throw PlatformError.conflict(`"${id}" already subscribes to "${event.event}"`);
+      }
+    }
+    for (const provider of registration.providers ?? []) {
+      if (this.deps.providers.has(provider.kind, provider.id)) {
+        throw PlatformError.conflict(`Provider "${provider.kind}:${provider.id}" already registered`);
       }
     }
   }

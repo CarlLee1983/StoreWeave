@@ -70,6 +70,12 @@ describe('parseScheduleSpec', () => {
     expect(() => parseScheduleSpec('bad', { cron: '0 0 * * *' } as never)).toThrow();
   });
 
+  it('同時宣告 interval 與 cron 會被擋下，不依物件欄位順序猜測', () => {
+    expect(() => parseScheduleSpec('bad', {
+      everyMs: HOUR, cron: '0 0 * * *', timezone: 'UTC',
+    } as never)).toThrow(/exactly one/);
+  });
+
   it('追補上限必須是正整數', () => {
     expect(() => parseScheduleSpec('bad', { everyMs: HOUR, catchUp: 0 })).toThrow();
     expect(() => parseScheduleSpec('bad', { everyMs: HOUR, catchUp: 1.5 })).toThrow();
