@@ -85,7 +85,9 @@ docker compose up -d
 --external-writers-stopped` 在 scratch DB 驗證後切換資料庫與物件。還原前後都保持 `api`／`worker` 停止；完整操作、共享 S3
 bucket 不自動刪除策略與 release rollback 的差異見[原生部署的完整備份章節](deployment-native.md#完整資料與媒體備份)。Docker 的
 `/opt/commerce/current` 是 immutable raw `dist`，所以完整 recovery 只核對 selected release identity，journal 寫入
-持久的 `commerce-data` volume。中斷後以同一 bundle 加 `--resume /var/lib/commerce/.transitions/<UUID>/journal.json` 續跑。
+持久的 `commerce-data` volume。中斷後以同一 bundle 加 `--resume /var/lib/commerce/.transitions/<UUID>/journal.json` 續跑；
+失敗而不續跑的 recovery 以 `restore --list-recoveries` 列出、`restore --discard <journal>` 回收它的 scratch
+資料庫與該次寫入的 storage 物件，細節見 [native 部署](deployment-native.md)。
 
 `COMMERCE_AUTO_MIGRATE=false` 可以關掉 API 啟動時的自動 migration，
 改成部署流程裡明確執行 `docker compose run --rm api migrate`。

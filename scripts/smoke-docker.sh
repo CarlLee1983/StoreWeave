@@ -60,7 +60,7 @@ secret_of() { sed -n 's/.*"secret":"\([^"]*\)".*/\1/p'; }
 full_recovery_smoke() {
   # Keep the bundle outside Compose volumes: the next step deliberately removes
   # every named volume before recovering it into a newly-created cluster.
-  local object_payload object_id object_sha job_id occurrence_id scheduled_for job_payload expected_job actual_job storage_key actual_sha
+  local object_payload object_id object_sha job_id occurrence_id scheduled_for job_payload expected_job actual_job storage_key actual_sha backup_container restore_container
   object_payload="$WORK/recovery-media.txt"
   printf 'B15 complete recovery smoke %s\n' "$PROJECT" > "$object_payload"
   curl -fsS -o "$WORK/recovery-media.json" -X POST "http://$SMOKE_HOST:$PORT/api/v1/storage/objects" \
@@ -78,8 +78,14 @@ full_recovery_smoke() {
       -v job_id="$job_id" -v occurrence_id="$occurrence_id" -v payload="$job_payload" >/dev/null
 
   compose stop api worker >/dev/null
-  chmod 0777 "$WORK"
-  compose run --rm --no-deps -T -v "$WORK:/recovery" api "$NAME" backup --include-media --external-writers-stopped --out /recovery/full.bundle
+  # Write the bundle into the container's own (0700, uid-999-owned) storage and
+  # pull it out with `docker cp` instead of bind-mounting $WORK: a bind mount
+  # wide enough for the container to write full.bundle would also let any other
+  # local user on the host replace it before restore reads it back (H4).
+  backup_container="$PROJECT-full-backup"
+  compose run --no-deps -T --name "$backup_container" api "$NAME" backup --include-media --external-writers-stopped --out "/var/lib/$NAME/backups/full.bundle"
+  docker cp "$backup_container:/var/lib/$NAME/backups/full.bundle" "$WORK/full.bundle"
+  docker rm -f "$backup_container" >/dev/null
   [ -f "$WORK/full.bundle/manifest.json" ] || { echo 'Full backup did not produce a bundle manifest' >&2; return 1; }
 
   # This is intentionally an existing-but-empty live database: it exercises
@@ -91,17 +97,24 @@ full_recovery_smoke() {
     [ "$i" -lt 60 ] || { echo 'Fresh Postgres did not start' >&2; return 1; }
     sleep 1
   done
-  compose run --rm --no-deps -T -v "$WORK:/recovery" api "$NAME" restore --bundle /recovery/full.bundle --maintenance-database postgres --yes --external-writers-stopped
+  restore_container="$PROJECT-full-restore"
+  compose run --no-deps -d --name "$restore_container" --entrypoint sleep api infinity >/dev/null
+  docker cp "$WORK/full.bundle" "$restore_container:/tmp/full.bundle"
+  docker exec --user root "$restore_container" chown -R "$NAME:$NAME" /tmp/full.bundle
+  docker exec --user "$NAME" "$restore_container" "$NAME" restore --bundle /tmp/full.bundle --maintenance-database postgres --yes --external-writers-stopped
+  docker rm -f "$restore_container" >/dev/null
   compose up -d api
   for i in $(seq 1 60); do
     if curl --max-time 2 -fsS "http://$SMOKE_HOST:$PORT/health/ready" >/dev/null 2>&1; then break; fi
     [ "$i" -lt 60 ] || { echo 'Recovered API did not become ready' >&2; return 1; }
     sleep 1
   done
-  storage_key="$(compose exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -Atc "SELECT storage_key FROM public.platform_storage_objects WHERE id = '$object_id'::uuid")"
+  storage_key="$(printf '%s\n' "SELECT storage_key FROM public.platform_storage_objects WHERE id = :'object_id'::uuid;" \
+    | compose exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -v object_id="$object_id" -At)"
   actual_sha="$(compose exec -T api sh -c "sha256sum '/var/lib/$NAME/storage/objects/$storage_key' | cut -d ' ' -f1")"
   expected_job="$job_id|$occurrence_id|platform.media.cleanup-orphans|pending|1|b15-smoke-recovery|1|$scheduled_for"
-  actual_job="$(compose exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -Atc "SELECT concat_ws('|', id::text, occurrence_id::text, type, status, payload_version::text, coalesce(dedupe_key, ''), payload->>'bucket', payload->>'scheduledFor') FROM public.platform_jobs WHERE id = '$job_id'::uuid")"
+  actual_job="$(printf '%s\n' "SELECT concat_ws('|', id::text, occurrence_id::text, type, status, payload_version::text, coalesce(dedupe_key, ''), payload->>'bucket', payload->>'scheduledFor') FROM public.platform_jobs WHERE id = :'job_id'::uuid;" \
+    | compose exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -v job_id="$job_id" -At)"
   [ "$actual_sha" = "$object_sha" ] || { echo "Recovered media SHA mismatch: expected $object_sha, got $actual_sha" >&2; return 1; }
   [ "$actual_job" = "$expected_job" ] || { echo "Recovered job mismatch: expected $expected_job, got $actual_job" >&2; return 1; }
   printf 'Full Docker recovery passed (media SHA and pending job restored)\n'

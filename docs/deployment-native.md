@@ -278,6 +278,21 @@ sudo -u commerce commerce restore --bundle /mnt/backup/commerce-2026-09-11.bundl
   --maintenance-database postgres --yes --external-writers-stopped
 ```
 
+媒體 replay 發生在 DB cutover 之前，寫入的是現役 storage；因此一次失敗的 recovery 會留下兩樣東西：
+目標 cluster 上的 scratch database，以及那次 replay 新建的 storage 物件——現役資料庫不參照它們。CLI
+會把這次實際新建的 key 記在 journal 旁的 `restored-keys.json`，並把 journal 標成 `failed`，所以這兩樣
+都可以被精確回收，不必人工比對 manifest：
+
+```bash
+sudo -u commerce commerce restore --list-recoveries --maintenance-database postgres
+sudo -u commerce commerce restore --discard /var/lib/commerce/.transitions/<UUID>/journal.json \
+  --maintenance-database postgres --yes
+```
+
+`--discard` 只刪除該次 recovery 記錄過的 key、drop 它自己的 scratch database，再移除 journal 目錄；
+manifest 外的 key 一律不動。cutover 已生效的 recovery 不可回收——那時 scratch 已經就是現役資料庫，
+指令會拒絕。反覆失敗而不回收會在 cluster 累積 `storeweave_full_recovery_*` 資料庫，請在重試前先回收。
+
 完整 restore 比對的是 selected release 的 id、version 與 build-manifest checksum，不假設 Docker 的 `dist/`
 等同 native release archive；來源 PostgreSQL system identifier 與 OID 是 provenance，不是乾淨目標 cluster 的前提。
 跨版升級／回退仍走前面的 `upgrade`／`rollback` 流程；在 contract migration 前，先保存一份完整 bundle 作為

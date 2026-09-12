@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 RELEASE_ID="${STOREWEAVE_RELEASE:-commerce}"
+# DB_USER/DB_NAME stay 'commerce' for both releases: they name this script's own
+# throwaway Postgres container (started below with POSTGRES_USER=commerce
+# POSTGRES_DB=commerce), not the base release's real database credentials.
 case "$RELEASE_ID" in commerce) NAME=commerce; DB_USER=commerce; DB_NAME=commerce ;; base) NAME=storeweave; DB_USER=commerce; DB_NAME=commerce ;; *) echo 'Unknown release' >&2; exit 1 ;; esac
 VERSION="${STOREWEAVE_RELEASE_VERSION:-${COMMERCE_RELEASE_VERSION:-$(node -p "require('./package.json').version")}}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/storeweave-native-smoke.XXXXXX")"
@@ -152,10 +155,12 @@ full_recovery_smoke() {
     [ "$i" -lt 60 ] || { echo 'Recovered API did not become ready' >&2; return 1; }
     sleep 1
   done
-  storage_key="$(docker exec "$PG" psql -U "$DB_USER" -d "$DB_NAME" -Atc "SELECT storage_key FROM public.platform_storage_objects WHERE id = '$object_id'::uuid")"
+  storage_key="$(printf '%s\n' "SELECT storage_key FROM public.platform_storage_objects WHERE id = :'object_id'::uuid;" \
+    | docker exec -i "$PG" psql -U "$DB_USER" -d "$DB_NAME" -v object_id="$object_id" -At)"
   actual_sha="$(docker exec --user "$NAME" "$APP" sh -c "sha256sum '/var/lib/$NAME/storage/objects/$storage_key' | cut -d ' ' -f1")"
   expected_job="$job_id|$occurrence_id|platform.media.cleanup-orphans|pending|1|b15-smoke-recovery|1|$scheduled_for"
-  actual_job="$(docker exec "$PG" psql -U "$DB_USER" -d "$DB_NAME" -Atc "SELECT concat_ws('|', id::text, occurrence_id::text, type, status, payload_version::text, coalesce(dedupe_key, ''), payload->>'bucket', payload->>'scheduledFor') FROM public.platform_jobs WHERE id = '$job_id'::uuid")"
+  actual_job="$(printf '%s\n' "SELECT concat_ws('|', id::text, occurrence_id::text, type, status, payload_version::text, coalesce(dedupe_key, ''), payload->>'bucket', payload->>'scheduledFor') FROM public.platform_jobs WHERE id = :'job_id'::uuid;" \
+    | docker exec -i "$PG" psql -U "$DB_USER" -d "$DB_NAME" -v job_id="$job_id" -At)"
   [ "$actual_sha" = "$object_sha" ] || { echo "Recovered media SHA mismatch: expected $object_sha, got $actual_sha" >&2; return 1; }
   [ "$actual_job" = "$expected_job" ] || { echo "Recovered job mismatch: expected $expected_job, got $actual_job" >&2; return 1; }
   printf 'Full native recovery passed (media SHA and pending job restored)\n'
