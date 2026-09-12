@@ -4,7 +4,8 @@ import type { NotificationsPort } from '@storeweave/notifications';
 import { orderPaidV2, orderPlacedV3 } from '@storeweave/order';
 import { shipmentArrivedV1, shipmentShippedV1 } from '@storeweave/shipping';
 import {
-  createQueueLifecycleDeliveryHandler, queueLifecycleDeliveryCommand, type NotificationOrderLookup,
+  createQueueLifecycleDeliveryHandler, queueLifecycleDeliveryCommand, recordLifecycleDeliveryCommand,
+  recordLifecycleDeliveryHandler, type NotificationOrderLookup,
 } from './commands';
 import { notificationMigrations } from './migrations';
 import {
@@ -56,6 +57,7 @@ export function createNotificationModule(
     ],
     commands: [
       { descriptor: queueLifecycleDeliveryCommand, handler: createQueueLifecycleDeliveryHandler({ orders, notifications, locale: options.locale }) },
+      { descriptor: recordLifecycleDeliveryCommand, handler: recordLifecycleDeliveryHandler },
     ],
     queries: [
       { descriptor: getLifecycleDeliveryQuery, handler: getLifecycleDeliveryHandler },

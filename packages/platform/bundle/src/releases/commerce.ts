@@ -2,7 +2,7 @@ import legacyBaseline from '../legacy/commerce-pre-b02.json';
 import { COMMERCE_ROLES } from '@storeweave/authorization';
 import { commerceConfigDefinition, type CommerceConfig } from '@storeweave/config';
 import { PLATFORM_VERSION } from '@storeweave/contracts';
-import { defaultTheme, WOVEN_DAY_LEGACY_MEDIA_MANIFEST } from '@storeweave/theme-default';
+import { defaultTheme, editorialTheme, WOVEN_DAY_LEGACY_MEDIA_MANIFEST } from '@storeweave/theme-default';
 import packageJson from '../../package.json';
 import { AVAILABLE_EXTENSIONS, coreModules } from '../modules';
 import type { ReleaseDefinition } from '../release';
@@ -17,6 +17,6 @@ export const release: ReleaseDefinition<CommerceConfig> = {
     timezone: config.store.timezone, locale: config.store.locale,
   }),
   availableExtensions: AVAILABLE_EXTENSIONS,
-  availableThemes: { default: defaultTheme },
+  availableThemes: { default: defaultTheme, editorial: editorialTheme },
   legacyContentMediaManifest: WOVEN_DAY_LEGACY_MEDIA_MANIFEST,
 };

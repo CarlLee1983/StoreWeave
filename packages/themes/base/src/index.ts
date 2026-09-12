@@ -16,6 +16,16 @@ export const baseThemeOptions = z.object({
   accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#2F5D62'),
 });
 
+/**
+ * The second base theme deliberately uses the same page contract and data
+ * projections as Base Site.  Only visual options belong to a theme; site
+ * settings, navigation, content and media stay in their existing tables
+ * when an operator switches between these ids (ADR 0045/0046).
+ */
+export const editorialThemeOptions = z.object({
+  accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#8C3E28'),
+});
+
 function links(items: readonly ThemeNavigationItem[]): string {
   return items.map(item => `<a href="${escapeHtml(item.href)}">${escapeHtml(item.label)}</a>`).join('');
 }
@@ -236,7 +246,9 @@ function renderError(ctx: ThemeContext, view: { status: number; message: string 
   `);
 }
 
-export const baseTheme = defineTheme<SitePages & AuthPages & ContentPages>({
+type BasePages = SitePages & AuthPages & ContentPages;
+
+export const baseTheme = defineTheme<BasePages>({
   id: 'base',
   name: 'Base Site',
   optionsSchema: baseThemeOptions,
@@ -261,6 +273,14 @@ export const baseTheme = defineTheme<SitePages & AuthPages & ContentPages>({
     'commerce.content.submitContact': renderContact,
     'platform.error': renderError,
   },
+});
+
+/** A compatible, independently selectable visual treatment for base sites. */
+export const editorialTheme = defineTheme<BasePages>({
+  id: 'editorial',
+  name: 'Editorial Site',
+  optionsSchema: editorialThemeOptions,
+  renderers: { ...baseTheme.renderers, 'platform.error': baseTheme.renderers['platform.error'] },
 });
 
 /**

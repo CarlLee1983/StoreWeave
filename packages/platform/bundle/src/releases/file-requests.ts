@@ -3,7 +3,7 @@ import { bindModuleCapability, type StorefrontTheme } from '@storeweave/kernel';
 import { baseConfigDefinition, type BaseConfig } from '@storeweave/config';
 import { PLATFORM_VERSION } from '@storeweave/contracts';
 import { createAuthModule } from '@storeweave/auth';
-import { baseTheme, renderBaseLayout } from '@storeweave/theme-base';
+import { baseTheme, editorialTheme, renderBaseLayout } from '@storeweave/theme-base';
 import { createSiteModule, navigationItem, siteSettingsService } from '@storeweave/site';
 import { createContentModule } from '@storeweave/content';
 import { createFileRequestRenderers, createFileRequestsModule, FILE_REQUEST_PERMISSIONS } from '@storeweave/example-file-requests';
@@ -30,6 +30,11 @@ const fileRequestsTheme: StorefrontTheme = {
   renderers: { ...baseTheme.renderers, ...createFileRequestRenderers(renderBaseLayout) },
 };
 
+const editorialFileRequestsTheme: StorefrontTheme = {
+  ...editorialTheme,
+  renderers: { ...editorialTheme.renderers, ...createFileRequestRenderers(renderBaseLayout) },
+};
+
 export const release: ReleaseDefinition<BaseConfig> = {
   id: 'file-requests', version: process.env.STOREWEAVE_RELEASE_VERSION ?? packageJson.version, baseVersion: PLATFORM_VERSION,
   config: baseConfigDefinition, roles: FILE_REQUESTS_ROLES, legacyBaselines: [],
@@ -47,5 +52,5 @@ export const release: ReleaseDefinition<BaseConfig> = {
       reviewerEmail: config.store.supportEmail,
     }),
   ],
-  availableExtensions: {}, availableThemes: { base: fileRequestsTheme },
+  availableExtensions: {}, availableThemes: { base: fileRequestsTheme, editorial: editorialFileRequestsTheme },
 };
