@@ -13,14 +13,14 @@ import { restoreSnapshotToScratch } from './restore-release-snapshot';
 import { resumeRestoreCutover } from './resume-restore';
 import { parsePgUrl } from './pg-tool';
 import { withTransitionLock } from './transition-lock';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { baselineMigrations, catalogDigest, readSnapshotDatabase } from '@storeweave/db';
 import 'reflect-metadata';
 import { execFileSync } from 'node:child_process';
 import {
-  chmodSync, closeSync, copyFileSync, createReadStream, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync,
-  readlinkSync, renameSync, symlinkSync, unlinkSync, writeFileSync,
+  chmodSync, closeSync, copyFileSync, createReadStream, existsSync, fsyncSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync,
+  readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { Command } from 'commander';
@@ -34,6 +34,9 @@ import { installReleaseArchive, validateLegacyB01Directory, validateReleaseDirec
 import { runPgTool, writePgBackup } from './pg-tool';
 import { SERVICES, serviceManager, startServices, statusServices, stopServices } from './service';
 import { LegacyContentMediaBackfill } from '@storeweave/content';
+import { captureStorageBackup, fullBackupSchema, writeStorageBackupCatalog, writeStorageBackupManifest } from './storage-backup';
+import { runFullRestore } from './full-restore';
+import { discardFullRecovery, listFullRecoveries } from './full-recovery-discard';
 
 interface ScheduleListItem {
   type: string;
@@ -57,9 +60,14 @@ const RELEASE_NAME = release.id === 'commerce' ? 'commerce' : 'storeweave';
 
 async function withRuntime<T>(fn: (runtime: Runtime, configPath: string) => Promise<T>): Promise<T> {
   const paths = resolvePaths(release.id);
+  return withRuntimeConfig(paths.configFile, fn);
+}
+
+/** Recovery first boots against scratch; callers must close it before cutover. */
+async function withRuntimeConfig<T>(configPath: string, fn: (runtime: Runtime, configPath: string) => Promise<T>): Promise<T> {
   // 日誌走 stderr：`--json` 的輸出得能直接餵給 jq，混進一行 log 就整份解析失敗。
   const { runtime, loaded } = await bootstrapRelease(release, {
-    configPath: paths.configFile, loggerName: `${RELEASE_NAME}-cli`, logDestination: 'stderr',
+    configPath, loggerName: `${RELEASE_NAME}-cli`, logDestination: 'stderr',
   });
   try {
     return await fn(runtime, loaded.sourcePath);
@@ -223,17 +231,65 @@ program
 
 program
   .command('backup')
-  .description('以 pg_dump 備份資料庫')
-  .option('--out <file>', '輸出檔案路徑')
-  .action(async (options: { out?: string }) => {
+  .description('以 pg_dump 備份資料庫；--include-media 建立可驗證的完整 bundle')
+  .option('--out <path>', '輸出檔案（完整 bundle 時為目錄）')
+  .option('--include-media', '連同所有已就緒的 storage 物件建立完整 bundle')
+  .option('--external-writers-stopped', '完整 bundle：確認 API、Worker 與外部寫入者均已停止')
+  .action(async (options: { out?: string; includeMedia?: boolean; externalWritersStopped?: boolean }) => {
     const paths = resolvePaths(release.id);
     await withRuntime(async (runtime) => {
       const dir = runtime.config.paths.backupDir;
       mkdirSync(dir, { recursive: true });
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const target = options.out ? resolve(options.out) : join(dir, `${runtime.config.store.id}-${stamp}.dump`);
       requireBinary('pg_dump');
       requireBinary('pg_restore');
+      if (options.includeMedia) {
+        if (!options.externalWritersStopped) fail('完整備份需要 --external-writers-stopped，且 API、Worker 與外部寫入者必須已停止');
+        // B15 bundles identify the selected runtime, not a native-only archive layout.
+        await runtime.activateRelease('require-current');
+        const target = options.out ? resolve(options.out) : join(dir, `${runtime.config.store.id}-${stamp}.bundle`);
+        if (lstatSync(target, { throwIfNoEntry: false })) fail(`完整備份目的地已存在：${target}`);
+        const parent = dirname(target);
+        mkdirSync(parent, { recursive: true, mode: 0o700 });
+        // Reserve the final name before creating any content. If publication
+        // fails the empty reservation is intentionally retained rather than
+        // deleting a path another operator could have claimed meanwhile.
+        mkdirSync(target, { mode: 0o700 });
+        const staging = mkdtempSync(join(parent, '.full-backup-'));
+        try {
+          const manifest = await runtime.withReleaseSnapshot(async (evidence, client) => {
+            const dump = join(staging, 'database.dump');
+            const dumped = await writePgBackup(runtime.config.database.url, dump, evidence.snapshotId);
+            if (dumped.stderr) process.stderr.write(dumped.stderr);
+            const digest = await digestFile(dump);
+            const storage = await captureStorageBackup(runtime, client, staging);
+            const value = fullBackupSchema.parse({
+              schemaVersion: 1, kind: 'storeweave-full-backup', createdAt: new Date().toISOString(),
+              release: { id: evidence.release.releaseId, version: evidence.release.releaseVersion, buildManifestChecksum: evidence.release.buildManifestChecksum },
+              endpointChecksum: (() => {
+                const endpoint = parsePgUrl(runtime.config.database.url);
+                if (!endpoint.hostname || !endpoint.pathname || endpoint.pathname === '/') throw new Error('完整備份需要明確的資料庫 endpoint');
+                endpoint.port = endpoint.port || process.env.PGPORT || '5432';
+                return catalogDigest({ host: endpoint.hostname, port: endpoint.port, database: evidence.database.name });
+              })(),
+              evidence: (() => { const { snapshotId: _snapshotId, ...saved } = evidence; return saved; })(),
+              database: { file: 'database.dump', byteSize: digest.byteSize, sha256: digest.sha256 }, storage: await writeStorageBackupCatalog(staging, storage),
+            });
+            writeStorageBackupManifest(staging, value);
+            return value;
+          });
+          // Publication is intentionally last. A partial directory never looks
+          // like a usable backup and an existing target is never replaced.
+          renameSync(staging, target);
+          syncPath(dirname(target));
+          heading('完整備份完成');
+          line(`  ${target}`);
+          line(`  ${dim(`資料庫 1 份；已驗證 ${manifest.storage.objectCount} 個 storage 物件`)}`);
+          line(`  ${dim('設定檔請一併備份：')} ${paths.configFile}, ${paths.envFile}`);
+          return;
+        } finally { rmSync(staging, { recursive: true, force: true }); }
+      }
+      const target = options.out ? resolve(options.out) : join(dir, `${runtime.config.store.id}-${stamp}.dump`);
       const dumped = await writePgBackup(runtime.config.database.url, target);
       if (dumped.stderr) process.stderr.write(dumped.stderr);
       heading('備份完成');
@@ -244,13 +300,78 @@ program
 
 program
   .command('restore')
-  .description('從 pg_dump 備份還原資料庫（會覆寫現有資料）')
-  .argument('<file>', '備份檔路徑')
+  .description('從 pg_dump 或完整 bundle 還原資料庫')
+  .argument('[file]', 'pg_dump 備份檔路徑')
+  .option('--bundle <directory>', '完整 backup bundle 目錄')
+  .option('--resume <journal>', '續跑既有完整 bundle recovery journal；仍須傳入同一個 --bundle')
+  .option('--list-recoveries', '列出尚未完成的完整 recovery，含其 scratch 資料庫與已寫入的 storage 物件數')
+  .option('--discard <journal>', '回收一個未完成的完整 recovery：刪掉它寫入的 storage 物件、drop 其 scratch 資料庫、移除 journal')
+  .option('--maintenance-database <name>', '完整 bundle 的獨立 maintenance 資料庫', 'postgres')
   .option('--yes', '不詢問直接執行')
-  .action(async (file: string, options: { yes?: boolean }) => {
-    const target = resolve(file);
-    if (!existsSync(target)) fail(`找不到備份檔：${target}`);
+  .option('--external-writers-stopped', '完整 bundle：確認 API、Worker 與外部寫入者均已停止')
+  .action(async (file: string | undefined, options: { yes?: boolean; bundle?: string; resume?: string; listRecoveries?: boolean; discard?: string; maintenanceDatabase: string; externalWritersStopped?: boolean }) => {
+    if (options.listRecoveries || options.discard) {
+      if (options.listRecoveries && options.discard) fail('--list-recoveries 與 --discard 請分開執行');
+      if (file || options.bundle || options.resume) fail('--list-recoveries 與 --discard 不接受備份檔或 --bundle');
+      const paths = resolvePaths(release.id);
+      const loaded = loadReleaseConfig(release.config, paths.configFile);
+      const maintenance = parsePgUrl(loaded.config.database.url);
+      if (!options.maintenanceDatabase || Buffer.byteLength(options.maintenanceDatabase) > 63 || options.maintenanceDatabase.includes('\0')) fail('Invalid maintenance database name');
+      maintenance.pathname = `/${encodeURIComponent(options.maintenanceDatabase)}`;
+      await withTransitionLock(paths.dataDir, async (directory) => {
+        if (options.listRecoveries) {
+          const recoveries = await listFullRecoveries(directory, maintenance.toString());
+          heading('未完成的完整 recovery');
+          if (recoveries.length === 0) { line(`  ${dim('（無）')}`); return; }
+          for (const recovery of recoveries) {
+            line(`  ${recovery.id}  phase=${recovery.phase}`);
+            line(`    ${dim(`journal：${recovery.journalFile}`)}`);
+            line(`    ${dim(`scratch：${recovery.scratchName}${recovery.scratchExists ? '' : '（已不存在）'}；已寫入 storage 物件：${recovery.restoredObjects}`)}`);
+            if (!recovery.discardable) line(`    ${dim('此 phase 不可回收（cutover 已生效或已結案）')}`);
+          }
+          return;
+        }
+        // Dropping a database and deleting object bytes is not reversible.
+        if (!options.yes) fail('回收會 drop scratch 資料庫並刪除該次 recovery 寫入的 storage 物件。確認後請加上 --yes 再執行。');
+        const discarded = await discardFullRecovery({ journalFile: resolve(options.discard!), operationRoot: directory,
+          maintenanceUrl: maintenance.toString(), config: loaded.config });
+        heading('完整 recovery 已回收');
+        line(`  ${dim(`scratch 資料庫：${discarded.droppedScratch ? '已 drop' : '原本就不存在'}`)}`);
+        line(`  ${dim(`已刪除該次寫入的 storage 物件：${discarded.removedObjects}`)}`);
+      });
+      return;
+    }
+    if (Boolean(file) === Boolean(options.bundle)) fail('請指定一個 pg_dump 檔案，或使用 --bundle 指定完整備份目錄');
+    if (options.resume && !options.bundle) fail('完整 recovery 的 --resume 必須搭配同一個 --bundle');
     if (!options.yes) fail('還原會覆寫現有資料。確認後請加上 --yes 再執行。');
+    if (options.bundle) {
+      if (!options.externalWritersStopped) fail('完整還原需要 --external-writers-stopped，且 API、Worker 與外部寫入者必須已停止');
+      const bundle = resolve(options.bundle);
+      const paths = resolvePaths(release.id);
+      // Docker's immutable /opt release is intentionally not writable by the
+      // service user. Full recovery owns its durable state under dataDir;
+      // native deployment gives this directory to the same service identity.
+      await withTransitionLock(paths.dataDir, async (directory, lockFd) => {
+        const loaded = loadReleaseConfig(release.config, paths.configFile);
+        const maintenance = parsePgUrl(loaded.config.database.url);
+        if (!options.maintenanceDatabase || Buffer.byteLength(options.maintenanceDatabase) > 63 || options.maintenanceDatabase.includes('\0')) fail('Invalid maintenance database name');
+        maintenance.pathname = `/${encodeURIComponent(options.maintenanceDatabase)}`;
+        requireBinary('pg_restore');
+        heading('停止並等待目前 API／Worker 結束');
+        await stopServices();
+        const restored = await runFullRestore({ bundleDirectory: bundle, operationRoot: directory, maintenanceUrl: maintenance.toString(),
+          configFile: paths.configFile, config: loaded.config, lockFd, resumeJournal: options.resume });
+        line(`  ${dim(restored.quarantineName === null ? '目標 cluster 原本沒有 live 資料庫，無保留副本' : `保留原資料庫：${restored.quarantineName}`)}`);
+        line(`  ${dim(`recovery journal：${restored.journalFile}`)}`);
+        line(`  ${dim(`已驗證 ${restored.objects} 個 storage 物件，其中 ${restored.restoredObjects} 個由本次還原寫入`)}`);
+      });
+      heading('完整還原完成');
+      line(`  ${bundle}`);
+      line(`  ${dim(`請執行 ${RELEASE_NAME} doctor 後再啟動服務。`)}`);
+      return;
+    }
+    const target = resolve(file!);
+    if (!existsSync(target)) fail(`找不到備份檔：${target}`);
     await withRuntime(async (runtime) => {
       requireBinary('pg_restore');
       const restored = await runPgTool('pg_restore', runtime.config.database.url, ['--clean', '--if-exists', '--no-owner', target]);
@@ -706,6 +827,22 @@ async function upgradeLegacyB01(options: { release?: string; resume?: string; sa
   });
   heading(`current -> ${safety.manifest.candidate.directory}`);
   if (options.restart !== false) printServices(await startServices());
+}
+
+async function digestFile(path: string): Promise<{ byteSize: number; sha256: string }> {
+  const digest = createHash('sha256');
+  let byteSize = 0;
+  for await (const chunk of createReadStream(path)) {
+    const value = Buffer.from(chunk);
+    byteSize += value.byteLength;
+    digest.update(value);
+  }
+  return { byteSize, sha256: digest.digest('hex') };
+}
+
+function syncPath(path: string): void {
+  const descriptor = openSync(path, 'r');
+  try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
 }
 
 function printServices(statuses: ReturnType<typeof statusServices>): void {

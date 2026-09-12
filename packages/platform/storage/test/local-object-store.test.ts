@@ -39,6 +39,19 @@ describe('LocalObjectStore', () => {
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
+  it('uses exclusive publication for recovery bytes and never replaces an existing key', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'storeweave-storage-'));
+    try {
+      const store = new LocalObjectStore({ root });
+      const key = 'platform-storage/recovery-key';
+      await store.put(key, Readable.from(['original']));
+      const result = await store.putIfAbsent(key, Buffer.byteLength('replacement'), Readable.from(['replacement']));
+      expect(result).toEqual({ created: false });
+      const opened = await store.open(key);
+      await expect(read(opened.stream)).resolves.toEqual(Buffer.from('original'));
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it('removes only stale, regular temporary upload files', async () => {
     const root = await mkdtemp(join(tmpdir(), 'storeweave-storage-'));
     try {

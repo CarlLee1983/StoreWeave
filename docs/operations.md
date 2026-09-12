@@ -19,7 +19,12 @@
 | `commerce migrate [--status]` | 套用或檢視 migration（含 expand/migrate/contract 階段） |
 | `commerce migrate --status --json` | 輸出 applied／pending／releaseCurrent；不執行 domain SQL、extension setup 或 release 啟用 |
 | `commerce backup [--out FILE]` | 私有暫存 dump 驗證後原子發布，權限 0600；拒絕覆寫既有檔案 |
-| `commerce restore FILE --yes` | `pg_restore --clean --if-exists`（會覆寫現有資料） |
+| `commerce backup --include-media --external-writers-stopped [--out DIR]` | 建立 DB dump 加上全部 ready storage 物件的私有、內容雜湊驗證 bundle |
+| `commerce restore FILE --yes` | `pg_restore --clean --if-exists`（只還原資料庫，會覆寫現有資料） |
+| `commerce restore --bundle DIR --maintenance-database postgres --yes --external-writers-stopped` | 在 scratch DB 驗證完整 bundle 與物件後，以 journaled cutover 切換；保留舊 DB 作 quarantine |
+| `commerce restore --bundle DIR --resume JOURNAL --maintenance-database postgres --yes --external-writers-stopped` | 重新驗證同一 bundle 後，續跑 data-dir 私有的完整 recovery journal |
+| `commerce restore --list-recoveries --maintenance-database postgres` | 列出未完成的完整 recovery：phase、scratch 資料庫是否還在、該次已寫入的 storage 物件數 |
+| `commerce restore --discard JOURNAL --maintenance-database postgres --yes` | 回收一個未完成的 recovery：刪掉它寫入的 storage 物件、drop 其 scratch 資料庫、移除 journal（cutover 已生效者拒絕） |
 | `commerce upgrade --release TARBALL` | 解壓新版 → 用新版跑 migration → 切換 symlink → 重啟 |
 | `commerce rollback [--to VERSION]` | 切回上一版或指定版本並重啟 |
 | `commerce user:create --email E --name N [--role admin]` | 建立後台操作者帳號；密碼由 `COMMERCE_USER_PASSWORD` 環境變數提供 |
@@ -168,11 +173,18 @@ allowlist 的正常預檢回 `204` 與精確的 `Access-Control-Allow-Origin`；
 | `/health/live` | 行程還活著 | 恆 200 |
 | `/health/ready` | 可以接流量：資料庫連得上且沒有待套用的 migration | 200 / 503 |
 | `/health/dependencies` | 資料庫、Outbox、佇列、Worker 心跳、各 Provider、各 Extension | 200 / 503（需 bearer token） |
+| `/health/metrics` | 穩定的 queue／scheduler／mail／storage 計數，不含 worker id 與診斷文字 | 恆 200（需 bearer token） |
 
 `/health/live` 與 `/health/ready` 不需要 API token，可直接給負載平衡器使用。
 `/health/dependencies` 是含有 provider 錯誤訊息、佇列深度與 worker id 的維運視圖，必須使用具權限的
-bearer token；監控應以安全的憑證或內網呼叫它。它與 `commerce doctor` 共用依賴檢查邏輯，但 doctor
-另有安裝、設定、目錄與 secret 檢查。
+bearer token；監控應以安全的憑證或內網呼叫它。`/health/metrics` 供監控器採集固定數值欄位：outbox、
+job status、worker 心跳年齡、scheduler 的暫停／跳過計數、mail 狀態（含 partial）及 storage 可用性；不要解析
+`dependencies` 的人類可讀 `detail` 字串。兩者都不該公開在 Internet。doctor 另有安裝、設定、目錄與 secret 檢查。
+
+`/health/metrics` 一律回 200，即使某一項查詢失敗或 outbox 有 dead 訊息：Prometheus、Datadog、CloudWatch
+agent 等採集器對非 2xx 一律視為 scrape 失敗並丟棄整份 payload，把告警狀態綁在狀態碼上會讓事故當下最需要
+的計數反而採不到。告警邏輯一律讀 body 的 `status`（`ok` / `degraded` / `down`）與各項計數，不要看 HTTP
+狀態碼。`/health/ready` 與 `/health/dependencies` 的 200 / 503 語意不受影響，兩者是給探針與維運視圖用的。
 
 啟用 ECPay 時，`provider:payment:ecpay` 會標示離線設定已驗證、外部連通性與 callback delivery 仍需 UAT：
 它只驗證離線設定與 extension health，不會探測 ECPay 或證明 callback 可達。正式切換與 callback 失敗處置見
@@ -182,9 +194,12 @@ bearer token；監控應以安全的憑證或內網呼叫它。它與 `commerce 
 
 | 指標 | 來源 | 門檻建議 |
 | --- | --- | --- |
-| Outbox 積壓 | `/health/dependencies` 的 `outbox` | pending > 500 轉 warn、dead > 0 直接 fail（門檻寫在 `health.ts`） |
-| 工作佇列 dead | 同上的 `jobs` | dead > 0 就告警 |
-| Worker 心跳 | 同上的 `worker` | 超過 60 秒為 warn、300 秒為 fail |
+| Outbox 積壓 | `/health/metrics` 的 `outbox` | pending > 500 轉 warn、dead > 0 直接 fail（門檻寫在 `health.ts`） |
+| 工作佇列 dead | `/health/metrics` 的 `jobs.dead` | dead > 0 就告警 |
+| Worker 心跳 | `/health/metrics` 的 `worker.lastSeenAgeSeconds` | 啟用 worker 時：沒有 heartbeat 或超過 300 秒為 fail；超過 60 秒為 warn。worker disabled 時不告警 |
+| 排程遺漏／暫停 | `/health/metrics` 的 `scheduler` | `paused`、任一 `skipped*` 上升時確認是否屬預期維護 |
+| Mail | `/health/metrics` 的 `mail` | enabled 時 `partial`、`unknown` 或 `rejected` > 0 告警；disabled 是正常狀態 |
+| Storage | `/health/metrics` 的 `storage.available` | false 立即告警；不公開 bucket／key／錯誤原文 |
 | 待套用 migration | `/health/ready` | 部署後應為 0 |
 
 ## 記錄

@@ -15,7 +15,7 @@ import type { Runtime } from '@storeweave/kernel';
 export type {
   RateLimitBucket, StorefrontAssetHttpContract, StorefrontCookieEffect, StorefrontHttpContract, StorefrontResponse,
 };
-import { IS_ANONYMOUS, IS_EXTERNAL_CALLBACK, IS_PUBLIC } from './auth';
+import { IS_ANONYMOUS, IS_BEARER_ONLY, IS_EXTERNAL_CALLBACK, IS_PUBLIC } from './auth';
 import { httpErrorSchema } from './envelope';
 import { MCP_METHOD_LIST, MCP_PROTOCOL_VERSION, jsonRpcRequest } from '../mcp/jsonrpc';
 
@@ -365,7 +365,7 @@ export function describeHttpRoutes(runtime: Runtime, controllers: readonly Type[
     seen.add(key);
     const flag = (metadata: string) => Reflect.getMetadata(metadata, handler) ?? Reflect.getMetadata(metadata, controller);
     let auth = flag(IS_EXTERNAL_CALLBACK) ? 'provider' : flag(IS_ANONYMOUS) ? 'anonymous'
-      : flag(IS_PUBLIC) ? 'session-or-anonymous' : 'bearer-or-session';
+      : flag(IS_PUBLIC) ? 'session-or-anonymous' : flag(IS_BEARER_ONLY) ? 'bearer' : 'bearer-or-session';
     if (contract.kind === 'direct' && contract.auth === 'session') {
       if (auth !== 'bearer-or-session') throw new Error(`Invalid HTTP session requirement: ${path}`);
       auth = 'session';
@@ -417,7 +417,7 @@ export function describeHttpRoutes(runtime: Runtime, controllers: readonly Type[
       method: verb, path, status: contract.statuses[0], statuses: contract.statuses, auth,
       owner: null, kind: contract.kind, request: contract.request, permission: null, idempotency: 'none', rateLimit: contract.rateLimit ?? null,
       input: { type: 'object', properties: {}, additionalProperties: false }, output: contract.output,
-      guardError: auth === 'bearer-or-session' ? { statuses: [401], contentType: 'application/json', output: errorSchema() } : null,
+      guardError: auth === 'bearer-or-session' || auth === 'bearer' ? { statuses: [401], contentType: 'application/json', output: errorSchema() } : null,
     }];
     if (contract.kind === 'storage') {
       const routeParams = [...path.matchAll(/:([^/]+)/g)].map(match => match[1]!);

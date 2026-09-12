@@ -16,6 +16,25 @@ export interface DependencyHealth {
   checks: Check[];
 }
 
+/**
+ * Stable machine-readable operational counters. Unlike the human-facing
+ * health `detail` strings, these fields are intended for a monitoring agent
+ * to collect and turn into its own alert policy.
+ */
+export interface OperationalMetrics {
+  status: DependencyHealth['status'];
+  outbox: { pending: number; dead: number; oldestPendingAgeSeconds: number | null };
+  jobs: { pending: number; running: number; dead: number; quarantined: number };
+  worker: { lastSeenAgeSeconds: number | null };
+  scheduler: { total: number; paused: number; skippedCatchup: number; skippedPaused: number; skippedOverlap: number };
+  mail: { enabled: boolean; pending: number; partial: number; unknown: number; rejected: number };
+  storage: { available: boolean };
+}
+
+// workerHeartbeatAge's own return type uses `null` for "no worker has ever
+// reported in"; this sentinel distinguishes that from "the query itself failed".
+const HEARTBEAT_QUERY_FAILED = Symbol('heartbeat-query-failed');
+
 export async function liveness(): Promise<{ status: 'ok'; uptimeSeconds: number }> {
   return { status: 'ok', uptimeSeconds: Math.round(process.uptime()) };
 }
@@ -99,6 +118,85 @@ export async function dependencies(runtime: Runtime): Promise<DependencyHealth> 
 }
 
 /**
+ * The authenticated metrics view intentionally carries counters only: no
+ * worker id, provider error, recipient, or storage key can leak into a
+ * metrics system. Disabled mail is a normal configuration, not an outage.
+ */
+export async function operationalMetrics(runtime: Runtime): Promise<OperationalMetrics> {
+  const ping = await runtime.database.ping();
+  if (!ping.ok) {
+    runtime.logger.error({ error: ping.error }, 'postgres metrics check failed');
+    let storageAvailable = true;
+    try { await runtime.storage.healthCheck(); } catch { storageAvailable = false; }
+    // Counters retain a numeric shape while PostgreSQL is unavailable. The
+    // down status makes it explicit that zeroes are not sampled queue state.
+    return {
+      status: 'down',
+      outbox: { pending: 0, dead: 0, oldestPendingAgeSeconds: null },
+      jobs: { pending: 0, running: 0, dead: 0, quarantined: 0 },
+      worker: { lastSeenAgeSeconds: null },
+      scheduler: { total: 0, paused: 0, skippedCatchup: 0, skippedPaused: 0, skippedOverlap: 0 },
+      mail: { enabled: runtime.config.mail.transport !== 'disabled', pending: 0, partial: 0, unknown: 0, rejected: 0 },
+      storage: { available: storageAvailable },
+    };
+  }
+  const zeroOutbox = { pending: 0, dead: 0, oldestPendingAgeSeconds: null as number | null };
+  const zeroJobs = { pending: 0, running: 0, dead: 0, quarantined: 0 };
+  const zeroScheduler = { total: 0, paused: 0, skippedCatchup: 0, skippedPaused: 0, skippedOverlap: 0 };
+  const zeroMail = { enabled: runtime.config.mail.transport !== 'disabled', pending: 0, partial: 0, unknown: 0, rejected: 0 };
+  const [outbox, jobs, schedules, heartbeat, mail] = await Promise.all([
+    runtime.outbox.stats(runtime.database.db).catch((error) => {
+      runtime.logger.error({ error: (error as Error).message }, 'outbox metrics check failed');
+      return null;
+    }),
+    runtime.jobs.stats(runtime.database.db).catch((error) => {
+      runtime.logger.error({ error: (error as Error).message }, 'jobs metrics check failed');
+      return null;
+    }),
+    runtime.recurring.list(runtime.database.db).catch((error) => {
+      runtime.logger.error({ error: (error as Error).message }, 'scheduler metrics check failed');
+      return null;
+    }),
+    workerHeartbeatAge(runtime).catch((error) => {
+      runtime.logger.error({ error: (error as Error).message }, 'worker heartbeat metrics check failed');
+      return HEARTBEAT_QUERY_FAILED;
+    }),
+    mailMetrics(runtime).catch((error) => {
+      runtime.logger.error({ error: (error as Error).message }, 'mail metrics check failed');
+      return null;
+    }),
+  ]);
+  let storageAvailable = true;
+  try { await runtime.storage.healthCheck(); } catch { storageAvailable = false; }
+  const heartbeatQueryFailed = heartbeat === HEARTBEAT_QUERY_FAILED;
+  const anyQueryFailed = outbox === null || jobs === null || schedules === null || mail === null || heartbeatQueryFailed;
+  const workerAge: number | null = typeof heartbeat === 'number' ? heartbeat : null;
+  // A failed heartbeat query says nothing about the worker. Reporting it as
+  // "no worker has ever reported in" would turn one unreadable table into a
+  // `down` status and an on-call page for a worker that is running fine.
+  const workerUnavailable = runtime.config.worker.enabled && !heartbeatQueryFailed && workerAge === null;
+  const workerStale = runtime.config.worker.enabled && workerAge !== null && workerAge > 60;
+  const degraded = anyQueryFailed || !storageAvailable || workerUnavailable || workerStale
+    || (outbox?.pending ?? 0) > 500 || (outbox?.dead ?? 0) > 0 || (jobs?.pending ?? 0) > 500 || (jobs?.dead ?? 0) > 0
+    || (mail?.partial ?? 0) > 0 || (mail?.unknown ?? 0) > 0 || (mail?.rejected ?? 0) > 0;
+  const down = !storageAvailable || workerUnavailable || (runtime.config.worker.enabled && workerAge !== null && workerAge > 300) || (outbox?.dead ?? 0) > 0;
+  return {
+    status: down ? 'down' : degraded ? 'degraded' : 'ok',
+    outbox: outbox === null ? zeroOutbox : { pending: outbox.pending, dead: outbox.dead, oldestPendingAgeSeconds: outbox.oldestPendingAgeSeconds },
+    jobs: jobs === null ? zeroJobs : { pending: jobs.pending ?? 0, running: jobs.running ?? 0, dead: jobs.dead ?? 0, quarantined: jobs.quarantined ?? 0 },
+    worker: { lastSeenAgeSeconds: workerAge },
+    scheduler: schedules === null ? zeroScheduler : schedules.reduce((total, schedule) => ({
+      total: total.total + 1, paused: total.paused + Number(schedule.paused),
+      skippedCatchup: total.skippedCatchup + schedule.skippedCatchup,
+      skippedPaused: total.skippedPaused + schedule.skippedPaused,
+      skippedOverlap: total.skippedOverlap + schedule.skippedOverlap,
+    }), { total: 0, paused: 0, skippedCatchup: 0, skippedPaused: 0, skippedOverlap: 0 }),
+    mail: mail === null ? zeroMail : mail,
+    storage: { available: storageAvailable },
+  };
+}
+
+/**
  * 宣告要第二因素、卻從來沒有註冊的帳號。ADR 0044 讓這些帳號仍然登得進來
  * （否則新部署完成不了初始化），代價是「宣稱強制 MFA 的部署可以無限期只靠密碼」。
  * 這裡把那個窗口變成營運檢查看得到的數字，而不是只出現在登入回應的一個布林值。
@@ -113,8 +211,8 @@ async function mfaEnrolmentCheck(runtime: Runtime): Promise<Check> {
 
   const result = await runtime.database.db.execute<{ pending: string; total: string }>(sql`
     SELECT count(*) FILTER (WHERE m.confirmed_at IS NULL)::text AS pending, count(*)::text AS total
-    FROM platform_users u
-    LEFT JOIN platform_user_mfa m ON m.user_id = u.id
+    FROM public.platform_users u
+    LEFT JOIN public.platform_user_mfa m ON m.user_id = u.id
     WHERE u.status = 'active' AND u.role IN (${sql.join(rolesRequiringMfa.map(role => sql`${role}`), sql`, `)})
   `);
   const pending = Number(result.rows[0]?.pending ?? 0);
@@ -129,7 +227,7 @@ async function mfaEnrolmentCheck(runtime: Runtime): Promise<Check> {
 async function workerHeartbeatCheck(runtime: Runtime): Promise<Check> {
   const res = await runtime.database.db.execute<{ worker_id: string; age: string }>(sql`
     SELECT worker_id, EXTRACT(EPOCH FROM (now() - updated_at))::text AS age
-    FROM platform_worker_heartbeat ORDER BY updated_at DESC LIMIT 1
+    FROM public.platform_worker_heartbeat ORDER BY updated_at DESC LIMIT 1
   `);
   const row = res.rows[0];
   if (!row) return { name: 'worker', status: 'warn', detail: 'no worker has ever reported in' };
@@ -139,6 +237,23 @@ async function workerHeartbeatCheck(runtime: Runtime): Promise<Check> {
     status: age <= 60 ? 'pass' : age <= 300 ? 'warn' : 'fail',
     detail: `${row.worker_id} last seen ${age}s ago`,
   };
+}
+
+async function workerHeartbeatAge(runtime: Runtime): Promise<number | null> {
+  const result = await runtime.database.db.execute<{ age: string }>(sql`
+    SELECT EXTRACT(EPOCH FROM (now() - max(updated_at)))::text AS age FROM public.platform_worker_heartbeat
+  `);
+  const value = result.rows[0]?.age;
+  return value === null || value === undefined ? null : Math.max(0, Math.round(Number(value)));
+}
+
+async function mailMetrics(runtime: Runtime): Promise<OperationalMetrics['mail']> {
+  if (runtime.config.mail.transport === 'disabled') return { enabled: false, pending: 0, partial: 0, unknown: 0, rejected: 0 };
+  const result = await runtime.database.db.execute<{ status: string; count: string }>(sql`
+    SELECT status, count(*)::text AS count FROM public.platform_mail_messages GROUP BY status
+  `);
+  const count = (status: string) => Number(result.rows.find(row => row.status === status)?.count ?? 0);
+  return { enabled: true, pending: count('pending') + count('sending'), partial: count('partial'), unknown: count('unknown'), rejected: count('rejected') };
 }
 
 /**

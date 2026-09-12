@@ -87,6 +87,126 @@ async function listSchedules(headers: Record<string, string>) {
   return { status: response.statusCode, body: response.json() as { data: { items: ScheduleItem[] } } };
 }
 
+describe('GET /health/metrics', () => {
+  it('requires a bearer token and returns stable counters without operational identifiers', async () => {
+    const anonymous = await app.inject({ url: '/health/metrics' });
+    expect(anonymous.statusCode).toBe(401);
+
+    // Browser sessions must not become monitoring credentials merely because
+    // their role happens to carry jobs:read.
+    const session = await app.inject({ url: '/health/metrics', headers: { cookie: 'session=not-a-token' } });
+    expect(session.statusCode).toBe(401);
+
+    const response = await app.inject({ url: '/health/metrics', headers: readonly });
+    const body = response.json();
+    // metrics 一律 200：監控採集器對非 2xx 一律丟棄整份 payload，狀態要看 body.status。
+    expect(response.statusCode).toBe(200);
+    expect(body).toMatchObject({
+      status: expect.stringMatching(/^(ok|degraded|down)$/),
+      outbox: { pending: expect.any(Number), dead: expect.any(Number) },
+      jobs: { pending: expect.any(Number), running: expect.any(Number), dead: expect.any(Number), quarantined: expect.any(Number) },
+      worker: {},
+      scheduler: { total: expect.any(Number), paused: expect.any(Number), skippedCatchup: expect.any(Number), skippedPaused: expect.any(Number), skippedOverlap: expect.any(Number) },
+      mail: { enabled: expect.any(Boolean), pending: expect.any(Number), partial: expect.any(Number), unknown: expect.any(Number), rejected: expect.any(Number) },
+      storage: { available: expect.any(Boolean) },
+    });
+    expect(body.outbox.oldestPendingAgeSeconds === null || typeof body.outbox.oldestPendingAgeSeconds === 'number').toBe(true);
+    expect(body.worker.lastSeenAgeSeconds === null || typeof body.worker.lastSeenAgeSeconds === 'number').toBe(true);
+    // Metrics are collected by third parties; do not give them worker names,
+    // provider diagnostics, recipient data, or a free-form detail field.
+    expect(JSON.stringify(body)).not.toContain('workerId');
+    expect(body).not.toHaveProperty('checks');
+  });
+
+  it('does not require a worker heartbeat when the worker capability is disabled', async () => {
+    const wasEnabled = runtime.config.worker.enabled;
+    const storage = vi.spyOn(runtime.storage, 'healthCheck').mockResolvedValue();
+    runtime.config.worker.enabled = false;
+    try {
+      const response = await app.inject({ url: '/health/metrics', headers: readonly });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().status).toBe('ok');
+      expect(response.json().worker.lastSeenAgeSeconds).toBeNull();
+    } finally {
+      runtime.config.worker.enabled = wasEnabled;
+      storage.mockRestore();
+    }
+  });
+
+  it('returns a stable down payload when PostgreSQL is unavailable', async () => {
+    const ping = vi.spyOn(runtime.database, 'ping').mockResolvedValue({ ok: false, latencyMs: 0, error: 'intentionally offline' });
+    try {
+      const response = await app.inject({ url: '/health/metrics', headers: readonly });
+      // 狀態碼必須是 200，否則監控採集器拿不到這份 payload；down 狀態看 body.status。
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        status: 'down',
+        outbox: { pending: 0, dead: 0, oldestPendingAgeSeconds: null },
+        jobs: { pending: 0, running: 0, dead: 0, quarantined: 0 },
+        worker: { lastSeenAgeSeconds: null },
+      });
+    } finally {
+      ping.mockRestore();
+    }
+  });
+
+  it('stays 200 when there is a dead outbox message', async () => {
+    const outbox = vi.spyOn(runtime.outbox, 'stats').mockResolvedValue({
+      pending: 0, relayed: 0, dead: 1, oldestPendingAgeSeconds: null,
+    });
+    try {
+      const response = await app.inject({ url: '/health/metrics', headers: readonly });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ status: 'down', outbox: { dead: 1 } });
+    } finally {
+      outbox.mockRestore();
+    }
+  });
+
+  it('does not report the worker as missing merely because its heartbeat query failed', async () => {
+    const wasEnabled = runtime.config.worker.enabled;
+    const storage = vi.spyOn(runtime.storage, 'healthCheck').mockResolvedValue();
+    // Only the heartbeat query fails: the point of this case is that one
+    // unreadable table does not take the rest of the payload down with it.
+    const original = runtime.database.db.execute.bind(runtime.database.db);
+    const execute = vi.spyOn(runtime.database.db, 'execute').mockImplementation(((query: Parameters<typeof original>[0]) => {
+      const text = ((query as { queryChunks?: readonly unknown[] }).queryChunks ?? [])
+        .map(chunk => (chunk as { value?: unknown }).value).join('');
+      if (text.includes('platform_worker_heartbeat')) return Promise.reject(new Error('intentional heartbeat failure'));
+      return original(query);
+    }) as typeof original);
+    runtime.config.worker.enabled = true;
+    try {
+      const response = await app.inject({ url: '/health/metrics', headers: readonly });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      // An unreadable heartbeat table is degraded, not a down worker.
+      expect(body.status).toBe('degraded');
+      expect(body.worker.lastSeenAgeSeconds).toBeNull();
+    } finally {
+      runtime.config.worker.enabled = wasEnabled;
+      execute.mockRestore();
+      storage.mockRestore();
+    }
+  });
+
+  it('degrades instead of failing when one metrics query rejects', async () => {
+    const schedules = vi.spyOn(runtime.recurring, 'list').mockRejectedValue(new Error('intentional query failure'));
+    try {
+      const response = await app.inject({ url: '/health/metrics', headers: readonly });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.status).not.toBe('ok');
+      // 失敗的那組欄位保留零值形狀，不影響其他組回報真實數字。
+      expect(body.scheduler).toEqual({ total: 0, paused: 0, skippedCatchup: 0, skippedPaused: 0, skippedOverlap: 0 });
+      expect(typeof body.outbox.pending).toBe('number');
+      expect(typeof body.jobs.pending).toBe('number');
+    } finally {
+      schedules.mockRestore();
+    }
+  });
+});
+
 describe('GET /api/v1/system/schedules', () => {
   it('回傳真實的排程狀態，日期序列化成 ISO 字串', async () => {
     const type = registerSchedule();

@@ -3,7 +3,7 @@
 - 規格：[Spec 0009](specs/0009-complete-modular-base.md)，能力範圍與最終驗收以該文件為準。
 - 日期／盤點基準：2026-09-07，`1f4470d`；Spec 0008 Ticket 81–90 已完成，保留已驗證的未提交工作樹。
 - 工作包 B00–B17 是本機規劃識別，不是 GitHub Issue，也不佔用既有 Ticket 92 之後的編號。
-- 執行狀態：B00–B04 `done`，見 [B00 驗證紀錄](base/b00/README.md)、[B01 紀錄](base/b01/README.md)、[B02 驗收對照](base/b02/acceptance.md)、[B03 紀錄](base/b03/README.md)（2026-09-08 結案，final-source gates 與獨立 review 齊備）、[B04 紀錄](base/b04/README.md)（五片實作與三份獨立 5b review 全部結案，P0／P1 皆已修並附量體證據；typecheck、unit、完整 integration 與 Docker／native smoke 實跑通過），依 [B01–B04 派工契約](base/b00/next-work-cards.md) 執行。B05 `in_progress`；B05 由另一條工作線在獨立分支進行，本文件未核對其交付，結案證據以該線提出者為準。B10 `done`（本工作線已通過 `make verify`）。[B12](base/b12/README.md) `done`（三片實作與三份獨立審查全部結案，CRITICAL／HIGH 皆已修並補回歸；typecheck、unit、admin、完整 integration 與 Docker／native 各兩種 release 的 smoke 實跑通過）。B06–B09、B11 `done`。[B13](base/b13/README.md) `done`（2026-09-10 五個切片實作完成，PR #37 的五個 CI job 全綠後合併；結案證據為 CI 與合併，未做獨立審查；決策見 [ADR 0045](adr/0045-modules-declare-storefront-pages.md) 與 [ADR 0046](adr/0046-site-settings-and-navigation-are-release-data.md)，兩份皆 accepted）。[B16](base/b16/README.md) `done`（2026-09-11，範例模組 `file-requests`、模組資源／上傳入口與 Module Contract Test；決策見 [ADR 0050](adr/0050-modules-declare-resources-and-upload-intakes.md)，驗證紀錄見該包）。其餘 B14、B15、B17 依下列前置及契約審查解鎖。planned 不代表可直接丟給多位 writer 同時開工。
+- 執行狀態：B00–B04 `done`，見 [B00 驗證紀錄](base/b00/README.md)、[B01 紀錄](base/b01/README.md)、[B02 驗收對照](base/b02/acceptance.md)、[B03 紀錄](base/b03/README.md)（2026-09-08 結案，final-source gates 與獨立 review 齊備）、[B04 紀錄](base/b04/README.md)（五片實作與三份獨立 5b review 全部結案，P0／P1 皆已修並附量體證據；typecheck、unit、完整 integration 與 Docker／native smoke 實跑通過），依 [B01–B04 派工契約](base/b00/next-work-cards.md) 執行。B05 `in_progress`；B05 由另一條工作線在獨立分支進行，本文件未核對其交付，結案證據以該線提出者為準。B10 `done`（本工作線已通過 `make verify`）。[B12](base/b12/README.md) `done`（三片實作與三份獨立審查全部結案，CRITICAL／HIGH 皆已修並補回歸；typecheck、unit、admin、完整 integration 與 Docker／native 各兩種 release 的 smoke 實跑通過）。B06–B09、B11 `done`。[B13](base/b13/README.md) `done`（2026-09-10 五個切片實作完成，PR #37 的五個 CI job 全綠後合併；結案證據為 CI 與合併，未做獨立審查；決策見 [ADR 0045](adr/0045-modules-declare-storefront-pages.md) 與 [ADR 0046](adr/0046-site-settings-and-navigation-are-release-data.md)，兩份皆 accepted）。[B14](base/b14/README.md) `done`（2026-09-11 `make verify` 通過）。[B15](base/b15/README.md) `verified`（`make verify`、Commerce／Base 的 Docker 與 native 完整 bundle cold-recovery smoke、獨立審查均已通過）。[B16](base/b16/README.md) `done`（2026-09-11，範例模組 `file-requests`、模組資源／上傳入口與 Module Contract Test；決策見 [ADR 0050](adr/0050-modules-declare-resources-and-upload-intakes.md)，驗證紀錄見該包）。其餘 B17 依下列前置及契約審查解鎖。planned 不代表可直接丟給多位 writer 同時開工。
 
 ## 1. 接手與派工方式
 
@@ -251,6 +251,7 @@ focused tests／必要整合 gates／測試資源／執行時段：
 - **工作**：已啟用能力的診斷、queue／scheduler／mail／storage 指標與告警入口；DB＋媒體備份／復原；API／Worker 版本相容檢查、設定／secret rotation、release migrations。
 - **出口**：從乾淨機器照文件部署與啟動；故障可定位；從前一版完整資料與 jobs 升級／回復演練。CPU 圖片處理與 API 工作資源分隔；非啟用能力不要求額外服務。
 - **驗證／回復**：既有 Docker／native smoke 加新服務與 volume persistence；實測復原資料／物件 hashes 及未完成 jobs。SMTP／S3 真實環境尚未驗證時列 release gate，不能自稱 production-ready。
+- **未解除的 release gate**：真實 SMTP transport 與真實 S3 endpoint／bucket 的備份、還原和告警尚未在受控環境演練；B15 的 local／mock smoke 不等同這兩項 production-ready 證據。
 
 ### B16 — 可照做的模組範例
 

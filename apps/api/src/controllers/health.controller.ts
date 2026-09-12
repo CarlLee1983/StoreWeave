@@ -1,8 +1,8 @@
-import { Controller, Get, Inject, Res } from '@nestjs/common';
+import { Controller, Get, Inject, Req, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import type { JsonSchema7Type } from 'zod-to-json-schema';
-import { dependencies, liveness, readiness } from '@storeweave/kernel';
-import { Anonymous, Public } from '../http/auth';
+import { dependencies, liveness, operationalMetrics, readiness } from '@storeweave/kernel';
+import { actorOf, Anonymous, BearerOnly, type AuthenticatedRequest, Public } from '../http/auth';
 import { HttpContract, type RawHttpContract } from '../http/contract';
 import { RUNTIME, type Runtime } from '../tokens';
 
@@ -14,6 +14,23 @@ const healthSchema = {
   type: 'object', required: ['status', 'checks'], additionalProperties: false,
   properties: { status: { type: 'string', enum: ['ok', 'degraded', 'down'] }, checks: { type: 'array', items: checkSchema } },
 } as const satisfies JsonSchema7Type;
+const metricsSchema = {
+  type: 'object', required: ['status', 'outbox', 'jobs', 'worker', 'scheduler', 'mail', 'storage'], additionalProperties: false,
+  properties: {
+    status: { type: 'string', enum: ['ok', 'degraded', 'down'] },
+    outbox: { type: 'object', required: ['pending', 'dead', 'oldestPendingAgeSeconds'], additionalProperties: false,
+      properties: { pending: { type: 'number' }, dead: { type: 'number' }, oldestPendingAgeSeconds: { type: ['number', 'null'] } } },
+    jobs: { type: 'object', required: ['pending', 'running', 'dead', 'quarantined'], additionalProperties: false,
+      properties: { pending: { type: 'number' }, running: { type: 'number' }, dead: { type: 'number' }, quarantined: { type: 'number' } } },
+    worker: { type: 'object', required: ['lastSeenAgeSeconds'], additionalProperties: false,
+      properties: { lastSeenAgeSeconds: { type: ['number', 'null'] } } },
+    scheduler: { type: 'object', required: ['total', 'paused', 'skippedCatchup', 'skippedPaused', 'skippedOverlap'], additionalProperties: false,
+      properties: { total: { type: 'number' }, paused: { type: 'number' }, skippedCatchup: { type: 'number' }, skippedPaused: { type: 'number' }, skippedOverlap: { type: 'number' } } },
+    mail: { type: 'object', required: ['enabled', 'pending', 'partial', 'unknown', 'rejected'], additionalProperties: false,
+      properties: { enabled: { type: 'boolean' }, pending: { type: 'number' }, partial: { type: 'number' }, unknown: { type: 'number' }, rejected: { type: 'number' } } },
+    storage: { type: 'object', required: ['available'], additionalProperties: false, properties: { available: { type: 'boolean' } } },
+  },
+} as const satisfies JsonSchema7Type;
 const routes = {
   live: { kind: 'raw', request: 'none', statuses: [200], output: {
     type: 'object', required: ['status', 'uptimeSeconds'], additionalProperties: false,
@@ -21,6 +38,7 @@ const routes = {
   } },
   ready: { kind: 'raw', request: 'none', statuses: [200, 503], output: healthSchema },
   deps: { kind: 'raw', request: 'none', statuses: [200, 503], output: healthSchema },
+  metrics: { kind: 'raw', request: 'none', statuses: [200], output: metricsSchema },
 } as const satisfies Record<string, RawHttpContract>;
 
 @Controller('health')
@@ -52,5 +70,19 @@ export class HealthController {
   async deps(@Res() reply: FastifyReply) {
     const result = await dependencies(this.runtime);
     void reply.status(result.status === 'down' ? 503 : 200).send(result);
+  }
+
+  // Same authenticated boundary as dependencies, but only stable numeric
+  // counters. Monitoring agents must never scrape provider errors or worker ids.
+  // Always 200: a scrape agent (Prometheus, Datadog, CloudWatch) drops the
+  // entire payload on a non-2xx status, so the alertable state must ride in
+  // the body's `status` field instead of the HTTP status code.
+  @BearerOnly()
+  @Get('metrics')
+  @HttpContract(routes.metrics)
+  async metrics(@Req() request: AuthenticatedRequest, @Res() reply: FastifyReply) {
+    this.runtime.authorization.assert({ actor: actorOf(request), permission: 'jobs:read' });
+    const result = await operationalMetrics(this.runtime);
+    void reply.status(200).send(result);
   }
 }

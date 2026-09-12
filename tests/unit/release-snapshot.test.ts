@@ -184,6 +184,7 @@ it('binds a restore journal to its private snapshot and rejects forged identity 
     write(changed);
     await expect(readRestoreJournal(file, root)).rejects.toThrow();
   }
+
 });
 
 

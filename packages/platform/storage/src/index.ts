@@ -1,13 +1,13 @@
 import {
-  AbortMultipartUploadCommand, CopyObjectCommand, DeleteObjectCommand, GetObjectCommand,
+  AbortMultipartUploadCommand, CopyObjectCommand, DeleteObjectCommand, GetObjectCommand, PutObjectCommand,
   ListMultipartUploadsCommand, ListObjectsV2Command, S3Client,
   type GetObjectCommandOutput,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { lstat, mkdir, open, readdir, rename, rm } from 'node:fs/promises';
-import { join, resolve, sep } from 'node:path';
+import { link, lstat, mkdir, open, readdir, rename, rm } from 'node:fs/promises';
+import { dirname, join, resolve, sep } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Pool } from 'pg';
@@ -68,8 +68,24 @@ export interface StoredContent {
   readonly byteSize: number | undefined;
 }
 
+/**
+ * Trusted recovery input. IDs and keys must already exist in the restored
+ * database; this is deliberately not an upload API and never creates rows.
+ */
+export interface StorageRestore {
+  readonly namespace: string;
+  readonly id: string;
+  readonly storageKey: string;
+  readonly byteSize: number;
+  readonly sha256: string;
+  /** Created only after the existing-key integrity check says bytes are absent. */
+  open(): Readable;
+}
+
 export interface ObjectStore {
   put(key: string, stream: Readable): Promise<{ byteSize: number; sha256: string }>;
+  /** Atomically creates a key or reports that another writer already owns it. */
+  putIfAbsent(key: string, byteSize: number, stream: Readable): Promise<{ created: boolean; byteSize?: number; sha256?: string }>;
   open(key: string): Promise<StoredContent>;
   remove(key: string): Promise<void>;
   cleanupTemporary(options: { readonly olderThan: Date; readonly limit: number }): Promise<void>;
@@ -95,6 +111,22 @@ function counted(source: Readable): { stream: Transform; result: () => { byteSiz
   });
   source.on('error', error => stream.destroy(error));
   return { stream, result: () => ({ byteSize, sha256: hash.digest('hex') }) };
+}
+
+async function digestContent(source: Readable): Promise<{ byteSize: number; sha256: string }> {
+  const hash = createHash('sha256');
+  let byteSize = 0;
+  for await (const chunk of source) {
+    const value = Buffer.from(chunk);
+    byteSize += value.byteLength;
+    hash.update(value);
+  }
+  return { byteSize, sha256: hash.digest('hex') };
+}
+
+function isMissingObject(error: unknown): boolean {
+  const value = error as { code?: unknown; name?: unknown; $metadata?: { httpStatusCode?: unknown } };
+  return value?.code === 'ENOENT' || value?.name === 'NoSuchKey' || value?.$metadata?.httpStatusCode === 404;
 }
 
 /** Local objects are never addressed by a caller-supplied filesystem path. */
@@ -156,6 +188,34 @@ export class LocalObjectStore implements ObjectStore {
       await handle.close().catch(() => undefined);
       await rm(temporary, { force: true }).catch(() => undefined);
       throw error;
+    }
+  }
+
+  async putIfAbsent(key: string, byteSize: number, source: Readable): Promise<{ created: boolean; byteSize?: number; sha256?: string }> {
+    await this.ensureRoots();
+    const destination = this.fileFor(key);
+    await this.ensureKeyParent(key, true);
+    const temporary = join(this.tempRoot, `${randomUUID()}.upload`);
+    const handle = await open(temporary, 'wx', 0o600);
+    const output = createWriteStream(temporary, { fd: handle.fd, autoClose: false });
+    const meter = counted(source);
+    try {
+      await pipeline(source, meter.stream, output);
+      const saved = meter.result();
+      if (saved.byteSize !== byteSize) throw new Error('Storage restore byte size does not match its manifest');
+      await handle.sync();
+      await handle.close();
+      try { await link(temporary, destination); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') return { created: false };
+        throw error;
+      }
+      const parent = await open(dirname(destination), 'r');
+      try { await parent.sync(); } finally { await parent.close(); }
+      return { created: true, ...saved };
+    } finally {
+      await handle.close().catch(() => undefined);
+      await rm(temporary, { force: true }).catch(() => undefined);
     }
   }
 
@@ -249,6 +309,29 @@ export class S3ObjectStore implements ObjectStore {
       return meter.result();
     } catch (error) {
       await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: temporary })).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async putIfAbsent(key: string, byteSize: number, source: Readable): Promise<{ created: boolean; byteSize?: number; sha256?: string }> {
+    const meter = counted(source);
+    const abort = new AbortController();
+    const transfer = pipeline(source, meter.stream);
+    try {
+      await this.client.send(new PutObjectCommand({
+        Bucket: this.bucket, Key: this.objectKey(key), Body: meter.stream,
+        ContentLength: byteSize, IfNoneMatch: '*',
+      }), { abortSignal: abort.signal });
+      await transfer;
+      const saved = meter.result();
+      if (saved.byteSize !== byteSize) throw new Error('Storage restore byte size does not match its manifest');
+      return { created: true, ...saved };
+    } catch (error) {
+      abort.abort();
+      meter.stream.destroy();
+      await transfer.catch(() => undefined);
+      const status = (error as { $metadata?: { httpStatusCode?: unknown } }).$metadata?.httpStatusCode;
+      if (status === 409 || status === 412 || (error as { name?: unknown }).name === 'PreconditionFailed') return { created: false };
       throw error;
     }
   }
@@ -457,6 +540,112 @@ export class StorageManager {
     const object = await this.get(namespace, id);
     if (!object) throw new Error('Storage object not found');
     return { object, content: await this.store.open(object.storageKey) };
+  }
+
+  /**
+   * Recreates bytes for already-restored ready rows. This is reserved for the
+   * operator backup path: normal callers must use `upload`, which creates a new
+   * id and metadata row. An existing key is only reused after its bytes agree
+   * with the database digest; a divergent object is never overwritten.
+   *
+   * The CLI requires writers to be stopped for snapshot consistency. A retry
+   * or an unexpected external writer still cannot replace a key: adapters use
+   * exclusive local publication or S3 `If-None-Match: *`.
+   *
+   * Metadata for every entry is read in one statement: the caller has just
+   * compared the whole ready-object table against its manifest, so a query per
+   * object only multiplies round trips over a restore's entire object count.
+   *
+   * Returns the keys this call actually published. A restore replays into the
+   * live object store before the database cutover, so a later failure leaves
+   * bytes the live database does not reference; the caller journals these keys
+   * so `discardRestored` can take them back out.
+   */
+  async restoreExactBatch(inputs: readonly StorageRestore[]): Promise<readonly string[]> {
+    for (const input of inputs) {
+      assertNamespace(input.namespace);
+      if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 0 || !/^[a-f0-9]{64}$/.test(input.sha256)) throw new Error('Invalid storage restore metadata');
+    }
+    const objects = await this.readyObjects(inputs);
+    const created: string[] = [];
+    for (const input of inputs) {
+      const object = objects.get(`${input.namespace}/${input.id}`);
+      if (!object || object.storageKey !== input.storageKey || object.byteSize !== input.byteSize || object.sha256 !== input.sha256) {
+        throw new Error('Restored database does not match the storage backup manifest');
+      }
+      if (await this.publishRestoredObject(object.storageKey, input)) created.push(object.storageKey);
+    }
+    return created;
+  }
+
+  /** True when this call published the bytes; false when the key already held them. */
+  private async publishRestoredObject(storageKey: string, input: StorageRestore): Promise<boolean> {
+    try {
+      const current = await this.store.open(storageKey);
+      const actual = await digestContent(current.stream);
+      if (actual.byteSize !== input.byteSize || actual.sha256 !== input.sha256) throw new Error('Existing storage object conflicts with the backup manifest');
+      return false;
+    } catch (error) {
+      if (!isMissingObject(error)) throw error;
+    }
+    const saved = await this.store.putIfAbsent(storageKey, input.byteSize, input.open());
+    if (!saved.created) {
+      const current = await this.store.open(storageKey);
+      const actual = await digestContent(current.stream);
+      if (actual.byteSize !== input.byteSize || actual.sha256 !== input.sha256) throw new Error('Existing storage object conflicts with the backup manifest');
+      return false;
+    }
+    if (saved.byteSize !== input.byteSize || saved.sha256 !== input.sha256) {
+      // An immutable create is never removed here: a network response can be
+      // lost after the object reaches the provider, and deleting it could
+      // erase another retry's successful publication.
+      throw new Error('Restored storage bytes do not match the backup manifest');
+    }
+    return true;
+  }
+
+  private async readyObjects(inputs: readonly StorageRestore[]): Promise<Map<string, StorageObject>> {
+    if (inputs.length === 0) return new Map();
+    const { rows } = await this.pool.query<StoredRow>(`SELECT * FROM public.platform_storage_objects
+      WHERE state = 'ready' AND (namespace, id) IN (SELECT namespace, id FROM unnest($1::text[], $2::uuid[]) AS requested(namespace, id))`,
+    [inputs.map(input => input.namespace), inputs.map(input => input.id)]);
+    return new Map(rows.map(row => { const object = record(row); return [`${object.namespace}/${object.id}`, object]; }));
+  }
+
+  /**
+   * Removes keys a failed restore published. Only keys the caller journaled as
+   * created are accepted: anything else may be bytes the live database still
+   * references, and a cleanup must never be able to widen into a deletion.
+   */
+  async discardRestored(keys: readonly string[]): Promise<number> {
+    let removed = 0;
+    for (const key of keys) {
+      await this.store.remove(key);
+      removed += 1;
+    }
+    return removed;
+  }
+
+  /**
+   * Conditional creates are a provider claim until they are observed. Older
+   * S3-compatible implementations ignore an unknown `If-None-Match` and report
+   * a plain overwrite as a create, which would turn `restoreExactBatch`'s
+   * "a divergent object is never overwritten" guarantee into a silent lie.
+   * A restore calls this before it writes anything, so an unsupported provider
+   * fails closed instead of destroying bytes.
+   */
+  async assertConditionalCreateSupport(namespace: string): Promise<void> {
+    assertNamespace(namespace);
+    const key = `${namespace}/conditional-create-probe-${randomUUID()}`;
+    const probe = Buffer.from('storeweave-conditional-create-probe');
+    const first = await this.store.putIfAbsent(key, probe.byteLength, Readable.from([probe]));
+    if (!first.created) throw new Error('Object store refused a conditional create for an unused key');
+    try {
+      const again = await this.store.putIfAbsent(key, probe.byteLength, Readable.from([probe]));
+      if (again.created) throw new Error('Object store ignores conditional creates; a full restore could overwrite divergent bytes');
+    } finally {
+      await this.store.remove(key).catch(() => undefined);
+    }
   }
 
   async delete(namespace: string, id: string): Promise<void> {

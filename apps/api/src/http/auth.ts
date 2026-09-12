@@ -23,6 +23,14 @@ export const IS_ANONYMOUS = 'commerce:anonymous';
  */
 export const Anonymous = () => SetMetadata(IS_ANONYMOUS, true);
 
+export const IS_BEARER_ONLY = 'commerce:bearer-only';
+/**
+ * Operational machine endpoints must not silently accept a browser session.
+ * They are scraped with a revocable API token, whose role is the auditably
+ * scoped authority for the collector.
+ */
+export const BearerOnly = () => SetMetadata(IS_BEARER_ONLY, true);
+
 export const IS_EXTERNAL_CALLBACK = 'commerce:external-callback';
 /**
  * Provider-to-provider callbacks cannot meet browser same-origin or CSRF checks.
@@ -64,6 +72,7 @@ export class ApiTokenGuard implements CanActivate {
     const targets = [context.getHandler(), context.getClass()];
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, targets);
     const isAnonymous = this.reflector.getAllAndOverride<boolean>(IS_ANONYMOUS, targets);
+    const isBearerOnly = this.reflector.getAllAndOverride<boolean>(IS_BEARER_ONLY, targets);
     const isExternalCallback = this.reflector.getAllAndOverride<boolean>(IS_EXTERNAL_CALLBACK, targets);
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
 
@@ -101,6 +110,8 @@ export class ApiTokenGuard implements CanActivate {
       };
       return true;
     }
+
+    if (isBearerOnly) throw new PlatformError('UNAUTHENTICATED', 'Missing bearer token');
 
     const sessionToken = sessionTokenOf(request, this.runtime.config.http.publicUrl);
     if (sessionToken) {
