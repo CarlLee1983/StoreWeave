@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ThemeContext } from '@storeweave/kernel';
-import { baseTheme } from '../src/index';
+import { baseTheme, editorialTheme } from '../src/index';
 
 const PROBE = '"><script>alert(1)</script>';
 
@@ -20,6 +20,14 @@ const context = (overrides: Partial<ThemeContext> = {}): ThemeContext => ({
 });
 
 describe('Base Theme', () => {
+  it('exposes a compatible second visual identity with isolated options', () => {
+    expect(editorialTheme.id).toBe('editorial');
+    expect(editorialTheme.name).not.toBe(baseTheme.name);
+    expect(Object.keys(editorialTheme.renderers).sort()).toEqual(Object.keys(baseTheme.renderers).sort());
+    expect(editorialTheme.optionsSchema.parse({})).toEqual({ accentColor: '#8C3E28' });
+    expect(baseTheme.optionsSchema.parse({})).toEqual({ accentColor: '#2F5D62' });
+  });
+
   it('服務通用、認證與網站內容頁；不認得購物車或商品', () => {
     expect(Object.keys(baseTheme.renderers).sort())
       .toEqual([

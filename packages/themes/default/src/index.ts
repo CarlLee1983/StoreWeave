@@ -1354,5 +1354,22 @@ export const defaultTheme = defineTheme<ServedPages>({
   },
 });
 
+/**
+ * A second Commerce-compatible theme keeps the complete page contract while
+ * giving deployments a distinct, independently persisted visual option set.
+ * Reusing the renderers is intentional: switching themes must never migrate
+ * or reinterpret commerce/content data.
+ */
+export const editorialTheme = defineTheme<ServedPages>({
+  id: 'editorial',
+  name: 'Editorial Storefront',
+  optionsSchema: z.object({
+    accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#2F5D62'),
+    showSku: z.boolean().default(true),
+  }),
+  editorialImageKeys: EDITORIAL_IMAGE_KEYS,
+  renderers: { ...defaultTheme.renderers, 'platform.error': defaultTheme.renderers['platform.error'] },
+});
+
 export * from './layout';
 export default defaultTheme;

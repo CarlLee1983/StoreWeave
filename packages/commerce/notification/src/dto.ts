@@ -24,6 +24,16 @@ export const queueLifecycleDeliveryInput = z.object({
   variables: z.record(z.unknown()),
 }).strict();
 
+/** Compatibility input retained for the pre-B07 worker and operational seed. */
+export const recordLifecycleDeliveryInput = z.object({
+  id: z.string().uuid(), status: z.enum(['sent', 'failed']), providerRef: z.string().min(1).max(200),
+  error: z.string().min(1).max(2000).optional(),
+}).strict().superRefine((value, context) => {
+  if (value.status === 'failed' && !value.error) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['error'], message: 'required for failed delivery' });
+  }
+});
+
 export const listLifecycleDeliveriesInput = z.object({
   orderId: z.string().uuid().optional(), status: deliveryStatus.optional(),
   limit: z.number().int().min(1).max(100).default(50), offset: z.number().int().min(0).default(0),

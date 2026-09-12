@@ -5,6 +5,7 @@ import { sql } from 'drizzle-orm';
 import {
   ADMIN_ACTOR, checkoutInput, createHarness, createProduct, defaultCustomer, payOrder, placeOrder, runJobsUntilProcessed, settleWorker, stockUp, type TestHarness,
 } from './helpers';
+import { SYSTEM_ACTOR } from '@storeweave/contracts';
 
 const servers: SMTPServer[] = [];
 afterEach(async () => {
@@ -101,6 +102,28 @@ describe('訂單生命週期通知', () => {
       { actor: { id: 'system', type: 'system', displayName: 'system', permissions: ['*'] } },
     );
     expect(full.variables).toMatchObject({ shipmentId: shipment.id });
+  });
+
+  it('保留舊 worker 的 record command，並限制它只能由 system actor 寫入', async () => {
+    const product = await createProduct(h.runtime, { priceCents: 4900 });
+    await stockUp(h.runtime, product.id, 2);
+    const order = await placeOrder(h.runtime, product.id);
+    const queued = await h.runtime.commands.execute<{ id: string }>('commerce.notification.queueLifecycleDelivery', {
+      eventId: randomUUID(), orderId: order.id, template: 'customer.order-placed', variables: {},
+    }, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() });
+
+    const failed = await h.runtime.commands.execute<{ id: string; status: string; providerRef: string; lastError: string | null }>(
+      'commerce.notification.recordLifecycleDelivery',
+      { id: queued.id, status: 'failed', providerRef: 'legacy-provider-ref', error: 'legacy provider failure' },
+      { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() },
+    );
+    expect(failed).toMatchObject({ id: queued.id, status: 'failed', providerRef: 'legacy-provider-ref', lastError: 'legacy provider failure' });
+    await expect(h.runtime.commands.execute(
+      'commerce.notification.recordLifecycleDelivery',
+      { id: queued.id, status: 'sent', providerRef: 'operator-ref' },
+      { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() },
+    )).rejects.toThrow('Only notification workers may record delivery results');
+    await settleWorker(h.worker);
   });
 
   it('重複 worker drain 不重送同一 event/template', async () => {

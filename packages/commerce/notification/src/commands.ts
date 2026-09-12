@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext, type DrizzleDb, type Tx } from '@storeweave/contracts';
 import type { NotificationsPort } from '@storeweave/notifications';
-import { lifecycleDeliveryDto, queueLifecycleDeliveryInput, type LifecycleDeliveryDto } from './dto';
+import { lifecycleDeliveryDto, queueLifecycleDeliveryInput, recordLifecycleDeliveryInput, type LifecycleDeliveryDto } from './dto';
 import { NotificationRepository, toLifecycleDeliveryDto } from './repository';
 import { LIFECYCLE_TEMPLATES } from './templates';
 
@@ -15,6 +15,17 @@ const repository = new NotificationRepository();
 export const queueLifecycleDeliveryCommand = defineCommand({
   name: 'commerce.notification.queueLifecycleDelivery', summary: '建立訂單生命週期通知投遞',
   input: queueLifecycleDeliveryInput, output: lifecycleDeliveryDto, permission: 'notification:system-write', idempotency: 'required',
+});
+
+/**
+ * Kept for the pre-B07 worker and operational seed. New delivery evidence is
+ * owned by the base notification capability; this command only maintains the
+ * legacy projection when an older caller records a result directly.
+ */
+export const recordLifecycleDeliveryCommand = defineCommand({
+  name: 'commerce.notification.recordLifecycleDelivery', summary: '記錄通知 provider 投遞結果',
+  input: recordLifecycleDeliveryInput, output: lifecycleDeliveryDto,
+  permission: 'notification:system-write', idempotency: 'required',
 });
 
 export interface LifecycleNotificationDeps {
@@ -61,3 +72,24 @@ export function createQueueLifecycleDeliveryHandler(deps: LifecycleNotificationD
     return toLifecycleDeliveryDto(row);
   };
 }
+
+export const recordLifecycleDeliveryHandler = async (
+  input: z.infer<typeof recordLifecycleDeliveryInput>, ctx: CommandContext,
+): Promise<LifecycleDeliveryDto> => {
+  if (ctx.actor.type !== 'system') throw PlatformError.forbidden('Only notification workers may record delivery results');
+  const row = await repository.lockById(ctx.tx, input.id);
+  if (!row) throw PlatformError.notFound('LifecycleDelivery', input.id);
+  if (row.status === 'sent') {
+    if (input.status !== 'sent' || input.providerRef !== row.providerRef) {
+      throw PlatformError.conflict(`Lifecycle delivery ${row.id} already has different provider evidence`);
+    }
+    return toLifecycleDeliveryDto(row);
+  }
+  const updated = await repository.update(ctx.tx, row.id, {
+    status: input.status, providerRef: input.providerRef,
+    attempts: row.attempts + 1, lastError: input.status === 'failed' ? input.error! : null,
+    sentAt: input.status === 'sent' ? ctx.now : null, updatedAt: ctx.now,
+  });
+  if (!updated) throw PlatformError.internal(`Lifecycle delivery ${row.id} disappeared`);
+  return toLifecycleDeliveryDto(updated);
+};
