@@ -326,7 +326,7 @@ describe('Base HTTP input boundary', () => {
       cors.credentials = false;
       withoutCredentials = await createReleaseServer({ runtime, httpAdapter, release: { version: 'test', configPath: '<test>' } });
       const catalog = (withoutCredentials.getHttpAdapter().getInstance() as HttpRouteCatalogCarrier).storeweaveHttpCatalog!;
-      expect(catalog).toHaveLength(78);
+      expect(catalog).toHaveLength(79);
       expect(catalog.find(route => route.kind === 'cors-preflight')).toMatchObject({
         method: 'OPTIONS', path: '*', automaticRoute: true, auth: 'unauthenticated', request: 'headers', rateLimit: null,
         policy: { allowedOrigins: ['https://console.example'], credentials: false,
