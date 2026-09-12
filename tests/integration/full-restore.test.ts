@@ -1,16 +1,20 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, createReadStream, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { Client } from 'pg';
+import semver from 'semver';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterEach, expect, it, vi } from 'vitest';
 import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
 import { release } from '@storeweave/selected-release';
-import { catalogDigest } from '@storeweave/db';
-import { commerceConfigSchema } from '@storeweave/config';
+import { catalogDigest, sqlMigration } from '@storeweave/db';
+import { commerceConfigSchema, type CommerceConfig } from '@storeweave/config';
+import { defineModule, Worker } from '@storeweave/kernel';
+import type { ReleaseDefinition } from '../../packages/platform/bundle/src/release';
+import { ADMIN_ACTOR } from './helpers';
 import { runFullRestore } from '../../tools/cli/src/full-restore';
 import { discardFullRecovery, listFullRecoveries } from '../../tools/cli/src/full-recovery-discard';
 import { readFullRecoveryJournal } from '../../tools/cli/src/full-recovery-journal';
@@ -91,6 +95,178 @@ it('recovers a complete bundle into a clean configured database and preserves re
       expect(opened.object).toMatchObject({ storageKey: saved.storageKey, sha256: createHash('sha256').update(payload).digest('hex') });
     } finally { await restored.close(); }
   } finally { await runtime.close(); }
+});
+
+it('upgrades DB, pending work and private media together, rejects mixed releases, and restores the source recovery point', async () => {
+  root = mkdtempSync(join(tmpdir(), 'storeweave-b17-release-drill-'));
+  const storageRoot = join(root, 'storage'), bundle = join(root, 'bundle');
+  const operations = join(root, 'operations'), bin = join(root, 'bin');
+  for (const directory of [bundle, operations, bin]) mkdirSync(directory, { mode: 0o700 });
+  container = await new PostgreSqlContainer('postgres:17-alpine').withDatabase('b17_live')
+    .withUsername('commerce').withPassword('b17-release-password').start();
+  installPgWrappers(bin, root);
+  vi.stubEnv('PATH', `${bin}:${process.env.PATH}`);
+  vi.stubEnv('SW_SIGNING_KEY_TEST', Buffer.alloc(32, 17).toString('base64url'));
+  const liveUrl = new URL(container.getConnectionUri());
+  liveUrl.password = 'b17-release-password';
+  const config = configuration(liveUrl.toString(), storageRoot);
+  const configFile = join(root, 'commerce.json');
+  writeFileSync(configFile, JSON.stringify(config), { mode: 0o600 });
+  const maintenance = new URL(liveUrl);
+  maintenance.pathname = '/postgres';
+
+  const source = (await bootstrapRelease(release, {
+    configPath: configFile, loggerName: 'b17-release-source', logDestination: 'stderr',
+  })).runtime;
+  let media!: Awaited<ReturnType<typeof source.media.upload>>;
+  let sourceMedia!: NonNullable<Awaited<ReturnType<typeof source.media.get>>>;
+  let sourceMediaDigests!: { original: string; preview: string };
+  let sourceMediaStorageKeys!: [string, string];
+  let sourceJob!: {
+    id: string; occurrence_id: string; type: string; payload: unknown; payload_version: number; status: string;
+    attempts: number; max_attempts: number; dedupe_key: string | null; run_at: Date;
+  };
+  const siteSentinel = { tagline: 'B17 source release', footerNote: 'restored with the source bundle' };
+  try {
+    await source.migrate();
+    await source.commands.execute('platform.site.updateSettings', siteSentinel, {
+      actor: ADMIN_ACTOR, idempotencyKey: randomUUID(),
+    });
+    media = await source.media.upload({
+      stream: Readable.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64')),
+      originalName: 'b17-release-proof.png', contentType: 'image/png', ownerActorId: 'user:b17-release',
+    });
+    await source.media.process({ assetId: media.id, generation: media.generation }, { signal: new AbortController().signal });
+    const loadedMedia = await source.media.get(media.id);
+    if (!loadedMedia) throw new Error('Processed media disappeared before the source snapshot');
+    sourceMedia = loadedMedia;
+    expect(sourceMedia).toMatchObject({ status: 'ready', originalObjectId: media.originalObjectId,
+      previewObjectId: expect.any(String) });
+    const [sourceOriginal, sourcePreview] = await Promise.all([
+      source.storage.forNamespace('platform-media').open(sourceMedia.originalObjectId),
+      source.storage.forNamespace('platform-media').open(sourceMedia.previewObjectId!),
+    ]);
+    sourceMediaDigests = {
+      original: createHash('sha256').update(await readBuffer(sourceOriginal.content.stream)).digest('hex'),
+      preview: createHash('sha256').update(await readBuffer(sourcePreview.content.stream)).digest('hex'),
+    };
+    sourceMediaStorageKeys = [sourceOriginal.object.storageKey, sourcePreview.object.storageKey];
+    sourceJob = (await source.database.pool.query<typeof sourceJob>(`SELECT id, occurrence_id, type, payload, payload_version, status,
+      attempts, max_attempts, dedupe_key, run_at FROM platform_jobs WHERE dedupe_key = $1`, [`media:process:${media.id}`])).rows[0]!;
+    expect(sourceJob).toMatchObject({ type: 'platform.media.process', status: 'pending', attempts: 0,
+      payload_version: 1, payload: { assetId: media.id, generation: media.generation } });
+
+    await source.withReleaseSnapshot(async (evidence, client) => {
+      const dump = join(bundle, 'database.dump');
+      await writePgBackup(liveUrl.toString(), dump, evidence.snapshotId);
+      const storage = await captureStorageBackup(source, client, bundle);
+      const digest = await digestFile(dump);
+      const manifest = fullBackupSchema.parse({ schemaVersion: 1, kind: 'storeweave-full-backup', createdAt: new Date().toISOString(),
+        release: { id: evidence.release.releaseId, version: evidence.release.releaseVersion, buildManifestChecksum: evidence.release.buildManifestChecksum },
+        endpointChecksum: catalogDigest({ host: liveUrl.hostname, port: liveUrl.port || '5432', database: evidence.database.name }),
+        evidence: (() => { const { snapshotId: _discarded, ...savedEvidence } = evidence; return savedEvidence; })(),
+        database: { file: 'database.dump', byteSize: digest.byteSize, sha256: digest.sha256 }, storage: await writeStorageBackupCatalog(bundle, storage),
+      });
+      writeStorageBackupManifest(bundle, manifest);
+    });
+  } finally { await source.close(); }
+
+  const probeMigration = {
+    module: 'b17-upgrade-probe',
+    migrations: [sqlMigration('0001_candidate_marker', 'migrate', `
+      CREATE TABLE public.b17_upgrade_probe (id integer PRIMARY KEY, marker text NOT NULL);
+      INSERT INTO public.b17_upgrade_probe VALUES (1, 'candidate-only');
+    `)],
+  };
+  const candidate: ReleaseDefinition<CommerceConfig> = {
+    ...release,
+    version: semver.inc(release.version, 'patch')!,
+    createModules: context => [...release.createModules(context), defineModule({
+      name: 'b17-upgrade-probe', version: '0.1.0', baseVersionRange: '^1.0.0',
+      data: { owns: ['b17_upgrade_probe'] }, migrations: probeMigration,
+    })],
+  };
+
+  const prematureCandidate = (await bootstrapRelease(candidate, {
+    configPath: configFile, loggerName: 'b17-premature-candidate', logDestination: 'stderr',
+  })).runtime;
+  await expect(prematureCandidate.activateRelease('require-current'))
+    .rejects.toThrow('Release transition requires the migrate command while writers are stopped');
+
+  const target = (await bootstrapRelease(candidate, {
+    configPath: configFile, loggerName: 'b17-release-target', logDestination: 'stderr',
+  })).runtime;
+  try {
+    await expect(target.migrate()).resolves.toContain('b17-upgrade-probe/0001_candidate_marker');
+    const worker = new Worker(target, { workerId: 'b17-target-worker', concurrency: 1 });
+    await expect(worker.runJobs()).resolves.toEqual({ processed: 1, failed: 0 });
+    expect((await target.database.pool.query('SELECT status FROM platform_jobs WHERE id = $1', [sourceJob.id])).rows)
+      .toEqual([{ status: 'completed' }]);
+    expect((await target.database.pool.query('SELECT marker FROM b17_upgrade_probe')).rows)
+      .toEqual([{ marker: 'candidate-only' }]);
+    expect((await target.database.pool.query('SELECT tagline, footer_note FROM platform_site_settings')).rows)
+      .toEqual([{ tagline: siteSentinel.tagline, footer_note: siteSentinel.footerNote }]);
+    expect(await target.media.get(media.id)).toEqual(sourceMedia);
+    const [targetOriginal, targetPreview] = await Promise.all([
+      target.storage.forNamespace('platform-media').open(sourceMedia.originalObjectId),
+      target.storage.forNamespace('platform-media').open(sourceMedia.previewObjectId!),
+    ]);
+    expect({
+      original: createHash('sha256').update(await readBuffer(targetOriginal.content.stream)).digest('hex'),
+      preview: createHash('sha256').update(await readBuffer(targetPreview.content.stream)).digest('hex'),
+    }).toEqual(sourceMediaDigests);
+  } finally { await target.close(); }
+
+  const staleSource = (await bootstrapRelease(release, {
+    configPath: configFile, loggerName: 'b17-stale-source', logDestination: 'stderr',
+  })).runtime;
+  await expect(staleSource.activateRelease('require-current'))
+    .rejects.toThrow('Release or Base version downgrade requires a verified snapshot rollback');
+
+  for (const storageKey of sourceMediaStorageKeys) {
+    const backingObject = join(storageRoot, 'objects', storageKey);
+    rmSync(backingObject);
+    expect(existsSync(backingObject)).toBe(false);
+  }
+  const recovery = await runFullRestore({ bundleDirectory: bundle, operationRoot: operations,
+    maintenanceUrl: maintenance.toString(), configFile, config });
+  expect(recovery).toMatchObject({ objects: 2, restoredObjects: 2 });
+  expect(recovery.quarantineName).toMatch(/^storeweave_retained_/);
+  const quarantineUrl = new URL(liveUrl);
+  quarantineUrl.pathname = `/${recovery.quarantineName}`;
+  const quarantine = new Client({ connectionString: quarantineUrl.toString() });
+  await quarantine.connect();
+  try {
+    expect((await quarantine.query('SELECT marker FROM b17_upgrade_probe')).rows)
+      .toEqual([{ marker: 'candidate-only' }]);
+    expect((await quarantine.query('SELECT status FROM platform_jobs WHERE id = $1', [sourceJob.id])).rows)
+      .toEqual([{ status: 'completed' }]);
+    expect((await quarantine.query('SELECT release_version FROM platform_release_history ORDER BY sequence DESC LIMIT 1')).rows)
+      .toEqual([{ release_version: candidate.version }]);
+  } finally { await quarantine.end(); }
+
+  const restored = (await bootstrapRelease(release, {
+    configPath: configFile, loggerName: 'b17-restored-source', logDestination: 'stderr',
+  })).runtime;
+  try {
+    await restored.activateRelease('require-current');
+    expect((await restored.database.pool.query(`SELECT id, occurrence_id, type, payload, payload_version, status,
+      attempts, max_attempts, dedupe_key, run_at FROM platform_jobs WHERE id = $1`, [sourceJob.id])).rows)
+      .toEqual([sourceJob]);
+    expect((await restored.database.pool.query('SELECT tagline, footer_note FROM platform_site_settings')).rows)
+      .toEqual([{ tagline: siteSentinel.tagline, footer_note: siteSentinel.footerNote }]);
+    expect((await restored.database.pool.query("SELECT to_regclass('public.b17_upgrade_probe') AS table_name")).rows)
+      .toEqual([{ table_name: null }]);
+    expect(await restored.media.get(media.id)).toEqual(sourceMedia);
+    const [restoredOriginal, restoredPreview] = await Promise.all([
+      restored.storage.forNamespace('platform-media').open(sourceMedia.originalObjectId),
+      restored.storage.forNamespace('platform-media').open(sourceMedia.previewObjectId!),
+    ]);
+    expect({
+      original: createHash('sha256').update(await readBuffer(restoredOriginal.content.stream)).digest('hex'),
+      preview: createHash('sha256').update(await readBuffer(restoredPreview.content.stream)).digest('hex'),
+    }).toEqual(sourceMediaDigests);
+  } finally { await restored.close(); }
 });
 
 function configuration(url: string, storageRoot: string) {
