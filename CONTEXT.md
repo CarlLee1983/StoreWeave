@@ -101,3 +101,49 @@ Cart 上的運送方式可以是未選；未選時運費是**未知**而不是�
 ## 選店回填權杖
 
 一張短期、單次的憑證，用來認出「從物流商的選店頁回來的這個請求，要把門市寫回哪一台 Cart」。它存在的原因是選店回傳是**跨站 POST**，而 session cookie 是 `SameSite=Strict`——那個請求身上沒有任何 cookie，系統不知道回來的是誰。權杖只授權寫回門市這一件事，用掉即失效。
+
+---
+
+# 開發流程詞彙
+
+以下不是產品領域的詞，而是這個 repo 怎麼把需求變成程式碼的詞。它們與上面的商務詞彙分屬兩個層次，
+放在同一份檔案只是為了讓詞彙有單一出處。決策見 ADR 0051。
+
+## Spec
+
+需求與驗收的唯一來源，存在 `docs/specs/`。一份 Spec 描述一個能力要滿足什麼，不描述誰在什麼時候做。
+`docs/specs/README.md` 的狀態欄講的是**這份 Spec 的成熟度**：`ready-for-agent` 意思是「已可據以派工」，
+不是「還沒做」——七份標著它的 Spec 對應的工作多半早已完成。
+
+## Story
+
+一件被人核准過、有邊界、一個 agent 一次做得完的工作，存在 `specs/stories/<id>/`，ID 形如 `SW-001`。
+一張 Story 由 `story.md`（目標、範圍、規則、預期錯誤）與 `acceptance.md`（可勾選的 AC 與證據表）組成，
+`task.md` 是人的工作筆記、不是需求來源。Story 的 In Scope 只能碰一個 package 邊界，跨邊界就拆。
+
+Story **不記錄自己現在處於什麼狀態**。`READY`、`IMPLEMENTING`、`VERIFYING`、`REVIEW`、`DONE` 是講事情時
+共用的詞，不是寫進檔案的欄位；誰做到哪一步由 Story Driver 從證據推導。
+
+## Story Driver
+
+持有工作圖與執行順序、挑出下一張 Story 並派工的控制平面，位於 `scripts/story-driver.mjs`。
+它是 PraxisBound 協定的**外部**角色：協定管一張 Story 怎麼做完並留下證據，Driver 管有哪些工作、
+誰先誰後、現在該做哪一張。Driver 不持有 Story 的生命週期狀態，狀態一律由證據推導。
+
+Driver 的依賴邊界只有三樣：`specs/stories/` 的目錄契約、`make verify` 這個介面、`praxisbound … --json` 的輸出。
+它不認識 StoreWeave 的任何一個 package。
+
+## 工作圖
+
+`specs/graph.toml`，記錄有哪些 Story 以及誰是誰的前置。這是**意圖**——哪些工作、什麼順序——
+與**狀態**（做到哪了）分開存放：機器可讀的依賴邊只寫在這裡，Story 的 `Dependencies` 欄位維持散文給人讀。
+改順序或插隊只動這份檔案，不必重新核准已核准的 Story。
+
+## Ticket
+
+`docs/tickets/` 下的歷史存檔，編號 01–100。**不再新增**，既有的一張都不轉成 Story。
+
+## 工作包
+
+`docs/base-implementation-plan.md` 裡的 `B00`–`B17`，是本機規劃識別，不是 GitHub Issue。
+B17 收尾後不再新增。
