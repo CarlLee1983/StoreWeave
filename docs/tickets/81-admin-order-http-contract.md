@@ -8,7 +8,7 @@
 
 **Blocked by:** —
 
-**Status:** locally-verified（`1f4470d fix(admin): align order HTTP contract`，本輪補齊契約投影／型別接線與 regression coverage；未 commit／push）。
+**Status:** done（2026-09-15 回填：改動已在 `main`，落地 commit `1f4470d fix(admin): align order HTTP contract`，經 `git merge-base --is-ancestor` 確認為 HEAD 的祖先；原本的「未 commit／push」註記寫於提交之前，已過時）。
 
 **Execution:** `gpt-5.6-terra / high`，使用者逐一派工；本票不設定 GitHub assignee。
 

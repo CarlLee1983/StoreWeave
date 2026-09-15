@@ -8,7 +8,7 @@
 
 **Blocked by:** [Ticket 81 / #18](https://github.com/CarlLee1983/StoreWeave/issues/18), [Ticket 84 / #21](https://github.com/CarlLee1983/StoreWeave/issues/21), [Ticket 85 / #22](https://github.com/CarlLee1983/StoreWeave/issues/22), [Ticket 87 / #24](https://github.com/CarlLee1983/StoreWeave/issues/24)
 
-**Status:** done（2026-09-07；本機實作、主代理驗收與 Sol/high 整票終審 PASS；未 commit／push）
+**Status:** done（2026-09-07；本機實作、主代理驗收與 Sol/high 整票終審 PASS）。2026-09-15 回填：改動已在 `main`，本批後台工作的落地 commit 為 `5bac79d feat(admin): add operations workbench and query foundation`（2026-09-08），B13 的 `d830c30` 另補上依權限組裝的導覽與自助頁；兩者皆經 `git merge-base --is-ancestor` 確認為 HEAD 的祖先。原本的「未 commit／push」註記寫於提交之前，已過時。
 
 **Execution:** `gpt-5.6-terra / high`，使用者逐一派工；本票不設定 GitHub assignee。
 
