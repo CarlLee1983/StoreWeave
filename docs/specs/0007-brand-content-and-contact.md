@@ -2,7 +2,7 @@
 
 - 狀態：ready-for-agent
 - 依賴：Spec 0001–0006
-- 相關 ADR：0033（品牌內容是 Core 的 content 模組）、0034（編輯照片仍由 Theme 擁有）、0010（平台對領域中立）、0021（跨模組不加外鍵）、0024（輸入拒絕未知欄位）、0018（匿名寫入端點用 Origin 檢查）
+- 相關 ADR：0033（品牌內容是 Core 的 content 模組）、0034（編輯照片仍由 Theme 擁有）、0010（平台對領域中立）、0021（跨模組不加外鍵）、0024（輸入拒絕未知欄位）、0018（匿名寫入端點用 Origin 檢查）；後續取代本規格部分內容的是 0049（Content 是 Base 模組）、0040（通知是 Base 能力）、0045（模組宣告前台頁面）
 
 ## Problem Statement
 
@@ -38,6 +38,12 @@
 兩張表。不與其他模組加外鍵（ADR 0021）；`content_contact_messages.customer_id` 是選填的
 弱參照，匿名訪客為 null。
 
+> **後續變更（2026-09-15 回填）**：模組實際落在 `packages/platform/content/`，不是
+> `packages/commerce/content`。ADR 0049 決定「Content 是 Base 模組」並執行搬遷：package 名稱、
+> 模組／migration owner `content`、兩張表、`content/0001_init` 以及所有 `commerce.content.*`
+> 的 command／query／event／page id 與前台 URL 都保留，這是位置變更而非重新命名。
+> 資料所有權的結論不變，只有所在層級改了。
+
 ### 2. Article 模型
 
 單一 `content_articles`，`kind ∈ story | journal | news | faq`，`status ∈ draft | published`。
@@ -57,6 +63,10 @@ Command：`createArticle`、`updateArticle`、`publishArticle`、`unpublishArtic
 前台與後台走**不同的 query**，而不是同一支加參數。理由是「只回已發布」是前台的不變式，
 它不該由呼叫端記得傳對旗標來維持。
 
+> **後續變更（2026-09-15 回填）**：前台列表 query 實際命名為 `listPublishedArticles`
+> （`packages/platform/content/src/queries.ts:16`），不是本節寫的 `getPublishedArticles`；
+> 語意相同，只是命名與 `listArticles` 對齊。「前後台走不同 query」這條決策本身不變。
+
 ### 4. 權限
 
 `content:read`（後台讀，含草稿）、`content:write`（後台寫）、`content:public-read`（前台讀已發布）、
@@ -74,12 +84,23 @@ SSR 表單 POST，沿用既有 Origin 檢查。另加 honeypot 隱藏欄位與�
 要接上它得先改它的收件人模型，那是 notification 自己的邊界，不該由這一輪順手改。
 事件已經發出，日後補一個訂閱者即可，不必回頭改 content。
 
+> **後續變更（2026-09-15 回填）**：這一輪之後已經寄信。ADR 0040 把通知變成 Base 能力、
+> ADR 0049 讓網站設定可綁定聯絡通知收件人，`packages/platform/content/src/commands.ts:54-55`
+> 因此在同一筆 contact transaction 建立 `site.contact.submitted` 通知，未設定收件人時仍走原本的收件匣流程
+> （`tests/integration/base-release.test.ts:231,245`）。本節「不寄信」的理由——notification 模組綁訂單——
+> 已隨那兩篇 ADR 消失。
+
 ### 6. Theme 契約
 
 `packages/platform/kernel/src/theme.ts` 的 journal `any` 換成 `ThemeArticleView` /
 `ThemeArticleListView`；`isStoryPublished?` / `isJournalPublished?` / `isJournalArticlePublished?`
 三支刪除（ADR 0033）；新增 `renderNewsList?` / `renderNewsArticle?` / `renderFaq?` / `renderContact?`
 四支選配 render。`packages/themes/default/src/brand-content.ts` 刪除。
+
+> **後續變更（2026-09-15 回填）**：四支選配 render 的形式已被 ADR 0045（模組宣告前台頁面，
+> Theme 只提供渲染）與 Spec 0010 的「page id → renderer 對照表」取代，不再是 `kernel/src/theme.ts`
+> 上的選配方法。行為等價：`packages/platform/content/src/pages.ts` 宣告頁面，
+> `packages/themes/default/src/index.ts:1337-1341` 提供對應 renderer。刪除 `brand-content.ts` 已完成。
 
 ### 7. Storefront 路由
 

@@ -2,7 +2,7 @@
 
 - 狀態：ready-for-agent
 - 依賴：無（這是第一層，其餘規格都建立在它上面）
-- 相關 ADR：0014（顧客身分）、0012（操作者身分）、0010（平台領域中立）
+- 相關 ADR：0014（顧客身分）、0012（操作者身分）、0010（平台領域中立）；後續取代本規格〈通知〉一節的是 0040（通知是 Base 能力）
 
 ## Problem Statement
 
@@ -86,6 +86,13 @@
   provider 契約中。Core 只認得介面（寄出一封具名樣板信給某個收件者），實作是 Extension。
 - 本規格提供一個開發用的 mock notification provider，與 mock-payment 同性質。
 - 密碼重設是第一個使用者。後續規格的生日禮券通知會沿用同一個 Provider。
+
+> **後續變更（2026-09-15 回填）**：這一節沒有落地，而且是刻意的。ADR 0040 決定
+> 「通知是 Base 能力，模組以 `bindPorts` 取得它」，因此 Extension SDK 的 provider kind
+> 仍是 `payment`／`shipping`／`erp`／`invoice` 四種（`packages/platform/extension-sdk/src/manifest.ts:11`），
+> 沒有第四種 `notification`。密碼重設信改由平台自己的 `packages/platform/mail` 寄出
+> （`packages/platform/identity/src/mail-templates.ts`），生日禮券通知也走同一條路。
+> 判定以 ADR 0040 為準，本節保留原文只為記錄當時的設計意圖。
 
 ### 密碼重設
 
