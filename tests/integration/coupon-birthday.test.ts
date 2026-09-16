@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { bucketFor, occurrenceKeyFor } from '@storeweave/kernel';
-import { ADMIN_ACTOR, createCustomer, createHarness, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createCustomer, createHarness, settleWorker, type TestHarness } from './helpers';
 
 /** 生日禮券（工單 35）。 */
 
@@ -41,6 +41,14 @@ const issueBirthday = (on?: Date) =>
 
 const couponsOf = (customerId: string) =>
   h.runtime.queries.execute<any>('commerce.coupon.listCoupons', { customerId }, { actor: ADMIN_ACTOR });
+
+/** 通知是 base 能力：寄給誰、用哪個模板、帶什麼變數都留在 platform_notifications。 */
+async function sentTo(email: string): Promise<any[]> {
+  const rows = await h.runtime.database.db.execute<{ template_id: string; variables: any; reference: string }>(sql`
+    SELECT template_id, variables, reference FROM platform_notifications WHERE recipient_email = ${email}
+  `);
+  return rows.rows.map((row) => ({ template: row.template_id, variables: row.variables, reference: row.reference }));
+}
 
 /** 建一位有生日的會員。生日只有客服改得動，測試走那支命令。 */
 async function customerBornOn(birthday: string | null, tag: string) {
@@ -124,5 +132,17 @@ describe('生日禮券', () => {
     expect(rows.rows).toHaveLength(3);
     expect(rows.rows.every((r) => r.status === 'completed')).toBe(true);
     expect(rows.rows.map((r) => r.dedupe_key)).toContain(occurrenceKeyFor(BIRTHDAY_JOB, bucketFor(t0, DAY)));
+  });
+
+  it('壽星收到通知', async () => {
+    await birthdayPromotion();
+    const star = await customerBornOn('1992-04-18', 'notify');
+
+    await issueBirthday(new Date('2026-04-18T02:00:00.000Z'));
+    await settleWorker(h.worker);
+
+    const sent = await sentTo(star.email);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].template).toBe('customer.coupon-birthday');
   });
 });

@@ -145,6 +145,19 @@ describe('Spec 0007: 品牌內容與聯絡我們', () => {
     await expect(h.runtime.queries.execute('commerce.content.listContactMessages', {}, { actor: STOREFRONT_ACTOR })).rejects.toThrow();
   });
 
+  it('送出聯絡訊息會發出 commerce.content.contact.submitted.v1', async () => {
+    const message = await h.runtime.commands.execute<any>('commerce.content.submitContactMessage',
+      { name: '張先生', email: 'ask@example.com', subject: '出貨進度', message: '訂單什麼時候會出貨？' },
+      { actor: STOREFRONT_ACTOR, idempotencyKey: randomUUID() });
+
+    const rows = await h.runtime.database.db.execute<{ event_name: string; payload: any }>(sql`
+      SELECT event_name, payload FROM platform_outbox WHERE payload->>'messageId' = ${message.id}
+    `);
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0].event_name).toBe('commerce.content.contact.submitted.v1');
+    expect(rows.rows[0].payload).toMatchObject({ messageId: message.id, subject: '出貨進度' });
+  });
+
   it('old 0001 content data upgrades in place: article and contact identities survive 0002', async () => {
     const database = new Client({ connectionString: await createTestDatabase() });
     await database.connect();
