@@ -126,18 +126,24 @@ Story **不記錄自己現在處於什麼狀態**。`READY`、`IMPLEMENTING`、`
 
 ## Story Driver
 
-持有工作圖與執行順序、挑出下一張 Story 並派工的控制平面，位於 `scripts/story-driver.mjs`。
-它是 PraxisBound 協定的**外部**角色：協定管一張 Story 怎麼做完並留下證據，Driver 管有哪些工作、
-誰先誰後、現在該做哪一張。Driver 不持有 Story 的生命週期狀態，狀態一律由證據推導。
+持有工作圖與執行順序、挑出下一張 Story 並派工的控制平面。它是 PraxisBound 協定的**外部**角色：
+協定管一張 Story 怎麼做完並留下證據，Driver 管有哪些工作、誰先誰後、現在該做哪一張。
+協定明文把 current state 指給這個角色，所以 Driver **是**持有狀態的那一方——被禁止的是把狀態
+寫進 Story 檔案，不是禁止 Driver 記住它。
 
-Driver 的依賴邊界只有三樣：`specs/stories/` 的目錄契約、`make verify` 這個介面、`praxisbound … --json` 的輸出。
-它不認識 StoreWeave 的任何一個 package。
+由誰扮演這個角色尚未選定：候選是既有的 ForgePilot（Go 寫的 Engineering Control Plane，
+狀態存 `.forgepilot/state.json`），或在本 repo 自寫一支。選定前 StoreWeave 沒有 Story Driver。
+無論由誰扮演，依賴邊界都只有三樣：`specs/stories/` 的目錄契約、`make verify` 這個介面、
+以及協定 CLI 的機器可讀輸出；它不認識 StoreWeave 的任何一個 package。見 ADR 0051。
 
 ## 工作圖
 
-`specs/graph.toml`，記錄有哪些 Story 以及誰是誰的前置。這是**意圖**——哪些工作、什麼順序——
-與**狀態**（做到哪了）分開存放：機器可讀的依賴邊只寫在這裡，Story 的 `Dependencies` 欄位維持散文給人讀。
-改順序或插隊只動這份檔案，不必重新核准已核准的 Story。
+記錄有哪些 Story 以及誰是誰的前置。這是**意圖**——哪些工作、什麼順序——與**狀態**（做到哪了）
+分開的概念：機器可讀的依賴邊集中在工作圖，Story 的 `Dependencies` 欄位維持散文給人讀，
+改順序或插隊不必重新核准已核准的 Story。
+
+它存在哪由 Story Driver 的選擇決定：ForgePilot 把它存成 Work Item 的 `depends_on`，
+自寫則是 repo 內一份 `specs/graph.toml`。見 ADR 0051。
 
 ## Ticket
 

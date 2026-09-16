@@ -1,6 +1,6 @@
 # 0051. 工作圖與順序由 Story Driver 持有，Story 只描述一件工作
 
-- 狀態：accepted
+- 狀態：accepted（決策 1 與 3 於 2026-09-16 更正，見文末）
 - 日期：2026-09-15
 
 ## 背景
@@ -79,6 +79,36 @@ agent 的指令書，`Makefile` 的規則刻意寫成字面值好讓 Doctor 靜�
   真實 Story 可餵——100 張 Ticket 有 94 張完成，其餘卡在外部開通。兩者任一未解除前不 bootstrap、
   不建 `specs/stories/`、不寫 `scripts/story-driver.mjs`。解除條件：上游 CLI 遷移完成且介面穩定，
   並且出現第一個真實案子或 B17 剩餘工作確定作為試跑材料。
+
+## 2026-09-16 更正：ForgePilot 已經是這個控制平面
+
+寫這篇時我沒有查到 `CarlLee1983/ForgePilot`（本機 `/Users/carl/Dev/CMG/ForgePilot`），
+只搜了 `/Users/carl/Dev/Carl` 一棵樹。它的自我描述就是本篇決策 1 要蓋的東西：
+「Engineering Control Plane — durable work queue, verification evidence bound to exact
+revisions, and human decision gates」。Go、零外部相依、318 個測試、23 篇 ADR，
+並且已在 AgentPort（16 個 Work Item 全 DONE、67 筆 Evidence、34 個 Gate）與
+Dbcli（27 個 Work Item 全 DONE、81 筆 Evidence）上實跑過。
+
+因此兩件事要改：
+
+**決策 3 的「狀態不儲存」是一次誤推，此處更正。** PraxisBound 的 `protocol/lifecycle.md`
+禁止的是把 current／next／status／Gate／completion 寫進 **Story 檔案**，不是禁止控制平面
+持有狀態——它明文把 current state 指給外部 control plane。ForgePilot 把狀態存成
+`.forgepilot/state.json`（schema v8、flock＋原子替換、`init` 時寫進 `.gitignore`），
+完全符合該規則。本篇原本寫的「不儲存、每輪由證據推導」把「不寫進 Story」錯推成
+「完全不存」，那三條推導判準因此是解決一個不存在的限制。
+
+**決策 1 重開為未決問題。** 在「採用 ForgePilot」與「在 StoreWeave 自寫
+`scripts/story-driver.mjs`」之間尚未選定；在選定之前，兩者都不動工。已知的落差是
+ForgePilot 目前綁的仍是 ForgeFlowV2：全 repo grep `praxisbound`、`story-check`、
+`verification-check` 零命中，`internal/repository/repository.go:31-33` 只硬編碼檢查
+`<root>/specs/stories` 是否存在、不解析 Story 內容也不呼叫任何 CLI，其 `CONTEXT.md`
+自承尚未真正接上（ADR-0013）。狀態名亦不同：PraxisBound 的 `DRAFT`／`IMPLEMENTING`
+在 ForgePilot 是 `PENDING`／`RUNNING`。此外 ForgePilot 只有 `codex` 與測試用 `fake`
+兩個 runtime，沒有 claude adapter；其 budget 是 `max_attempts_per_work 3`，
+與本篇決策 6 的上限 2 不同。
+
+其餘決策（2、4 的 agent 中立、5、6 的「agent 不得改需求脫困」、7）不受此更正影響。
 
 ## Falsified if
 
