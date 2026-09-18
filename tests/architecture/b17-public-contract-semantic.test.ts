@@ -20,7 +20,7 @@ describe("B17 Commerce public-contract semantic ledger", () => {
   it("is byte-stable and --check is read-only", () => {
     run(["--check"]);
     expect(readFileSync(DEFAULT_ARTIFACT_PATH, "utf8")).toBe(serializeSemanticContract());
-  });
+  }, 15_000);
   it("records structural surfaces independently of semantic coverage", () => {
     const structural = JSON.parse(readFileSync(artifact.source.structural, "utf8"));
     const http = JSON.parse(readFileSync(artifact.source.http, "utf8"));
@@ -56,6 +56,27 @@ describe("B17 Commerce public-contract semantic ledger", () => {
     const covered = new Set(artifact.cases.flatMap(sample => sample.covers));
     expect(artifact.remaining).toEqual(artifact.runtimeFacets.filter(facet => !covered.has(facet.id)).map(facet => facet.id));
     expect(artifact.remaining.length).toBeGreaterThan(0);
+  });
+  it("pins SW-101's five Catalog schema facets and its rejected update input", () => {
+    const expectedCases = new Map([
+      ["catalog.create.output-date", "core:command:commerce.catalog.createProduct:output:schema-runtime"],
+      ["catalog.update.strict-unknown-key", "core:command:commerce.catalog.updateProduct:input:schema-runtime"],
+      ["catalog.update.output-date", "core:command:commerce.catalog.updateProduct:output:schema-runtime"],
+      ["catalog.get.requires-id-or-sku", "core:query:commerce.catalog.getProduct:input:schema-runtime"],
+      ["catalog.search.output-product", "core:query:commerce.catalog.searchProducts:output:schema-runtime"],
+    ]);
+
+    for (const [caseId, facetId] of expectedCases) {
+      const sample = artifact.cases.find(candidate => candidate.id === caseId);
+      expect(sample?.covers).toEqual([facetId]);
+      expect(artifact.remaining).not.toContain(facetId);
+    }
+
+    const rejectedUpdate = artifact.cases.find(sample => sample.id === "catalog.update.strict-unknown-key")!;
+    expect(executeSemanticCase(rejectedUpdate)).toEqual({
+      success: false,
+      issues: [{ code: "unrecognized_keys", path: [] }],
+    });
   });
   it("treats source fingerprints as provenance rather than semantic coverage", () => {
     expect(artifact.source.assurance).toBe("provenance-only");

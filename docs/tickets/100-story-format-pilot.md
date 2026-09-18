@@ -4,14 +4,21 @@
 
 **Blocked by:** 一張尚未開始、可在單一 package 邊界完成的真工作（99 已完成）
 
-**Status:** blocked（等下一張符合邊界的真實工作確定）
+**Status:** done（2026-09-18；以 SW-101 的 Catalog semantic ledger 真實工作完成試點）
 
-- [ ] 新增 `specs/stories/`，用 `SW-<digits>` 這種 ID（實測 `SW-1` 通過文法；既有的裸數字檔名全部不合格）
-- [ ] 試點工作寫成 `story.md` + `acceptance.md`，`scripts/story-check --ready` 回 `STORY_CONTRACT_OK`
-- [ ] 走完 `READY → IMPLEMENTING → VERIFYING → REVIEW`，`make verify` 通過
-- [ ] 記錄 `verification.md`，每一條 acceptance criterion 都有 passing evidence；`scripts/verification-check --result` 回 `VERIFICATION_PASS`
-- [ ] Doctor 回 `STRUCTURE_OK`
-- [ ] 跑完回報四件事：哪裡比現在的工單好、哪裡更糟、`Authority` 逐項宣告的實際摩擦、以及既有工單與新 Story 兩個入口怎麼並存
+- [x] 新增 `specs/stories/`，用 `SW-<digits>` 這種 ID（實測 `SW-1` 通過文法；既有的裸數字檔名全部不合格）
+- [x] 試點工作寫成 `story.md` + `acceptance.md`；ForgeFlowV2 的 `story-check --ready` 回 `STORY_CONTRACT_OK`
+- [x] 走完 `READY → IMPLEMENTING → VERIFYING → REVIEW`，`make verify` 通過
+- [x] 記錄 `verification.md`，每一條 acceptance criterion 都有 passing evidence；ForgeFlowV2 的 `verification-check --result` 回 `VERIFICATION_PASS`
+- [x] Doctor 回 `STRUCTURE_OK`
+- [x] 跑完回報四件事：哪裡比現在的工單好、哪裡更糟、`Authority` 逐項宣告的實際摩擦、以及既有工單與新 Story 兩個入口怎麼並存
+
+## 試點結論（SW-101）
+
+* **比既有工單好：** scope、輸入／輸出與每條 AC 的可執行證據在同一個小工件裡；`verification-check` 可機械拒絕沒有證據的完成宣告。
+* **更糟：** 對只有五個 schema case 的小變更，Story 三檔與驗證紀錄有可感的文書成本；檢查器仍在 ForgeFlowV2 checkout，StoreWeave 尚未有受版本控制的本地入口。
+* **Authority 的實際摩擦：** `commit`、`push`、migration 與依賴都明確為 no，因此實作結束時必須停在未提交工作樹並交還該決定；這是有益且真實的停點，但每張 Story 都要逐項判定。
+* **兩種入口並存：** 新的、可切成明確 product boundary 的實作工作以 `specs/stories/` 為入口；`docs/tickets/` 保留歷史、discovery、跨期敘事與尚未切成 Story 的待辦。既有 01–99 不轉換。
 
 ## 跑完之後要決定的
 

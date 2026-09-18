@@ -1,6 +1,6 @@
 {
-  "caseCount": 140,
-  "caseDigest": "e6fdf48bca6805c4f6550a7857ab68c07eb2c194191c1fb30fadf4108f96c1da",
+  "caseCount": 145,
+  "caseDigest": "a60ae729f7575797430d042550d13fc9805004f2c6b6fd1cc034d2735ac512eb",
   "cases": [
     {
       "accepted": {
@@ -97,6 +97,57 @@
       }
     },
     {
+      "accepted": {
+        "createdAt": "2025-01-02T03:04:05.000Z",
+        "currency": "TWD",
+        "description": null,
+        "id": "11111111-1111-4111-8111-111111111111",
+        "name": "Created",
+        "priceCents": 2,
+        "sku": "SKU-2",
+        "status": "active",
+        "updatedAt": "2025-01-02T03:04:05.000Z"
+      },
+      "behaviorId": "zod-behavior",
+      "context": {},
+      "covers": [
+        "core:command:commerce.catalog.createProduct:output:schema-runtime"
+      ],
+      "expected": {
+        "data": {
+          "createdAt": "2025-01-02T03:04:05.000Z",
+          "currency": "TWD",
+          "description": null,
+          "id": "11111111-1111-4111-8111-111111111111",
+          "name": "Created",
+          "priceCents": 2,
+          "sku": "SKU-2",
+          "status": "active",
+          "updatedAt": "2025-01-02T03:04:05.000Z"
+        },
+        "success": true
+      },
+      "id": "catalog.create.output-date",
+      "input": {
+        "createdAt": "2025-01-02T03:04:05.000Z",
+        "currency": "TWD",
+        "description": null,
+        "id": "11111111-1111-4111-8111-111111111111",
+        "name": "Created",
+        "priceCents": 2,
+        "sku": "SKU-2",
+        "status": "active",
+        "updatedAt": "2025-01-02T03:04:05.000Z"
+      },
+      "runner": "schema",
+      "surfaceId": "core:command:commerce.catalog.createProduct:output",
+      "target": {
+        "kind": "command",
+        "name": "commerce.catalog.createProduct",
+        "side": "output"
+      }
+    },
+    {
       "behaviorId": "zod-behavior",
       "context": {},
       "covers": [
@@ -129,6 +180,37 @@
       "target": {
         "kind": "command",
         "name": "commerce.catalog.createProduct",
+        "side": "input"
+      }
+    },
+    {
+      "behaviorId": "zod-behavior",
+      "context": {},
+      "covers": [
+        "core:query:commerce.catalog.getProduct:input:schema-runtime"
+      ],
+      "expected": {
+        "issues": [
+          {
+            "code": "custom",
+            "path": []
+          }
+        ],
+        "success": false
+      },
+      "id": "catalog.get.requires-id-or-sku",
+      "input": {},
+      "issues": [
+        {
+          "code": "custom",
+          "path": []
+        }
+      ],
+      "runner": "schema",
+      "surfaceId": "core:query:commerce.catalog.getProduct:input",
+      "target": {
+        "kind": "query",
+        "name": "commerce.catalog.getProduct",
         "side": "input"
       }
     },
@@ -223,6 +305,158 @@
       "target": {
         "kind": "query",
         "name": "commerce.catalog.searchProducts",
+        "side": "input"
+      }
+    },
+    {
+      "accepted": {
+        "items": [
+          {
+            "createdAt": "2025-01-02T03:04:05.000Z",
+            "currency": "TWD",
+            "description": null,
+            "id": "11111111-1111-4111-8111-111111111111",
+            "name": "Listed",
+            "priceCents": 4,
+            "sku": "SKU-4",
+            "status": "draft",
+            "updatedAt": "2025-01-02T03:04:05.000Z"
+          }
+        ],
+        "total": 1
+      },
+      "behaviorId": "zod-behavior",
+      "context": {},
+      "covers": [
+        "core:query:commerce.catalog.searchProducts:output:schema-runtime"
+      ],
+      "expected": {
+        "data": {
+          "items": [
+            {
+              "createdAt": "2025-01-02T03:04:05.000Z",
+              "currency": "TWD",
+              "description": null,
+              "id": "11111111-1111-4111-8111-111111111111",
+              "name": "Listed",
+              "priceCents": 4,
+              "sku": "SKU-4",
+              "status": "draft",
+              "updatedAt": "2025-01-02T03:04:05.000Z"
+            }
+          ],
+          "total": 1
+        },
+        "success": true
+      },
+      "id": "catalog.search.output-product",
+      "input": {
+        "items": [
+          {
+            "createdAt": "2025-01-02T03:04:05.000Z",
+            "currency": "TWD",
+            "description": null,
+            "id": "11111111-1111-4111-8111-111111111111",
+            "name": "Listed",
+            "priceCents": 4,
+            "sku": "SKU-4",
+            "status": "draft",
+            "updatedAt": "2025-01-02T03:04:05.000Z"
+          }
+        ],
+        "total": 1
+      },
+      "runner": "schema",
+      "surfaceId": "core:query:commerce.catalog.searchProducts:output",
+      "target": {
+        "kind": "query",
+        "name": "commerce.catalog.searchProducts",
+        "side": "output"
+      }
+    },
+    {
+      "accepted": {
+        "createdAt": "2025-01-02T03:04:05.000Z",
+        "currency": "TWD",
+        "description": "Now described",
+        "id": "11111111-1111-4111-8111-111111111111",
+        "name": "Revised",
+        "priceCents": 3,
+        "sku": "SKU-3",
+        "status": "archived",
+        "updatedAt": "2025-01-02T03:04:05.000Z"
+      },
+      "behaviorId": "zod-behavior",
+      "context": {},
+      "covers": [
+        "core:command:commerce.catalog.updateProduct:output:schema-runtime"
+      ],
+      "expected": {
+        "data": {
+          "createdAt": "2025-01-02T03:04:05.000Z",
+          "currency": "TWD",
+          "description": "Now described",
+          "id": "11111111-1111-4111-8111-111111111111",
+          "name": "Revised",
+          "priceCents": 3,
+          "sku": "SKU-3",
+          "status": "archived",
+          "updatedAt": "2025-01-02T03:04:05.000Z"
+        },
+        "success": true
+      },
+      "id": "catalog.update.output-date",
+      "input": {
+        "createdAt": "2025-01-02T03:04:05.000Z",
+        "currency": "TWD",
+        "description": "Now described",
+        "id": "11111111-1111-4111-8111-111111111111",
+        "name": "Revised",
+        "priceCents": 3,
+        "sku": "SKU-3",
+        "status": "archived",
+        "updatedAt": "2025-01-02T03:04:05.000Z"
+      },
+      "runner": "schema",
+      "surfaceId": "core:command:commerce.catalog.updateProduct:output",
+      "target": {
+        "kind": "command",
+        "name": "commerce.catalog.updateProduct",
+        "side": "output"
+      }
+    },
+    {
+      "behaviorId": "zod-behavior",
+      "context": {},
+      "covers": [
+        "core:command:commerce.catalog.updateProduct:input:schema-runtime"
+      ],
+      "expected": {
+        "issues": [
+          {
+            "code": "unrecognized_keys",
+            "path": []
+          }
+        ],
+        "success": false
+      },
+      "id": "catalog.update.strict-unknown-key",
+      "input": {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "ignored": true,
+        "name": "Revised"
+      },
+      "issues": [
+        {
+          "code": "unrecognized_keys",
+          "path": []
+        }
+      ],
+      "runner": "schema",
+      "surfaceId": "core:command:commerce.catalog.updateProduct:input",
+      "target": {
+        "kind": "command",
+        "name": "commerce.catalog.updateProduct",
         "side": "input"
       }
     },
@@ -33475,9 +33709,6 @@
     "core:command:commerce.cart.setCartItemQuantity:input:schema-runtime",
     "core:command:commerce.cart.setCartItemQuantity:output:schema-runtime",
     "core:command:commerce.cart.setRewardRedemption:output:schema-runtime",
-    "core:command:commerce.catalog.createProduct:output:schema-runtime",
-    "core:command:commerce.catalog.updateProduct:input:schema-runtime",
-    "core:command:commerce.catalog.updateProduct:output:schema-runtime",
     "core:command:commerce.content.createArticle:input:schema-runtime",
     "core:command:commerce.content.createArticle:output:schema-runtime",
     "core:command:commerce.content.deleteArticle:input:schema-runtime",
@@ -33668,8 +33899,6 @@
     "core:job:platform.notification.deliver:v1:schema-runtime",
     "core:query:commerce.cart.getCart:input:schema-runtime",
     "core:query:commerce.cart.getCart:output:schema-runtime",
-    "core:query:commerce.catalog.getProduct:input:schema-runtime",
-    "core:query:commerce.catalog.searchProducts:output:schema-runtime",
     "core:query:commerce.content.getArticle:input:schema-runtime",
     "core:query:commerce.content.getArticle:output:schema-runtime",
     "core:query:commerce.content.getContactMessage:input:schema-runtime",

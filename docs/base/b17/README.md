@@ -35,12 +35,12 @@ B17 把既有 B00–B16 的證據接成可重跑的驗收入口。這一輪沒�
   `1f9c5563cd8cada3c51a797a121bd3a21c17ced22329eb9e6091da8f66c7066a`。
 - `commerce-public-contract.semantic.v2.json` 把 schema／route／source hash 明確降為 provenance，不再拿
   digest 冒充行為覆蓋。它為 composed Commerce registry 與 HTTP catalog 的 586 個 surfaces 重算 703 個
-  category-specific runtime facets，現有 140 個 executable
+  category-specific runtime facets，現有 145 個 executable
   cases 只綁到自己實際驗證的 facet：24 個 composed core schema cases、ECPay logistics 的 5 個
   `superRefine` branches、4 個 MCP input→mapper→target/idempotency flows，以及 107 個實際 bus/composed
-  HTTP input mappings。其餘 565 個 facet 逐一列在 `remaining`；這個範圍內任一新增 surface/facet 沒有 case
+  HTTP input mappings。其餘 560 個 facet 逐一列在 `remaining`；這個範圍內任一新增 surface/facet 沒有 case
   時會 fail-close 留在該清單。artifact SHA-256 為
-  `17ff4407a2421617490fcc2a71daff1b2d41c65989a8b04c89e293e268b91204`。這個 v2 ledger 讓 semantic 缺口可
+  `3207b5cff19dc7f499536ed982ba759690fb9f5a392586f59b49948c6fe27355`。這個 v2 ledger 讓 semantic 缺口可
   機械追蹤，但仍不是完整 semantic catalog，也不涵蓋 SDK exports、runtime config keys 或 CLI commands，
   更不宣稱有限 probes 能枚舉任意 predicate 的所有 input domain，因此完整 public-contract gate 保持 pending。
 - [F01–F16 owner audit](f01-f16-owner-audit.md) 已把各能力的 implementation、文件、故障測試、caller
