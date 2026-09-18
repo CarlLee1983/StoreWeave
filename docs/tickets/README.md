@@ -2,7 +2,7 @@
 
 **完整基底派工規劃**：請讀 [Spec 0009](../specs/0009-complete-modular-base.md) 與
 [Base 執行計畫](../base-implementation-plan.md)，B00–B17 為本機工作包，尚非 GitHub 工單。
-Spec0008 Ticket81–90 已於2026-09-07完成本機驗收與指定獨立審查；未commit／push。後續入口為Base B00。
+Spec 0008 的 Ticket 81–90 已完成本機驗收與指定獨立審查，且已合入 `main`。Base B00–B16 已交付；B17 的技術驗收已完成，完整驗收仍待外部 staging、semantic contract coverage 與產品驗證，詳見 [B17 驗收矩陣](../base/b17/acceptance.md)。
 
 切換模型或新對話接手後台實作，先讀 [Spec 0008 實作交接](../admin-implementation-handoff.md)。
 
@@ -19,7 +19,7 @@ GitHub 派工入口：[Spec 0008 總單 #17](https://github.com/CarlLee1983/Stor
 [docs/research/91-forgeflow-protocol-adoption.md](../research/91-forgeflow-protocol-adoption.md)——
 ForgeFlowV2 是開發協定，不是 workflow engine，所以「整合」是這個 repo 要不要採用一套流程契約。
 拆成 [99](99-make-verify-and-agents-guide.md)（`make verify` 與 `AGENTS.md`，獨立有價值）與
-[100](100-story-format-pilot.md)（Story 格式試點，等 B14 第一張工作）。既有 01–99 不轉換。
+[100](100-story-format-pilot.md)（Story 格式試點，等待下一張尚未開始的真實工作）。既有 01–99 不轉換。
 
 **認證頁面遷移（2026-09-10）**：[Spec 0010](../specs/0010-auth-pages-as-declared-pages.md) 拆為
 92–98，決策見 [ADR 0047](../adr/0047-session-is-a-page-outcome.md)。92 是預備工且必須先做——

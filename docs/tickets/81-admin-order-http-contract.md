@@ -41,11 +41,11 @@
 
 ## Acceptance Criteria
 
-- [ ] Admin 的 status、adjustment source 由同一權威來源推導；保留明確欄位投影，不再手抄 union。
-- [ ] HTTP 日期在 Admin 是字串；nullable、reward adjustment 與既有 staff 投影可安全使用；現有 API JSON shape 不變。
-- [ ] awaiting_payment 可用三語顯示、篩選並計入待付款分類；action 只呈現既有 command 允許的能力，不新增付款／取消／退款規則。
-- [ ] 一個具代表性的 regression fixture 同時含 awaiting_payment、reward adjustment 與 JSON 日期；驗證清單、篩選及顯示，不以 as assertion 隱藏差異。
-- [ ] Admin 獨立 tsconfig、Vitest 與 Vite 能解析型別；production bundle 沒有新增 Nest／Drizzle／pg／Node runtime。
+- [x] Admin 的 status、adjustment source 由同一權威來源推導；保留明確欄位投影，不再手抄 union。
+- [x] HTTP 日期在 Admin 是字串；nullable、reward adjustment 與既有 staff 投影可安全使用；現有 API JSON shape 不變。
+- [x] awaiting_payment 可用三語顯示、篩選並計入待付款分類；action 只呈現既有 command 允許的能力，不新增付款／取消／退款規則。
+- [x] 一個具代表性的 regression fixture 同時含 awaiting_payment、reward adjustment 與 JSON 日期；驗證清單、篩選及顯示，不以 as assertion 隱藏差異。
+- [x] Admin 獨立 tsconfig、Vitest 與 Vite 能解析型別；production bundle 沒有新增 Nest／Drizzle／pg／Node runtime。
 
 ## Verification
 

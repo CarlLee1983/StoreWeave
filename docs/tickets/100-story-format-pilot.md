@@ -1,13 +1,13 @@
 # 100 — 用一張真工作試 Story 格式
 
-**What to build:** 拿 B14 的第一張真工作當試點，照 ForgeFlow 的 Story 格式寫一遍、走完一次生命週期，然後回答「這套流程適不適合 StoreWeave」。不是寫一張示範用的空 Story——示範不會暴露不合身的地方。
+**What to build:** 拿一張尚未開始的真工作當試點，照 ForgeFlow 的 Story 格式寫一遍、走完一次生命週期，然後回答「這套流程適不適合 StoreWeave」。原訂的 B14 第一張工作已在此試點前完成，不能事後補寫成試點；不是寫一張示範用的空 Story——示範不會暴露不合身的地方。
 
-**Blocked by:** 99
+**Blocked by:** 一張尚未開始、可在單一 package 邊界完成的真工作（99 已完成）
 
-**Status:** blocked（等 B14 的第一張工作確定是什麼）
+**Status:** blocked（等下一張符合邊界的真實工作確定）
 
 - [ ] 新增 `specs/stories/`，用 `SW-<digits>` 這種 ID（實測 `SW-1` 通過文法；既有的裸數字檔名全部不合格）
-- [ ] B14 第一張工作寫成 `story.md` + `acceptance.md`，`scripts/story-check --ready` 回 `STORY_CONTRACT_OK`
+- [ ] 試點工作寫成 `story.md` + `acceptance.md`，`scripts/story-check --ready` 回 `STORY_CONTRACT_OK`
 - [ ] 走完 `READY → IMPLEMENTING → VERIFYING → REVIEW`，`make verify` 通過
 - [ ] 記錄 `verification.md`，每一條 acceptance criterion 都有 passing evidence；`scripts/verification-check --result` 回 `VERIFICATION_PASS`
 - [ ] Doctor 回 `STRUCTURE_OK`
