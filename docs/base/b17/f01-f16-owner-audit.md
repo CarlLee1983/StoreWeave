@@ -1,16 +1,15 @@
 # B17 F01–F16 owner audit
 
-- 日期：2026-09-12（2026-09-15 回填：clean CI 與 smoke artifact 的證據已出現，相關 pending 註記與兩處措辭已更新；基準 revision 為 `685b732`，其後 HEAD 推進到 `21a77b9` 僅含文件變更）
+- 日期：2026-09-12（2026-09-15 回填：clean CI 與 smoke artifact 的證據已出現；2026-09-19 將 Base 工程、release readiness 與產品驗證分開記錄）
 - 範圍：[Spec 0009 §3](../../specs/0009-complete-modular-base.md#3-完整能力矩陣) 與
-  [§8](../../specs/0009-complete-modular-base.md#8-最終驗收)
+  [§8](../../specs/0009-complete-modular-base.md#8-工程驗收與後續-gate)
 - 結論：repository-local owner evidence 已逐項核對；B10 缺失的 owner 文件已補回，Extension recurring
-  schedule 的斷線已修並加真實 PG regression。完整 Base 仍不能結案，因為 catalog、clean CI、staging、
-  merchant UAT、已發布 binary 與真實下游專案證據尚未齊備。
+  schedule 的斷線已修並加真實 PG regression。這些證據支持 Base 工程結案；semantic coverage、staging、
+  merchant UAT、已發布 binary 與真實下游專案證據仍分別作為 quality、release readiness 或產品驗證追蹤。
 
-`local-reviewed` 只表示 implementation、文件、故障測試與 caller 在目前 source 可定位，且沒有另列歷史 review
-缺口；不代表正式環境
-已開通。歷史工作包中的測試數字是當時 checkpoint，最終 source 仍以本輪 `make verify` 與遠端 clean CI
-為準。
+`local-reviewed` 表示 implementation、文件、故障測試與 caller 在目前 source 可定位，且沒有另列歷史 review
+缺口；它構成 Base 工程的證據，但不代表正式環境已開通。歷史工作包中的測試數字是當時 checkpoint，
+最終 source 仍以本輪 `make verify` 與遠端 clean CI 為準。
 
 | 能力 | owner／implementation | 故障測試／caller／文件 | owner 結論與剩餘 gate |
 | --- | --- | --- | --- |
@@ -18,7 +17,7 @@
 | F02 HTTP 契約與防護 | B03；`apps/api/src/release-server.ts`、`kernel/http-contract.ts` | HTTP/MCP、Base HTTP、startup catalog；B03 acceptance | local-reviewed；Commerce structural/HTTP golden 已固定，semantic v2 在 composed registry／HTTP 範圍內以逐 facet `remaining` fail-close；SDK/config/CLI 與完整覆蓋仍 pending |
 | F03 DB／migration／backup／restore | B01–B02、B15；migrator、CLI、recovery | migration-lock、release-transition、full-restore；B15 操作說明在 [B15 README](../b15/README.md) 與 `docs/operations.md:21-27`（`docs/runbooks/` 下沒有獨立的 B15 runbook） | local-reviewed；目前 N/N+1 synthetic drill 不代替已發布舊 binary |
 | F04 identity／session／policy／MFA／token | B03、B08、B13；identity/auth、users/token controllers | identity/MFA/session/HTTP/Admin；B08/B13 docs | local-reviewed；真 SMTP 與正式 account rollout pending |
-| F05 Mail／Notification | B06–B08、B13；mail、notifications、identity mail | mail failure/unknown result、notification retry、Inbox UI；B06/B07/B08 docs | local-reviewed；real SMTP staging/recipient evidence pending |
+| F05 Mail／Notification | B06–B08、B13；mail、notifications、identity mail | mail failure/unknown result、notification retry、Inbox UI；B06/B07/B08 docs | local-reviewed；本機 SMTP 設定已完成實測，staging／production recipient evidence 仍是 release gate |
 | F06 durable Queue／Worker／DLQ | B04；jobs、worker、outbox | queue-reliability、worker recovery/fencing/redrive；B04 acceptance | local-reviewed；正式 cutover 的 stop/drain/external-effect reconciliation pending |
 | F07 interval／cron Scheduler | B05；`recurring.ts`、`schedule-spec.ts`、ops HTTP/CLI | DST/misfire/overlap/multi-worker/invalid schedule；B05 acceptance | local-reviewed；B17 補上 Extension schedule 的正式 SDK/host 接線與 regression |
 | F08 Storage | B09；storage contract、Local/S3 adapters、controller | storage、S3-compatible、backup/abort/auth tests；B09 acceptance | local-reviewed；授權 staging 的真 S3 endpoint/private URL pending |
@@ -31,12 +30,11 @@
 | F15 Module SDK／example／reproducible build | B01–B03、B16；extension SDK、file-requests、CLI/build | module contract、resource/upload auth、restart flow；B16 docs | local-reviewed；file-requests 是 build/integration example，不冒充第三個 native release identity |
 | F16 observability／deploy／upgrade／recovery | B04–B12、B15–B17；logger/audit/health/CLI/runbooks | health/diagnostics/redaction/snapshot/full-restore/smoke | local-reviewed；clean 2×2 smoke artifacts 已於 [`685b732` run](https://github.com/CarlLee1983/StoreWeave/actions/runs/34685750936) 產出（docker/native × base/commerce，digest 見 [acceptance](acceptance.md)），staging transports 與 published prior binary 仍 pending |
 
-## 不能由 repository 補造的證據
+## 後續 release／產品證據
 
-- 一次乾淨 commit 的 `{base, commerce} × {Docker, native}` checksum-bound CI artifacts。
-- private-media、真 SMTP、真 S3 staging；Ticket 58–62 的公開 HTTPS merchant UAT。
+- private-media、真 S3 與 staging／production SMTP recipient evidence；Ticket 58–62 的公開 HTTPS merchant UAT。
 - Ticket 64／70 的 merchant-enabled refund/invoice query capability、契約與 UAT；Ticket 66 production config。
 - 一份實際已發布 prior binary 的升級／回復，以及下一個真實專案的共用／客製／工時／升級成本。
 
-這些項目沒有 target、credentials、provider enablement 或外部資料時維持 pending；本機 mock、MinIO、
-synthetic version 或測試收件匣都不能代填。
+這些項目沒有 target、credentials、provider enablement 或外部資料時維持 pending；它們不阻擋 Base
+工程完成，本機 mock、MinIO、synthetic version 或測試收件匣也不能代填相應的 release／產品主張。

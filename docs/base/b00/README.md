@@ -1,6 +1,6 @@
 # B00 — 基準、相容性與 Queue 選型驗證
 
-狀態：done，2026-09-07。範圍與出口依 [Base 執行計畫](../../base-implementation-plan.md#b00--對齊基準與驗證選型)；完整能力依 [Spec 0009](../../specs/0009-complete-modular-base.md)。本包已交付研究、隔離驗證與後續派工契約，解鎖 B01；完整 Base 尚未完成。
+狀態：done，2026-09-07。範圍與出口依 [Base 執行計畫](../../base-implementation-plan.md#b00--對齊基準與驗證選型)；完整能力依 [Spec 0009](../../specs/0009-complete-modular-base.md)。本包已交付研究、隔離驗證與後續派工契約，解鎖 B01；現行 Base 工程結論見 [B17](../b17/README.md)。
 
 ## 基準與保存
 

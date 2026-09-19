@@ -4,7 +4,7 @@
 後端、前端與工具可按需復用，Commerce 是第一個產品，後續也能以相同基底建構 ERP 等應用。
 目標定位與完整基底規劃見 [Spec 0009](docs/specs/0009-complete-modular-base.md)；
 能力盤點、套件策略與派工順序見 [Base 執行計畫](docs/base-implementation-plan.md)。
-以下介紹目前已實作的 Commerce 產品，不代表通用基底目標已完成。
+Base B00–B17 已完成工程驗收：基礎工程可運作，`make verify` 已通過，且本機 SMTP 設定已完成實測。外部 staging、商家 UAT、正式部署設定與真實案場的商品化驗證另行追蹤；Base 工程完成不代表 production-ready。
 
 單站獨立部署的電商平台。每個客戶獨立建置、獨立部署、使用獨立資料庫，
 但共用同一套 Commerce Core：**品牌差異用 Theme，特殊需求用 Extension，Core 永遠不改**。

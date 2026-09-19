@@ -1,12 +1,20 @@
 # B17 — 整體驗收與交付
 
-- 狀態：in_progress（技術驗收切片已落地；外部 release gates 仍待環境）
+- 狀態：done（Base 工程驗收完成；外部 release gate 與產品驗證分開追蹤）
 - 日期：2026-09-12
-- 規格：[Spec 0009 §8](../../specs/0009-complete-modular-base.md#8-最終驗收)
+- 規格：[Spec 0009 §8](../../specs/0009-complete-modular-base.md#8-工程驗收與後續-gate)
 
 B17 把既有 B00–B16 的證據接成可重跑的驗收入口。這一輪沒有新增第四個 runtime release：形象站與 Blog
 是同一份 Base module graph 的兩個資料設定檔，分別使用自己的資料庫與 storage root。這保留 migration
 與 release identity 的語意，也直接驗證「下一個網站只需換組裝／設定」的目標。
+
+## 完成邊界
+
+2026-09-19 確認：B17 的 Base 工程驗收以可運作的基礎 implementation、呼叫端、文件與 repository
+gates 為邊界；`make verify` 已在目前 source 通過，且本機 SMTP 設定已完成實測。semantic ledger 的
+完整覆蓋、private-media／S3 staging、商家 UAT、正式部署設定、已發布 binary 的實際升級證據與真實案場
+成本，分別是 quality、release readiness 或產品驗證工作。它們限制相應的主張，不回溯否定 Base 工程完成，
+也不代表系統已 production-ready。
 
 ## 已落地的技術切片
 
@@ -100,10 +108,11 @@ smoke、真實 SMTP／S3、private-media staging、商家 UAT 與正式開通 ga
 目前 workflow 已把 Docker／native smoke 改成 Base、Commerce 兩個 release 的 matrix。每個成功的 smoke
 會產生 schema 1 evidence，綁定 source revision、release/version、release-manifest checksum，以及實際跑過的
 tarball SHA-256 或 Docker image id；CI 也會上傳 evidence、manifest/build metadata，native 另上傳 tarball。
-這是可重跑入口，不是已完成的遠端證據；第一次全綠且 artifact 可下載的 CI run 仍是 release gate。
+這是可重跑入口，不是已完成的遠端證據；第一次全綠且 artifact 可下載的 CI run 已保留為 release
+readiness 證據，不取代特定環境的 staging／production 驗證。
 
-目前工作樹的 final-source `make verify` 再次通過（unit 102 files／1,215 tests、admin 32 files／350
-tests、integration 106 files／898 tests）。B12 安全／MFA rewrap 修正與 semantic v2 ledger 分別由原
+2026-09-19 的 current-source `make verify` 在 `21c4c933a34ed7bb895b32aca12c79b4ac003bf6` 通過（unit
+103 files／1,223 tests、admin 32 files／350 tests、integration 107 files／902 tests）。B12 安全／MFA rewrap 修正與 semantic v2 ledger 分別由原
 Sol/high reviewer 複審 delta、affected callers 與 tests，兩份結論都沒有剩餘 actionable findings；先前的
 smoke provenance、Extension schedule payload／atomic mount、catalog、media cleanup 與文件修正審查也維持 clean。
 
@@ -126,6 +135,6 @@ Theme 切換沒有 migration；回復時先把設定的 Theme id 切回舊 Theme
 DB、storage object 與 queued job 的完整 cold recovery 沿用 B15 的 paired snapshot／full bundle 流程；
 舊 binary 無法讀取新 schema 時不能直接 rollback，必須依 B15 的 restore 或 forward-fix 演練。
 
-整體 F01–F16、公開 payload 的完整 semantic coverage、checksum-bound 雙 release smoke、真實 transport、
-商家 UAT、已發布 binary 的升級證據與下一個真實案子的重用成本，仍在 [acceptance matrix](acceptance.md)
-明列為 pending、外部 gate 或後續 release evidence。
+公開契約的 semantic ledger 仍明列其 coverage 限制；private-media／S3 staging、商家 UAT、正式部署設定、
+已發布 binary 的實際升級證據與下一個真實案子的重用成本，繼續由 [acceptance matrix](acceptance.md)
+追蹤。它們限制相應的 quality、release／production 或產品主張，不阻擋 Base 工程完成。

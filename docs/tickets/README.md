@@ -2,7 +2,7 @@
 
 **完整基底派工規劃**：請讀 [Spec 0009](../specs/0009-complete-modular-base.md) 與
 [Base 執行計畫](../base-implementation-plan.md)，B00–B17 為本機工作包，尚非 GitHub 工單。
-Spec 0008 的 Ticket 81–90 已完成本機驗收與指定獨立審查，且已合入 `main`。Base B00–B16 已交付；B17 的技術驗收已完成，完整驗收仍待外部 staging、semantic contract coverage 與產品驗證，詳見 [B17 驗收矩陣](../base/b17/acceptance.md)。
+Spec 0008 的 Ticket 81–90 已完成本機驗收與指定獨立審查，且已合入 `main`。Base B00–B17 已完成工程驗收；semantic contract coverage、外部 staging、商家 UAT、正式部署設定與產品驗證另行追蹤，不由 Base 工程完成狀態代替，詳見 [B17 驗收矩陣](../base/b17/acceptance.md)。
 
 切換模型或新對話接手後台實作，先讀 [Spec 0008 實作交接](../admin-implementation-handoff.md)。
 

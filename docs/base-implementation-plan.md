@@ -3,7 +3,8 @@
 - 規格：[Spec 0009](specs/0009-complete-modular-base.md)，能力範圍與最終驗收以該文件為準。
 - 日期／盤點基準：2026-09-07，`1f4470d`；Spec 0008 Ticket 81–90 已完成，保留已驗證的未提交工作樹。
 - 工作包 B00–B17 是本機規劃識別，不是 GitHub Issue，也不佔用既有 Ticket 92 之後的編號。
-- 執行狀態：B00–B04 `done`，見 [B00 驗證紀錄](base/b00/README.md)、[B01 紀錄](base/b01/README.md)、[B02 驗收對照](base/b02/acceptance.md)、[B03 紀錄](base/b03/README.md)（2026-09-08 結案，final-source gates 與獨立 review 齊備）、[B04 紀錄](base/b04/README.md)（五片實作與三份獨立 5b review 全部結案，P0／P1 皆已修並附量體證據；typecheck、unit、完整 integration 與 Docker／native smoke 實跑通過），依 [B01–B04 派工契約](base/b00/next-work-cards.md) 執行。[B05](base/b05/README.md) `accepted`（五片實作、四輪獨立審查與 full gates；歷史 unit 基準失敗及刻意不做第五輪的理由見 [acceptance](base/b05/acceptance.md)）。[B10](base/b10/README.md) `implemented`（本機技術驗收完成；外部 storage／release staging 由 B17 追蹤）。[B12](base/b12/README.md) `accepted`（目前整合 checkpoint 的安全修正、原子 MFA rewrap、完整 gates 與 Sol/high 獨立 re-review 均已通過；外部 provider UAT 由 B17 追蹤）。B06–B09、B11 `done`。[B13](base/b13/README.md) `done`（2026-09-10 五個切片實作完成，PR #37 的五個 CI job 全綠後合併；結案證據為 CI 與合併，未做獨立審查；決策見 [ADR 0045](adr/0045-modules-declare-storefront-pages.md) 與 [ADR 0046](adr/0046-site-settings-and-navigation-are-release-data.md)，兩份皆 accepted）。[B14](base/b14/README.md) `done`（2026-09-11 `make verify` 通過）。[B15](base/b15/README.md) `verified`（`make verify`、Commerce／Base 的 Docker 與 native 完整 bundle cold-recovery smoke、獨立審查均已通過）。[B16](base/b16/README.md) `done`（2026-09-11，範例模組 `file-requests`、模組資源／上傳入口與 Module Contract Test；決策見 [ADR 0050](adr/0050-modules-declare-resources-and-upload-intakes.md)，驗證紀錄見該包）。[B17](base/b17/README.md) `in_progress`（雙 Theme、兩個 Base site profile、內容／媒體保留與 commerce-free 組裝的技術切片已落地；本機 catalog／gates／獨立 review 已補齊；遠端 clean release matrix 已於 [`685b732` run](https://github.com/CarlLee1983/StoreWeave/actions/runs/34685750936)（2026-09-12）10 job 全綠並上傳四份 artifact，Commerce 回歸該列已轉 pass；仍 pending 的是 semantic v2 ledger 收斂（565／703 facet 在 `remaining`）、外部 transport（private media／SMTP／S3 staging）與產品驗證）。planned 不代表可直接丟給多位 writer 同時開工。
+- 執行狀態：B00–B16 已依各自的完成、accepted 或 verified 紀錄交付，見 [B00 驗證紀錄](base/b00/README.md) 至 [B16 紀錄](base/b16/README.md)；各包保留原始 implementation、審查與驗證證據。
+- [B17](base/b17/README.md) `done`：雙 Theme、兩個 Base site profile、內容／媒體保留與 commerce-free 組裝已驗證；本機 catalog／gates／獨立 review 已補齊，且遠端 clean release matrix 已於 [`685b732` run](https://github.com/CarlLee1983/StoreWeave/actions/runs/34685750936)（2026-09-12）10 job 全綠並上傳四份 artifact。semantic v2 ledger 尚有 560／703 facet 在 `remaining`，屬明確的品質工作；private media／S3 staging、商家 UAT、正式部署設定與產品驗證分別保留為 release readiness 或產品工作，不阻擋 Base 工程完成。
 
 ## 1. 接手與派工方式
 
@@ -11,7 +12,7 @@
 2. 每條已派工作線一次只取一個可驗收切片；跨 session 的啟動、ownership 與整合依 §3.1。大工作包可拆子票，但每項 F 能力必須保留 owner，不因拆票漏掉完整目標。
 3. 實作前把 interface、目標檔案、驗收、測試命令與移轉方式具體化為該次派工單；涉及選型的包先完成指定比較，主代理做決策。
 4. 每片先交付可運作的能力與呼叫端，再交接下一片；套件安裝、接口空殼或只有成功路徑不能單獨關閉工作包。
-5. 獨立審查、必要驗證完成後，才記錄完成狀態與下一個可執行前沿。待驗證環境明列，不能宣稱整體 base 完成。
+5. 獨立審查、必要驗證完成後，才記錄完成狀態與下一個可執行前沿。待驗證環境必須明列，不能宣稱相應 release gate 已完成或系統已 production-ready。
 
 歷史接手指示曾授權原工作流程依序完成 B00–B17；目前各 session 的執行範圍以使用者對該 session 的任務指派為準，不能引用本段將本次文件工作擴大為實作。既有 B03 session 的授權與 Spec 0008 進度保留。commit、push、GitHub 建單／留言、merge、publish、部署與對外寄信仍按使用者授權執行。
 
