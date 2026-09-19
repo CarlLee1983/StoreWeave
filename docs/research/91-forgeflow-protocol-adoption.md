@@ -30,7 +30,7 @@ ForgeFlowV2 **不是 workflow engine、不是 UI library、不是工作佇列替
 
 ### 能力與運作邊界
 
-下表把本票要求的能力一項項收旂；「無」是因為 ForgeFlow 在不同層，不是尚未實作的
+下表逐項整理本票要求的能力；「無」是因為 ForgeFlow 在不同層，不是尚未實作的
 StoreWeave runtime 功能。
 
 | 面向 | 結論 | 固定來源（`cb4bc97`） |
@@ -238,12 +238,10 @@ Story ID 文法（`protocol/story.md` 明文 `FF-1-2` 不合格，因為裸數�
 
 工單 91 要求「涉及公開 API、授權、資料或 Extension isolation 的方案由 Sol/high 獨立審查」。
 **依目前證據這條不觸發**：ForgeFlow 的 portability boundary 明文不需要 runtime、服務、排程器、
-資料庫；採用只新增三個文件層的檔案，不觸及 StoreWeave 的公開 API、授權模型、資料或
-Extension 隔離。此判定記在這裡供推翻。
+資料庫；採用只改變 repository workflow 檔案與 CI 入口，不觸及 StoreWeave 的公開 API、
+授權模型、資料或 Extension 隔離。此判定記在這裡供推翻。
 
-## 沒有查的
+## 仍未執行或深評的
 
-- `protocol/handoff.md` 與 `protocol/versioning.md` 只掃過標題，沒有逐條讀——前者是跨 session
-  交接格式，後者是 ForgeFlow 自己的版本相容政策，兩者都不影響「要不要採用」的判斷。
 - `guidance/` 那套選配的工程指引與 `skills/` 目錄沒有評估，它們是採用之後的選項。
 - 沒有跑 `./scripts/bootstrap`——它會寫入檔案，屬於後續 Story 而不是本票（本票 runtime diff 為零）。
