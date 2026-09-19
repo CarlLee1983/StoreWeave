@@ -88,6 +88,98 @@ Commerce 與 ERP 都有「庫存」，仍須先確認其資料與操作語意是
 6. 獨立使用範例能透過共用套件的公開入口運作，不依賴 Commerce 專案的隱藏設定或原始碼路徑。
 7. 共用能力有契約、測試與升級說明；Commerce 既有功能與資料相容性通過回歸驗證。
 
+## 第二產品的驗證方向：Booking
+
+下一個跨產品驗證以一個實際的住宿預訂 Product Release 為準，不先設計抽象的多產品模板。Booking 與
+Commerce 分開建置、部署並使用獨立資料庫；它沿用 Platform 與適用的 Base Module，以自己的 Product Module
+表達住宿供應、價格、訂房與政策。第一版以房型數量表示可售供應，數量為一時也能涵蓋整棟或單一房間出租；
+實體房號分配不屬於第一版。
+
+第一個驗證切片須走完搜尋日期與人數、查詢可售房型、取得價格與政策、暫時保留房晚、建立訂房、付款或
+延後付款、確認、取消並釋放房晚，以及後台管理房型、價格、供應量與訂房。OTA／Channel Manager、動態定價、
+清潔排班、門鎖、餐飲與會計留待有實際需求時另行決定。
+
+第一版一個 Release 只啟用一個 Property，但 Property 仍是地址、時區、入住時間與政策的正式擁有者。
+一筆 Reservation 只包含一個 Room Type、一段連續日期與該房型一個或多個可售單位；不同房型分開建立 Reservation。
+Booker 不必登入，聯絡資料以 Reservation 快照保存，並可選擇連到 Account；Guest 與 Booker、Account 都是
+不同概念。
+
+Booking Quote 不占房晚。建立 `pending_payment` Reservation 時才在同一交易內檢查並占用 Room Night，
+同時凍結逐晚含稅價格、幣別、總額與取消政策；Reservation 確認前若到期則轉為 `expired` 並釋放房晚。
+第一版價格來自 Room Type 的基本每晚價格與指定日期覆寫，人數只驗證每房最大入住人數。取消只支援整筆處理，退款
+截止時間前可全額退款，截止後交由營運者處理。
+
+產品能力不因名稱相似就移入 Base。只有當 Commerce 與 Booking 對該能力的領域語意、生命週期與公開契約
+確實一致，且已有兩個實際呼叫端時，才把它提升為 Base Module；在證據出現前，產品模組可以保留各自實作。
+這項規則特別適用於付款、發票、顧客／住客、促銷與庫存等表面相似但常有不同不變條件的概念。
+Booking 可以重用領域中立的 Payment Provider adapter，但付款嘗試、Reservation 狀態轉換與付款成功後效果
+由 Booking 擁有。現有 Provider 契約中的 Order 名稱須先中立化；在兩個產品的持久化模型與生命週期證明一致前，
+不建立共用 Payment Module。
+
+Booking 的第一組 Product Module 是 `booking-property`、`booking-availability` 與 `booking-reservation`。
+Property 擁有房型名稱、每房最大入住人數、床型、設施、入住限制與 Media reference；Availability 擁有逐日可售數量、
+價格、Quote 與 Room Night 的占用／釋放；Reservation 擁有 Booker／Guest 快照、付款嘗試、取消、退款與到期。
+Reservation 透過 Availability 接受交易物件的能力，在同一交易內改狀態與占用或釋放房晚。第一版不另拆
+pricing、guest、payment 或 policy 模組。
+
+建立 Reservation 時須重新檢查 Quote fingerprint、供應、逐晚價格與政策。內容完全一致才建立；內容變更時
+回傳新 Quote 要求再次確認，售完則拒絕。取消立即把 Reservation 轉為 `cancelled` 並在同一交易釋放房晚；
+已付款的退款另以 `refund_pending` 重試，失敗不恢復 Reservation。已過期或取消後抵達的成功付款是 Late Payment，
+只記錄並進入全額退款，不復活 Reservation。
+
+Reservation 第一版只使用 `pending_payment`、`confirmed`、`expired` 與 `cancelled` 四個契約狀態；住宿前、
+住宿中與已過住宿日期由 Property 當地日期推導，不在沒有入住作業流程時記錄 `checked_in`、`completed` 或
+`no_show`。Email 只帶短期、單次的簽章 Access Grant；兌換後才把隨機 management token 放進安全 cookie，
+並轉址到不含憑證的 URL。資料庫只保存 management token hash，原始 token 不進通知、URL、DB 或 log。
+Reservation number 與 Email 不構成授權。Account link 只來自 authenticated actor，或有效 management session
+後的顯式 claim；不接受 client account id，也不依 Email 自動連結。
+
+第一版只保存主要 Guest 姓名、成人與兒童數、Booker 姓名／Email／電話及選填住宿備註，不收同行者完整名單
+或證件。Booking config 必須提供 retention policy，住宿結束超過期限後由排程匿名化不再需要的個資；期限由
+營運與適用法規決定，不寫進 Base。
+
+第一版付款只接受 Provider 可驗證結果的即時或延後方法；到店付款、人工匯款與訂金尾款不在範圍內。
+顧客只可在政策期限內整筆取消並全額退款；營運者可整筆取消並指定不超過實收的退款金額與稽核原因。
+取消仍立即釋放房晚，退款結果另行追蹤。
+
+一筆 Reservation 可以在前一個 Payment Attempt 明確失敗或到期後重試，但同時只能有一筆未終結 Attempt；付款
+啟動重送須回傳同一筆 Attempt。Callback、取消、到期與期限延長先鎖 Reservation，再鎖 Attempt，需要房晚時最後
+依日期鎖 Room Night。第一筆成功付款確認 Reservation；第二筆成功是 Excess Payment，與 Late Payment 一樣記錄
+後全額退款。可退款 Booking Release 只能選取通過 refund contract 的 Provider；現有 ECPay 必須補上 refund 實作與
+staging UAT 才能解除 release gate。
+
+`booking-availability` 以 `(room_type_id, local_date)` 的 Room Night 資料列保存 sellable units、reserved units
+與 nightly price。建立、取消、到期與調整 sellable units 都依日期固定排序鎖列；所有日期都有足夠數量時才在同一
+交易占用並建立 Reservation，任一晚不足則整筆失敗。
+
+Booking 擁有通知事件、觸發時機、模板與文案；Base Notification 只提供排程、寄送、重試、delivery log
+與 provider adapter，不認識 Reservation。
+
+共用 Release 契約與 bootstrap 應由 `packages/platform/release` 擁有，Base、Commerce 與 Booking 的產品組裝
+則分別放在 `packages/releases/`。既有 `packages/commerce/` 不為目錄整齊而搬移；Booking 的三個產品模組放在
+`packages/booking/`。ReleaseDefinition 是邏輯上的單一建置來源，但以 target-specific projection／package subpath
+分開 server、worker、Admin browser 與 CLI；共用 manifest 只帶 key 與 metadata，不直接同時持有 Nest、React
+與 backend factory。各 build target 只匯入自己的 projection，API、Admin、CLI 與建置腳本不得用 release id
+分支產品行為。
+
+設定檔名由 ReleaseDefinition 宣告：既有 Commerce 保留 `commerce.yaml`，Booking 使用 `booking.yaml`，共用 CLI
+不猜測產品名稱。Payment Provider ABI 移除 `orderId`／`orderNumber`，改收唯一 `reference`、給人看的
+`displayReference`、金額、幣別與方法；Commerce 與 Booking 各自把產品編號映射進來，付款 callback 仍只回傳
+唯一 reference。這次 ABI 升版須同一批更新 Commerce、Mock Payment 與 ECPay。
+
+Booking 第一版每個 Property 使用單一幣別與整數最小貨幣單位，房價為含稅價且不另收服務費；電子發票不在
+第一個驗證切片。Reservation 建立後不修改日期、房型或房數，改期須取消並以當下價格與供應重訂；Booker
+聯絡資料、主要 Guest 與住宿備註可留下 audit 後更新。
+
+Booking config 預設最遠可訂 365 天、單筆最長 30 晚、`pending_payment` 保留 15 分鐘；延後付款可採 Provider
+回傳的較長期限。單筆房數另有請求上限且不得超過每晚 available units；總入住人數不得超過房數乘以
+`max_occupancy_per_unit`，且每房至少一位成人。日期、人數與範圍在查詢資料庫前驗證。
+
+前台沿用模組 page declaration 與 Theme renderer，啟動時檢查必要 renderer。互動較重的 Booking 後台需要
+建置期 Admin contribution 契約，由 Product Module 宣告 route、navigation、permission 與 UI entry，Release
+只編入選取模組的頁面。Booking REST adapter 只負責把產品 HTTP 契約轉成 Command／Query；第一版不公開任意
+Command 的通用 REST 入口。
+
 ERP 是檢驗這個方向的應用例子。本文件不要求現在建立完整 ERP，也不宣稱目前基底已能
 支援所有業務需求；後續可先用一個小型非商務應用走通上述流程。
 

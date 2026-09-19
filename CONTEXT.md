@@ -36,13 +36,13 @@ Base 的一般人：可以自己註冊、驗證信箱、登入、看自己東西
 
 具名商店發布的品牌立場、選品觀點與編輯文章。它用來說明商店的世界觀與閱讀脈絡，不是商品材質、庫存、服務承諾或法律條款的來源；這些事實仍由各自的交易與商品資料決定。
 
-品牌內容是 Core 的資料，由店家在後台維護，Theme 只負責呈現（ADR 0033）。品牌故事、生活誌、最新消息與常見問題是**同一種東西的四種版型**——一段具名、可發布、有順序的編輯文字——在模型上以 `kind` 區分，不是四個型別。
+品牌內容是 Content Base Module 的資料，由店家在後台維護，Theme 只負責呈現（ADR 0033、0049）。品牌故事、生活誌、最新消息與常見問題是**同一種東西的四種版型**——一段具名、可發布、有順序的編輯文字——在模型上以 `kind` 區分，不是四個型別。
 
 一篇內容有 `draft` 與 `published` 兩態，未發布的一律不從前台的查詢出得去。`section` 是標題上方的分組字樣（生活誌的欄目、FAQ 的分類），`position` 決定同一種內容的顯示順序，相同時才看發布時間。
 
 文章的段落是**區塊**而不是純文字：一個區塊可以帶自己的標題，品牌故事的章節就是這樣表達的；其餘內容的區塊沒有標題。
 
-文章可以指名一張照片，但那張照片的檔案屬於 Theme，Core 只存一個封閉清單裡的 key（ADR 0034）。key 指向的圖被 Theme 拿掉時，前台以無圖版型呈現，不是整頁失敗。
+文章可以指名一張照片；照片是 Media Base Module 的資產，Content 只保存引用，Theme 只負責呈現。既有 Theme image key 的遷移與回退邊界見 ADR 0034、0048、0049。
 
 ## 聯絡訊息（Contact Message）
 
@@ -102,12 +102,95 @@ Cart 上的運送方式可以是未選；未選時運費是**未知**而不是�
 
 一張短期、單次的憑證，用來認出「從物流商的選店頁回來的這個請求，要把門市寫回哪一台 Cart」。它存在的原因是選店回傳是**跨站 POST**，而 session cookie 是 `SameSite=Strict`——那個請求身上沒有任何 cookie，系統不知道回來的是誰。權杖只授權寫回門市這一件事，用掉即失效。
 
+## 住宿預訂
+
+**Property**:
+接受住宿預訂的單一營業地點，是地址、時區、入住與退房時間及住宿政策的擁有者。第一個 Booking Release
+只啟用一個 Property。
+_Avoid_: Store、Hotel Account
+
+**Room Type**:
+以相同每房最大入住人數、床型、設施與房價出售的一類住宿供應。一個 Room Type 可以有多個可售單位；
+第一版不在訂房時指定實體房號。
+_Avoid_: Product、SKU、Room
+
+**Room Night**:
+某個 Room Type 在 Property 當地日期的一個可售單位。入住日包含、退房日不包含；例如 10 月 1 日入住、
+10 月 3 日退房會消耗 10 月 1 日與 10 月 2 日兩個 Room Night。
+_Avoid_: Inventory Item、Stock
+
+**Booking Quote**:
+依房型、日期、人數與當下價格算出的非持久性試算結果。Booking Quote 不占用 Room Night，也不是價格承諾；
+建立 Reservation 時才凍結逐晚含稅價格、幣別、總額與取消政策。
+_Avoid_: Cart、Order Quote
+
+**Reservation**:
+對一個 Property、一個 Room Type、一段連續住宿日期及該房型一間或多間的住宿承諾。
+`pending_payment` 與 `confirmed` 會占用 Room Night；`expired` 與 `cancelled` 不占用。第一版不記錄入住與退房
+作業狀態，住宿前、住宿中與已過住宿日期皆由日期推導。
+_Avoid_: Order、Booking Order
+
+**Booker**:
+建立 Reservation、負責付款並接收通知的人。Reservation 保存 Booker 的聯絡資料快照；Booker 可以連到
+Account，但建立 Reservation 不要求登入。
+_Avoid_: Customer
+
+**Guest**:
+實際入住的人，可以與 Booker 不同。Guest 不是 Account，也不因出現在 Reservation 上而取得登入身分。
+_Avoid_: Customer、Member
+
+**Cancellation Policy**:
+Reservation 建立時凍結的取消與退款承諾。第一版只支援整筆取消；退款截止時間前可全額退款，截止後不提供
+顧客自助取消。
+
+**Late Payment**:
+Provider 在 Reservation 已經 `expired` 或 `cancelled` 後才確認成功的收款。Late Payment 不會復活
+Reservation 或重新占用 Room Night；它必須被記錄並進入全額退款流程。
+
+**Excess Payment**:
+Reservation 已由另一筆付款確認後，另一個 Payment Attempt 又被 Provider 確認成功的額外收款。Excess Payment
+不改變 Reservation，必須被記錄並進入全額退款流程。
+
+**Reservation Payment Attempt**:
+對一筆 Reservation 發起的一次 Provider 收款嘗試，有自己的唯一 reference、方法、狀態與期限。一筆
+Reservation 可以在前一筆明確失敗或到期後重試，但只能有一筆付款成為確認 Reservation 的 winning attempt。
+
+**Reservation Management Token**:
+授權匿名 Booker 查看或操作一筆 Reservation 的可撤銷隨機憑證。它與可讀的 Reservation number 分開，
+資料庫只保存雜湊，且不放進 Email 或 URL；Reservation number 與 Email 不能取代這張憑證。
+
+**Reservation Access Grant**:
+透過 Email 交付的短期、單次簽章憑證，只能兌換成 Reservation Management Token。兌換成功後以安全 cookie
+保存管理狀態並轉址到不含憑證的 URL；Access Grant 不能直接執行 Reservation 操作。
+
 ---
 
 # 開發流程詞彙
 
 以下不是產品領域的詞，而是這個 repo 怎麼把需求變成程式碼的詞。它們與上面的商務詞彙分屬兩個層次，
 放在同一份檔案只是為了讓詞彙有單一出處。決策見 ADR 0051。
+
+## 產品與模組
+
+**Product Release**:
+一份可獨立建置、部署並使用獨立資料庫的產品交付物。它選取 Platform、Base Module、Product Module、
+Theme 與 Extension 組成可執行應用；Commerce 與 Booking 是不同的 Product Release。
+_Avoid_: Core、產品 Core
+
+**Base Module**:
+不帶特定產品交易語意、可由不同 Product Release 選用的完整能力。能力只有在至少兩個實際產品中的
+領域語意與生命週期一致時，才從產品層提升為 Base Module。
+_Avoid_: 共用 Core、萬用模組
+
+**Product Module**:
+擁有某個產品領域的資料、規則、流程與公開契約，並由 Product Release 選取的模組。不同產品碰巧都有
+付款、庫存或會員，不代表它們必須共用同一個 Product Module。
+_Avoid_: Core Module
+
+**Booking Release**:
+以住宿預訂為產品領域的 Product Release。第一個 Booking Release 與 Commerce 分開建置、部署與使用資料庫，
+並以房型庫存完成搜尋、報價、保留、訂房、付款、確認、取消與後台管理的完整旅程。
+_Avoid_: 訂房外掛、Commerce 訂房模式
 
 ## Spec
 

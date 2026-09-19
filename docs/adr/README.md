@@ -53,6 +53,7 @@
 | [0049](0049-content-is-a-base-module-and-media-migrates-by-evidence.md) | Content 是 Base 模組，舊 Theme 圖片以可驗證回填遷移 | accepted（B14） |
 | [0050](0050-modules-declare-resources-and-upload-intakes.md) | 模組宣告自己要的資源與上傳入口，後台頁走模組頁面 | accepted（B16） |
 | [0051](0051-story-driver-holds-the-work-graph.md) | 工作圖與順序由 Story Driver 持有，Story 只描述一件工作 | accepted（決策 1、3 已更正） |
+| [0052](0052-booking-is-a-separate-product-release.md) | Booking 是獨立 Product Release，共用能力以第二個實際產品驗證 | accepted |
 
 寫法：每篇結尾用 `## Falsified if` 這個標題起一段，段落裡以反引號標出這個決策所依賴的檔案；
 那些檔案就是這個決策的邊界清單，條件本身要寫成某個東西可以檢查的形式。

@@ -39,14 +39,19 @@ packages/platform/
                         以及平台自身的維運模組（platform.jobs.* 死信佇列，見 ADR 0011）
   identity/             帳號、session、簽發式身分連結（重設／驗證／換信箱）、API token
                         與後台第二因素（見 ADR 0012、0014、0041–0044）
+  auth/                 Release 可選取的登入、註冊、登出與密碼重設頁面
   crypto/               簽章、封裝與金鑰環：sw1. / swe1. 與依用途推導的子金鑰（ADR 0038）
   cache/                PostgreSQL 快取與跨程序互斥鎖
   storage/              物件儲存：本機與 S3 相容 adapter（見 docs/base/b09）
   mail/                 SMTP 寄送、模板快照與佇列（見 docs/base/b06）
+  notifications/        領域中立的通知、投遞、重試與站內收件匣能力
+  media/                使用者媒體、preview、處理狀態與引用紀錄
+  site/                 網站設定、導覽與首頁 page declaration
+  content/              品牌內容與聯絡訊息；Base 與 Commerce release 都可選用
   bundle/               這個 Commerce Release 編進了哪些模組、Extension 與 Theme
 
-packages/commerce/      第一個產品（Commerce Core）：cart / catalog / content / coupon /
-                        customer / inventory / invoice / loyalty / notification /
+packages/commerce/      第一個產品的 Product Modules：cart / catalog / coupon / customer /
+                        inventory / invoice / loyalty / notification /
                         order / promotion / refund / rma / shipping
 packages/extensions/    金流（mock-payment / ecpay）、物流（ecpay-logistics）、
                         發票（mock-invoice / ecpay-invoice）、
