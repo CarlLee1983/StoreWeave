@@ -10,7 +10,7 @@
 
 **前置資訊:** 已取得（2026-09-11）——來源 `/Users/carl/Dev/CMG/ForgeFlowV2`、VERSION 0.7.0、commit `cb4bc97`、MIT；預期場景由使用者指定為「StoreWeave 採用 ForgeFlow 協定」。此票不是 81–90 的前置。
 
-**Status:** done（2026-09-11；discovery 文件產出，待使用者確認範圍後另拆實作票）
+**Status:** done（2026-09-11 產出 discovery；2026-09-19 補齊能力盤點、交付證據與獨立審查缺口）
 
 **Execution:** `gpt-5.6-terra / high`，使用者逐一派工；本票不設定 GitHub assignee。
 
@@ -38,7 +38,7 @@
 - [x] 以 source refs 記錄其責任、API／SDK／事件／UI 實際能力、執行與部署方式、認證、版本／license、錯誤、retry／idempotency 與資料所有權。
 - [x] 對照 StoreWeave 現有 Admin、HTTP、build-time Extension 接縫，說明哪些可直接沿用、哪些需新契約；若皆不適用，清楚記錄原因。
 - [x] 產出最小驗證案例、失敗／rollback 路徑、待決策事項與下一份 spec 的範圍；UI 不能直接承擔 backend workflow。
-- [x] 涉及公開 API、授權、資料或 Extension isolation 的方案由 Sol/high 分析並獨立審查；使用者確認整合範圍後，另拆實作票。（判定為不觸發：採用只新增三個文件層檔案，不觸及公開 API、授權、資料或 Extension 隔離；判定記在 discovery 文件供推翻。）
+- [x] 涉及公開 API、授權、資料或 Extension isolation 的方案由 Sol/high 分析並獨立審查；使用者確認整合範圍後，另拆 Story。（判定為不觸發：採用只改變 repository 流程檔案，不觸及公開 API、授權、資料或 Extension 隔離；判定記在 discovery 文件供推翻。）
 - [x] 本票不新增 dependency、空 adapter、interface、endpoint、event、DB schema、設定或 demo runtime；81–90 可獨立完成。
 
 ## Verification
@@ -47,6 +47,10 @@
 
 遵守 Spec 0008 的共用驗證規範；交付附實際通過／失敗／未跑項目與原因、受影響檔案及風險。
 視覺與焦點驗收不能只用 jsdom 代替。既有無關失敗需附基準證據，不能靜默略過。
+
+2026-09-19 重審：`make verify` exit `0`；兩套 typecheck、unit 103 files／1223 tests、
+admin 32 files／350 tests、integration 107 files／902 tests 全數通過。文件票沒有新增程式測試，
+固定來源稽核與剩餘風險見下列交付文件。
 
 ## 交付
 
@@ -57,8 +61,12 @@ Spec 0008 §6 擔心的三種推定都不成立。採用只依賴 `AGENTS.md`、
 `Makefile` 與 `specs/stories/`，沒有 dependency、migration 或 runtime 變更。
 建議並存且不對稱：先採用驗證那一半，Story 只用在新工作，既有 01–98 不轉換。
 
-三處唯讀實測：Doctor 回 `STRUCTURE_INCOMPLETE`，缺口恰好三個新增檔案；引用既有 ADR 的
-完整代價隔離為「48 篇各改一次檔名、各加一行 `* Status:`」，別無隱藏成本。
+三處唯讀實測：Doctor 回 `STRUCTURE_INCOMPLETE`，缺口恰好是三個必要路徑；引用既有 ADR 的
+探針顯示「被引用的 ADR 需要相容檔名與 `* Status:`」；本票不再將單一 probe 外推成全部 ADR 的成本。
+
+2026-09-19 重審補齊 API／SDK／事件／UI、執行與部署、認證、錯誤、retry／
+idempotency 與資料所有權的 source-backed 判定，並在 discovery 文件集中記錄
+pass／fail／not-run、受影響檔案與剩餘風險。
 
 ## Out of Scope
 
