@@ -118,7 +118,7 @@ FAIL  Makefile is missing
 Result: STRUCTURE_INCOMPLETE          exit 1
 ```
 
-**缺口恰好三個，全部是新增檔案，沒有一項要求改動既有程式碼。** Doctor 的 static 模式明文
+**缺口恰好是三個必要路徑，都可以不改動既有 runtime 程式碼而補齊。** Doctor 的 static 模式明文
 不跑 make、不碰網路、不動 Git（`docs/doctor.md`）。
 
 ### 2. ADR 引用解析：檔名不符
@@ -186,8 +186,9 @@ Story ID 文法（`protocol/story.md` 明文 `FF-1-2` 不合格，因為裸數�
 採用的足跡是 adopter 自有的 `Makefile`，以及 bootstrap 管理的 `AGENTS.md`、
 `specs/.forgeflow-adoption`、`specs/stories/_template/` 與選用 `guidance/`。**沒有 dependency、
 沒有 migration、沒有 runtime 變更**；rollback 需要按 marker 記錄的 snapshot 移除受管檔案，
-再把 CI 改回直接呼叫 pnpm scripts。ForgeFlow 本身以
-bootstrap 複製檔案進來，不是套件相依，所以也沒有版本升級會破壞 build 的風險。
+再把 CI 改回直接呼叫 pnpm scripts。ForgeFlow 以 bootstrap 複製檔案進來，因此沒有
+套件解析風險；但 pre-1.0 版本可以改變 Story Contract 與驗證門檻，升級仍需按
+`protocol/versioning.md` 與 `docs/upgrading.md` 做 migration 與重驗。
 
 ## 調查當時的待決策事項
 
