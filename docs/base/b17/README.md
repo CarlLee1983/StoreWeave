@@ -1,7 +1,7 @@
 # B17 — 整體驗收與交付
 
 - 狀態：done（Base 工程驗收完成；外部 release gate 與產品驗證分開追蹤）
-- 日期：2026-09-12
+- 驗收資料建立：2026-09-12；Base 工程完成邊界確認：2026-09-19
 - 規格：[Spec 0009 §8](../../specs/0009-complete-modular-base.md#8-工程驗收與後續-gate)
 
 B17 把既有 B00–B16 的證據接成可重跑的驗收入口。這一輪沒有新增第四個 runtime release：形象站與 Blog

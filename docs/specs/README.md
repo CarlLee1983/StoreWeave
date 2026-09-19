@@ -48,11 +48,12 @@ GitHub 派工入口：[Spec 0008 總單 #17](https://github.com/CarlLee1983/Stor
    前例：`tests/integration/auth-http.test.ts`。
 4. **Admin 元件（jsdom）** — 既有 project，不新增接縫。前例：`apps/admin/src/pages/DlqPage.test.tsx`。
 
-## 已知的既有問題
+## 曾記錄的問題（已修正）
 
-不在任何規格的範圍內，但已記錄：
+以下兩項是早期盤點曾記錄的問題，已由對應規格與工單修正；保留在這裡作為歷史導覽，
+不代表目前仍是已知未修復問題：
 
-- `storefront` 角色持有無範圍限制的 `order:read`，以訂單號查詢不驗身分 —— 任何人猜到訂單號
-  就能讀別人的訂單。修復在 Spec 0001（依賴 `Actor.type` 擴充，無法更早單獨處理）。
-- `POST /checkout` 的 idempotency key 每次現產，等於沒有冪等保護。修復在 Spec 0003
-  （正確的 key 來源是購物車 id）。
+- 訂單查詢曾讓顧客依訂單號讀到別人的資料。Spec 0001／[Ticket 12](../tickets/12-order-scope-by-actor.md)
+  現由 query handler 依 `Actor.type` 限縮顧客身分，別人的訂單回 `NOT_FOUND`。
+- `POST /checkout` 曾每次產生新的 idempotency key，無法防止表單重送。Spec 0003／[Ticket 28](../tickets/28-cart-checkout.md)
+  現由伺服器依身分與購物車識別碼產生穩定的 `cart:<actor>:<cartId>` key。
