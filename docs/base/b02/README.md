@@ -2,7 +2,7 @@
 
 狀態：done，2026-09-08。前置 [B01 已完成](../b01/README.md)；依 [B02 派工卡](../b00/next-work-cards.md#b02--同一份-release-選取模組設定與資料) 與 [Spec 0009](../../specs/0009-complete-modular-base.md) 執行。
 
-最終驗收見 [需求與證據對照](acceptance.md)。以下依時間保留過程；早期 pending／finding 以最終對照及末段 closure 為準。
+最終驗收見 [需求與證據對照](acceptance.md)。以下依時間保留過程；早期 pending／finding 以最終對照及末段 closure 為準。本文中的 B02 與後續工作包待辦是當時的執行紀錄，不代表目前狀態；整體 Base 工程現況見 [B17](../b17/README.md)。
 
 ## 出口與邊界
 

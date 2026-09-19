@@ -2,7 +2,9 @@
 
 此文件供切換模型或開啟新對話後接手；規格與驗收以各 Issue／Spec 正文為準，這裡只記入口與交接狀態。
 
-## 目前狀態（2026-09-07）
+> **封存（2026-09-19）：** 以下是 Spec 0008／Ticket 81–90 與 Base 起始階段的歷史交接，不是目前工作狀態或執行授權。B00–B17 的 Base 工程已完成；現行結論見 [Base 執行計畫](base-implementation-plan.md) 與 [B17 驗收](base/b17/acceptance.md)。新工作必須依目前 `AGENTS.md` 與使用者當次指派界定，不得引用本文件中的舊長跑授權、工具啟動旗標或接手命令。
+
+## 狀態快照（建立於 2026-09-07；已封存）
 
 - 專案：`CarlLee1983/StoreWeave`；本機工作目錄 `/Users/carl/Dev/Carl/StoreWeave`。
 - 已完成架構審視、Spec 0008、Ticket 81–90 的本機實作、驗收與獨立複核，未 commit／push。Ticket 90 Sol/high 整票 PASS；Base B00–B01 亦已完成，下一階段 B02，見 [Base 計畫](base-implementation-plan.md)。
@@ -10,7 +12,7 @@
 - 本輪實作是 GitHub #18–#27（本地 Ticket 81–90）。GitHub #28／Ticket 91 是 ForgeFlowv2 調研，缺來源與場景，不阻擋本輪。
 - 規格、工單與索引已存在本機，尚未 commit／push；保留這些未提交文件，不視為無關產物刪除。
 - Ticket 81 實測：`pnpm typecheck`、`pnpm typecheck:admin`、`pnpm test:admin`（19 檔、184 tests）與 `pnpm build:admin` 通過。其後 Ticket 82 全庫 `pnpm test` 已通過（48 檔、561 tests）；不再把先前 CLI JSON 失敗列為現況。
-- 本輪實作已授權持續執行 Ticket 82–90，後續按 Base DAG 執行 B00–B17；不需要每票重新確認。所有新 Herdr Codex implementation／review pane 以 `--dangerously-bypass-approvals-and-sandbox` 啟動，仍禁止 commit、push、merge、GitHub 寫入、部署與商家資料刪除。
+- 當時的工作授權曾涵蓋 Ticket 82–90 與其後依 Base DAG 執行 B00–B17；該授權只屬於當時的 session，現已結束，不授權任何新 session 或後續工作。當時記錄的 Herdr 啟動旗標亦不可視為目前工具指示。
 
 ### 2026-09-07 Ticket 86 完成驗收
 
@@ -103,11 +105,11 @@
 - Round1翻譯finding修正後candidate4 `/tmp/storeweave90-source-candidate4.json`715hashes，runtime/stable：focused47／Admin26files313tests／TC/build/diffPASS；primary36dialogs含qty5forecast全PASS，目視JA360stockforecast可讀units正確。Review90三檔增量跑中。NativeBash5round2 exec96248（/tmp/storeweave90-smoke-native-round2.log）freshbuild63MBtarball、Debian安裝中；isolatedscript恢復cleanupEXIT且forcefreshbuild避免無git快照重用舊artifact，rootnative腳本未改。
 - 最終nativeBash5round2 **61/61PASS** exit0，/tmp/storeweave90-smoke-native-round2.log；ownedsmoke容器/network已清，既有release2461檔及6無關容器核對未變（preservation-result.json）。Native少1check為hostDEMO_ERP_API_KEY條件，Docker62已覆蓋。
 - Solround2追加3finding `/tmp/storeweave90-review-round2.txt`（pending/unknown需distinct文案、preview標點localeassert、unusedexample/previewkeys），closure90已修；candidate5 `/tmp/storeweave90-source-candidate5.json`715hash，只有Product/i18n/test與primaryhandoff改動。Admin314/build/diffPASS，primary3語phasebrowserPASS，36dialogs最後重跑含forecast+pricepreview進行中；review90最小增量審查中。Backend/root/integration/native/Docker保持accepted，最後僅copy+tests變動。
-- 計畫與read-only smoke preparation見Ticket90及`/tmp/storeweave-ticket90-preflight.md`。現有release與無關dbcli容器不可移除；integration促銷共用fixture與smoke事件數baseline問題需最小修復。90完成後仍接BaseB00–B17，不縮減總目標。
+- 截至 2026-09-07，計畫與 read-only smoke preparation 見 Ticket 90 及 `/tmp/storeweave-ticket90-preflight.md`。當時的後續計畫是 Ticket 90 後接 Base B00–B17；該計畫已完成，不再是接手指令。
 
-## 第一個接手入口
+## 歷史接手紀錄（已封存）
 
-本輪實作已授權持續進行，不是「只做一票」：依賴順序完成 Ticket 82–90，隨後依 [Base 計畫](base-implementation-plan.md) 的 DAG 完成 B00–B17；每票實作、驗證、指定獨立審查與本文件更新後，自動進入下一張可執行票。現在的唯一實作入口為 [Base B02](base/b00/next-work-cards.md)。
+以下 Ticket 81–90 的進度與驗收筆記保留作為歷史紀錄；其中曾有「持續執行」的授權與「Base B02」接手入口，均已失效，不得當作目前任務指派。
 
 Ticket 84 已完成：DateField 改為 Radix Popover、Brand Content RowMenu → Delete Dialog → Escape 回焦已測、四張固定表格窄版改為水平捲動；admin（21 suites／194 tests）、根層（48 files／561 tests）、build、三語 × 明暗 × 360／1280 隔離 browser matrix 與 Terra/high 獨立複核均通過。詳見 [Ticket 84](tickets/84-admin-marketing-content-ui.md)。
 Ticket 85 已完成：四個 commerce operations pages、共用 reason/menu primitive 接合、三語、reentry guards、退款與會員調帳的 idempotency payload snapshot／鎖定與失敗保留已實作。`pnpm typecheck:admin`、admin 21 files／200 tests、build、root 48 files／561 tests、`git diff --check` 皆通過；隔離 browser 已覆蓋三語／雙主題、RMA Escape 回焦與 360px Shipping。Sol/high 第一輪與終審先後提出 timeout payload/key 不一致和 ReasonDialog no-op error-dismiss，均修正並加 regression；第二次全新 Sol/high 終審 PASS，review pane 已關閉。
@@ -115,14 +117,8 @@ Ticket 81 已完成：Order browser projection 由 DTO 的 type-only 明確投�
 Ticket 83 已完成：Products create/edit/stock 遷移到 Dialog primitive，保留 native table 與批次庫存查詢，新增列選單→庫存 Dialog→Escape 回到 trigger 的 regression；`pnpm typecheck:admin`、`pnpm test:admin`（21 suites／189 tests）、`pnpm build:admin`、`pnpm typecheck`、`pnpm test`（48 files／561 tests）與隔離 browser matrix 都通過。Terra/high 首輪發現 RowMenu 回焦目標與殘留 `h3` CSS，修正後 PASS；review pane 已關閉。
 這些是派工設定，不表示本交接文件已更改 Codex 的模型或 reasoning 設定。
 
-1. 讀適用規則、`git status`、HEAD；保留完整未提交的81–90成果，不重做已驗收票。
-2. 讀 [Spec0009](specs/0009-complete-modular-base.md)、[Base計畫](base-implementation-plan.md)、[B00 完成證據](base/b00/README.md) 、[B01 完成證據](base/b01/README.md) 與 [B02 派工卡](base/b00/next-work-cards.md)；依既定DAG完成B02–B17，不縮為MVP。
-3. Base工作包沒有對應GitHub issue。B00已完成盤點／14 probes／ADR草案與雙軸Sol複審，保留現有Queue並在B04補可靠性；不得重做B00或把PoC誤標為完整Base。
-4. 連續執行已授權。高風險核心由主代理持有，Sol/high分析與獨立審查；有界委派依使用者Terra/high與Herdr YOLO設定，單檔單writer。
-5. 本文件保留後台歷程；Base進度更新Base計畫與相應工作包證據。每包完整驗證、獨立審查後才接下一個可執行前沿。未commit／push／merge／GitHub寫入／部署。
+原先列出的步驟 1–5 是 2026-09-07 的接手筆記，已隨 Ticket 81–90 與 B00–B17 完成而失效；不要據此復原舊工作樹狀態或延續授權。現行狀態與接手方式見本頁「封存」及「現行接手方式」。
 
-## 可直接交給接手模型的指令
+## 現行接手方式
 
-> 接手StoreWeave Base B02。先讀本交接、Spec0009與Base執行計畫；81–90與B00–B01已完成，不重做。
-> 使用Herdr、指定模型與YOLO依DAG持續完成B00–B17，保留完整目標與dirty worktree。
-> 高風險核心留主代理、Sol/high分析與獨立審查；不commit、push、merge、部署或寫GitHub。
+本交接中的原始 B02 指令已撤下。Base 工程目前已完成，後續 semantic coverage、release readiness 與產品驗證分開追蹤；需要新工作時，先讀根目錄 `AGENTS.md`、檢查目前 `git status`，再依使用者當次任務處理。舊文件不授權重啟 B00–B17，也不授權 commit、push、GitHub 寫入或部署。

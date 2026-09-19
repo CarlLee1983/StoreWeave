@@ -19,8 +19,10 @@ role 字串）其實是泛用的，卡住的不在 identity 模組，而在三�
    storefront actor，完全不看 cookie；而 `StorefrontController` 整個 class 掛著 `@Public()`。
    前台因此在結構上不可能辨識登入者。
 
-順帶發現一個既存缺口：`storefront` 角色持有無範圍限制的 `order:read`，而 `GET /orders/:number`
-只用訂單號查、不驗身分 —— 任何人猜到訂單號就能讀別人的訂單。它需要的正是第 2 點缺的東西。
+當時也發現一個既存缺口：`storefront` 角色持有無範圍限制的 `order:read`，而
+`GET /orders/:number` 只用訂單號查、不驗身分 —— 任何人猜到訂單號就能讀別人的訂單。
+它需要的正是第 2 點缺的東西；本決策與 Spec 0001／Ticket 12 已用 customer actor scope 修正，
+回歸見 `tests/integration/order-scope.test.ts`。
 
 ## 決策
 

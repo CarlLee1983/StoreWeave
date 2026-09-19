@@ -36,7 +36,7 @@
 | [0032](0032-product-status-transitions-are-not-enforced.md) | 商品狀態的合法轉換只在後台具名，command 不強制 | accepted |
 | [0033](0033-brand-content-is-a-core-module.md) | 品牌內容是 Core 的 content 模組，Theme 只負責呈現 | accepted |
 | [0034](0034-editorial-media-stays-theme-owned.md) | 編輯照片仍由 Theme 擁有，Core 只存一個封閉的圖片 key | accepted |
-| [0035](0035-retain-postgres-queue-for-modular-base.md) | 完整 Base 沿用 PostgreSQL Queue，補齊可靠性契約 | proposed（B00） |
+| [0035](0035-retain-postgres-queue-for-modular-base.md) | 完整 Base 沿用 PostgreSQL Queue，補齊可靠性契約 | accepted（B04／B05） |
 | [0036](0036-validate-module-composition-before-runtime.md) | 啟動前驗證模組組裝，分開初始化與操作相依 | accepted（B01） |
 | [0037](0037-release-selection-and-history.md) | Release 統一選取模組，歷史驗證與啟用分開 | accepted（B02） |
 | [0038](0038-signed-values-carry-a-key-id.md) | 簽發值帶 key id，金鑰依用途推導 | accepted（B12） |
@@ -48,7 +48,7 @@
 | [0044](0044-operator-mfa-is-totp-with-recovery-codes.md) | 後台帳號的第二因素是 TOTP＋一次性復原碼 | accepted（B08） |
 | [0045](0045-modules-declare-storefront-pages.md) | 前台頁面由模組宣告，Theme 只提供渲染 | accepted（B13） |
 | [0046](0046-site-settings-and-navigation-are-release-data.md) | 網站設定與導覽是資料，不是 Theme 的一部分 | accepted（B13） |
-| [0047](0047-session-is-a-page-outcome.md) | Session 是頁面的 outcome，不是頁面的能力 | proposed |
+| [0047](0047-session-is-a-page-outcome.md) | Session 是頁面的 outcome，不是頁面的能力 | accepted（工單 92–98） |
 | [0048](0048-media-is-a-base-capability.md) | 使用者媒體是 Base 能力，位元組仍由 Storage 管理 | accepted（B10） |
 | [0049](0049-content-is-a-base-module-and-media-migrates-by-evidence.md) | Content 是 Base 模組，舊 Theme 圖片以可驗證回填遷移 | accepted（B14） |
 | [0050](0050-modules-declare-resources-and-upload-intakes.md) | 模組宣告自己要的資源與上傳入口，後台頁走模組頁面 | accepted（B16） |

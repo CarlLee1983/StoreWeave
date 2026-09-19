@@ -2,6 +2,8 @@
 
 狀態：五片全部 review PASS、全 gates 實跑 PASS。5b 獨立 review P0=0，其 P1（`listFailures` 查詢成本）與 P2 已修並補回歸。範圍為 F06／F10 的可靠 occurrence 執行與 Outbox；排程 cron／timezone／DST／misfire 屬 B05，不在本包。
 
+下方依工作片段保留中途 review／gate 記錄；較早的 `pending` 或「仍未完成」只代表當時狀態，不覆蓋本頁最終結論。全專案 Base 狀態見 [B17](../b17/README.md)。
+
 依據：[B04 card](../b00/next-work-cards.md#b04--同一-queue-完整可靠性)、[Spec 0009 F06/F10](../../specs/0009-complete-modular-base.md#3-能力範圍與現況)、[ADR 0035](../../adr/0035-retain-postgres-queue-for-modular-base.md)、[依賴表](../../base-implementation-plan.md#3-依賴圖與階段出口)。依賴只以上述表為準。
 
 第一片 source review 已確認 occurrence／claim token、deferred replacement 與 migration evidence；其餘未讀範圍仍不作不存在結論。

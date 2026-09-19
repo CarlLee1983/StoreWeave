@@ -1,7 +1,7 @@
 # B02 驗收對照
 
 2026-09-08。Standards／Spec 與最後產物驗證已通過，B02 結案。
-範圍依 [B02 派工卡](../b00/next-work-cards.md#b02--同一份-release-選取模組設定與資料)，不取代完整 B03–B17。
+範圍依 [B02 派工卡](../b00/next-work-cards.md#b02--同一份-release-選取模組設定與資料)；本表只驗收 B02，不代替其他工作包各自的驗收。
 
 | 要求 | 實作與可重跑證據 | 結果 |
 | --- | --- | --- |
@@ -38,4 +38,5 @@
 還原需要 PostgreSQL 17、maintenance superuser、既有 roles／extensions／tablespaces，並停妥管理中服務與外部寫入者。
 歷史 B01 SQL/runtime bytes 無法追溯驗證，採納 flags 保持 false。Release 摘要不是發行者簽章。
 還原會替換整個資料庫；快照後資料保留在 quarantine，不合併、不自動 DROP、不執行任意 down migration。
-這些限制與完整 Base 尚待完成的 B03–B17，均不因 B02 局部驗收而消失。
+截至 B02 結案（2026-09-08），B03–B17 尚待完成；這些是當時的階段邊界，不因 B02 局部驗收而消失。
+目前整體 Base 工程結論與仍待處理的 quality／release／產品工作，見 [B17 驗收](../b17/acceptance.md)。

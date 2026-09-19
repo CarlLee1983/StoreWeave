@@ -155,10 +155,12 @@ notification provider 用 Extension SDK 既有的 contract test 工具驗證，�
 
 ## Further Notes
 
-`storefront` 角色的無範圍 `order:read` 是一個**既有的**授權缺口，不是本次引入的。
-它在這份規格裡被修掉，但修法依賴 `Actor.type` 的擴充，因此不能更早單獨處理。
-若要在本規格之前先止血，唯一的短期做法是讓以訂單號查詢的端點額外要求 email 相符，
-那是暫時性的，會在本規格落地時移除。
+撰寫本規格時，`storefront` 角色的無範圍 `order:read` 是一個**既有的**授權缺口，
+不是本次引入的。它在本規格交付時由 query handler 依 `Actor.type` 過濾修正；
+修法依賴 `Actor.type` 的擴充，因此不能更早單獨處理。對應回歸見
+[Ticket 12](../tickets/12-order-scope-by-actor.md) 與 `tests/integration/order-scope.test.ts`。
+修正前曾討論以訂單 email 比對作短期止血；它沒有成為目前方案，已由 actor scope 取代。
 
-`POST /checkout` 目前的 idempotency key 是每次請求現產的 UUID，等於沒有保護，
-重複送出表單會建出多筆訂單。本規格不修它 —— 正確的 key 來源是購物車 id，屬於 Spec 0003。
+撰寫本規格時，`POST /checkout` 每次請求現產 UUID 作為 idempotency key，重複送出表單可能
+建立多筆訂單。本規格不處理這項缺陷；它後來由 Spec 0003／[Ticket 28](../tickets/28-cart-checkout.md)
+修正，HTTP 層現依 actor 與購物車識別碼產生穩定的 key。

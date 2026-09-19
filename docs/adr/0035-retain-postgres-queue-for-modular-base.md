@@ -1,9 +1,9 @@
 # 0035. 完整 Base 沿用現有 PostgreSQL Queue，補齊可靠性契約
 
-- 狀態：proposed；B00 實測與獨立 Sol 審查通過後供 B04 執行。
+- 狀態：accepted（2026-09-19 狀態同步；B04 Queue 與 B05 Scheduler 已交付，驗收見 [B04](../base/b04/acceptance.md) 與 [B05](../base/b05/README.md)）。
 - 日期：2026-09-07
 
-選擇保留 `platform_jobs` 與既有 transaction-aware `JobQueue`，由 B04 補齊 occurrence fencing、heartbeat、取消／逾時、保留期、去重及 Outbox 投遞語意；B05 完成交付 cron／timezone／DST 與 misfire 管控。這是完整 F06／F07 的後端選型，不代表現況已達標。
+決策時選擇保留 `platform_jobs` 與既有 transaction-aware `JobQueue`，由 B04 補齊 occurrence fencing、heartbeat、取消／逾時、保留期、去重及 Outbox 投遞語意；B05 交付 cron／timezone／DST 與 misfire 管控。B04 與 B05 均已完成；本 ADR 記錄後端選型及其理由，具體 gates 與尚存部署限制以各包驗收及 B17 為準。
 
 [B00 實測](../base/b00/queue-comparison.md) 證明 pg-boss 12.30.0 可在目前 Node／PostgreSQL 組合運作，且提供可靠的套件 schema 升降版與 heartbeat；但全狀態 dedupe、running replacement 和 dead-only 重送／attempt reset 不能直接映射其原生操作。兩套都需應用層 occurrence fencing；採 pg-boss 還要維護狀態翻譯、既有資料轉換與唯一 dispatcher 切換。原生 direct retry 可以保留 id，故 identity mapping 並非必然成本；若採 redrive 則需處理新 id。保留既有表使補齊工作集中在已被 Command／Extension／worker 使用的同一 Interface，減少同時改變持久資料格式與公開語意的範圍。
 

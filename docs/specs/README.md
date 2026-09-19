@@ -2,7 +2,7 @@
 
 **完整基底目標（2026-09-06）**：[Spec 0009](0009-complete-modular-base.md) 與
 [Base 執行計畫](../base-implementation-plan.md)。B00–B17 已完成 Base 工程驗收；semantic contract coverage、external staging、商家 UAT、正式部署設定與首個真實專案驗證屬後續 quality、release 或產品工作，不阻擋 Base 工程結案。詳見 [B17 驗收矩陣](../base/b17/acceptance.md)。
-狀態核對（2026-09-18）：Spec 0008 的 Ticket 81–90 已完成、通過指定獨立審查並已合入 `main`；各票保留各自的驗收證據。
+狀態核對（2026-09-19）：Spec 0008 的 Ticket 81–90 已完成、通過指定獨立審查並已合入 `main`；各票保留各自的驗收證據。
 
 GitHub 派工入口：[Spec 0008 總單 #17](https://github.com/CarlLee1983/StoreWeave/issues/17)，內含完整規格與本批工單連結。
 

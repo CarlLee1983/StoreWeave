@@ -121,4 +121,4 @@ Native初次使用macOS Bash3.2，商品建立步驟出現JSON解析錯誤；同
 
 最終source/test/config76hash `/tmp/storeweave90-reviewed-source-final.json`；全部本機檔案快照hash `/tmp/storeweave90-complete-worktree-hashes.json`。Browser證據 `/tmp/storeweave90-primary-browser`：layout108-final.log、layout84-final.log、shell-login-final2.log、product-dialogs-final.log、product-phases.log；含source-grounded fixture／JSON／screenshots，無merchant/provider寫入。最後copy-only增量已由Admin314/build、三語phase與36dialog驗證，沒有為文字變動重跑未受影響的backend gates。
 
-已完成81–90；下一階段依既定Base DAG從B00開始，B00–B17仍是完整後續目標，不以本票完成代替Base完成。現有Vitechunk-sizewarning保留；64／70商家UAT與91ForgeFlow來源仍是分開記錄的外部事項。未commit／push／merge／部署／GitHub寫入。
+截至本票結案（2026-09-07），已完成81–90；當時下一階段依既定Base DAG從B00開始，B00–B17仍是完整後續目標，不以本票完成代替Base完成。Base 工程後續已於 2026-09-19 完成驗收；目前 quality、release readiness 與產品驗證狀態見 [B17 驗收矩陣](../base/b17/acceptance.md)。結案當時已知的 Vite chunk-size warning、64／70 商家 UAT 與 91 ForgeFlow 來源，是另行追蹤的事項。本句「未commit／push／merge／部署／GitHub寫入」也是本票結案時的歷史紀錄。

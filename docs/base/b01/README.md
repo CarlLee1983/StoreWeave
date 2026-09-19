@@ -24,7 +24,7 @@
 - HEAD `1f4470d810a84fc43d97c1990c32c5e71608dd7f`；保留 81–90 與 B00 未提交成果。
 - B01 起始 727 檔快照由 `/tmp/storeweave-base-b01-baseline-path` 指向；全檔 hash `/tmp/storeweave-b00-complete-worktree-hashes.json`。不把隔離 PoC 的 node_modules 複製成 production 依賴。
 - [B00 公開介面盤點](../b00/compatibility-inventory.md) 是現有識別的基準，不重做 Queue 研究或後台驗收。
-- 主代理已實作 graph preflight、全體 declarations、tagged constructor binding、scoped subscriber command 與四個 repository 邊界；已完成本包驗證與獨立審查，B01 done；B02–B17 仍未完成。
+- 主代理已實作 graph preflight、全體 declarations、tagged constructor binding、scoped subscriber command 與四個 repository 邊界；已完成本包驗證與獨立審查。**截至 B01 結案（2026-09-07）**，B02–B17 尚未完成；目前整體 Base 結論見 [B17](../b17/README.md)。
 
 ### 已取得的現況證據
 
