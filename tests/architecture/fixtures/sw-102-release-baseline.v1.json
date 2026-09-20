@@ -1,0 +1,65 @@
+{
+  "format": "storeweave.release-baseline.v1",
+  "deterministicInputs": {
+    "releaseVersion": "0.1.0-sw102",
+    "releaseCatalog": "scripts/releases.mjs",
+    "targets": {
+      "server": "apps/api/src/main.ts",
+      "worker": "apps/worker/src/main.ts",
+      "cli": "tools/cli/src/main.ts",
+      "admin": "apps/admin/index.html"
+    }
+  },
+  "releases": {
+    "base": {
+      "identity": {
+        "id": "base",
+        "version": "0.1.0-sw102",
+        "manifestChecksum": "sha256:1557b94ff28c57fd4ebf7906f2a8565c4ee7b1cfcc4537e3e39b843f08321734"
+      },
+      "selected": {
+        "runtime": "packages/platform/bundle/src/releases/base.ts",
+        "http": "apps/api/src/releases/base.ts",
+        "seed": "scripts/seeds/base.ts",
+        "admin": false,
+        "themeAssets": null
+      },
+      "targets": {
+        "server": { "status": "present", "inputCount": 184, "inputsChecksum": "sha256:2ae4eee9da0c3bf563c726d41ed4378afbb9d165c47e36abd7aa3c9999eee3c9" },
+        "worker": { "status": "present", "inputCount": 150, "inputsChecksum": "sha256:04aee77ca990aa9a48934211af3b7a3c3a1d6cbd31ae0910f3acbfed46266742" },
+        "cli": { "status": "present", "inputCount": 175, "inputsChecksum": "sha256:cf534d35b84214e63b056282da3059b10aa1981c9e07e267353cae3c267a7fa8" },
+        "admin": { "status": "absent" }
+      },
+      "publicContract": { "status": "absent" }
+    },
+    "commerce": {
+      "identity": {
+        "id": "commerce",
+        "version": "0.1.0-sw102",
+        "manifestChecksum": "sha256:356cb6ec482e6c36cdda018eda8f921609625489322de4bf89f0b7df0cefba2b"
+      },
+      "selected": {
+        "runtime": "packages/platform/bundle/src/releases/commerce.ts",
+        "http": "apps/api/src/releases/commerce.ts",
+        "seed": "scripts/seeds/commerce.ts",
+        "admin": true,
+        "themeAssets": "packages/themes/default/assets"
+      },
+      "targets": {
+        "server": { "status": "present", "inputCount": 392, "inputsChecksum": "sha256:a355b50f7f7aac8391d9b030270e643f233e344f3c405c91c4bc36887bcccf90" },
+        "worker": { "status": "present", "inputCount": 339, "inputsChecksum": "sha256:a721ca3501a46723525a3d87dc24ce62a1a9e14d54b5dfe1b62039bbffa8c5a5" },
+        "cli": { "status": "present", "inputCount": 363, "inputsChecksum": "sha256:f1b0c8350fca4e054e297981b113e5f2c5e01df959a194e170ff62632d3f3413" },
+        "admin": { "status": "present", "inputCount": 54, "inputsChecksum": "sha256:b8a64addd8f085138cd4268b3ddc5faab9189af42180add825ee162b4585fe6b" }
+      },
+      "publicContract": {
+        "status": "present",
+        "inputs": [
+          { "path": "docs/base/b17/b00-catalog.json", "sha256": "7a6c392a4ab3bf752b5bd764d2904ac06f35832342e9c095a6406b08950d3a5e" },
+          { "path": "docs/base/b17/commerce-http-contract.v1.json", "sha256": "1f9c5563cd8cada3c51a797a121bd3a21c17ced22329eb9e6091da8f66c7066a" },
+          { "path": "docs/base/b17/commerce-public-contract.structural.v1.json", "sha256": "9e871b7019dc44a9da0f81d6f7bd64ffa37b20eaec0edd87281461b4536b1fb8" },
+          { "path": "docs/base/b17/commerce-public-contract.semantic.v2.json", "sha256": "3207b5cff19dc7f499536ed982ba759690fb9f5a392586f59b49948c6fe27355" }
+        ]
+      }
+    }
+  }
+}
