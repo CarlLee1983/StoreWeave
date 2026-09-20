@@ -166,8 +166,11 @@ full_recovery_smoke() {
   docker run -d --name "$PG" --network "$NET" --platform linux/amd64 \
     -e POSTGRES_USER=commerce -e POSTGRES_PASSWORD=smokepw -e POSTGRES_DB=commerce postgres:17-alpine >/dev/null
   for i in $(seq 1 60); do
-    if docker exec "$PG" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then break; fi
-    [ "$i" -lt 60 ] || { echo 'Fresh Postgres did not start' >&2; return 1; }
+    # This must run from the container that invokes restore: the database's
+    # own readiness says nothing about its replacement being reachable through
+    # Docker DNS from the already-running release container.
+    if docker exec --user "$NAME" "$APP" pg_isready -h "$PG" -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then break; fi
+    [ "$i" -lt 60 ] || { echo 'Fresh Postgres is not reachable from the release container' >&2; return 1; }
     sleep 1
   done
   docker exec --user "$NAME" "$APP" sh -c "test ! -d /var/lib/$NAME/storage || mv /var/lib/$NAME/storage /var/lib/$NAME/storage-lost"
