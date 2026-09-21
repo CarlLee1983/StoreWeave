@@ -6,10 +6,10 @@ import { z } from 'zod';
 import { catalogDigest, validateWorkOwnership } from '@storeweave/db';
 import { noopLogger } from '@storeweave/contracts';
 import { ProviderRegistry, defineExtension } from '@storeweave/extension-sdk';
-import { release as base } from '../../packages/platform/bundle/src/releases/base';
-import { release as commerce } from '../../packages/platform/bundle/src/releases/commerce';
-import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
-import { buildReleaseManifest, projectReleaseManifest } from '../../packages/platform/bundle/src/release-manifest';
+import { release as base } from '../../packages/releases/base/src/runtime';
+import { release as commerce } from '../../packages/releases/commerce/src/runtime';
+import { bootstrapRelease } from '../../packages/platform/release/src/bootstrap';
+import { buildReleaseManifest, buildReleasePermissionCatalog, projectReleaseManifest } from '../../packages/platform/release/src/runtime';
 
 const databaseConstructed = vi.hoisted(() => vi.fn());
 vi.mock('@storeweave/db', async original => ({
@@ -58,6 +58,27 @@ describe('release build manifest', () => {
     const actual = projectReleaseManifest(commerce, [...modules].reverse());
     expect(catalogDigest(actual)).toBe(catalogDigest(expected));
     expect(expected.modules).toHaveLength(24);
+  });
+
+  it('projects platform, Commerce, and extension-declared permissions without running extension setup', () => {
+    const setup = vi.fn(() => { throw new Error('setup must not run'); });
+    const extension = defineExtension({ manifest: {
+      id: 'manifest-probe', name: 'Probe', version: '1.0.0', platformVersion: '^1.0.0',
+      configuration: z.object({}), permissions: [], declaredPermissions: [{ key: 'probe:read', description: 'Read probe data' }],
+      subscribedEvents: [], registeredCommands: [], registeredQueries: [], registeredProviders: [],
+    }, setup });
+    const permissionKeys = buildReleasePermissionCatalog({
+      ...commerce,
+      availableExtensions: { ...commerce.availableExtensions, 'manifest-probe': extension },
+    });
+
+    expect(permissionKeys).toContain('catalog:read');
+    expect(permissionKeys).toContain('media:read');
+    expect(permissionKeys).toContain('erp:read');
+    expect(permissionKeys).toContain('probe:read');
+    expect(permissionKeys).not.toContain('catalog:reed');
+    expect(permissionKeys).toEqual([...permissionKeys].sort((left, right) => left.localeCompare(right)));
+    expect(setup).not.toHaveBeenCalled();
   });
 
   it('rejects config-dependent job metadata before constructing a database', async () => {

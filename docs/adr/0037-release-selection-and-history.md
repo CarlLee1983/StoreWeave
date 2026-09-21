@@ -19,4 +19,4 @@ B01 舊三欄 migration ledger 無法證明當年執行的 SQL 或 runtime bytes
 
 ## Falsified if
 
-若 `packages/platform/bundle/src/releases/base.ts` 或 `scripts/build.mjs` 產物載入未選 Commerce runtime，或 `packages/platform/db/src/release-history.ts` 接受改寫 prefix／未知歷史，或 `tests/integration/migration-lock.test.ts` 無法保證同 connection 鎖定，則重開本決策。若 `tests/integration/cli-upgrade-paired.test.ts`、`tests/integration/cli-legacy-upgrade.test.ts` 無法在中斷後依原 journal 恢復正確 DB／程式配對，或 `tests/integration/deb-media.test.ts` 顯示 dpkg 會改動 live installation，必須先修復邊界。若 `tools/cli/src/verify-restored-database.ts` 無法驗證指定 PostgreSQL 版本的 owner／ACL／設定／歷史，不可放寬驗證來宣稱該版本受到支援。
+若 `packages/releases/base/src/runtime.ts` 或 `scripts/build.mjs` 產物載入未選 Commerce runtime，或 `packages/platform/db/src/release-history.ts` 接受改寫 prefix／未知歷史，或 `tests/integration/migration-lock.test.ts` 無法保證同 connection 鎖定，則重開本決策。若 `tests/integration/cli-upgrade-paired.test.ts`、`tests/integration/cli-legacy-upgrade.test.ts` 無法在中斷後依原 journal 恢復正確 DB／程式配對，或 `tests/integration/deb-media.test.ts` 顯示 dpkg 會改動 live installation，必須先修復邊界。若 `tools/cli/src/verify-restored-database.ts` 無法驗證指定 PostgreSQL 版本的 owner／ACL／設定／歷史，不可放寬驗證來宣稱該版本受到支援。

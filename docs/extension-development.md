@@ -261,7 +261,7 @@ Command 的 JSON body 不做這個過濾：那裡多出來的鍵一定是呼叫�
 ```ts
 import { describe, expect, it } from 'vitest';
 import { runExtensionContractChecks } from '@storeweave/extension-sdk';
-import { knownEventNames, knownPermissionKeys } from '@storeweave/bundle';
+import { knownEventNames, knownPermissionKeys } from '@storeweave/release-commerce/modules';
 import { giftWrapExtension } from '@storeweave/ext-gift-wrap';
 
 describe('gift-wrap 契約', () => {
@@ -290,7 +290,7 @@ Command/Query stub、以及 `drainJobs()` 讓你在測試裡走完整條背景�
 
 1. 建立 `packages/extensions/<id>/`（package.json + src）。
 2. 在 `tsconfig.base.json` 的 `paths` 加上別名。
-3. 在 `packages/platform/bundle/src/modules.ts` 的 `AVAILABLE_EXTENSIONS` 註冊。
+3. 在 `packages/releases/commerce/src/modules.ts` 的 `AVAILABLE_EXTENSIONS` 註冊。
 4. 在該店的 `commerce.yaml` 啟用：
 
 ```yaml

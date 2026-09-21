@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client } from 'pg';
+import { build as viteBuild } from 'vite';
 import { catalogDigest } from '@storeweave/db';
 import { createTestDatabase } from './helpers';
 
@@ -105,6 +106,20 @@ describe('release process artifacts', () => {
       const info = JSON.parse(readFileSync(join(output, 'build-info.json'), 'utf8'));
       expect(info.releaseId).toBe(releaseId);
       expect(info.version).toBe('0.1.2-test');
+      expect(info.projections.map((projection: { target: string }) => projection.target)).toEqual(['server', 'worker', 'admin', 'cli']);
+      const projectionSources = {
+        server: `packages/releases/${releaseId}/src/server.ts`,
+        worker: `packages/releases/${releaseId}/src/worker.ts`,
+        admin: `packages/releases/${releaseId}/src/${releaseId === 'commerce' ? 'admin.tsx' : 'admin.ts'}`,
+        cli: `packages/releases/${releaseId}/src/cli.ts`,
+      };
+      for (const projection of info.projections as { releaseId: string; target: keyof typeof projectionSources; source: string; status: string }[]) {
+        expect(projection.releaseId).toBe(releaseId);
+        expect(projection.source).toBe(projectionSources[projection.target]);
+        expect(projection.status).toBe(projection.target === 'admin' && releaseId !== 'commerce' ? 'disabled' : 'built');
+      }
+      const adminProjection = (info.projections as { target: string; artifact: string | null }[]).find(value => value.target === 'admin')!;
+      expect(adminProjection.artifact).toBe(releaseId === 'commerce' ? 'admin/index.html' : null);
       const manifest = JSON.parse(readFileSync(join(output, 'release-manifest.json'), 'utf8'));
       expect(manifest).toMatchObject({ schemaVersion: 1, releaseId, releaseVersion: '0.1.2-test' });
       expect(info.manifestChecksum).toBe(catalogDigest(manifest));
@@ -120,10 +135,33 @@ describe('release process artifacts', () => {
       expect(version.stdout.trim()).toBe('0.1.2-test');
       expect(info.entries).toHaveLength(4);
       expect(existsSync(join(output, 'admin/index.html'))).toBe(releaseId === 'commerce');
+      expect(existsSync(join(output, 'admin/storeweave-projection.json'))).toBe(false);
       expect(existsSync(join(output, 'theme-assets'))).toBe(releaseId === 'commerce');
       for (const entry of ['api', 'worker', 'cli', 'seed']) {
         expect(readFileSync(join(output, 'app', `${entry}.js`), 'utf8')).toContain(info.manifestChecksum);
         const graph = JSON.parse(readFileSync(join(output, 'app', `${entry}.js.meta.json`), 'utf8'));
+        if (entry === 'api' || entry === 'worker' || entry === 'cli') {
+          const target = entry === 'api' ? 'server' : entry;
+          const projection = (info.projections as { target: string; artifact: string; inputCount: number; inputsChecksum: string }[]).find(value => value.target === target)!;
+          const sourceInputs = Object.keys(graph.inputs).filter(file => /^(apps|packages|scripts|tools)\//.test(file)).sort();
+          expect(projection.artifact).toBe(`app/${entry}.js`);
+          expect(projection.inputCount).toBe(sourceInputs.length);
+          expect(projection.inputsChecksum).toBe(catalogDigest(sourceInputs));
+        }
+        if (entry === 'api') {
+          const inputs = Object.keys(graph.inputs);
+          expect(inputs.some(file => file.endsWith(`packages/releases/${releaseId}/src/server.ts`))).toBe(true);
+          expect(inputs).not.toContain(`packages/releases/${releaseId === 'base' ? 'commerce' : 'base'}/src/server.ts`);
+          expect(inputs.filter(file => /(^|\/)apps\/(admin|worker)\//.test(file))).toEqual([]);
+          expect(inputs.filter(file => /(^|\/)packages\/releases\/(base|commerce)\/src\/(admin|worker)\.ts$/.test(file))).toEqual([]);
+        }
+        if (entry === 'worker') {
+          const inputs = Object.keys(graph.inputs);
+          expect(inputs).toContain(`packages/releases/${releaseId}/src/worker.ts`);
+          expect(inputs).not.toContain(`packages/releases/${releaseId === 'base' ? 'commerce' : 'base'}/src/worker.ts`);
+          expect(inputs.filter(file => /(^|\/)apps\/(api|admin)\//.test(file))).toEqual([]);
+          expect(inputs.filter(file => /(^|\/)packages\/releases\/(base|commerce)\/src\/(server|admin)\.ts$/.test(file))).toEqual([]);
+        }
         if (releaseId === 'base') {
           expect(Object.keys(graph.inputs).filter(file => /packages\/(commerce|extensions)\//.test(file))).toEqual([]);
         }
@@ -285,4 +323,79 @@ describe('release process artifacts', () => {
       });
     });
   }
+
+  it('reuses only a provenance-checked Admin bundle when Admin building is skipped', async () => {
+    const adminCache = join(directory, 'commerce-admin-cache');
+    await viteBuild({
+      configFile: join(process.cwd(), 'apps/admin/vite.config.ts'),
+      logLevel: 'silent',
+      build: { outDir: adminCache, emptyOutDir: true },
+    });
+    const output = join(directory, 'commerce-skip-admin');
+    await exec(process.execPath, ['scripts/build.mjs', '--skip-admin'], {
+      env: {
+        ...process.env,
+        STOREWEAVE_RELEASE: 'commerce',
+        STOREWEAVE_RELEASE_VERSION: '0.1.2-test',
+        STOREWEAVE_BUILD_DIR: output,
+        STOREWEAVE_ADMIN_CACHE_DIR: adminCache,
+      },
+      timeout: 60_000,
+    });
+    const info = JSON.parse(readFileSync(join(output, 'build-info.json'), 'utf8'));
+    const projection = info.projections.find((value: { target: string }) => value.target === 'admin');
+    const provenance = JSON.parse(readFileSync(join(adminCache, 'storeweave-projection.json'), 'utf8'));
+    expect(projection)
+      .toMatchObject({ releaseId: 'commerce', source: 'packages/releases/commerce/src/admin.tsx', artifact: 'admin/index.html', status: 'built' });
+    expect(projection.inputsChecksum).toBe(provenance.inputsChecksum);
+    expect(existsSync(join(output, 'admin/storeweave-projection.json'))).toBe(false);
+    expect(readFileSync(join(output, 'admin/index.html'), 'utf8'))
+      .toBe(readFileSync(join(adminCache, 'index.html'), 'utf8'));
+  });
+
+  it('fails when an explicitly selected Admin reuse directory is missing', async () => {
+    const output = join(directory, 'commerce-missing-admin-cache');
+    await expect(exec(process.execPath, ['scripts/build.mjs', '--skip-admin'], {
+      env: {
+        ...process.env,
+        STOREWEAVE_RELEASE: 'commerce',
+        STOREWEAVE_RELEASE_VERSION: '0.1.2-test',
+        STOREWEAVE_BUILD_DIR: output,
+        STOREWEAVE_ADMIN_CACHE_DIR: join(directory, 'missing-admin-cache'),
+      },
+      timeout: 60_000,
+    })).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('reuse directory does not exist') });
+  });
+
+  it('file-requests selects its package-owned Admin, server, worker, and CLI projections', async () => {
+    const output = join(directory, 'file-requests');
+    await exec(process.execPath, ['scripts/build.mjs'], {
+      env: { ...process.env, STOREWEAVE_RELEASE: 'file-requests', STOREWEAVE_RELEASE_VERSION: '0.1.2-test', STOREWEAVE_BUILD_DIR: output },
+      timeout: 60_000,
+    });
+
+    const buildInfo = JSON.parse(readFileSync(join(output, 'build-info.json'), 'utf8'));
+    expect(buildInfo.projections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ releaseId: 'file-requests', target: 'server', source: 'packages/examples/file-requests/src/server.ts', status: 'built' }),
+      expect.objectContaining({ releaseId: 'file-requests', target: 'worker', source: 'packages/examples/file-requests/src/worker.ts', status: 'built' }),
+      expect.objectContaining({ releaseId: 'file-requests', target: 'admin', source: 'packages/examples/file-requests/src/admin.ts', status: 'disabled', artifact: null }),
+      expect.objectContaining({ releaseId: 'file-requests', target: 'cli', source: 'packages/examples/file-requests/src/cli.ts', status: 'built' }),
+    ]));
+
+    const graph = JSON.parse(readFileSync(join(output, 'app/api.js.meta.json'), 'utf8')) as { inputs: Record<string, unknown> };
+    const inputs = Object.keys(graph.inputs);
+    expect(inputs).toContain('packages/examples/file-requests/src/server.ts');
+    expect(inputs).toContain('apps/api/src/releases/file-requests.ts');
+    expect(inputs).toContain('packages/examples/file-requests/src/runtime.ts');
+    expect(inputs.filter(file => /(^|\/)packages\/releases\/(base|commerce)\/src\/server\.ts$/.test(file))).toEqual([]);
+    expect(inputs.filter(file => /(^|\/)apps\/(admin|worker)\//.test(file))).toEqual([]);
+    expect(inputs.filter(file => /(^|\/)packages\/releases\/(base|commerce)\/src\/(admin|worker)\.ts$/.test(file))).toEqual([]);
+
+    const workerGraph = JSON.parse(readFileSync(join(output, 'app/worker.js.meta.json'), 'utf8')) as { inputs: Record<string, unknown> };
+    const workerInputs = Object.keys(workerGraph.inputs);
+    expect(workerInputs).toContain('packages/examples/file-requests/src/worker.ts');
+    expect(workerInputs).toContain('packages/examples/file-requests/src/runtime.ts');
+    expect(workerInputs.filter(file => /(^|\/)apps\/(api|admin)\//.test(file))).toEqual([]);
+    expect(workerInputs.filter(file => /(^|\/)packages\/releases\/(base|commerce)\/src\/(server|admin)\.ts$/.test(file))).toEqual([]);
+  });
 });

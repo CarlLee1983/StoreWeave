@@ -270,11 +270,15 @@ importers:
 
   apps/worker: {}
 
+  packages/booking/availability: {}
+
+  packages/booking/property: {}
+
+  packages/booking/reservation: {}
+
   packages/commerce/cart: {}
 
   packages/commerce/catalog: {}
-
-  packages/platform/content: {}
 
   packages/commerce/coupon: {}
 
@@ -320,13 +324,13 @@ importers:
 
   packages/platform/authorization: {}
 
-  packages/platform/bundle: {}
-
   packages/platform/cache: {}
 
   packages/platform/command-bus: {}
 
   packages/platform/config: {}
+
+  packages/platform/content: {}
 
   packages/platform/contracts: {}
 
@@ -362,11 +366,19 @@ importers:
 
   packages/platform/query-bus: {}
 
+  packages/platform/release: {}
+
   packages/platform/site: {}
 
   packages/platform/storage: {}
 
+  packages/releases/base: {}
+
+  packages/releases/commerce: {}
+
   packages/themes/base: {}
+
+  packages/themes/booking-default: {}
 
   packages/themes/default: {}
 

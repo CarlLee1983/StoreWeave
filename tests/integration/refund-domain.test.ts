@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SYSTEM_ACTOR } from '@storeweave/contracts';
+import type { PaymentProviderV2 } from '@storeweave/extension-sdk';
 import { actorWith, ADMIN_ACTOR, checkoutInput, createHarness, createProduct, defaultCustomer, payOrder, runJobsUntilProcessed, stockUp, type TestHarness } from './helpers';
 
 let h: TestHarness;
@@ -61,6 +62,56 @@ describe('Ticket 63: refund domain and operations', () => {
     expect(safe).not.toHaveProperty('reason');
     expect(safe).not.toHaveProperty('providerRefundRef');
     expect(safe).not.toHaveProperty('providerRequestRef');
+  });
+
+  it('leaves an unsupported provider refund requested and dead-letters it without recording a result', async () => {
+    const order = await paidOrder();
+    const provider = h.runtime.providers.get<PaymentProviderV2>('payment', 'mock-payment');
+    const originalRefund = provider.refund;
+    provider.refund = async () => ({ status: 'unsupported', message: 'refund capability is unavailable' });
+
+    try {
+      const refund = await h.runtime.commands.execute<any>(
+        'commerce.refund.requestFullRefund',
+        { orderId: order.id, reason: 'unsupported capability test' },
+        { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() },
+      );
+      await h.worker.drain();
+
+      const current = await h.runtime.queries.execute<any>('commerce.refund.getRefund', { id: refund.id }, { actor: ADMIN_ACTOR });
+      expect(current).toMatchObject({ status: 'requested', providerRequestRef: refund.providerRequestRef });
+      const dead = await h.runtime.queries.execute<any>('platform.jobs.listDeadJobs', {}, { actor: ADMIN_ACTOR });
+      expect(dead.items.some((job: any) => job.lastError?.includes('refund capability is unavailable'))).toBe(true);
+    } finally {
+      provider.refund = originalRefund;
+    }
+  });
+
+  it('keeps a transport-uncertain refund retryable without recording a result', async () => {
+    const order = await paidOrder();
+    const provider = h.runtime.providers.get<PaymentProviderV2>('payment', 'mock-payment');
+    const originalRefund = provider.refund;
+    provider.refund = async () => { throw new Error('gateway transport timeout'); };
+
+    try {
+      const refund = await h.runtime.commands.execute<any>(
+        'commerce.refund.requestFullRefund',
+        { orderId: order.id, reason: 'transport uncertainty test' },
+        { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() },
+      );
+      const drained = await h.worker.drain();
+
+      const current = await h.runtime.queries.execute<any>('commerce.refund.getRefund', { id: refund.id }, { actor: ADMIN_ACTOR });
+      expect(drained.jobsFailed).toBeGreaterThan(0);
+      expect(current).toMatchObject({ status: 'requested', providerRequestRef: refund.providerRequestRef });
+      const jobs = await h.runtime.database.pool.query<{ status: string; last_error: string | null }>(
+        "SELECT status, last_error FROM platform_jobs WHERE last_error = 'gateway transport timeout'",
+      );
+      expect(jobs.rows).toHaveLength(1);
+      expect(jobs.rows[0]).toMatchObject({ status: 'pending', last_error: 'gateway transport timeout' });
+    } finally {
+      provider.refund = originalRefund;
+    }
   });
 
   it('serializes refunds with fulfilment and does not permit retry after shipment begins', async () => {

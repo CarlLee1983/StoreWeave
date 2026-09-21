@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { defineCommand, defineEvent, defineQuery, noopLogger, PLATFORM_VERSION } from '@storeweave/contracts';
 import { commerceConfigSchema } from '@storeweave/config';
 import { platformMigrations } from '@storeweave/db';
-import { coreModules } from '@storeweave/bundle';
+import { coreModules } from '@storeweave/release-commerce/modules';
 import { identityModule } from '@storeweave/identity';
 import { createOpsModule, createRuntime, type BoundModuleCapability, type PlatformModule, validateModuleGraph } from '@storeweave/kernel';
 import { z } from 'zod';

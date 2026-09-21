@@ -16,6 +16,15 @@ import { httpError, httpErrorSchema } from './http/envelope';
 import { catalogHttpRoutes, HTTP_ROUTE_CATALOG, validateMountedHttpRoutes, type HttpRouteConfig, type MountedHttpRoute, type ReleaseOwnedHttpRoute, type StaticHttpRoute } from './http/contract';
 import { corsPreflightRoute, releaseCorsOptions } from './http/cors';
 
+function withServerProjectionContext(error: unknown, releaseId: string): unknown {
+  const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+  if (error instanceof Error &&
+    (/Duplicate(?: mounted)? HTTP route|already declared for route/i.test(error.message) || errorCode === 'FST_ERR_DUPLICATED_ROUTE')) {
+    return new Error(`Release "${releaseId}" server projection has a duplicate route contribution: ${error.message}`, { cause: error });
+  }
+  return error;
+}
+
 export interface ReleaseServerOptions {
   httpAdapter: ReleaseHttpAdapter;
   runtime: Runtime;
@@ -238,6 +247,6 @@ export async function createReleaseServer(options: ReleaseServerOptions): Promis
   } catch (error) {
     try { await withCleanupDeadline(runtime.config.shutdown.timeoutMs, () => app?.close()); }
     catch (cleanupError) { throw new AggregateError([error, cleanupError], 'HTTP initialization and cleanup failed'); }
-    throw error;
+    throw withServerProjectionContext(error, options.httpAdapter.releaseId);
   }
 }

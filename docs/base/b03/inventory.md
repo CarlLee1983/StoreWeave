@@ -4,7 +4,7 @@
 
 ## 已存在的 release 邊界（B02，不是 B03 缺口）
 
-- [`scripts/releases.mjs`](../../../scripts/releases.mjs) 為 base／commerce 同時選取 runtime、HTTP adapter、seed 與靜態能力；[`scripts/build.mjs`](../../../scripts/build.mjs) 將選取的 HTTP adapter 編入 `@storeweave/selected-http`。
+- [`scripts/releases.mjs`](../../../scripts/releases.mjs) 為 base／commerce 同時選取 runtime、server projection、seed 與靜態能力；[`scripts/build.mjs`](../../../scripts/build.mjs) 將成對的 release runtime 與 [`ReleaseHttpAdapter`](../../../apps/api/src/release-adapter.ts) 編入 `@storeweave/selected-server`。
 - [`ReleaseHttpAdapter`](../../../apps/api/src/release-adapter.ts) 是目前最小的 release HTTP seam；[`AppModule.forRuntime`](../../../apps/api/src/app.module.ts) 只註冊 `http.controllers(config)`。
 - Base adapter 只掛 health、meta、auth、system、extensions；Commerce adapter 才掛商務 REST、callback、storefront，且 MCP 受設定控制：[`base.ts`](../../../apps/api/src/releases/base.ts)、[`commerce.ts`](../../../apps/api/src/releases/commerce.ts)。
 - [`base-release.test.ts`](../../../tests/integration/base-release.test.ts) 的原始碼宣告 Base 不掛 `/`、products、orders、MCP、theme assets；[`smoke-base.sh`](../../../scripts/smoke-base.sh) 也列出相同否定路徑。這是既有 B02 release isolation 證據，非本次測試結果。

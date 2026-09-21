@@ -24,7 +24,7 @@
     "smoke:native": "bash scripts/smoke-native.sh",
     "seed": "tsx scripts/seed.ts",
     "seed:ops": "tsx scripts/seed-operations.ts",
-    "typecheck:admin": "tsc -p apps/admin/tsconfig.json --noEmit",
+    "typecheck:admin": "tsc -p apps/admin/tsconfig.json --noEmit && tsc -p packages/releases/commerce/tsconfig.admin.json --noEmit",
     "test:admin": "vitest run --project admin"
   },
   "dependencies": {

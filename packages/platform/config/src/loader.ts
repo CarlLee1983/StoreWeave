@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { PlatformError } from '@storeweave/contracts';
 import { z } from 'zod';
@@ -38,6 +39,84 @@ export interface ReleaseConfigDefinition<C extends BaseConfig> {
   readonly envNames: readonly string[];
   readonly defaultPaths: readonly string[];
   readonly defaultSecretFile: string;
+}
+
+/** The portable portion of a selected ReleaseDefinition needed to select its config contribution. */
+export interface ConfigReleaseManifest {
+  readonly id: string;
+  readonly targets: { readonly config: { readonly key: string } };
+}
+
+export interface ConfigReleaseDefinition<Manifest extends ConfigReleaseManifest = ConfigReleaseManifest> {
+  readonly manifest: Manifest;
+}
+
+export interface ReleaseConfigProjection<C extends BaseConfig> {
+  readonly definition: ReleaseConfigDefinition<C>;
+  readonly defaultFilename: string;
+}
+
+export interface ReleaseConfigProjectionContext<Manifest> {
+  readonly manifest: Manifest;
+  readonly declaration: { readonly key: string };
+  readonly target: 'config';
+}
+
+/** Structural twin of a config target factory; config stays independent of the release package. */
+export interface ReleaseConfigProjectionFactory<Manifest, C extends BaseConfig> {
+  readonly target: 'config';
+  readonly key: string;
+  readonly resolve: (context: ReleaseConfigProjectionContext<Manifest>) => ReleaseConfigProjection<C>;
+}
+
+export interface ResolvedReleaseConfig<C extends BaseConfig> extends ReleaseConfigProjection<C> {
+  readonly releaseId: string;
+  /** The declared config target key is the stable schema identifier. */
+  readonly schemaId: string;
+}
+
+/** Selects exactly one config contribution by the key declared by the selected ReleaseDefinition. */
+export function resolveReleaseConfigProjection<C extends BaseConfig, Manifest extends ConfigReleaseManifest>(
+  selected: ConfigReleaseDefinition<Manifest> | undefined,
+  factories: readonly ReleaseConfigProjectionFactory<Manifest, C>[],
+): ResolvedReleaseConfig<C> {
+  if (selected === undefined || selected === null) {
+    throw PlatformError.validation('No selected ReleaseDefinition was supplied for config resolution');
+  }
+  const manifest = selected.manifest;
+  if (!manifest || typeof manifest.id !== 'string' || manifest.id.trim() === '') {
+    throw PlatformError.validation('Selected ReleaseDefinition has no release id for config resolution');
+  }
+  const releaseId = manifest.id;
+  const declaration = manifest.targets?.config;
+  if (!declaration || typeof declaration.key !== 'string' || declaration.key.trim() === '') {
+    throw PlatformError.validation(`Release "${releaseId}" has no config schema declaration`);
+  }
+  const schemaId = declaration.key;
+  const matches = factories.filter(factory => factory.target === 'config' && factory.key === schemaId);
+  if (matches.length === 0) {
+    throw PlatformError.validation(`Release "${releaseId}" is missing config schema "${schemaId}" contribution`);
+  }
+  if (matches.length > 1) {
+    throw PlatformError.validation(`Release "${releaseId}" has duplicate config schema "${schemaId}" contributions`);
+  }
+
+  let contribution: ReleaseConfigProjection<C>;
+  try {
+    contribution = matches[0].resolve({ manifest, declaration, target: 'config' });
+  } catch (error) {
+    throw PlatformError.validation(
+      `Release "${releaseId}" config schema "${schemaId}" contribution could not be resolved`,
+      error,
+    );
+  }
+  if (!contribution || !contribution.definition?.schema || typeof contribution.definition.schema.safeParse !== 'function' ||
+      typeof contribution.defaultFilename !== 'string' || contribution.defaultFilename.trim() === '' ||
+      contribution.defaultFilename === '.' || contribution.defaultFilename === '..' ||
+      basename(contribution.defaultFilename) !== contribution.defaultFilename || /[\\/\0]/.test(contribution.defaultFilename)) {
+    throw PlatformError.validation(`Release "${releaseId}" config schema "${schemaId}" has an incomplete contribution`);
+  }
+  return { ...contribution, releaseId, schemaId };
 }
 
 export const commerceConfigDefinition: ReleaseConfigDefinition<CommerceConfig> = {
@@ -106,6 +185,25 @@ export function loadReleaseConfig<C extends BaseConfig>(
     );
   }
   return { config: parsed.data, secrets, sourcePath };
+}
+
+/** Loads a selected projection, using its filename with the configured default search directories. */
+export function loadReleaseConfigProjection<C extends BaseConfig>(
+  projection: ResolvedReleaseConfig<C>, explicitPath?: string,
+): LoadedConfig<C> {
+  const definition = {
+    ...projection.definition,
+    defaultPaths: projection.definition.defaultPaths.map(path => join(dirname(path), projection.defaultFilename)),
+  };
+  try {
+    return loadReleaseConfig(definition, explicitPath);
+  } catch (error) {
+    const message = error instanceof PlatformError
+      ? error.message
+      : 'Configuration could not be parsed';
+    const details = error instanceof PlatformError ? error.details : undefined;
+    throw PlatformError.validation(`Release "${projection.releaseId}" config schema "${projection.schemaId}": ${message}`, details);
+  }
 }
 
 /** 只驗證設定檔，供 `commerce doctor` 與 install 使用。 */

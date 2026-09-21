@@ -3,6 +3,7 @@ import { readLegacyPairedSnapshot } from './legacy-paired-snapshot';
 import { z } from 'zod';
 import { readPairedSnapshot } from './read-release-snapshot';
 import { runReleaseCli } from './run-release-cli';
+import type { LegacyMigrationBaseline } from '@storeweave/db';
 
 /** Cold check only: retained code must recognize the restored history without activation or extension setup. */
 export async function verifySourceRuntime(directory: string, checksum: string, configFile: string, databaseUrl: string, lockFd?: number) {
@@ -22,10 +23,10 @@ export async function verifySourceRuntime(directory: string, checksum: string, c
 }
 
 /** B01 exposes human-readable status only. Exact DB/history validation surrounds this compatibility check. */
-export async function verifyLegacySourceRuntime(directory: string, checksum: string, configFile: string, databaseUrl: string, lockFd?: number) {
-  const pair = await readLegacyPairedSnapshot(directory, checksum);
+export async function verifyLegacySourceRuntime(directory: string, checksum: string, configFile: string, databaseUrl: string, baseline: LegacyMigrationBaseline, lockFd?: number) {
+  const pair = await readLegacyPairedSnapshot(directory, checksum, baseline);
   runReleaseCli(pair.manifest.source, configFile, databaseUrl, 'status', lockFd);
-  await readLegacyPairedSnapshot(directory, checksum);
+  await readLegacyPairedSnapshot(directory, checksum, baseline);
 }
 
 /** Raw pre-adoption recovery uses the same status-only old CLI check. */

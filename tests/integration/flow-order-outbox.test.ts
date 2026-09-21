@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from 'drizzle-orm';
+import { SYSTEM_ACTOR } from '@storeweave/contracts';
+import type { PaymentInitiationInput, PaymentInitiationResult, PaymentProviderV2 } from '@storeweave/extension-sdk';
 import { ADMIN_ACTOR, runJobsUntilProcessed, createHarness, createProduct, payOrder, placeOrder, stockUp, type TestHarness } from './helpers';
 
 let h: TestHarness;
@@ -111,6 +113,77 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
     } finally {
       await failing.close();
     }
+  }, 120_000);
+
+  it('deferred Provider 結果會保存付款資訊，之後同一 attempt 可完成付款一次', async () => {
+    const expiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
+    const initiate = vi.fn(async (_input: PaymentInitiationInput): Promise<PaymentInitiationResult> => ({
+      status: 'awaiting_payment',
+      providerRef: 'deferred-provider-ref',
+      instructions: [{ label: 'Bank account', value: '123-456' }],
+      expiresAt,
+    }));
+    const provider: PaymentProviderV2 = {
+      id: 'deferred-payment',
+      kind: 'payment',
+      paymentMethods: () => [{ code: 'bank-transfer', label: 'Bank transfer', timing: 'deferred' }],
+      initiate,
+      refund: async () => ({ status: 'unsupported', message: 'not used in this test' }),
+      parseCallback: async () => ({ type: 'payment_confirmed', reference: 'unused', providerRef: 'deferred-provider-ref' }),
+      acknowledgeCallback: () => ({ body: 'OK' }),
+    };
+    h.runtime.providers.register({ provider, owner: 'order-integration-test' });
+
+    const product = await createProduct(h.runtime, { priceCents: 1200 });
+    await stockUp(h.runtime, product.id, 2);
+    const order = await placeOrder(h.runtime, product.id, 1);
+    const requested = await h.runtime.commands.execute<any>('commerce.order.payOrder', {
+      orderId: order.id,
+      provider: provider.id,
+      method: 'bank-transfer',
+    }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+    expect(requested.status).toBe('payment_processing');
+
+    const result = await runJobsUntilProcessed(h.worker);
+    expect(result).toMatchObject({ processed: 1, failed: 0 });
+    expect(initiate).toHaveBeenCalledTimes(1);
+    const attemptRef = requested.paymentAttempts.at(-1).attemptRef as string;
+    expect(initiate).toHaveBeenCalledWith({
+      reference: attemptRef,
+      displayReference: order.number,
+      amount: order.totalCents,
+      currency: 'TWD',
+      method: 'bank-transfer',
+    });
+
+    const deferred = await h.runtime.queries.execute<any>('commerce.order.getOrder', { id: order.id }, { actor: ADMIN_ACTOR });
+    expect(deferred.status).toBe('awaiting_payment');
+    expect(deferred.paymentAttempts.at(-1)).toMatchObject({
+      attemptRef,
+      provider: provider.id,
+      status: 'awaiting_payment',
+      providerRef: 'deferred-provider-ref',
+      instructions: [{ label: 'Bank account', value: '123-456' }],
+      expiresAt: new Date(expiresAt),
+    });
+
+    const confirmed = {
+      attemptRef,
+      provider: provider.id,
+      status: 'confirmed' as const,
+      providerRef: 'deferred-provider-ref',
+    };
+    const paid = await h.runtime.commands.execute<any>('commerce.order.recordPaymentResult', confirmed, {
+      actor: SYSTEM_ACTOR,
+      idempotencyKey: randomUUID(),
+    });
+    const replay = await h.runtime.commands.execute<any>('commerce.order.recordPaymentResult', confirmed, {
+      actor: SYSTEM_ACTOR,
+      idempotencyKey: randomUUID(),
+    });
+    expect(paid.status).toBe('paid');
+    expect(replay.status).toBe('paid');
+    expect((await outboxFor(order.id)).filter((event) => event.event_name === 'commerce.order.paid.v2')).toHaveLength(1);
   }, 120_000);
 
   it('重複付款是冪等的，不會產生第二筆收款或第二個事件', async () => {

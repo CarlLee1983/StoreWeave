@@ -738,16 +738,15 @@ export class WorkshopsController extends BusController {
       <div class="prose">
         <p>Release 是「這一版編進了哪些模組、角色、Theme、Extension」的靜態清單，沒有執行期探索。最乾淨的做法是<b>新開一個 release</b>，不動 <code>base</code> 與 <code>commerce</code>：</p>
       </div>
-      <figure class="code"><figcaption><span>packages/platform/bundle/src/releases/workshop.ts</span><span class="sketch">範例，形狀照 releases/base.ts</span></figcaption>
+      <figure class="code"><figcaption><span>packages/releases/workshop/src/runtime.ts</span><span class="sketch">實作由產品 release package 擁有</span></figcaption>
 <script type="text/plain" data-lang="typescript">import { BASE_ROLES, type ReleaseRoleCatalog } from '@storeweave/authorization';
 import { baseConfigDefinition, type BaseConfig } from '@storeweave/config';
-import { PLATFORM_VERSION } from '@storeweave/contracts';
 import { createAuthModule } from '@storeweave/auth';
 import { createSiteModule } from '@storeweave/site';
 import { createWorkshopModule } from '@storeweave/workshop';
 import { myTheme } from '@storeweave/theme-my-site';
-import packageJson from '../../package.json';
-import type { ReleaseDefinition } from '../release';
+import { defineRuntimeRelease } from '@storeweave/release/runtime';
+import { workshopReleaseDefinition } from './definition';
 
 /** 權限發給誰是 release 的決定，不是模組的。 */
 const WORKSHOP_ROLES: ReleaseRoleCatalog = {
@@ -756,8 +755,7 @@ const WORKSHOP_ROLES: ReleaseRoleCatalog = {
   visitor: { ...BASE_ROLES.visitor!, permissions: [...BASE_ROLES.visitor!.permissions, 'workshop:public-read', 'workshop:register'] },
 };
 
-export const release: ReleaseDefinition<BaseConfig> = {
-  id: 'workshop', version: process.env.STOREWEAVE_RELEASE_VERSION ?? packageJson.version, baseVersion: PLATFORM_VERSION,
+export const release = defineRuntimeRelease<BaseConfig>(workshopReleaseDefinition, {
   config: baseConfigDefinition, roles: WORKSHOP_ROLES, legacyBaselines: [],
   manifestConfig: { version: 1, store: { id: 'build-only', name: 'Build only' }, database: { url: 'postgres://manifest.invalid/unused' } },
   // 純函式、同步：模組圖、migration 與工作目錄不得隨設定內容改變。
@@ -767,16 +765,16 @@ export const release: ReleaseDefinition<BaseConfig> = {
     createWorkshopModule(),
   ],
   availableExtensions: {}, availableThemes: { 'my-site': myTheme },
-};</script></figure>
+});</script></figure>
       <div class="prose">
-        <p>平台自己的模組（<code>platform</code>、<code>platform-identity</code>、<code>platform-mail</code>、<code>platform-notifications</code>、<code>platform-storage</code>、<code>platform-cache</code>、<code>platform-ops</code>）由 runtime 自動加入，<code>createModules</code> 只列產品模組。</p>
+        <p>平台自己的模組（<code>platform</code>、<code>platform-identity</code>、<code>platform-mail</code>、<code>platform-notifications</code>、<code>platform-storage</code>、<code>platform-cache</code>、<code>platform-ops</code>）由 runtime 自動加入，<code>createModules</code> 只列產品模組。可序列化的 <code>definition.ts</code> 同時宣告 module/theme/extension keys 與每個 target key；runtime 會拒絕與 executable registry 不一致的選取。</p>
         <h3>讓建置認得新的 release id</h3>
       </div>
       <ul class="checks">
-        <li><span><code>scripts/releases.mjs</code>：新增 <code>workshop</code> 項目，填 <code>runtime</code>、<code>http</code>、<code>seed</code>、<code>admin</code>、<code>themeAssets</code> 五個欄位。</span></li>
+        <li><span><code>scripts/releases.mjs</code>：新增 <code>workshop</code> 項目，指定 runtime、server、worker、Admin contribution、CLI 與 seed projection。</span></li>
         <li><span><code>scripts/build-release.sh</code>：<code>case "$RELEASE_ID"</code> 目前只接受 <code>commerce</code> 與 <code>base</code>，其餘一律 <code>Unknown release</code>，要補一條。</span></li>
         <li><span><code>apps/api/src/releases/workshop.ts</code>：HTTP adapter，<code>releaseId</code> 必須等於 release 的 <code>id</code>，否則 API 啟動時會丟 <code>HTTP adapter does not match the selected release</code>。</span></li>
-        <li><span>以 <code>STOREWEAVE_RELEASE=workshop pnpm build:release</code> 建置。<code>tsconfig.base.json</code> 的 <code>@storeweave/selected-*</code> 別名預設指向 commerce，建置腳本會依環境變數換掉。</span></li>
+        <li><span>以 <code>STOREWEAVE_RELEASE=workshop pnpm build:release</code> 建置。<code>tsconfig.base.json</code> 的 <code>@storeweave/selected-*</code> 別名預設指向 commerce，建置腳本會依 release catalog 換掉。</span></li>
       </ul>
       <div class="prose">
         <h3>後台頁面</h3>
@@ -794,8 +792,8 @@ export const release: ReleaseDefinition<BaseConfig> = {
 <script type="text/plain" data-lang="typescript">import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Worker, type Runtime } from '@storeweave/kernel';
-import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
-import { release as workshopRelease } from '../../packages/platform/bundle/src/releases/workshop';
+import { bootstrapRelease } from '@storeweave/release/bootstrap';
+import { release as workshopRelease } from '../../packages/releases/workshop/src/runtime';
 import { ADMIN_ACTOR } from './helpers';
 
 const runtimes: Runtime[] = [];

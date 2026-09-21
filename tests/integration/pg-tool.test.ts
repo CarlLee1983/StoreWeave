@@ -12,9 +12,9 @@ import { readRestoreJournal, writeRestoreJournal } from '../../tools/cli/src/res
 import { restoreSnapshotToScratch } from '../../tools/cli/src/restore-release-snapshot';
 import { readPairedSnapshot } from '../../tools/cli/src/read-release-snapshot';
 import { createPairedSnapshot } from '../../tools/cli/src/release-snapshot';
-import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
-import { release } from '../../packages/platform/bundle/src/releases/base';
-import { buildReleaseManifest } from '../../packages/platform/bundle/src/release-manifest';
+import { bootstrapRelease } from '../../packages/platform/release/src/bootstrap';
+import { release } from '../../packages/releases/base/src/runtime';
+import { buildReleaseManifest } from '../../packages/platform/release/src/runtime';
 import { catalogDigest } from '@storeweave/db';
 import type { Runtime } from '@storeweave/kernel';
 import { writeNativeRelease } from '../unit/fixtures/native-release';

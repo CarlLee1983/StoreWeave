@@ -83,6 +83,35 @@ export type PaymentStartResult =
   | PaymentAwaitingPaymentResult
   | PaymentFailedResult;
 
+/** Domain-neutral input for the expanded payment initiation contract. `amount` is in currency minor units. */
+export interface PaymentInitiationInput {
+  /** Unique, stable platform reference used for idempotency and callback correlation. */
+  readonly reference: string;
+  /** Human-readable product reference shown to the customer. */
+  readonly displayReference: string;
+  /** Positive integer in the currency's minor unit (for example, cents for TWD). */
+  readonly amount: number;
+  readonly currency: string;
+  /** Must be one of the provider's configured `paymentMethods()` codes for a new reference. */
+  readonly method: string;
+}
+
+export interface PaymentInitiationFailureResult {
+  readonly status: 'failed';
+  readonly reason: 'provider_rejected' | 'reference_conflict';
+  readonly providerRef?: string;
+  readonly message: string;
+}
+
+/** A reused reference with different payment facts must not create another charge. */
+export type PaymentReferenceConflictResult = PaymentInitiationFailureResult & { readonly reason: 'reference_conflict' };
+
+export type PaymentInitiationResult =
+  | PaymentConfirmedResult
+  | PaymentRedirectResult
+  | PaymentAwaitingPaymentResult
+  | PaymentInitiationFailureResult;
+
 /** The unmodified HTTP material supplied to a provider for callback verification. */
 export interface PaymentCallbackRequest {
   readonly body: Uint8Array;
@@ -142,25 +171,51 @@ export interface PaymentRefundInput {
   readonly reference: string;
 }
 
+/** Domain-neutral refund input for the expanded ABI; amount uses currency minor units. */
+export interface PaymentRefundInputV2 {
+  /** The gateway payment reference captured when the original payment settled. */
+  readonly providerRef: string;
+  readonly amount: number;
+  readonly currency: string;
+  /** A stable platform reference; adapters must use it to make retries safe. */
+  readonly reference: string;
+}
+
 /** A definite gateway response. Transport uncertainty must reject instead. */
 export type PaymentRefundResult =
   | { readonly status: 'succeeded'; readonly providerRefundRef: string; readonly message?: string }
   | { readonly status: 'rejected'; readonly message: string }
   | { readonly status: 'unsupported'; readonly message: string };
 
-export interface PaymentProvider extends ProviderBase {
+interface PaymentProviderContract extends ProviderBase {
   readonly kind: 'payment';
   /** Store-selectable payment methods; callers choose one before any redirect. */
   paymentMethods(): readonly PaymentMethod[];
-  start(input: PaymentStartInput): Promise<PaymentStartResult>;
   /**
    * Verification and parsing are deliberately atomic: providers that decrypt
    * callback payloads cannot implement them as independent operations safely.
-   */
+  */
   parseCallback(request: PaymentCallbackRequest): Promise<PaymentCallbackEvent>;
   acknowledgeCallback(result: PaymentCallbackHandlingResult): PaymentCallbackAcknowledgement;
+}
+
+/** Existing Order-specific surface, retained until the contract stage. */
+export interface PaymentProvider extends PaymentProviderContract {
+  start(input: PaymentStartInput): Promise<PaymentStartResult>;
   refund(input: PaymentRefundInput): Promise<PaymentRefundResult>;
 }
+
+/**
+ * Domain-neutral provider surface. Only providers implementing this contract
+ * are registrable; legacy symbols remain exported until SW-118 removes them.
+ */
+export interface PaymentProviderV2 extends PaymentProviderContract {
+  initiate(input: PaymentInitiationInput): Promise<PaymentInitiationResult>;
+  refund(input: PaymentRefundInputV2): Promise<PaymentRefundResult>;
+}
+
+/** Adapter shape for K07 while both old and new consumers still exist. */
+export type PaymentProviderDuringMigration = PaymentProvider & PaymentProviderV2;
 
 /** Provider-neutral destination captured by checkout; merchant pricing never calls a provider. */
 export type ShippingDestination =
@@ -374,7 +429,15 @@ export interface InvoiceProvider extends ProviderBase {
   validateLoveCode(loveCode: string): Promise<boolean>;
 }
 
-export type AnyProvider = PaymentProvider | ShippingProvider | ErpProvider | InvoiceProvider;
+/** Only providers with the neutral ABI are registrable; legacy types remain until SW-118. */
+export type AnyProvider = PaymentProviderV2 | ShippingProvider | ErpProvider | InvoiceProvider;
+
+/** Validate the runtime contract before publishing a provider into shared registries. */
+export function assertProviderRegistrationContract(provider: AnyProvider): void {
+  if (provider.kind === 'payment' && typeof (provider as { initiate?: unknown }).initiate !== 'function') {
+    throw PlatformError.validation(`Payment provider "${provider.id}" must implement the neutral initiate contract`);
+  }
+}
 
 export interface ProviderRegistration {
   readonly provider: AnyProvider;
@@ -390,6 +453,7 @@ export class ProviderRegistry {
 
   register(reg: ProviderRegistration): void {
     const kind = reg.provider.kind;
+    assertProviderRegistrationContract(reg.provider);
     const bucket = this.byKind.get(kind) ?? new Map();
     if (bucket.has(reg.provider.id)) {
       throw PlatformError.conflict(`Provider "${kind}:${reg.provider.id}" already registered`);

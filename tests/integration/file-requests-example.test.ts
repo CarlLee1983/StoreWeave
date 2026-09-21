@@ -9,9 +9,9 @@ import { csrfTokenFor } from '@storeweave/identity';
 import type { Actor } from '@storeweave/contracts';
 import { moduleResourceNamespace, Worker, type Runtime } from '@storeweave/kernel';
 import { analyzeText, createFileRequestsModule, type FileAnalyzer, type FileRequestDto } from '@storeweave/example-file-requests';
-import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
-import { release } from '../../packages/platform/bundle/src/releases/file-requests';
-import type { ReleaseDefinition } from '../../packages/platform/bundle/src/release';
+import { bootstrapRelease } from '../../packages/platform/release/src/bootstrap';
+import { release } from '../../packages/examples/file-requests/src/runtime';
+import type { RuntimeReleaseDefinition } from '../../packages/platform/release/src/runtime';
 import type { BaseConfig } from '@storeweave/config';
 import { createReleaseServer } from '../../apps/api/src/release-server';
 import { httpAdapter } from '../../apps/api/src/releases/file-requests';
@@ -46,7 +46,7 @@ async function configPath(databaseUrl?: string): Promise<string> {
   return path;
 }
 
-async function boot(definition: ReleaseDefinition<BaseConfig>, path: string) {
+async function boot(definition: RuntimeReleaseDefinition<BaseConfig>, path: string) {
   const result = await bootstrapRelease(definition, { configPath: path, loggerName: 'file-requests-test' });
   runtimes.push(result.runtime);
   await result.runtime.migrate();
@@ -194,7 +194,7 @@ describe('B16 file-requests example release', () => {
       }
       return analyzeText(content, signal);
     };
-    const flakyRelease: ReleaseDefinition<BaseConfig> = {
+    const flakyRelease: RuntimeReleaseDefinition<BaseConfig> = {
       ...release,
       createModules: context => release.createModules(context).map(module => module.name === 'file-requests'
         ? createFileRequestsModule({ reviewUrl: 'http://localhost:3000/file-requests/review', analyze: flaky })
@@ -232,7 +232,7 @@ describe('B16 file-requests example release', () => {
   });
 
   it('marks a request failed once its processing job has used every attempt, instead of leaving it queued', async () => {
-    const brokenRelease: ReleaseDefinition<BaseConfig> = {
+    const brokenRelease: RuntimeReleaseDefinition<BaseConfig> = {
       ...release,
       createModules: context => release.createModules(context).map(module => module.name === 'file-requests'
         ? createFileRequestsModule({ reviewUrl: 'http://localhost:3000/file-requests/review', analyze: async content => {

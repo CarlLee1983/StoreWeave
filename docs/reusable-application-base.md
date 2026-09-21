@@ -65,7 +65,7 @@ Commerce 與 ERP 都有「庫存」，仍須先確認其資料與操作語意是
 
 | 目前位置 | 已區分的責任 |
 | --- | --- |
-| `packages/platform/bundle` | 共用 Release 契約與 bootstrap，以及產品自己的模組／Theme／Extension 組裝 |
+| `packages/platform/release` | 共用 Release 契約、bootstrap、manifest 與 target contract checks；產品組裝分別位於 `packages/releases/*` |
 | `packages/platform/config`、`authorization` | 共用設定與授權機制，以及產品設定預設和角色權限清單 |
 | `apps/api`、`apps/admin` | 共用 HTTP／Admin 能力，以及 Commerce 的路由、頁面與操作 |
 | `tools/cli` | 共用維運流程，以及產品名稱、路徑、Release 限制與舊版相容處理 |

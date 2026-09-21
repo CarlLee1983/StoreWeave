@@ -11,10 +11,10 @@ import { mediaMigrations } from '@storeweave/media';
 import { notificationsMigrations } from '@storeweave/notifications';
 import { siteMigrations } from '@storeweave/site';
 import { contentMigrations } from '@storeweave/content';
-import { buildReleaseManifest } from '../../packages/platform/bundle/src/release-manifest';
-import { release as base } from '../../packages/platform/bundle/src/releases/base';
-import { release as commerce } from '../../packages/platform/bundle/src/releases/commerce';
-import legacyCommerce from '../../packages/platform/bundle/src/legacy/commerce-pre-b02.json';
+import { buildReleaseManifest } from '../../packages/platform/release/src/runtime';
+import { release as base } from '../../packages/releases/base/src/runtime';
+import { release as commerce } from '../../packages/releases/commerce/src/runtime';
+import legacyCommerce from '../../packages/releases/commerce/src/legacy-commerce-pre-b02.json';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
 import { createTestDatabase } from './helpers';
 

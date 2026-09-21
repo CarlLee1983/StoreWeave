@@ -6,7 +6,7 @@ import { createRuntime, Worker, type Runtime } from '@storeweave/kernel';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
 import { noopLogger, type Actor, type Logger } from '@storeweave/contracts';
 import { permissionsForRole } from '@storeweave/authorization';
-import { AVAILABLE_EXTENSIONS, coreModules } from '@storeweave/bundle';
+import { AVAILABLE_EXTENSIONS, coreModules } from '@storeweave/release-commerce/modules';
 
 export const ADMIN_ACTOR: Actor = { id: 'test:admin', type: 'user', displayName: 'admin', permissions: ['*'] };
 

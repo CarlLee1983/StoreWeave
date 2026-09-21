@@ -5,12 +5,15 @@ import type {
   PaymentCallbackEvent,
   PaymentCallbackHandlingResult,
   PaymentCallbackRequest,
+  PaymentInitiationInput,
+  PaymentInitiationResult,
   PaymentInfoIssuedCallback,
   PaymentMethod,
-  PaymentProvider,
-  PaymentStartInput,
-  PaymentStartResult,
+  PaymentProviderV2,
+  PaymentRefundInputV2,
+  PaymentRefundResult,
 } from '@storeweave/extension-sdk';
+import { paymentInitiationInputSchema } from '@storeweave/extension-sdk';
 import { createCheckMacValue, verifyCheckMacValue, type EcpayFields } from './check-mac-value';
 import {
   checkoutUrl,
@@ -30,6 +33,13 @@ interface TradeRecord {
   readonly method: EcpayPaymentMethodCode;
   /** Form signatures include this value, so retries must reuse it exactly. */
   readonly merchantTradeDate: string;
+  /** Added during SW-115; absent on records created by the legacy adapter. */
+  readonly facts?: PaymentInitiationInput;
+}
+
+interface InitiationOutcome {
+  readonly result: PaymentInitiationResult;
+  readonly record?: TradeRecord;
 }
 
 interface EcpayMethod extends PaymentMethod {
@@ -44,8 +54,108 @@ const METHODS: Readonly<Record<EcpayPaymentMethodCode, EcpayMethod>> = {
   cvs_barcode: { code: 'cvs_barcode', label: 'Convenience store barcode', timing: 'deferred', ecpayChoosePayment: 'BARCODE' },
 };
 
-export function createEcpayPaymentProvider(ctx: ExtensionContext<EcpayPaymentConfig>): PaymentProvider {
+export function createEcpayPaymentProvider(ctx: ExtensionContext<EcpayPaymentConfig>): PaymentProviderV2 {
   const credentials = requiredCredentials(ctx);
+  const createRedirect = (record: TradeRecord): PaymentInitiationResult => {
+    const fields: Record<string, string> = {
+      MerchantID: credentials.merchantId,
+      MerchantTradeNo: record.merchantTradeNo,
+      MerchantTradeDate: record.merchantTradeDate,
+      PaymentType: 'aio',
+      TotalAmount: String(record.amountTwd),
+      TradeDesc: ctx.config.tradeDescription,
+      ItemName: ctx.config.itemName,
+      ReturnURL: ctx.config.returnUrl,
+      ChoosePayment: METHODS[record.method].ecpayChoosePayment,
+      EncryptType: '1',
+    };
+    if (ctx.config.paymentInfoUrl) fields.PaymentInfoURL = ctx.config.paymentInfoUrl;
+    if (ctx.config.clientBackUrl) fields.ClientBackURL = ctx.config.clientBackUrl;
+    fields.CheckMacValue = createCheckMacValue(fields, credentials.hashKey, credentials.hashIv);
+    return { status: 'redirect', providerRef: record.merchantTradeNo, action: { type: 'form_post', url: checkoutUrl(ctx.config), fields } };
+  };
+
+  async function initiate(input: PaymentInitiationInput): Promise<PaymentInitiationResult> {
+    const valid = paymentInitiationInputSchema.safeParse(input);
+    if (!valid.success) {
+      return { status: 'failed', reason: 'provider_rejected', message: 'invalid payment initiation input' };
+    }
+    return (await initiateNeutral(valid.data)).result;
+  }
+
+  async function initiateNeutral(input: PaymentInitiationInput): Promise<InitiationOutcome> {
+    const key = referenceKey(input.reference);
+    const existingBeforeMutation = await ctx.store.get<TradeRecord>(key);
+    if (!existingBeforeMutation) {
+      const failureMessage = capabilityFailure(input, ctx.config.enabledMethods);
+      if (failureMessage) {
+        return { result: { status: 'failed', reason: 'provider_rejected', message: failureMessage } };
+      }
+    }
+    let outcome: InitiationOutcome | undefined;
+    await ctx.store.mutate<TradeRecord | null>(key, (existing) => {
+      if (existing) {
+        if (existing.facts) {
+          if (!sameInitiation(existing.facts, input)) {
+            outcome = { result: referenceConflict(existing) };
+            return existing;
+          }
+          outcome = { result: createRedirect(existing), record: existing };
+          return existing;
+        }
+
+        // Legacy records do not contain a display reference. Adopt that one
+        // missing fact only after the fields the old record does prove match.
+        if (!sameLegacyKnownFacts(existing, input)) {
+          outcome = { result: referenceConflict(existing) };
+          return existing;
+        }
+        const adopted = { ...existing, facts: input };
+        outcome = { result: createRedirect(adopted), record: adopted };
+        return adopted;
+      }
+
+      const failureMessage = capabilityFailure(input, ctx.config.enabledMethods);
+      if (failureMessage) {
+        outcome = { result: { status: 'failed', reason: 'provider_rejected', message: failureMessage } };
+        return null;
+      }
+      const record: TradeRecord = {
+        reference: input.reference,
+        amountTwd: input.amount / 100,
+        merchantTradeNo: merchantTradeNo(input.reference),
+        method: input.method as EcpayPaymentMethodCode,
+        merchantTradeDate: formatEcpayDate(ctx.now()),
+        facts: input,
+      };
+      outcome = { result: createRedirect(record), record };
+      return record;
+    });
+
+    if (!outcome) throw new Error('ECPay payment store did not produce an initiation outcome');
+    if (outcome.record && outcome.result.status === 'redirect') {
+      const collision = await reserveTradeMapping(outcome.record);
+      if (collision) {
+        return {
+          result: { status: 'failed', reason: 'provider_rejected', message: 'ECPay trade reference is already associated with another payment' },
+        };
+      }
+    }
+    return outcome;
+  }
+
+  async function reserveTradeMapping(record: TradeRecord): Promise<boolean> {
+    let collision = false;
+    await ctx.store.mutate<TradeRecord | null>(tradeKey(record.merchantTradeNo), (current) => {
+      if (current && current.reference !== record.reference) {
+        collision = true;
+        return current;
+      }
+      return record;
+    });
+    return collision;
+  }
+
   return {
     id: ECPAY_PAYMENT_PROVIDER_ID,
     kind: 'payment',
@@ -57,47 +167,7 @@ export function createEcpayPaymentProvider(ctx: ExtensionContext<EcpayPaymentCon
       });
     },
 
-    async start(input: PaymentStartInput): Promise<PaymentStartResult> {
-      const selectedMethod = METHODS[input.method as EcpayPaymentMethodCode];
-      if (!selectedMethod) return { status: 'failed', message: `Unsupported ECPay payment method: ${input.method}` };
-      if (!ctx.config.enabledMethods.includes(selectedMethod.code)) {
-        return { status: 'failed', message: `ECPay payment method is not enabled: ${input.method}` };
-      }
-      if (input.currency !== 'TWD') return { status: 'failed', message: 'ECPay AIO accepts TWD only' };
-      if (!Number.isSafeInteger(input.amountCents) || input.amountCents <= 0 || input.amountCents % 100 !== 0) {
-        return { status: 'failed', message: 'TWD amountCents must be a positive whole New Taiwan dollar' };
-      }
-
-      const key = referenceKey(input.reference);
-      const existing = await ctx.store.get<TradeRecord>(key);
-      const record = existing ?? {
-        reference: input.reference,
-        amountTwd: input.amountCents / 100,
-        merchantTradeNo: merchantTradeNo(input.reference),
-        method: selectedMethod.code,
-        merchantTradeDate: formatEcpayDate(ctx.now()),
-      };
-      if (!existing) await ctx.store.set(key, record);
-      await ctx.store.set(tradeKey(record.merchantTradeNo), record);
-
-      const fields: Record<string, string> = {
-        MerchantID: credentials.merchantId,
-        MerchantTradeNo: record.merchantTradeNo,
-        MerchantTradeDate: record.merchantTradeDate,
-        PaymentType: 'aio',
-        TotalAmount: String(record.amountTwd),
-        TradeDesc: ctx.config.tradeDescription,
-        ItemName: ctx.config.itemName,
-        ReturnURL: ctx.config.returnUrl,
-        ChoosePayment: METHODS[record.method].ecpayChoosePayment,
-        EncryptType: '1',
-      };
-      if (ctx.config.paymentInfoUrl) fields.PaymentInfoURL = ctx.config.paymentInfoUrl;
-      if (ctx.config.clientBackUrl) fields.ClientBackURL = ctx.config.clientBackUrl;
-      fields.CheckMacValue = createCheckMacValue(fields, credentials.hashKey, credentials.hashIv);
-
-      return { status: 'redirect', providerRef: record.merchantTradeNo, action: { type: 'form_post', url: checkoutUrl(ctx.config), fields } };
-    },
+    initiate,
 
     async parseCallback(request: PaymentCallbackRequest): Promise<PaymentCallbackEvent> {
       const fields = parseForm(request.body);
@@ -123,7 +193,7 @@ export function createEcpayPaymentProvider(ctx: ExtensionContext<EcpayPaymentCon
         : { statusCode: 500, headers: { 'content-type': 'text/plain; charset=utf-8' }, body: '0|FAIL' };
     },
 
-    async refund() {
+    async refund(_input: PaymentRefundInputV2): Promise<PaymentRefundResult> {
       // Ticket 58 has not yet established which refund/query product this
       // merchant account can use. Keep the local refund requested and stop the
       // job permanently rather than inventing an endpoint or moving money facts.
@@ -140,6 +210,41 @@ export function createEcpayPaymentProvider(ctx: ExtensionContext<EcpayPaymentCon
         message: `ECPay ${ctx.config.environment} offline configuration verified (methods: ${ctx.config.enabledMethods.join(', ')}; upstream connectivity and callback delivery require UAT)`,
       };
     },
+  };
+}
+
+function capabilityFailure(input: PaymentInitiationInput, enabledMethods: readonly EcpayPaymentMethodCode[]): string | null {
+  const selectedMethod = METHODS[input.method as EcpayPaymentMethodCode];
+  if (!selectedMethod) return `Unsupported ECPay payment method: ${input.method}`;
+  if (!enabledMethods.includes(selectedMethod.code)) return `ECPay payment method is not enabled: ${input.method}`;
+  if (input.currency !== 'TWD') return 'ECPay AIO accepts TWD only';
+  if (!Number.isSafeInteger(input.amount) || input.amount <= 0 || input.amount % 100 !== 0) {
+    return 'TWD amount must be a positive whole New Taiwan dollar';
+  }
+  return null;
+}
+
+function sameInitiation(left: PaymentInitiationInput, right: PaymentInitiationInput): boolean {
+  return left.reference === right.reference &&
+    left.displayReference === right.displayReference &&
+    left.amount === right.amount &&
+    left.currency === right.currency &&
+    left.method === right.method;
+}
+
+function sameLegacyKnownFacts(record: TradeRecord, input: PaymentInitiationInput): boolean {
+  return record.reference === input.reference &&
+    input.amount === record.amountTwd * 100 &&
+    input.currency === 'TWD' &&
+    input.method === record.method;
+}
+
+function referenceConflict(record: TradeRecord): PaymentInitiationResult {
+  return {
+    status: 'failed',
+    reason: 'reference_conflict',
+    providerRef: record.merchantTradeNo,
+    message: 'reference is already used for different payment facts',
   };
 }
 

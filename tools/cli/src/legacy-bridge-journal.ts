@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { assertJournalLocation, readPrivateJson, writePrivateJson } from './read-release-snapshot';
 import { readLegacySafetySnapshot } from './legacy-safety-snapshot';
 import { readLegacyPairedSnapshot } from './legacy-paired-snapshot';
+import type { LegacyMigrationBaseline } from '@storeweave/db';
 
 const reference = z.object({ directory: z.string().refine(isAbsolute), checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/) }).strict();
 const phases = ['safety', 'paired', 'migrating', 'migrated', 'activated'] as const;
@@ -29,13 +30,13 @@ export async function createLegacyBridgeJournal(root: string, safetyDirectory: s
   return file;
 }
 
-export async function readLegacyBridgeJournal(file: string, operationRoot: string) {
+export async function readLegacyBridgeJournal(file: string, operationRoot: string, baseline: LegacyMigrationBaseline) {
   file = resolve(file);
   assertJournalLocation(file, operationRoot);
   const journal = schema.parse(readPrivateJson(file));
   if (basename(file) !== 'bridge.json' || basename(dirname(file)) !== journal.id) throw new Error('Bridge journal identity mismatch');
   const safety = await readLegacySafetySnapshot(journal.safety.directory, journal.safety.checksum);
-  const snapshot = journal.snapshot ? await readLegacyPairedSnapshot(journal.snapshot.directory, journal.snapshot.checksum) : null;
+  const snapshot = journal.snapshot ? await readLegacyPairedSnapshot(journal.snapshot.directory, journal.snapshot.checksum, baseline) : null;
   if (snapshot && (snapshot.manifest.safety.directory !== safety.directory
     || snapshot.manifest.safety.checksum !== journal.safety.checksum
     || snapshot.manifest.baseline.catalogId !== journal.catalogId || snapshot.manifest.baseline.evidence !== journal.evidence)) throw new Error('Bridge journal snapshots do not belong to the same transition');
@@ -44,13 +45,13 @@ export async function readLegacyBridgeJournal(file: string, operationRoot: strin
 
 /** Candidate authority remains the original safety reference; attaching a pair can never replace it. */
 export async function advanceLegacyBridgeJournal(file: string, operationRoot: string, phase: typeof phases[number],
-  pair?: z.infer<typeof reference>) {
-  const recorded = await readLegacyBridgeJournal(file, operationRoot);
+  baseline: LegacyMigrationBaseline, pair?: z.infer<typeof reference>) {
+  const recorded = await readLegacyBridgeJournal(file, operationRoot, baseline);
   const before = phases.indexOf(recorded.journal.phase), after = phases.indexOf(phase);
   if (after < before || after > before + 1 || (pair && recorded.journal.phase !== 'safety')) throw new Error('Invalid bridge journal phase transition');
   let snapshot = recorded.journal.snapshot;
   if (pair) {
-    const checked = await readLegacyPairedSnapshot(pair.directory, pair.checksum);
+    const checked = await readLegacyPairedSnapshot(pair.directory, pair.checksum, baseline);
     if (checked.manifest.safety.directory !== recorded.safety.directory
       || checked.manifest.safety.checksum !== recorded.journal.safety.checksum
       || checked.manifest.baseline.evidence !== recorded.journal.evidence) throw new Error('Bridge pair differs from its original safety snapshot');
@@ -59,5 +60,5 @@ export async function advanceLegacyBridgeJournal(file: string, operationRoot: st
   const journal = schema.parse({ ...recorded.journal, phase, snapshot });
   assertJournalLocation(recorded.file, recorded.operationRoot);
   writePrivateJson(recorded.file, journal);
-  return readLegacyBridgeJournal(recorded.file, recorded.operationRoot);
+  return readLegacyBridgeJournal(recorded.file, recorded.operationRoot, baseline);
 }

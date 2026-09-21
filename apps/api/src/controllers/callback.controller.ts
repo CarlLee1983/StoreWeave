@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { Controller, Param, Post, Query, Req, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { SYSTEM_ACTOR } from '@storeweave/contracts';
-import type { PaymentCallbackEvent, PaymentProvider, ShippingCallbackEvent, ShippingProvider } from '@storeweave/extension-sdk';
+import type { PaymentCallbackEvent, PaymentProviderV2, ShippingCallbackEvent, ShippingProvider } from '@storeweave/extension-sdk';
 import { ExternalCallback, correlationIdOf, type AuthenticatedRequest } from '../http/auth';
 import { HttpContract, type ProviderCallbackHttpContract } from '../http/contract';
 import { RUNTIME, type Runtime } from '../tokens';
@@ -10,6 +10,7 @@ import { Inject } from '@nestjs/common';
 
 type CallbackRequest = AuthenticatedRequest & { rawBody?: Uint8Array };
 type CallbackQuery = Record<string, string | string[] | undefined>;
+type PaymentCallbackProvider = Pick<PaymentProviderV2, 'id' | 'kind' | 'parseCallback' | 'acknowledgeCallback'>;
 
 const callbackRoute = {
   kind: 'provider-callback', request: 'raw', providerKinds: ['payment', 'shipping'], rateLimit: 'callback',
@@ -43,9 +44,9 @@ export class CallbackController {
       return;
     }
 
-    let provider: PaymentProvider;
+    let provider: PaymentCallbackProvider;
     try {
-      provider = this.runtime.providers.get<PaymentProvider>('payment', providerId);
+      provider = this.runtime.providers.get<PaymentProviderV2>('payment', providerId);
     } catch {
       void reply.status(404).type('text/plain; charset=utf-8').send('Not found');
       return;
@@ -115,7 +116,7 @@ export class CallbackController {
     }
   }
 
-  private sendAcknowledgement(reply: FastifyReply, provider: PaymentProvider, accepted: boolean): void {
+  private sendAcknowledgement(reply: FastifyReply, provider: PaymentCallbackProvider, accepted: boolean): void {
     const acknowledgement = provider.acknowledgeCallback({ accepted });
     for (const [name, value] of Object.entries(acknowledgement.headers ?? {})) reply.header(name, value);
     void reply.status(acknowledgement.statusCode ?? (accepted ? 200 : 500)).send(acknowledgement.body);

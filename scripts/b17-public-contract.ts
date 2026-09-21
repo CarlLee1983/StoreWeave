@@ -9,7 +9,7 @@ import { composeRuntimeModules, type PlatformModule } from '../packages/platform
 import { EventBus } from '../packages/platform/event-bus/src';
 import { JobQueue } from '../packages/platform/jobs/src';
 import { OutboxStore } from '../packages/platform/outbox/src';
-import { release as commerceRelease } from '../packages/platform/bundle/src/releases/commerce';
+import { release as commerceRelease } from '../packages/releases/commerce/src/runtime';
 
 const ROOT = resolve(__dirname, '..');
 export const B00_CATALOG_PATH = resolve(ROOT, 'docs/base/b17/b00-catalog.json');

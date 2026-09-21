@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { SYSTEM_ACTOR } from '@storeweave/contracts';
+import type { PaymentProviderV2 } from '@storeweave/extension-sdk';
 import {
   ADMIN_ACTOR, checkoutInput, createCustomer, createHarness, createProduct, defaultCustomer, payOrder, runJobsUntilProcessed, stockUp, type TestHarness,
 } from './helpers';
@@ -50,6 +50,18 @@ describe('Ticket 65: RMA domain and operations', () => {
 
   it('does not restock before receipt, requires a disposition, and settles a linked partial refund without direct-refund reversals', async () => {
     const { customer, order, product } = await shippedOrder();
+    const provider = h.runtime.providers.get<PaymentProviderV2>('payment', 'mock-payment');
+    const originalRefund = provider.refund.bind(provider);
+    const refundCalls: Parameters<PaymentProviderV2['refund']>[0][] = [];
+    let failFirstRefund = true;
+    provider.refund = async (input) => {
+      refundCalls.push(input);
+      if (failFirstRefund) {
+        failFirstRefund = false;
+        return { status: 'rejected', message: 'temporary provider failure' };
+      }
+      return originalRefund(input);
+    };
     const line = order.lines[0];
     const rma = await h.runtime.commands.execute<any>('commerce.rma.createRma', { orderId: order.id, reason: 'damaged', lines: [{ orderLineId: line.id, quantity: 1 }] }, { actor: customer, idempotencyKey: randomUUID() });
     await h.runtime.commands.execute('commerce.rma.approveRma', { id: rma.id }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
@@ -62,10 +74,24 @@ describe('Ticket 65: RMA domain and operations', () => {
     expect(pending).toMatchObject({ status: 'refund_pending' });
     const refund = await h.runtime.queries.execute<any>('commerce.refund.getRefund', { id: pending.refundId }, { actor: ADMIN_ACTOR });
     expect(refund).toMatchObject({ source: 'rma', sourceRef: rma.id, amountCents: 1200 });
-    await h.runtime.commands.execute('commerce.refund.recordRefundResult', { id: refund.id, paymentProvider: refund.paymentProvider, providerRequestRef: refund.providerRequestRef, status: 'failed', failureMessage: 'temporary provider failure' }, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() });
     await waitForRmaStatus(rma.id, customer, 'refund_failed');
-    await h.runtime.commands.execute('commerce.refund.retryRefund', { id: refund.id }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+    expect(refundCalls[0]).toMatchObject({
+      amount: refund.amountCents,
+      currency: refund.currency,
+      reference: refund.providerRequestRef,
+    });
+    expect(refundCalls[0].providerRef).toMatch(/^mock_/);
+    expect(refundCalls[0]).not.toHaveProperty('amountCents');
+    const retried = await h.runtime.commands.execute<any>('commerce.refund.retryRefund', { id: refund.id }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
     const completed = await waitForRmaStatus(rma.id, customer, 'completed');
+    expect(refundCalls[1]).toMatchObject({
+      amount: refund.amountCents,
+      currency: refund.currency,
+      reference: retried.providerRequestRef,
+    });
+    expect(refundCalls[1].providerRef).toBe(refundCalls[0].providerRef);
+    expect(refundCalls[1]).not.toHaveProperty('amountCents');
+    expect(retried.providerRequestRef).not.toBe(refund.providerRequestRef);
     // The RMA receipt itself did the only restock; provider success must not run direct-refund's whole-order reversal.
     expect((await h.runtime.queries.execute<any>('commerce.inventory.getStock', { productId: product.id }, { actor: ADMIN_ACTOR })).onHand).toBe(3);
   });

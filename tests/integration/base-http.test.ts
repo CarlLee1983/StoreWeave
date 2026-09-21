@@ -6,8 +6,8 @@ import { RequestMethod, type Type } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { Runtime } from '@storeweave/kernel';
-import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
-import { release } from '../../packages/platform/bundle/src/releases/base';
+import { bootstrapRelease } from '../../packages/platform/release/src/bootstrap';
+import { release } from '../../packages/releases/base/src/runtime';
 import { createReleaseServer } from '../../apps/api/src/release-server';
 import { httpAdapter } from '../../apps/api/src/releases/base';
 import { SESSION_COOKIE } from '../../apps/api/src/http/cookie-names';
@@ -22,6 +22,7 @@ import { AuthController } from '../../apps/api/src/controllers/auth.controller';
 import { MetaController } from '../../apps/api/src/controllers/meta.controller';
 import { SystemController } from '../../apps/api/src/controllers/system.controller';
 import { InventoryController } from '../../apps/api/src/controllers/inventory.controller';
+import { HealthController } from '../../apps/api/src/controllers/health.controller';
 import { PlatformError } from '@storeweave/contracts';
 import { httpErrorSchema } from '../../apps/api/src/http/envelope';
 import { ExtensionsController } from '../../apps/api/src/controllers/extensions.controller';
@@ -122,6 +123,15 @@ describe('Base HTTP input boundary', () => {
       expect(factory).toHaveBeenCalledTimes(1);
     }
   });
+
+  it('identifies the owning release when duplicate controller routes fail startup', async () => {
+    const controllers = vi.fn(() => [HealthController, HealthController]);
+
+    await expect(createReleaseServer({ runtime,
+      httpAdapter: { ...httpAdapter, controllers }, release: { version: 'test', configPath: '<test>' },
+    })).rejects.toThrow('Release "base" server projection has a duplicate route contribution');
+  });
+
   it('catalogs direct auth and meta JSON routes without inventing Bus targets', async () => {
     const routes = describeHttpRoutes(runtime, [AuthController, MetaController]);
     expect(routes.map(route => [route.method, route.path, route.status, route.auth])).toEqual([

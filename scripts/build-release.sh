@@ -9,19 +9,23 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 RELEASE_ID="${STOREWEAVE_RELEASE:-commerce}"
-case "$RELEASE_ID" in
-  commerce) NAME=commerce ;;
-  base) NAME=storeweave ;;
-  file-requests) NAME=storeweave-file-requests ;;
-  *) echo "Unknown release: $RELEASE_ID" >&2; exit 1 ;;
-esac
+PLAN_FILE="$(mktemp)"
+trap 'rm -f "$PLAN_FILE"' EXIT
+node scripts/native-release-plan.mjs "$RELEASE_ID" > "$PLAN_FILE"
+RELEASE_PLAN=()
+while IFS= read -r value; do RELEASE_PLAN+=("$value"); done < "$PLAN_FILE"
+NAME="${RELEASE_PLAN[0]}"
+SMOKE_SCRIPT="${RELEASE_PLAN[1]}"
+API_SERVICE="${RELEASE_PLAN[2]}"
+WORKER_SERVICE="${RELEASE_PLAN[3]}"
+CONFIG_FILE_COUNT="${RELEASE_PLAN[4]}"
 VERSION="${STOREWEAVE_RELEASE_VERSION:-${COMMERCE_RELEASE_VERSION:-$(node -p "require('./package.json').version")}}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$ ]] || { echo 'Invalid release version' >&2; exit 1; }
 NODE_VERSION="${STOREWEAVE_NODE_VERSION:-${COMMERCE_NODE_VERSION:-22.17.1}}"
 ARCH="${STOREWEAVE_TARGET_ARCH:-${COMMERCE_TARGET_ARCH:-x64}}"
 case "$ARCH" in x64|arm64) ;; *) echo 'Unsupported Node architecture' >&2; exit 1 ;; esac
 NODE_DIST="node-v${NODE_VERSION}-linux-${ARCH}"
-CACHE_DIR="$ROOT/.cache"
+CACHE_DIR="${STOREWEAVE_CACHE_DIR:-$ROOT/.cache}"
 BUILD_DIR="${STOREWEAVE_BUILD_DIR:-$ROOT/dist}"
 RELEASE_ROOT="${STOREWEAVE_RELEASE_DIR:-$ROOT/release}"
 STAGE="$RELEASE_ROOT/$NAME-$VERSION"
@@ -68,17 +72,15 @@ cp -R "$CACHE_DIR/$NODE_DIST/lib" "$STAGE/runtime/" 2>/dev/null || true
 cp "$CACHE_DIR/$NODE_DIST/LICENSE" "$STAGE/runtime/NODE-LICENSE" 2>/dev/null || true
 rm -f "$STAGE/runtime/bin/npm" "$STAGE/runtime/bin/npx" "$STAGE/runtime/bin/corepack"
 
-if [ "$RELEASE_ID" = commerce ]; then
-  cp deployments/example-store/commerce.yaml "$STAGE/config/$NAME.yaml.example"
-  cp deployments/example-store/commerce.env.example "$STAGE/config/$NAME.env.example"
-  cp deployments/example-store-two/commerce.yaml "$STAGE/config/$NAME.yaml.second-store-example"
-  cp scripts/smoke.sh "$STAGE/scripts/smoke.sh"
-else
-  cp deployments/storeweave.example.yaml "$STAGE/config/storeweave.yaml.example"
-  cp deployments/storeweave.env.example "$STAGE/config/storeweave.env.example"
-  cp scripts/smoke-base.sh "$STAGE/scripts/smoke.sh"
-fi
-cp "deployments/systemd/$NAME-api.service" "deployments/systemd/$NAME-worker.service" "$STAGE/systemd/"
+PLAN_INDEX=5
+for ((index = 0; index < CONFIG_FILE_COUNT; index++)); do
+  SOURCE="${RELEASE_PLAN[$PLAN_INDEX]}"
+  FILENAME="${RELEASE_PLAN[$((PLAN_INDEX + 1))]}"
+  cp "$SOURCE" "$STAGE/config/$FILENAME"
+  PLAN_INDEX=$((PLAN_INDEX + 2))
+done
+cp "$SMOKE_SCRIPT" "$STAGE/scripts/smoke.sh"
+cp "$API_SERVICE" "$WORKER_SERVICE" "$STAGE/systemd/"
 cp scripts/install-native.sh "$STAGE/scripts/install.sh"
 chmod +x "$STAGE/scripts/"*.sh
 

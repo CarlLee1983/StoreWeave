@@ -38478,21 +38478,21 @@
   "semanticSources": [
     {
       "assurance": "provenance-only",
-      "file": "apps/api/src + packages/commerce + packages/extensions + packages/platform + packages/themes",
-      "fingerprint": "b32213f2d1f707e3547fe290e9983b0485513b6ad73ceb7dc19bb95c1b70264f",
+      "file": "apps/api/src + packages/commerce + packages/extensions + packages/platform + packages/releases/commerce/src + packages/themes/default/src",
+      "fingerprint": "79f7fe93066cebc88fdb083ac8f6a93533a45b51e8d8586c3f22ebf24540b610",
       "id": "zod:commerce-production-source-inventory",
       "limitations": [
         "A source fingerprint detects drift but does not prove behavior.",
         "Called predicate bodies and the complete input domain are not inferred from this AST inventory."
       ],
-      "occurrences": 1019,
+      "occurrences": 1042,
       "operator": "zod-semantic-operations"
     }
   ],
   "source": {
     "assurance": "provenance-only",
     "dependencyLock": "pnpm-lock.yaml",
-    "dependencyLockSha256": "11ca73f7f7c849caddc0b9847f3ac03ffce4faba94406def6ebbc005fc620de6",
+    "dependencyLockSha256": "72cfa3f6f88325d4a6ae8d7afb861cc08223aaea231dc98b33f5a25302d149f3",
     "http": "docs/base/b17/commerce-http-contract.v1.json",
     "httpSha256": "1f9c5563cd8cada3c51a797a121bd3a21c17ced22329eb9e6091da8f66c7066a",
     "limitations": [
@@ -38531,7 +38531,7 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src/controllers/callback.controller.ts",
-      "fingerprint": "c4cb6aae82271989c4f4aed24b5c86aefecae57c3ee3571e9cd766fdbbc33126"
+      "fingerprint": "dafc63628dccbfc021abe167c0213ae7fc32d54242f12b05dfb0632440035199"
     },
     {
       "assurance": "provenance-only",
@@ -38721,7 +38721,7 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src/main.ts",
-      "fingerprint": "ffa4915b68fe56fb9248d5df8be92a2278fbe50b7f383bf1a08d48aeb499bf12"
+      "fingerprint": "cf6268d442576ce0802e62859f484ac0dc41bb103bd77ce636f04e3eb51dc63b"
     },
     {
       "assurance": "provenance-only",
@@ -38746,7 +38746,7 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src/release-server.ts",
-      "fingerprint": "18cfd26e6a944fba471ca53bb3f64a4f8671c9a776b5a24265a6ab398c8aee89"
+      "fingerprint": "ffd9ee599c04bb909780efc5205a57d23fd82e8dbf52b6d670170d7417f33de9"
     },
     {
       "assurance": "provenance-only",
@@ -38831,7 +38831,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/commerce/cart/src/pages.ts",
-      "fingerprint": "78858625b327ad703068682dd4623e332bac9b1fd6380cf52205aa902eb9d3b6"
+      "fingerprint": "9eae644e0f18bc3c1dd802b79e468b772e07269c7fc196f594a8405b4ceb2a18"
     },
     {
       "assurance": "provenance-only",
@@ -39251,7 +39251,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/commerce/order/src/commands.ts",
-      "fingerprint": "f1450b29176d33c56cc91b81da28383d74e1dce887a00dd43bd6c4341b292c67"
+      "fingerprint": "701472932daf635ee96860b0567333d512692554bd5644a69f876349954481b7"
     },
     {
       "assurance": "provenance-only",
@@ -39296,7 +39296,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/commerce/order/src/pages.ts",
-      "fingerprint": "1a5ee13d9773d3c425e5e7b7649d55f4c3fe9b9cc0594ae8aed7d5a54ee2bb95"
+      "fingerprint": "3f6253c3b97ee92963717053c9be092368479024e9dab530fb9c63282a2a84b8"
     },
     {
       "assurance": "provenance-only",
@@ -39411,7 +39411,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/commerce/refund/src/module.ts",
-      "fingerprint": "9218862b89206c5120c7b214f311f1342fd69f98ca68869186683679d87d8547"
+      "fingerprint": "b048ab8079f473576e48ff9534bbff52bc8482814752e06572e14e354b4a8603"
     },
     {
       "assurance": "provenance-only",
@@ -39616,7 +39616,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/extensions/ecpay/src/provider.ts",
-      "fingerprint": "604d34a445466ef91f17adde7bd67f327396c78c6ccaa95df38fecc02ea2d9aa"
+      "fingerprint": "09204d5bf197dbf0e95a3b9437ab6a9b7a79c78cd8ab67179ed8b86a6e95f09d"
     },
     {
       "assurance": "provenance-only",
@@ -39661,7 +39661,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/extensions/mock-payment/src/provider.ts",
-      "fingerprint": "0a5176386579d3e4bad320f58b24ececefb820b503b02bc3dc324810c770140f"
+      "fingerprint": "1849a4824a360fd1f848d8a90cb00e891248df0a8024fc8c48a8307e69ee7817"
     },
     {
       "assurance": "provenance-only",
@@ -39720,61 +39720,6 @@
     },
     {
       "assurance": "provenance-only",
-      "file": "packages/platform/bundle/src/bootstrap-release.ts",
-      "fingerprint": "2b3d7390914922cc68ce1512d6bef4b62daa9f59dc93267a48a65763b8098c46"
-    },
-    {
-      "assurance": "provenance-only",
-      "file": "packages/platform/bundle/src/bootstrap.ts",
-      "fingerprint": "8fb3a7780f9779fdf18384b1494f8adb4b458ecf30dc29022275179e846fbdd6"
-    },
-    {
-      "assurance": "provenance-only",
-      "file": "packages/platform/bundle/src/index.ts",
-      "fingerprint": "8d67d6364dc867dd193daf4778c8d7e29752b76865f59908c4fcf8aed04249ce"
-    },
-    {
-      "assurance": "provenance-only",
-      "file": "packages/platform/bundle/src/module-contract.ts",
-      "fingerprint": "f492f65553b97490dc097f73cac0ef2ca5e1ea1a192ca0d6da4edea88cb36c77"
-    },
-    {
-      "assurance": "provenance-only",
-      "file": "packages/platform/bundle/src/modules.ts",
-      "fingerprint": "ba0066d2a2c97e76b6900f4752d7bc6a050f5843b68820a1472a8e593e6ef9a2"
-    },
-    {
-      "assurance": "provenance-only",
-      "file": "packages/platform/bundle/src/navigation.ts",
-      "fingerprint": "c286949f7802bc603da8ecb07049cb63c36a29aaea3b4ec574730315eb3cc2cc"
-    },
-    {
-      "assurance": "provenance-only",
-      "file": "packages/platform/bundle/src/release-manifest.ts",
-      "fingerprint": "978f6981f02954607f5e07c78ac6c1e53e8144c8b8f138b0725cad605194d9b8"
-    },
-    {
-      "assurance": "provenance-only",
-      "file": "packages/platform/bundle/src/release.ts",
-      "fingerprint": "bb989d9427167f2640f79ec8d5147ae1c821e06e4094204f687f29dd6c241e70"
-    },
-    {
-      "assurance": "provenance-only",
-      "file": "packages/platform/bundle/src/releases/base.ts",
-      "fingerprint": "e3c79a31c8016a712baf8d2f4013532975eaf36d1fb6a42c2504ae8f3bd4b1bb"
-    },
-    {
-      "assurance": "provenance-only",
-      "file": "packages/platform/bundle/src/releases/commerce.ts",
-      "fingerprint": "f5fb46286e8c2cff37caa000355143600ff30460b52d61c6bbc33bbcf3f04356"
-    },
-    {
-      "assurance": "provenance-only",
-      "file": "packages/platform/bundle/src/releases/file-requests.ts",
-      "fingerprint": "fb622174f1460b27623e244d302d6abd366f48a60a0497ab825c462bb963bd60"
-    },
-    {
-      "assurance": "provenance-only",
       "file": "packages/platform/cache/src/index.ts",
       "fingerprint": "602b7ff976b14e076e6c87e72dd0ac2c43a2ab15e88a644b933459f855eb7799"
     },
@@ -39801,7 +39746,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/config/src/loader.ts",
-      "fingerprint": "f7eee3a96fe5b2016e4c6c646ee1a97e45c4fbc9cc3e205503042cb7a47bebc7"
+      "fingerprint": "cca709c0e1e40e0db5027ea223a6551189937d1ea49231a657c0220591dc3863"
     },
     {
       "assurance": "provenance-only",
@@ -40031,7 +39976,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/extension-sdk/src/index.ts",
-      "fingerprint": "79391eff2f3d3d08aaa8d2681dff1a88e00c3d315774be2d6f14eba0e7790deb"
+      "fingerprint": "e8f5394d26fae7ba0096ba2e10184215947eea1e8f64b5e7d414c742353dfc3b"
     },
     {
       "assurance": "provenance-only",
@@ -40045,8 +39990,13 @@
     },
     {
       "assurance": "provenance-only",
+      "file": "packages/platform/extension-sdk/src/payment-contract.ts",
+      "fingerprint": "3b51d3df17bd8da454231740bcaf2d8a03ae597dbfdd75789d9e9b9048741dd0"
+    },
+    {
+      "assurance": "provenance-only",
       "file": "packages/platform/extension-sdk/src/providers.ts",
-      "fingerprint": "58c8aec5f95427a1656245b2ac3e836df22dac3c08162b17a3e1f68568a5eab2"
+      "fingerprint": "680a7c34bb1d340a4ec2d4f2ecfa11b42c2308baf7fe5924ca54c244082dd5eb"
     },
     {
       "assurance": "provenance-only",
@@ -40186,7 +40136,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/kernel/src/extension-host.ts",
-      "fingerprint": "548e74e5dfc3368fba2191e042f869b7b260ce1b1509c416d60f1e1b602899d9"
+      "fingerprint": "d0b23fd9d367a315cebe352dd95454e7799c0ac25849122a11d23d86570fc2b6"
     },
     {
       "assurance": "provenance-only",
@@ -40355,6 +40305,66 @@
     },
     {
       "assurance": "provenance-only",
+      "file": "packages/platform/release/src/admin.ts",
+      "fingerprint": "de61504e401d1c4b9ec69b6ea2bd1fbf373b09561f2e74a47df753e794ddd0d1"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/platform/release/src/bootstrap.ts",
+      "fingerprint": "ab7da052cd2b1eb6bd31609720edcb52607c9c9be3be9eb49f52ae236e95a887"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/platform/release/src/cli.ts",
+      "fingerprint": "b706d285f521cd25c0ef583d1e1ecf0d852c5181cb892dde2ac58ddb018ae980"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/platform/release/src/config.ts",
+      "fingerprint": "3aaeff5506526e538de59687b290d33fdce08e135a17f32450cb0ac45e9e3162"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/platform/release/src/index.ts",
+      "fingerprint": "d761d00a96985d9ca71e34d0334ff401123c71d819fd20be842e03a2402a0aad"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/platform/release/src/module-contract.ts",
+      "fingerprint": "11287f3a84569deeeb2335dd08abe1dc9e398653c919847b3113da4b19bedaef"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/platform/release/src/projection-factory.ts",
+      "fingerprint": "b96720b012202575bc11c3a855cd7ada98d8f5794f4a680ab929c23a5de0a847"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/platform/release/src/release-definition.ts",
+      "fingerprint": "7668a1104ffa0cec9f43e44f7bee9ebe114fd5e1387e2a3637b9bc57ca0e2e57"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/platform/release/src/runtime.ts",
+      "fingerprint": "60946f91271421d098f72a384cd63dbb99bc6dfd6b50df26a67913d622ae53fd"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/platform/release/src/server.ts",
+      "fingerprint": "1142d597bf0490891873f41e194bb892a1a87bc544206b7923c945403c19c455"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/platform/release/src/storefront.ts",
+      "fingerprint": "b48c46bb7e6789243af25d3016e6ab8a8783fb015600485ac33890eca72c2a3c"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/platform/release/src/worker.ts",
+      "fingerprint": "af0842d70148d086316bd1632670855b0daa1525b0c6f447d70449bf7d400e88"
+    },
+    {
+      "assurance": "provenance-only",
       "file": "packages/platform/site/src/descriptors.ts",
       "fingerprint": "23995ccf0c0313fb23d7e07b68494f3c5906c88f2022b3a059b96ac349ded311"
     },
@@ -40405,8 +40415,58 @@
     },
     {
       "assurance": "provenance-only",
-      "file": "packages/themes/base/src/index.ts",
-      "fingerprint": "83be51b04dc80e7d2f18c6689bebd50a7d4c2115232e6febef4d0267373f897a"
+      "file": "packages/releases/commerce/src/admin.tsx",
+      "fingerprint": "b2d89d82ea2b904b8b54ba51b51cdd0c0502e088bdedeb1c31e57ae6482970e4"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/releases/commerce/src/cli.ts",
+      "fingerprint": "2e844544dee14cfb94b81ab2b08242c318fc2b5bb1ccd30647dd2c43cc27ee7b"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/releases/commerce/src/config.ts",
+      "fingerprint": "3138e997be05335e2250b636722174debe8bca6127e8f0d007d3a4f654ca1d5e"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/releases/commerce/src/definition.ts",
+      "fingerprint": "91297b650d86fa02168cdab3191976b5da8a57c253217f5310c0b94ceea3b3f4"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/releases/commerce/src/index.ts",
+      "fingerprint": "1d0f7d1f636a59fde9514c2f79e4a060f6b9ea3e4f2b4fe30062b658255bcd79"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/releases/commerce/src/modules.ts",
+      "fingerprint": "ba0066d2a2c97e76b6900f4752d7bc6a050f5843b68820a1472a8e593e6ef9a2"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/releases/commerce/src/navigation.ts",
+      "fingerprint": "fdce5639780140928c15b3d505cccab20ee7e2d7b54be88096699488d4d20145"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/releases/commerce/src/runtime.ts",
+      "fingerprint": "a85f49904351b30d662b87c25ee07382f6a59d42cc451fa9b45ddc8435e28a5d"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/releases/commerce/src/server.ts",
+      "fingerprint": "8912070597869f1b87dca9a3f95236b1b418a5944f785c5b4eb51fc8a899a2c4"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/releases/commerce/src/storefront.ts",
+      "fingerprint": "3c8e757ac9a7ebaaf5fcecada19dcfb791d267c2b4f6aca895db382ea394c2ea"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "packages/releases/commerce/src/worker.ts",
+      "fingerprint": "4172af57b3dadcb477881db77b26802e2330b7e07c80b6323d2286e709826a6c"
     },
     {
       "assurance": "provenance-only",

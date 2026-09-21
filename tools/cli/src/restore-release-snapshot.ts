@@ -8,11 +8,18 @@ import { Client, escapeIdentifier as ident, escapeLiteral as literal } from 'pg'
 import { catalogDigest, readSnapshotDatabase } from '@storeweave/db';
 import { readPairedSnapshot } from './read-release-snapshot';
 import { parsePgUrl, runPgTool } from './pg-tool';
+import type { LegacyMigrationBaseline } from '@storeweave/db';
 
 /** Restores only to a new database. Persists intent and the created OID before restoring; caller must verify source runtime before cutover. */
-export async function restoreSnapshotToScratch(directory: string, expectedChecksum: string, maintenanceUrl: string, journalDirectory: string, lockFd?: number, format: 'modern' | 'legacy-b01' | 'legacy-b01-safety' = 'modern') {
-  const readSnapshot = format === 'legacy-b01-safety' ? readLegacySafetySnapshot : format === 'legacy-b01' ? readLegacyPairedSnapshot : readPairedSnapshot;
-  const pair = await readSnapshot(directory, expectedChecksum);
+export async function restoreSnapshotToScratch(directory: string, expectedChecksum: string, maintenanceUrl: string, journalDirectory: string, lockFd?: number, format: 'modern' | 'legacy-b01' | 'legacy-b01-safety' = 'modern', baseline?: LegacyMigrationBaseline) {
+  let pair: Awaited<ReturnType<typeof readLegacySafetySnapshot>>
+    | Awaited<ReturnType<typeof readLegacyPairedSnapshot>>
+    | Awaited<ReturnType<typeof readPairedSnapshot>>;
+  if (format === 'legacy-b01-safety') pair = await readLegacySafetySnapshot(directory, expectedChecksum);
+  else if (format === 'legacy-b01') {
+    if (!baseline) throw new Error('Legacy restore requires the selected release baseline');
+    pair = await readLegacyPairedSnapshot(directory, expectedChecksum, baseline);
+  } else pair = await readPairedSnapshot(directory, expectedChecksum);
   const saved = pair.manifest.evidence;
   let url: URL;
   try { url = parsePgUrl(maintenanceUrl); } catch { throw new Error('Invalid maintenance database URL'); }
@@ -61,7 +68,9 @@ export async function restoreSnapshotToScratch(directory: string, expectedChecks
     scratchUrl.pathname = `/${name}`;
     // Missing roles/extensions/tablespaces fail here; live and the failed scratch remain untouched for diagnosis.
     await runPgTool('pg_restore', scratchUrl.toString(), ['--exit-on-error', '--single-transaction', pair.dump], lockFd);
-    await readSnapshot(directory, expectedChecksum);
+    if (format === 'legacy-b01-safety') await readLegacySafetySnapshot(directory, expectedChecksum);
+    else if (format === 'legacy-b01') await readLegacyPairedSnapshot(directory, expectedChecksum, baseline!);
+    else await readPairedSnapshot(directory, expectedChecksum);
     await client.query('BEGIN');
     try {
       await client.query(`COMMENT ON DATABASE ${ident(name)} IS ${p.comment === null ? 'NULL' : literal(p.comment)}`);

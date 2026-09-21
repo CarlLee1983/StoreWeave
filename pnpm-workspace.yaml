@@ -6,6 +6,8 @@ shamefullyHoist: true
 packages:
   - 'apps/*'
   - 'packages/platform/*'
+  - 'packages/releases/*'
+  - 'packages/booking/*'
   - 'packages/commerce/*'
   - 'packages/extensions/*'
   - 'packages/themes/*'

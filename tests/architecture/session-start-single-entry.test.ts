@@ -14,7 +14,9 @@ import { ROOT, importsOf, sourceFiles } from './source-graph';
  */
 const API_SRC = 'apps/api/src';
 const IMPLEMENTATION = 'http/session-start.ts';
-const releaseFiles = readdirSync(join(ROOT, API_SRC, 'releases')).map(file => `releases/${file}`);
+const releaseFiles = readdirSync(join(ROOT, API_SRC, 'releases'))
+  .filter(file => file.endsWith('.ts') && /\bexport const httpAdapter\b/.test(readFileSync(join(ROOT, API_SRC, 'releases', file), 'utf8')))
+  .map(file => `releases/${file}`);
 const files = sourceFiles(API_SRC).map(file => relative(join(ROOT, API_SRC), file));
 
 describe('簽發 session 的唯一入口', () => {

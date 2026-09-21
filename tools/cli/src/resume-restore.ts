@@ -4,9 +4,10 @@ import { parsePgUrl } from './pg-tool';
 import { readRestoreJournal, writeRestoreJournal } from './restore-journal';
 import { verifyLegacySafetyDatabase, verifyLegacyRestoredDatabase, verifyRestoredDatabase } from './verify-restored-database';
 import { verifyLegacySafetyRuntime, verifyLegacySourceRuntime, verifySourceRuntime } from './verify-source-runtime';
+import type { LegacyMigrationBaseline } from '@storeweave/db';
 
 /** Caller holds the local transition lock and has stopped managed/external writers. Never drops retained databases. */
-export async function resumeRestoreCutover(recorded: Awaited<ReturnType<typeof readRestoreJournal>>, maintenanceUrl: string, configFile: string, lockFd?: number) {
+export async function resumeRestoreCutover(recorded: Awaited<ReturnType<typeof readRestoreJournal>>, maintenanceUrl: string, configFile: string, lockFd?: number, baseline?: LegacyMigrationBaseline) {
   const { file, operationRoot, journal, snapshot } = recorded;
   if (!['restored', 'cutover-intent', 'cutover-committed'].includes(journal.phase) || !journal.scratch.oid) {
     throw new Error('Restore has no completed scratch database; preserve this attempt and create a new scratch');
@@ -21,14 +22,23 @@ export async function resumeRestoreCutover(recorded: Awaited<ReturnType<typeof r
     throw new Error('Committed database mapping has no durable cutover intent');
   }
   if (mapping === 'ready' && journal.phase === 'cutover-committed') throw new Error('Committed restore journal has an initial database mapping');
-  const verifyDatabase = journal.kind === 'legacy-b01-safety-restore' ? verifyLegacySafetyDatabase : journal.kind === 'legacy-b01-restore' ? verifyLegacyRestoredDatabase : verifyRestoredDatabase;
-  const verifyRuntime = journal.kind === 'legacy-b01-safety-restore' ? verifyLegacySafetyRuntime : journal.kind === 'legacy-b01-restore' ? verifyLegacySourceRuntime : verifySourceRuntime;
   const verify = async (name: string) => {
     const target = new URL(url);
     target.pathname = `/${encodeURIComponent(name)}`;
-    await verifyDatabase(snapshot.directory, journal.snapshot.checksum, target.toString(), intent.scratch.oid);
-    await verifyRuntime(snapshot.directory, journal.snapshot.checksum, configFile, target.toString(), lockFd);
-    await verifyDatabase(snapshot.directory, journal.snapshot.checksum, target.toString(), intent.scratch.oid);
+    if (journal.kind === 'legacy-b01-safety-restore') {
+      await verifyLegacySafetyDatabase(snapshot.directory, journal.snapshot.checksum, target.toString(), intent.scratch.oid);
+      await verifyLegacySafetyRuntime(snapshot.directory, journal.snapshot.checksum, configFile, target.toString(), lockFd);
+      await verifyLegacySafetyDatabase(snapshot.directory, journal.snapshot.checksum, target.toString(), intent.scratch.oid);
+    } else if (journal.kind === 'legacy-b01-restore') {
+      if (!baseline) throw new Error('Legacy restore requires the selected release baseline');
+      await verifyLegacyRestoredDatabase(snapshot.directory, journal.snapshot.checksum, target.toString(), intent.scratch.oid, baseline);
+      await verifyLegacySourceRuntime(snapshot.directory, journal.snapshot.checksum, configFile, target.toString(), baseline, lockFd);
+      await verifyLegacyRestoredDatabase(snapshot.directory, journal.snapshot.checksum, target.toString(), intent.scratch.oid, baseline);
+    } else {
+      await verifyRestoredDatabase(snapshot.directory, journal.snapshot.checksum, target.toString(), intent.scratch.oid);
+      await verifySourceRuntime(snapshot.directory, journal.snapshot.checksum, configFile, target.toString(), lockFd);
+      await verifyRestoredDatabase(snapshot.directory, journal.snapshot.checksum, target.toString(), intent.scratch.oid);
+    }
   };
   if (mapping === 'ready') {
     await verify(intent.scratch.name);

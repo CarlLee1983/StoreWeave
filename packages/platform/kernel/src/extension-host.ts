@@ -13,6 +13,7 @@ import type { SecretProvider } from '@storeweave/config';
 import { createHttpClient } from '@storeweave/http-client';
 import {
   assertPlatformCompatibility,
+  assertProviderRegistrationContract,
   ProviderRegistry,
   type AnyProvider,
   type ExtensionContext,
@@ -312,6 +313,12 @@ export class ExtensionHost {
     assertUnique('job', (registration.jobs ?? []).map(job => job.type));
     assertUnique('event subscription', (registration.events ?? []).map(event => event.event));
     assertUnique('provider', (registration.providers ?? []).map(provider => `${provider.kind}:${provider.id}`));
+    for (const provider of registration.providers ?? []) {
+      assertProviderRegistrationContract(provider);
+      if (this.deps.providers.has(provider.kind, provider.id)) {
+        throw PlatformError.conflict(`Provider "${provider.kind}:${provider.id}" already registered`);
+      }
+    }
 
     for (const permission of permissions) this.deps.authorization.permissions.assertAvailable(permission);
     for (const policy of registration.policies ?? []) {

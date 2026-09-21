@@ -12,6 +12,41 @@ const packageRoot = join(ROOT, PACKAGE);
 const files = sourceFiles(`${PACKAGE}/src`);
 const THEME_FILE = join(packageRoot, 'src/theme.ts');
 const INDEX_FILE = join(packageRoot, 'src/index.ts');
+const RELEASE_ADAPTERS = new Map([
+  ['src/admin.ts', {
+    external: [],
+    relative: ['packages/platform/release/src/admin', 'packages/examples/file-requests/src/definition'],
+  }],
+  ['src/cli.ts', {
+    external: [],
+    relative: ['packages/platform/release/src/cli', 'packages/examples/file-requests/src/definition', 'packages/examples/file-requests/src/runtime', 'scripts/seeds/file-requests'],
+  }],
+  ['src/config.ts', {
+    external: ['@storeweave/config'],
+    relative: ['packages/platform/release/src/config', 'packages/examples/file-requests/src/definition'],
+  }],
+  ['src/definition.ts', {
+    external: ['@storeweave/contracts', '@storeweave/release'],
+    relative: [],
+  }],
+  ['src/runtime.ts', {
+    external: ['@storeweave/authorization', '@storeweave/auth', '@storeweave/config', '@storeweave/content', '@storeweave/example-file-requests', '@storeweave/kernel', '@storeweave/site'],
+    relative: ['packages/platform/release/src/runtime', 'packages/releases/base/src/navigation', 'packages/examples/file-requests/src/config', 'packages/examples/file-requests/src/definition', 'packages/examples/file-requests/src/storefront'],
+  }],
+  ['src/server.ts', {
+    external: [],
+    relative: ['apps/api/src/releases/file-requests', 'packages/platform/release/src/server', 'packages/examples/file-requests/src/definition', 'packages/examples/file-requests/src/runtime'],
+  }],
+  ['src/storefront.ts', {
+    external: ['@storeweave/example-file-requests', '@storeweave/kernel', '@storeweave/theme-base'],
+    relative: ['packages/platform/release/src/storefront', 'packages/examples/file-requests/src/definition'],
+  }],
+  ['src/worker.ts', {
+    external: [],
+    relative: ['packages/platform/release/src/worker', 'packages/examples/file-requests/src/definition', 'packages/examples/file-requests/src/runtime'],
+  }],
+]);
+const MODULE_FILES = files.filter(file => !RELEASE_ADAPTERS.has(relative(packageRoot, file)) && file !== THEME_FILE && file !== INDEX_FILE);
 
 const RUNTIME_ENTRIES = new Set([
   '@storeweave/kernel', '@storeweave/contracts', '@storeweave/authorization', '@storeweave/db', '@storeweave/jobs', '@storeweave/cache',
@@ -32,7 +67,7 @@ describe('B16 範例模組的邊界', () => {
     expect(files.map(file => relative(packageRoot, file))).toEqual(expect.arrayContaining(['src/module.ts', 'src/theme.ts', 'src/jobs.ts']));
   });
 
-  it.each(files.filter(file => file !== THEME_FILE && file !== INDEX_FILE).map(file => relative(ROOT, file)))(
+  it.each(MODULE_FILES.map(file => relative(ROOT, file)))(
     '%s 只經過 base 公開入口，也不引用 Theme 層', (path) => {
       const file = join(ROOT, path);
       expect(external(file).filter(spec => !RUNTIME_ENTRIES.has(spec))).toEqual([]);
@@ -46,9 +81,17 @@ describe('B16 範例模組的邊界', () => {
   });
 
   it('相對 import 都留在套件內，不跨進其他模組或 apps', () => {
-    const escaping = files.flatMap(file => relativeTargets(file)
+    const escaping = MODULE_FILES.flatMap(file => relativeTargets(file)
       .filter(target => relative(packageRoot, target).startsWith('..'))
       .map(target => `${relative(ROOT, file)} -> ${relative(ROOT, target)}`));
     expect(escaping).toEqual([]);
+  });
+
+  it('release projection adapters use only their declared target integration imports', () => {
+    for (const [path, expected] of RELEASE_ADAPTERS) {
+      const file = join(packageRoot, path);
+      expect(external(file).sort(), path).toEqual([...expected.external].sort());
+      expect(relativeTargets(file).map(target => relative(ROOT, target)).sort(), path).toEqual([...expected.relative].sort());
+    }
   });
 });

@@ -3,9 +3,9 @@ import { lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { join, resolve } from 'node:path';
 import { Client } from 'pg';
 import { catalogDigest, readSnapshotDatabase, readSnapshotHistory } from '@storeweave/db';
-import { buildReleaseManifest } from '../../../packages/platform/bundle/src/release-manifest';
-import { bootstrapRelease } from '@storeweave/bootstrap-release';
-import { release } from '@storeweave/selected-release';
+import { buildReleaseManifest } from '../../../packages/platform/release/src/runtime';
+import { bootstrapRelease } from '@storeweave/release/bootstrap';
+import { release } from '@storeweave/selected-runtime';
 import type { BaseConfig } from '@storeweave/config';
 import { cutOverEmptyOrRecognize, cutOverOrRecognize } from './database-cutover';
 import { restoreDumpToScratch } from './database-scratch';

@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Runtime } from '@storeweave/kernel';
 import { createReleaseServer } from '../../apps/api/src/release-server';
 import { httpAdapter } from '../../apps/api/src/releases/base';
-import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
-import { release as baseRelease } from '../../packages/platform/bundle/src/releases/base';
+import { bootstrapRelease } from '../../packages/platform/release/src/bootstrap';
+import { release as baseRelease } from '../../packages/releases/base/src/runtime';
 import { ADMIN_ACTOR, createTestDatabase } from './helpers';
 
 /**

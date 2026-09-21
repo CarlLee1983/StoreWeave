@@ -8,12 +8,12 @@ import { Client } from 'pg';
 import semver from 'semver';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterEach, expect, it, vi } from 'vitest';
-import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
-import { release } from '@storeweave/selected-release';
+import { bootstrapRelease } from '../../packages/platform/release/src/bootstrap';
+import { release } from '@storeweave/selected-runtime';
 import { catalogDigest, sqlMigration } from '@storeweave/db';
 import { commerceConfigSchema, type CommerceConfig } from '@storeweave/config';
 import { defineModule, Worker } from '@storeweave/kernel';
-import type { ReleaseDefinition } from '../../packages/platform/bundle/src/release';
+import type { RuntimeReleaseDefinition } from '../../packages/platform/release/src/runtime';
 import { ADMIN_ACTOR } from './helpers';
 import { runFullRestore } from '../../tools/cli/src/full-restore';
 import { discardFullRecovery, listFullRecoveries } from '../../tools/cli/src/full-recovery-discard';
@@ -178,7 +178,7 @@ it('upgrades DB, pending work and private media together, rejects mixed releases
       INSERT INTO public.b17_upgrade_probe VALUES (1, 'candidate-only');
     `)],
   };
-  const candidate: ReleaseDefinition<CommerceConfig> = {
+  const candidate: RuntimeReleaseDefinition<CommerceConfig> = {
     ...release,
     version: semver.inc(release.version, 'patch')!,
     createModules: context => [...release.createModules(context), defineModule({

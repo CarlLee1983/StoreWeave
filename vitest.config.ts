@@ -12,6 +12,9 @@ export default defineConfig({
         plugins: [tsconfigPaths()],
         test: {
           name: 'unit',
+          // Vitest 3's forks RPC times out on the complete serial unit suite after all tests pass;
+          // the worker_threads pool keeps task updates responsive in that run.
+          pool: 'threads',
           include: ['packages/**/test/**/*.test.ts', 'tests/unit/**/*.test.ts', 'tests/architecture/**/*.test.ts'],
           environment: 'node',
         },

@@ -31,7 +31,7 @@ B16 要一個「新接手者只新增模組與站點組裝、不改 base」的�
    （範例限制每人未結案的申請數）。
 3. **非商務模組的後台畫面是 `audience: 'operator'` 的模組頁面。** 權限在 Query／Command handler 檢查，
    頁面只是呼叫端；不為範例打開 Admin SPA 的編譯期路由表。
-4. **模組契約檢查以 release 為範圍。** `runModuleContractChecks(release, moduleName)` 放在 `@storeweave/bundle`：
+4. **模組契約檢查以 release 為範圍。** `runModuleContractChecks(release, moduleName)` 放在 `@storeweave/release/module-contract`：
    相依是否存在、版本是否相符、權限是否發給角色，都是 release 的事實，單看一個模組回答不了。
 
 ## 後果

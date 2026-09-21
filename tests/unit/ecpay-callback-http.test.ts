@@ -31,16 +31,15 @@ async function providerWithStartedTrade() {
     now: () => new Date('2026-08-24T12:34:56.000Z'),
   });
   const provider = createEcpayPaymentProvider(context);
-  const start = await provider.start({
-    orderId: '11111111-1111-4111-8111-111111111111',
-    orderNumber: 'SW-1000',
-    amountCents: 10_000,
+  const started = await provider.initiate({
+    reference: 'attempt:11111111-1111-4111-8111-111111111111',
+    displayReference: 'SW-1000',
+    amount: 10_000,
     currency: 'TWD',
     method: 'card',
-    reference: 'attempt:11111111-1111-4111-8111-111111111111',
   });
-  if (start.status !== 'redirect') throw new Error('expected ECPay redirect');
-  return { provider, merchantTradeNo: start.providerRef };
+  if (started.status !== 'redirect') throw new Error('expected ECPay redirect');
+  return { provider, merchantTradeNo: started.providerRef };
 }
 
 function callbackBody(fields: Record<string, string>): string {
@@ -102,7 +101,7 @@ describe('ECPay callback HTTP route', () => {
       ? { statusCode: 202, headers: { 'content-type': 'application/vnd.gateway+text', 'x-provider-ack': 'accepted' }, body: 'provider accepted' }
       : { statusCode: 503, headers: { 'content-type': 'application/vnd.gateway+text', 'x-provider-ack': 'rejected' }, body: 'provider rejected' });
     const payment = {
-      id: 'gateway-a', kind: 'payment' as const, paymentMethods: () => [], start: vi.fn(), parseCallback, acknowledgeCallback, refund: vi.fn(),
+      id: 'gateway-a', kind: 'payment' as const, parseCallback, acknowledgeCallback,
     };
     const shippingWithoutAcknowledgement = { id: 'carrier-a', kind: 'shipping' as const, createShipment: vi.fn(), parseCallback: vi.fn() };
     const providers = new Map<string, typeof payment | typeof shippingWithoutAcknowledgement>([
@@ -164,8 +163,8 @@ describe('ECPay callback HTTP route', () => {
   it('returns the existing 429 REST error and Retry-After before the 301st callback reaches its provider', async () => {
     const parseCallback = vi.fn(async () => ({ type: 'payment_confirmed' as const, reference: 'attempt:rate-limit', providerRef: 'provider-ref' }));
     const payment = {
-      id: 'gateway-a', kind: 'payment' as const, paymentMethods: () => [], start: vi.fn(), parseCallback,
-      acknowledgeCallback: vi.fn(() => ({ body: 'ok' })), refund: vi.fn(),
+      id: 'gateway-a', kind: 'payment' as const, parseCallback,
+      acknowledgeCallback: vi.fn(() => ({ body: 'ok' })),
     };
     const execute = vi.fn(async () => ({}));
     const runtime = {

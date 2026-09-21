@@ -184,6 +184,13 @@ ForgeFlowV2 是開發協定，不是 workflow engine，所以「整合」是這�
 | [91](91-forgeflowv2-integration-discovery.md) | 釐清 ForgeFlowv2 整合責任與契約（discovery）（**done**） | — |
 | [99](99-make-verify-and-agents-guide.md) | 一個指令代表「做完了」：`make verify` 與 `AGENTS.md` | 91 |
 | [100](100-story-format-pilot.md) | 用一張真工作試 Story 格式（**blocked**） | 99 |
+| [101](101-cache-mutex-independent-key-timeout.md) | Advisory mutex 的獨立 key 整合測試偶發取得逾時 | — |
+| [102](102-paired-upgrade-crash-injection-suite-flake.md) | Paired upgrade crash-injection 測試偶發未收到 SIGKILL | — |
+| [103](103-payment-abi-consumer-migration.md) | Payment ABI contract cleanup 前遷移剩餘消費端 | SW-114, SW-115, SW-117 |
+| [104](104-booking-quote-signer-runtime-seam.md) | Booking Quote 簽章金鑰 runtime seam | SW-122，SW-138 前 |
+| [105](105-atomic-quote-revalidation-and-room-night-reservation.md) | Quote 驗證與房晚預留原子化 | SW-122、SW-123，SW-125 前 |
+| [106](106-release-artifact-worker-storage-root-eacces.md) | Commerce release artifact worker 測試 storage root 權限錯誤 | — |
+| [107](107-worker-recovery-readiness-exit.md) | Worker recovery 子程序在 ready marker 前退出 | — |
 
 **76–80 是 Spec 0007 的回填紀錄**（2026-08-26）：這一批不是先開工單再做，而是照
 [Spec 0007](../specs/0007-brand-content-and-contact.md) 直接實作完再補上工單。

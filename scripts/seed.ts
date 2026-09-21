@@ -1,6 +1,6 @@
 import 'reflect-metadata';
-import { bootstrapRelease } from '@storeweave/bootstrap-release';
-import { release } from '@storeweave/selected-release';
+import { bootstrapRelease } from '@storeweave/release/bootstrap';
+import { release } from '@storeweave/selected-runtime';
 import { seed } from '@storeweave/selected-seed';
 
 async function main() {

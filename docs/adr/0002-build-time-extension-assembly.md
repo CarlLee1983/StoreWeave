@@ -13,8 +13,8 @@ WordPress 式的「後台上傳 plugin」很方便，但代價是：任意程式
 
 ## 決策
 
-Extension 在**建置時**編進 Release Bundle（`packages/platform/bundle/src/modules.ts` 的
-`AVAILABLE_EXTENSIONS`）。`commerce.yaml` 只能**啟用或停用** Release 內已存在的 Extension，
+Extension 在**建置時**編進 Commerce Release（`packages/releases/commerce/src/runtime.ts` 的
+`availableExtensions`）。`commerce.yaml` 只能**啟用或停用** Release 內已存在的 Extension，
 啟用一個不在 Release 裡的 id 會在啟動時直接失敗，並列出可用清單。
 
 每個客戶的差異透過三件事表達，都不需要改 Core：
@@ -37,4 +37,4 @@ Extension 在**建置時**編進 Release Bundle（`packages/platform/bundle/src/
 
 出現「必須讓非工程角色在不重新部署的情況下安裝新功能」的需求，
 使得 `packages/platform/kernel/src/extension-host.ts` 必須支援執行期載入模組，
-或 `packages/platform/bundle/src/modules.ts` 的靜態 `AVAILABLE_EXTENSIONS` 必須改成動態掃描目錄。
+或 `packages/releases/commerce/src/runtime.ts` 的靜態 Extension registry 必須改成動態掃描目錄。

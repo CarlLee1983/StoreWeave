@@ -12,8 +12,9 @@
 ## 決策
 
 - `packages/platform`（`bundle` 除外）不得依賴 catalog / inventory / order 的型別或資料表。
-- 產品由 Bundle 組裝：`packages/platform/bundle` 是 Commerce Release，不是 kernel。
-  換產品 = 換那份模組清單。
+- 產品組裝由各自的 `packages/releases/<product>` 擁有，並以 ReleaseDefinition target projections
+  提供執行期與 build contributions；`packages/platform/release` 只提供領域中立契約。
+  換產品 = 換所選的 ReleaseDefinition 與其 projections。
 - Command / Event 名稱空間由模組自己宣告。kernel 只檢查格式；
   事件為 `<context>.<aggregate>.<action>.vN`，Extension 為 `ext.<id>.*`。
   不要求 `commerce.` 前綴。

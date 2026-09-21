@@ -1,15 +1,20 @@
 import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import { runModuleContractChecks } from '@storeweave/bundle';
+import { runModuleContractChecks } from '@storeweave/release/module-contract';
 import type { ThemeContext } from '@storeweave/kernel';
 import { renderBaseLayout } from '@storeweave/theme-base';
-import { release } from '../../../platform/bundle/src/releases/file-requests';
+import { release } from '../src/runtime';
+import { resolveFileRequestsAdminProjection } from '../src/admin';
 import { analyzeText, createFileRequestRenderers, UnprocessableFileError, type FileRequestDto } from '../src';
 
 describe('file-requests 模組契約', () => {
   it('在它的 release 裡通過 Module Contract Test', () => {
     expect(runModuleContractChecks(release, 'file-requests').filter(check => !check.ok)).toEqual([]);
+  });
+
+  it('resolves its own disabled Admin target projection', () => {
+    expect(resolveFileRequestsAdminProjection()).toEqual({ enabled: false, contributions: [] });
   });
 });
 
