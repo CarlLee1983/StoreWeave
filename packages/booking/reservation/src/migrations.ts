@@ -140,5 +140,125 @@ CREATE UNIQUE INDEX IF NOT EXISTS booking_reservation_payment_attempt_provider_r
 CREATE UNIQUE INDEX IF NOT EXISTS booking_reservation_payment_attempt_active_reservation_key
   ON public.booking_reservation_payment_attempts (reservation_id)
   WHERE status IN ('created', 'submitted', 'awaiting_payment');
+`), sqlMigration('0007_payment_callback_winner', 'expand', `
+ALTER TABLE public.booking_reservation_reservations
+  ADD COLUMN IF NOT EXISTS winning_payment_attempt_id uuid;
+
+ALTER TABLE public.booking_reservation_payment_attempts
+  ADD COLUMN IF NOT EXISTS success_kind text,
+  ADD COLUMN IF NOT EXISTS succeeded_at timestamptz;
+
+DO $$ BEGIN
+  ALTER TABLE public.booking_reservation_payment_attempts
+    ADD CONSTRAINT booking_reservation_payment_attempt_success_evidence_check CHECK (
+      (status <> 'succeeded' AND success_kind IS NULL AND succeeded_at IS NULL)
+      OR (status = 'succeeded' AND success_kind IN ('winning', 'late', 'excess')
+          AND succeeded_at IS NOT NULL AND provider_ref IS NOT NULL)
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS booking_reservation_payment_attempt_id_reservation_key
+  ON public.booking_reservation_payment_attempts (id, reservation_id);
+
+DO $$ BEGIN
+  ALTER TABLE public.booking_reservation_reservations
+    ADD CONSTRAINT booking_reservation_winning_payment_attempt_check
+    CHECK (winning_payment_attempt_id IS NULL OR status IN ('confirmed', 'cancelled'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE public.booking_reservation_reservations
+    ADD CONSTRAINT booking_reservation_winning_payment_attempt_fk
+    FOREIGN KEY (winning_payment_attempt_id, id)
+    REFERENCES public.booking_reservation_payment_attempts(id, reservation_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.check_booking_reservation_winning_payment_attempt()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  pointed_attempt public.booking_reservation_payment_attempts;
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.winning_payment_attempt_id IS NOT NULL
+    AND NEW.winning_payment_attempt_id IS NULL THEN
+    RAISE EXCEPTION 'A selected Reservation winner cannot be cleared'
+      USING ERRCODE = '23514', CONSTRAINT = 'booking_reservation_winning_payment_attempt_integrity';
+  END IF;
+  IF NEW.winning_payment_attempt_id IS NULL THEN RETURN NEW; END IF;
+  SELECT * INTO pointed_attempt FROM public.booking_reservation_payment_attempts
+    WHERE id = NEW.winning_payment_attempt_id AND reservation_id = NEW.id;
+  IF pointed_attempt.status <> 'succeeded' OR pointed_attempt.success_kind <> 'winning' THEN
+    RAISE EXCEPTION 'Reservation winner must point to its succeeded winning Attempt'
+      USING ERRCODE = '23514', CONSTRAINT = 'booking_reservation_winning_payment_attempt_integrity';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS booking_reservation_winning_payment_attempt_integrity
+  ON public.booking_reservation_reservations;
+CREATE TRIGGER booking_reservation_winning_payment_attempt_integrity
+  BEFORE INSERT OR UPDATE OF winning_payment_attempt_id, status ON public.booking_reservation_reservations
+  FOR EACH ROW EXECUTE FUNCTION public.check_booking_reservation_winning_payment_attempt();
+
+CREATE OR REPLACE FUNCTION public.protect_booking_reservation_winning_payment_attempt()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM public.booking_reservation_reservations
+    WHERE winning_payment_attempt_id = OLD.id
+  ) AND (NEW.status <> 'succeeded' OR NEW.success_kind <> 'winning') THEN
+    RAISE EXCEPTION 'A selected Reservation winner must remain a succeeded winning Attempt'
+      USING ERRCODE = '23514', CONSTRAINT = 'booking_reservation_winning_payment_attempt_integrity';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS booking_reservation_winning_payment_attempt_protection
+  ON public.booking_reservation_payment_attempts;
+CREATE TRIGGER booking_reservation_winning_payment_attempt_protection
+  BEFORE UPDATE OF status, success_kind ON public.booking_reservation_payment_attempts
+  FOR EACH ROW EXECUTE FUNCTION public.protect_booking_reservation_winning_payment_attempt();
+
+CREATE OR REPLACE FUNCTION public.require_booking_reservation_winner_pointer()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.success_kind = 'winning' AND NOT EXISTS (
+    SELECT 1 FROM public.booking_reservation_reservations
+    WHERE id = NEW.reservation_id AND winning_payment_attempt_id = NEW.id
+  ) THEN
+    RAISE EXCEPTION 'A winning Attempt must be selected by its Reservation'
+      USING ERRCODE = '23514', CONSTRAINT = 'booking_reservation_winning_payment_attempt_integrity';
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS booking_reservation_winning_attempt_requires_pointer
+  ON public.booking_reservation_payment_attempts;
+CREATE CONSTRAINT TRIGGER booking_reservation_winning_attempt_requires_pointer
+  AFTER INSERT OR UPDATE OF status, success_kind, reservation_id ON public.booking_reservation_payment_attempts
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION public.require_booking_reservation_winner_pointer();
+
+CREATE UNIQUE INDEX IF NOT EXISTS booking_reservation_payment_attempt_winning_reservation_key
+  ON public.booking_reservation_payment_attempts (reservation_id)
+  WHERE success_kind = 'winning';
+`), sqlMigration('0008_winner_pointer_cancelled_state', 'expand', `
+ALTER TABLE public.booking_reservation_reservations
+  DROP CONSTRAINT IF EXISTS booking_reservation_winning_payment_attempt_check;
+
+ALTER TABLE public.booking_reservation_reservations
+  ADD CONSTRAINT booking_reservation_winning_payment_attempt_check
+  CHECK (winning_payment_attempt_id IS NULL OR status IN ('confirmed', 'cancelled'));
 `)],
 };

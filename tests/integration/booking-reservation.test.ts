@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { sql } from 'drizzle-orm';
 import { BASE_ROLES } from '@storeweave/authorization';
 import { baseConfigSchema } from '@storeweave/config';
 import { noopLogger, SYSTEM_ACTOR, type Actor } from '@storeweave/contracts';
@@ -250,6 +251,40 @@ async function expireReservation(reservationId: string, expectedPaymentExpiresAt
   }, { actor: SYSTEM_ACTOR, idempotencyKey });
 }
 
+async function holdReservationLifecycleLock(reservationId: string): Promise<() => Promise<void>> {
+  const client = await runtime.database.pool.connect();
+  await client.query('BEGIN');
+  await client.query('SELECT id FROM booking_reservation_reservations WHERE id = $1 FOR UPDATE', [reservationId]);
+  return async () => {
+    try {
+      await client.query('COMMIT');
+    } finally {
+      client.release();
+    }
+  };
+}
+
+async function waitForDatabaseLockWait(): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const waiting = await runtime.database.pool.query<{ waiting: boolean }>(`
+      SELECT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock'
+      ) AS waiting
+    `);
+    if (waiting.rows[0]?.waiting) return;
+    await new Promise<void>(resolve => setTimeout(resolve, 10));
+  }
+  throw new Error('Expected a competing Reservation transaction to wait on a PostgreSQL lock');
+}
+
+async function recordVerifiedPaymentOutcome(provider: string, event: Record<string, unknown>, idempotencyKey = randomUUID()) {
+  return runtime.commands.execute<{ attempt: { id: string; status: string } }>(
+    'booking.reservation.recordVerifiedPaymentOutcome', { provider, event },
+    { actor: SYSTEM_ACTOR, idempotencyKey },
+  );
+}
+
 async function enqueueRetentionJob(dedupeKey: string) {
   const clock = await runtime.database.pool.query<{ now: Date }>('SELECT pg_catalog.clock_timestamp() AS now');
   await runtime.database.transaction(tx => runtime.jobs.enqueue(tx, {
@@ -448,7 +483,7 @@ describe('Booking Reservation PostgreSQL integration', () => {
       instructions: [{ label: 'Bank code', value: '123456' }],
       expiresAt: new Date(laterReservationDeadline.getTime() + 60_000).toISOString(),
     });
-    const laterStarted = await runtime.commands.execute<{ attempt: { id: string } }>(
+    const laterStarted = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
       'booking.reservation.startPayment', { reservationId: laterReservation.id, method: 'deferred' },
       { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
     );
@@ -457,46 +492,344 @@ describe('Booking Reservation PostgreSQL integration', () => {
       'SELECT expires_at FROM booking_reservation_payment_attempts WHERE id = $1', [laterStarted.attempt.id],
     );
     expect(laterStored.rows).toEqual([{ expires_at: laterReservationDeadline }]);
+    const laterReservationStored = await runtime.database.pool.query<{ payment_expires_at: Date }>(
+      'SELECT payment_expires_at FROM booking_reservation_reservations WHERE id = $1', [laterReservation.id],
+    );
+    expect(laterReservationStored.rows).toEqual([{ payment_expires_at: laterReservationDeadline }]);
+    const expiryJobBeforeReplay = await runtime.database.pool.query<{ payload: unknown; run_at: Date }>(
+      'SELECT payload, run_at FROM platform_jobs WHERE dedupe_key = $1', [`booking-reservation:expire:${laterReservation.id}`],
+    );
+    await runtime.commands.execute('booking.reservation.recordPaymentResult', {
+      attemptId: laterStarted.attempt.id, provider: bookingPaymentProviderId,
+      result: {
+        status: 'awaiting_payment', providerRef: `booking-test:${laterStarted.attempt.reference}`,
+        instructions: [{ label: 'Bank code', value: '123456' }],
+        expiresAt: new Date(laterReservationDeadline.getTime() + 60_000).toISOString(),
+      },
+    }, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() });
+    const [attemptAfterReplay, reservationAfterReplay, expiryJobAfterReplay] = await Promise.all([
+      runtime.database.pool.query<{ expires_at: Date; updated_at: Date }>(
+        'SELECT expires_at, updated_at FROM booking_reservation_payment_attempts WHERE id = $1', [laterStarted.attempt.id],
+      ),
+      runtime.database.pool.query<{ payment_expires_at: Date }>(
+        'SELECT payment_expires_at FROM booking_reservation_reservations WHERE id = $1', [laterReservation.id],
+      ),
+      runtime.database.pool.query<{ payload: unknown; run_at: Date }>(
+        'SELECT payload, run_at FROM platform_jobs WHERE dedupe_key = $1', [`booking-reservation:expire:${laterReservation.id}`],
+      ),
+    ]);
+    expect(attemptAfterReplay.rows[0]?.expires_at).toEqual(laterReservationDeadline);
+    expect(reservationAfterReplay.rows).toEqual([{ payment_expires_at: laterReservationDeadline }]);
+    expect(expiryJobAfterReplay.rows).toEqual(expiryJobBeforeReplay.rows);
     await clearPaymentAttemptJobs(reservation.id);
     await clearPaymentAttemptJobs(laterReservation.id);
     paymentResult = defaultPaymentResult;
   }, 120_000);
 
-  it('retains synchronous confirmation evidence and dead-letters it pending SW-128 winner selection', async () => {
+  it('confirms an immediate payment through the shared winner path', async () => {
     paymentInitiations.length = 0;
     paymentResult = input => ({ status: 'confirmed', providerRef: `booking-test:${input.reference}` });
+    paymentMethods = [{ code: 'immediate', label: 'Immediate test payment', timing: 'immediate' }];
     const { roomType, reservation } = await createReservation('payment-attempt-synchronous-confirmation');
     const started = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
-      'booking.reservation.startPayment', { reservationId: reservation.id, method: 'deferred' },
+      'booking.reservation.startPayment', { reservationId: reservation.id, method: 'immediate' },
       { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
     );
     const worker = new Worker(runtime, { workerId: `booking-payment-confirmed-${randomUUID().slice(0, 8)}`, concurrency: 1 });
-    await expect(worker.runJobs()).resolves.toMatchObject({ processed: 0, failed: 1 });
+    await expect(worker.runJobs()).resolves.toMatchObject({ processed: 1, failed: 0 });
 
-    const attempt = await runtime.database.pool.query<{ status: string; provider_ref: string; failure_message: string }>(`
-      SELECT status, provider_ref, failure_message
+    const attempt = await runtime.database.pool.query<{ status: string; provider_ref: string; success_kind: string; succeeded_at: Date }>(`
+      SELECT status, provider_ref, success_kind, succeeded_at
       FROM booking_reservation_payment_attempts WHERE id = $1
     `, [started.attempt.id]);
     expect(attempt.rows).toEqual([{
-      status: 'created', provider_ref: `booking-test:${started.attempt.reference}`,
-      failure_message: 'Synchronous confirmation awaits Booking winner selection',
+      status: 'succeeded', provider_ref: `booking-test:${started.attempt.reference}`,
+      success_kind: 'winning', succeeded_at: expect.any(Date),
     }]);
     const job = await runtime.database.pool.query<{ status: string }>(`
       SELECT status FROM platform_jobs
       WHERE type = 'booking.reservation.process-payment' AND payload->>'attemptId' = $1
     `, [started.attempt.id]);
-    expect(job.rows).toEqual([{ status: 'dead' }]);
-    const storedReservation = await runtime.database.pool.query<{ status: string }>(
-      'SELECT status FROM booking_reservation_reservations WHERE id = $1', [reservation.id],
+    expect(job.rows).toEqual([{ status: 'completed' }]);
+    const storedReservation = await runtime.database.pool.query<{ status: string; winning_payment_attempt_id: string }>(
+      'SELECT status, winning_payment_attempt_id FROM booking_reservation_reservations WHERE id = $1', [reservation.id],
     );
-    expect(storedReservation.rows).toEqual([{ status: 'pending_payment' }]);
+    expect(storedReservation.rows).toEqual([{ status: 'confirmed', winning_payment_attempt_id: started.attempt.id }]);
     expect(await reservedCounts(roomType.id)).toEqual([1, 1]);
-    await expect(runtime.commands.execute(
-      'booking.reservation.startPayment', { reservationId: reservation.id, method: 'deferred' },
-      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
-    )).rejects.toMatchObject({ code: 'CONFLICT' });
     await clearPaymentAttemptJobs(reservation.id);
     paymentResult = defaultPaymentResult;
+    paymentMethods = [{ code: 'deferred', label: 'Deferred test payment', timing: 'deferred' }];
+  }, 120_000);
+
+  it('maps verified callback outcomes by neutral reference with replay, extension, and excess evidence', async () => {
+    const { reservation } = await createReservation('verified-payment-outcome');
+    const first = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(reservation.id);
+    const firstDeadline = new Date(new Date(reservation.paymentExpiresAt).getTime() + 30_000).toISOString();
+    await expect(recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_info_issued', reference: first.attempt.reference, providerRef: 'callback:first',
+      instructions: [{ label: 'Account', value: '123' }], expiresAt: firstDeadline,
+    })).resolves.toMatchObject({ attempt: { id: first.attempt.id, status: 'awaiting_payment' } });
+    const firstCallbackDeadline = await runtime.database.pool.query<{ attempt_expires_at: Date; payment_expires_at: Date }>(`
+      SELECT a.expires_at AS attempt_expires_at, r.payment_expires_at
+      FROM booking_reservation_payment_attempts a
+      JOIN booking_reservation_reservations r ON r.id = a.reservation_id
+      WHERE a.id = $1
+    `, [first.attempt.id]);
+    expect(firstCallbackDeadline.rows).toEqual([{
+      attempt_expires_at: new Date(firstDeadline), payment_expires_at: new Date(firstDeadline),
+    }]);
+    const firstCallbackEvidence = await runtime.database.pool.query<{ updated_at: Date }>(
+      'SELECT updated_at FROM booking_reservation_payment_attempts WHERE id = $1', [first.attempt.id],
+    );
+    await expect(recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_info_issued', reference: first.attempt.reference, providerRef: 'callback:first',
+      instructions: [{ label: 'Account', value: '123' }], expiresAt: firstDeadline,
+    })).resolves.toMatchObject({ attempt: { id: first.attempt.id, status: 'awaiting_payment' } });
+    const exactReplayEvidence = await runtime.database.pool.query<{ updated_at: Date }>(
+      'SELECT updated_at FROM booking_reservation_payment_attempts WHERE id = $1', [first.attempt.id],
+    );
+    expect(exactReplayEvidence.rows).toEqual(firstCallbackEvidence.rows);
+    const extendedDeadline = new Date(new Date(reservation.paymentExpiresAt).getTime() + 60_000).toISOString();
+    await expect(recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_info_issued', reference: first.attempt.reference, providerRef: 'callback:first',
+      instructions: [{ label: 'Account', value: '123' }], expiresAt: extendedDeadline,
+    })).resolves.toMatchObject({ attempt: { id: first.attempt.id, status: 'awaiting_payment' } });
+    const extension = await runtime.database.pool.query<{ payment_expires_at: Date }>(
+      'SELECT payment_expires_at FROM booking_reservation_reservations WHERE id = $1', [reservation.id],
+    );
+    expect(extension.rows[0]?.payment_expires_at.toISOString()).toBe(extendedDeadline);
+    const staleAttemptBefore = await runtime.database.pool.query<{ expires_at: Date; updated_at: Date }>(
+      'SELECT expires_at, updated_at FROM booking_reservation_payment_attempts WHERE id = $1', [first.attempt.id],
+    );
+    await expect(recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_info_issued', reference: first.attempt.reference, providerRef: 'callback:stale',
+      instructions: [{ label: 'Account', value: 'obsolete' }], expiresAt: firstDeadline,
+    })).resolves.toMatchObject({ attempt: { id: first.attempt.id, status: 'awaiting_payment' } });
+    const [staleAttemptAfter, staleReservationAfter] = await Promise.all([
+      runtime.database.pool.query<{ expires_at: Date; updated_at: Date }>(
+        'SELECT expires_at, updated_at FROM booking_reservation_payment_attempts WHERE id = $1', [first.attempt.id],
+      ),
+      runtime.database.pool.query<{ payment_expires_at: Date }>(
+        'SELECT payment_expires_at FROM booking_reservation_reservations WHERE id = $1', [reservation.id],
+      ),
+    ]);
+    expect(staleAttemptAfter.rows).toEqual(staleAttemptBefore.rows);
+    expect(staleReservationAfter.rows).toEqual(extension.rows);
+
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_failed', reference: first.attempt.reference, providerRef: 'callback:first', message: 'declined',
+    });
+    const failedBeforeRetry = await runtime.database.pool.query<{
+      attempt_status: string; reservation_status: string; winning_payment_attempt_id: string | null;
+    }>(`
+      SELECT a.status AS attempt_status, r.status AS reservation_status, r.winning_payment_attempt_id
+      FROM booking_reservation_payment_attempts a
+      JOIN booking_reservation_reservations r ON r.id = a.reservation_id
+      WHERE a.id = $1
+    `, [first.attempt.id]);
+    expect(failedBeforeRetry.rows).toEqual([{
+      attempt_status: 'failed', reservation_status: 'pending_payment', winning_payment_attempt_id: null,
+    }]);
+    const second = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(reservation.id);
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: second.attempt.reference, providerRef: 'callback:second',
+    });
+    await expect(recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: second.attempt.reference, providerRef: 'callback:second',
+    })).resolves.toMatchObject({ attempt: { id: second.attempt.id, status: 'succeeded' } });
+    await expect(recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: second.attempt.reference, providerRef: 'callback:other',
+    })).rejects.toMatchObject({ code: 'CONFLICT' });
+    const winningReservation = await runtime.database.pool.query<{ status: string; winning_payment_attempt_id: string }>(
+      'SELECT status, winning_payment_attempt_id FROM booking_reservation_reservations WHERE id = $1', [reservation.id],
+    );
+    expect(winningReservation.rows).toEqual([{
+      status: 'confirmed', winning_payment_attempt_id: second.attempt.id,
+    }]);
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: first.attempt.reference, providerRef: 'callback:late-first',
+    });
+    const outcomes = await runtime.database.pool.query<{ id: string; status: string; success_kind: string | null }>(
+      'SELECT id, status, success_kind FROM booking_reservation_payment_attempts WHERE reservation_id = $1 ORDER BY created_at, id', [reservation.id],
+    );
+    expect(outcomes.rows).toEqual([
+      { id: first.attempt.id, status: 'succeeded', success_kind: 'excess' },
+      { id: second.attempt.id, status: 'succeeded', success_kind: 'winning' },
+    ]);
+  }, 120_000);
+
+  it('rejects untrusted callback callers, provider mismatches, and unknown references', async () => {
+    const { reservation } = await createReservation('verified-payment-invalid');
+    const started = await runtime.commands.execute<{ attempt: { reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(reservation.id);
+    const event = { type: 'payment_confirmed', reference: started.attempt.reference, providerRef: 'callback:valid' };
+    await expect(runtime.commands.execute('booking.reservation.recordVerifiedPaymentOutcome', {
+      provider: bookingPaymentProviderId, event,
+    }, { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(recordVerifiedPaymentOutcome('other-provider', event)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await expect(recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      ...event, reference: 'booking-payment:unknown',
+    })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(runtime.commands.execute('booking.reservation.recordVerifiedPaymentOutcome', {
+      provider: bookingPaymentProviderId,
+      event: { type: 'payment_confirmed', reference: started.attempt.reference },
+    }, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  }, 120_000);
+
+  it('serializes verified callbacks after expiry and test-only cancellation as late payments', async () => {
+    const expired = await createReservation('verified-callback-expiry-race');
+    const expiredAttempt = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: expired.reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(expired.reservation.id);
+    const now = await runtime.database.pool.query<{ now: Date }>('SELECT pg_catalog.clock_timestamp() AS now');
+    const overdue = new Date(now.rows[0]!.now.getTime() - 1_000);
+    await runtime.database.pool.query('UPDATE booking_reservation_reservations SET payment_expires_at = $2 WHERE id = $1', [expired.reservation.id, overdue]);
+    const releaseExpiryBarrier = await holdReservationLifecycleLock(expired.reservation.id);
+    const expiry = expireReservation(expired.reservation.id, overdue.toISOString());
+    await waitForDatabaseLockWait();
+    const afterExpiry = recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: expiredAttempt.attempt.reference, providerRef: 'callback:expired',
+    });
+    await releaseExpiryBarrier();
+    await expect(expiry).resolves.toEqual({ kind: 'expired' });
+    await expect(afterExpiry).resolves.toMatchObject({ attempt: { id: expiredAttempt.attempt.id, status: 'succeeded' } });
+
+    const cancelled = await createReservation('verified-callback-cancellation-race');
+    const cancelledAttempt = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: cancelled.reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(cancelled.reservation.id);
+    const cancelledStay = await runtime.database.pool.query<{ check_in_local_date: string; check_out_local_date: string }>(
+      'SELECT check_in_local_date::text, check_out_local_date::text FROM booking_reservation_reservations WHERE id = $1',
+      [cancelled.reservation.id],
+    );
+    // Cancellation production behavior is deliberately out of scope; this
+    // test-only transaction supplies the terminal-state race boundary and
+    // releases Room Nights atomically with that transition.
+    const releaseCancellationBarrier = await holdReservationLifecycleLock(cancelled.reservation.id);
+    const cancellation = runtime.database.transaction(async tx => {
+      await tx.execute(sql`UPDATE booking_reservation_reservations SET status = 'cancelled' WHERE id = ${cancelled.reservation.id}`);
+      await bookingAvailabilityRoomNightOperations.release(tx, {
+        roomTypeId: cancelled.roomType.id,
+        startLocalDate: cancelledStay.rows[0]!.check_in_local_date,
+        endLocalDateExclusive: cancelledStay.rows[0]!.check_out_local_date,
+        roomCount: 1,
+      }, new Date());
+    });
+    await waitForDatabaseLockWait();
+    const afterCancellation = recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: cancelledAttempt.attempt.reference, providerRef: 'callback:cancelled',
+    });
+    await releaseCancellationBarrier();
+    await cancellation;
+    await expect(afterCancellation).resolves.toMatchObject({ attempt: { id: cancelledAttempt.attempt.id, status: 'succeeded' } });
+    const late = await runtime.database.pool.query<{ reservation_id: string; status: string; success_kind: string }>(`
+      SELECT a.reservation_id, a.status, a.success_kind
+      FROM booking_reservation_payment_attempts a WHERE a.id = ANY($1::uuid[]) ORDER BY a.id
+    `, [[expiredAttempt.attempt.id, cancelledAttempt.attempt.id]]);
+    expect(late.rows).toHaveLength(2);
+    expect(late.rows.every(row => row.status === 'succeeded' && row.success_kind === 'late')).toBe(true);
+    const lifecycle = await runtime.database.pool.query<{ id: string; status: string; winning_payment_attempt_id: string | null }>(
+      'SELECT id, status, winning_payment_attempt_id FROM booking_reservation_reservations WHERE id = ANY($1::uuid[])',
+      [[expired.reservation.id, cancelled.reservation.id]],
+    );
+    expect(lifecycle.rows).toEqual(expect.arrayContaining([
+      { id: expired.reservation.id, status: 'expired', winning_payment_attempt_id: null },
+      { id: cancelled.reservation.id, status: 'cancelled', winning_payment_attempt_id: null },
+    ]));
+    expect(await reservedCounts(expired.roomType.id)).toEqual([0, 0]);
+    expect(await reservedCounts(cancelled.roomType.id)).toEqual([0, 0]);
+
+    const terminalAttemptsBefore = await runtime.database.pool.query<{
+      id: string; status: string; success_kind: string; updated_at: Date;
+    }>('SELECT id, status, success_kind, updated_at FROM booking_reservation_payment_attempts WHERE id = ANY($1::uuid[]) ORDER BY id', [
+      [expiredAttempt.attempt.id, cancelledAttempt.attempt.id],
+    ]);
+    const staleDeadline = new Date(Date.now() + 60_000).toISOString();
+    await expect(recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_info_issued', reference: expiredAttempt.attempt.reference, providerRef: 'stale:expired',
+      instructions: [{ label: 'Account', value: 'stale' }], expiresAt: staleDeadline,
+    })).resolves.toMatchObject({ attempt: { id: expiredAttempt.attempt.id, status: 'succeeded' } });
+    await expect(recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_info_issued', reference: cancelledAttempt.attempt.reference, providerRef: 'stale:cancelled',
+      instructions: [{ label: 'Account', value: 'stale' }], expiresAt: staleDeadline,
+    })).resolves.toMatchObject({ attempt: { id: cancelledAttempt.attempt.id, status: 'succeeded' } });
+    const terminalAttemptsAfter = await runtime.database.pool.query<typeof terminalAttemptsBefore.rows[0]>(
+      'SELECT id, status, success_kind, updated_at FROM booking_reservation_payment_attempts WHERE id = ANY($1::uuid[]) ORDER BY id',
+      [[expiredAttempt.attempt.id, cancelledAttempt.attempt.id]],
+    );
+    expect(terminalAttemptsAfter.rows).toEqual(terminalAttemptsBefore.rows);
+  }, 120_000);
+
+  it('enforces success evidence and Reservation winner pointer integrity in PostgreSQL', async () => {
+    const first = await createReservation('winner-integrity-first');
+    const second = await createReservation('winner-integrity-second');
+    const firstAttempt = await runtime.commands.execute<{ attempt: { id: string } }>(
+      'booking.reservation.startPayment', { reservationId: first.reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(first.reservation.id);
+    await expect(runtime.database.pool.query(
+      "UPDATE booking_reservation_payment_attempts SET success_kind = 'winning' WHERE id = $1", [firstAttempt.attempt.id],
+    )).rejects.toThrow(/success_evidence/i);
+    await expect(runtime.database.pool.query(
+      "UPDATE booking_reservation_payment_attempts SET status = 'failed', success_kind = 'late', succeeded_at = clock_timestamp() WHERE id = $1",
+      [firstAttempt.attempt.id],
+    )).rejects.toThrow(/success_evidence/i);
+    await expect(runtime.database.pool.query(
+      "UPDATE booking_reservation_reservations SET status = 'confirmed', winning_payment_attempt_id = $2 WHERE id = $1",
+      [first.reservation.id, firstAttempt.attempt.id],
+    )).rejects.toThrow(/succeeded winning Attempt/i);
+    await expect(runtime.database.pool.query(
+      "UPDATE booking_reservation_reservations SET status = 'confirmed', winning_payment_attempt_id = $2 WHERE id = $1",
+      [second.reservation.id, firstAttempt.attempt.id],
+    )).rejects.toThrow(/winning_payment_attempt/i);
+    await expect(runtime.database.pool.query(
+      "UPDATE booking_reservation_payment_attempts SET status = 'succeeded', provider_ref = 'orphan-winner', success_kind = 'winning', succeeded_at = clock_timestamp() WHERE id = $1",
+      [firstAttempt.attempt.id],
+    )).rejects.toThrow(/winning Attempt must be selected/i);
+
+    const selected = await createReservation('winner-integrity-selected');
+    const selectedAttempt = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: selected.reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(selected.reservation.id);
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: selectedAttempt.attempt.reference, providerRef: 'selected-winner',
+    });
+    await runtime.database.transaction(tx => tx.execute(sql`
+      UPDATE booking_reservation_reservations SET status = 'cancelled' WHERE id = ${selected.reservation.id}
+    `));
+    const cancelledWinner = await runtime.database.pool.query<{
+      status: string; winning_payment_attempt_id: string; attempt_status: string; success_kind: string; succeeded_at: Date;
+    }>(`
+      SELECT r.status, r.winning_payment_attempt_id, a.status AS attempt_status, a.success_kind, a.succeeded_at
+      FROM booking_reservation_reservations r
+      JOIN booking_reservation_payment_attempts a ON a.id = r.winning_payment_attempt_id
+      WHERE r.id = $1
+    `, [selected.reservation.id]);
+    expect(cancelledWinner.rows).toEqual([{
+      status: 'cancelled', winning_payment_attempt_id: selectedAttempt.attempt.id,
+      attempt_status: 'succeeded', success_kind: 'winning', succeeded_at: expect.any(Date),
+    }]);
+    await expect(runtime.database.pool.query(
+      'UPDATE booking_reservation_reservations SET winning_payment_attempt_id = NULL WHERE id = $1', [selected.reservation.id],
+    )).rejects.toThrow(/winner cannot be cleared/i);
   }, 120_000);
 
   it('rejects invalid methods and terminal Reservations without creating an Attempt', async () => {
@@ -511,11 +844,6 @@ describe('Booking Reservation PostgreSQL integration', () => {
     )).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     expect(await paymentAttemptsFor(reservation.id)).toEqual([]);
 
-    paymentMethods = [{ code: 'immediate', label: 'Immediate test payment', timing: 'immediate' }];
-    await expect(runtime.commands.execute(
-      'booking.reservation.startPayment', { reservationId: reservation.id, method: 'immediate' },
-      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
-    )).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     paymentMethods = [{ code: 'deferred', label: 'Deferred test payment', timing: 'deferred' }];
 
     paymentSetupError = new Error('payment provider is not configured');
@@ -570,13 +898,13 @@ describe('Booking Reservation PostgreSQL integration', () => {
       },
       { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() },
     );
-    const lateAttempt = await runtime.database.pool.query<{ status: string; provider_ref: string; failure_message: string }>(`
-      SELECT status, provider_ref, failure_message
+    const lateAttempt = await runtime.database.pool.query<{ status: string; provider_ref: string; success_kind: string; succeeded_at: Date }>(`
+      SELECT status, provider_ref, success_kind, succeeded_at
       FROM booking_reservation_payment_attempts WHERE id = $1
     `, [started.attempt.id]);
     expect(lateAttempt.rows).toEqual([{
-      status: 'expired', provider_ref: `booking-test:${started.attempt.reference}`,
-      failure_message: 'Synchronous confirmation awaits Booking winner selection',
+      status: 'succeeded', provider_ref: `booking-test:${started.attempt.reference}`,
+      success_kind: 'late', succeeded_at: expect.any(Date),
     }]);
     await clearPaymentAttemptJobs(reservation.id);
     paymentResult = defaultPaymentResult;
@@ -1344,6 +1672,109 @@ describe('Booking Reservation PostgreSQL integration', () => {
       'SELECT owner_account_id FROM booking_reservation_reservations WHERE id = $1', [reservation.id],
     );
     expect(persisted.rows[0]?.owner_account_id).toBeNull();
+  }, 120_000);
+
+  it('retains payment winner evidence while redacting eligible Reservation PII once', async () => {
+    paymentInitiations.length = 0;
+    paymentResult = input => ({ status: 'confirmed', providerRef: `booking-test:${input.reference}` });
+    try {
+      const { reservation } = await createReservation('retention-payment-evidence');
+      const started = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+        'booking.reservation.startPayment', { reservationId: reservation.id, method: 'deferred' },
+        { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+      );
+      const paymentWorker = new Worker(runtime, {
+        workerId: `booking-retention-payment-${randomUUID().slice(0, 8)}`, concurrency: 1,
+      });
+      await expect(paymentWorker.runJobs()).resolves.toMatchObject({ processed: 1, failed: 0 });
+
+      const attemptBefore = await runtime.database.pool.query<{
+        id: string; reservation_id: string; reference: string; provider: string; method: string;
+        amount_minor: number; currency: string; status: string; provider_ref: string | null;
+        expires_at: Date; success_kind: string | null; succeeded_at: Date | null;
+      }>(`
+        SELECT id, reservation_id, reference, provider, method, amount_minor::float8 AS amount_minor,
+               currency, status, provider_ref, expires_at, success_kind, succeeded_at
+        FROM booking_reservation_payment_attempts WHERE id = $1
+      `, [started.attempt.id]);
+      expect(attemptBefore.rows).toEqual([{
+        id: started.attempt.id, reservation_id: reservation.id, reference: started.attempt.reference,
+        provider: bookingPaymentProviderId, method: 'deferred', amount_minor: 24_690, currency: 'USD',
+        status: 'succeeded', provider_ref: `booking-test:${started.attempt.reference}`,
+        expires_at: new Date(reservation.paymentExpiresAt),
+        success_kind: 'winning', succeeded_at: expect.any(Date),
+      }]);
+      const paymentAuditBefore = await runtime.database.pool.query<{
+        action: string; resource_type: string; resource_id: string; payload: unknown;
+      }>(`
+        SELECT action, resource_type, resource_id, payload
+        FROM platform_audit_log
+        WHERE action = 'booking.reservation.payment-result-recorded' AND resource_id = $1
+      `, [started.attempt.id]);
+      expect(paymentAuditBefore.rows).toHaveLength(1);
+
+      // Move only the frozen stay dates back; retention still gets its clock from PostgreSQL.
+      await makeRetentionEligible(reservation.id);
+      const reservationFactsBefore = await runtime.database.pool.query<{
+        status: string; winning_payment_attempt_id: string | null; check_in_local_date: string; check_out_local_date: string;
+        currency: string; total_minor: number; nightly_prices: unknown; cancellation_policy: unknown;
+        quote_fingerprint: string;
+      }>(`
+        SELECT status, winning_payment_attempt_id, check_in_local_date::text, check_out_local_date::text, currency,
+               total_minor::float8 AS total_minor, nightly_prices, cancellation_policy, quote_fingerprint
+        FROM booking_reservation_reservations WHERE id = $1
+      `, [reservation.id]);
+
+      await expect(enqueueAndRunRetentionJob(`booking-retention-payment-evidence:${randomUUID()}`))
+        .resolves.toMatchObject({ processed: 1, failed: 0 });
+
+      const attemptAfter = await runtime.database.pool.query<typeof attemptBefore.rows[0]>(`
+        SELECT id, reservation_id, reference, provider, method, amount_minor::float8 AS amount_minor,
+               currency, status, provider_ref, expires_at, success_kind, succeeded_at
+        FROM booking_reservation_payment_attempts WHERE id = $1
+      `, [started.attempt.id]);
+      expect(attemptAfter.rows).toEqual(attemptBefore.rows);
+      const paymentAuditAfter = await runtime.database.pool.query<typeof paymentAuditBefore.rows[0]>(`
+        SELECT action, resource_type, resource_id, payload
+        FROM platform_audit_log
+        WHERE action = 'booking.reservation.payment-result-recorded' AND resource_id = $1
+      `, [started.attempt.id]);
+      expect(paymentAuditAfter.rows).toEqual(paymentAuditBefore.rows);
+
+      const redacted = await runtime.database.pool.query<{
+        booker_name: string | null; booker_email: string | null; booker_phone: string | null;
+        primary_guest_name: string | null; accommodation_notes: string | null; owner_account_id: string | null;
+        pii_anonymized_at: Date | null; status: string; winning_payment_attempt_id: string | null; check_in_local_date: string; check_out_local_date: string;
+        currency: string; total_minor: number; nightly_prices: unknown; cancellation_policy: unknown;
+        quote_fingerprint: string;
+      }>(`
+        SELECT booker_name, booker_email, booker_phone, primary_guest_name, accommodation_notes,
+               owner_account_id, pii_anonymized_at, status, winning_payment_attempt_id, check_in_local_date::text,
+               check_out_local_date::text, currency, total_minor::float8 AS total_minor,
+               nightly_prices, cancellation_policy, quote_fingerprint
+        FROM booking_reservation_reservations WHERE id = $1
+      `, [reservation.id]);
+      expect(redacted.rows[0]).toMatchObject({
+        booker_name: null, booker_email: null, booker_phone: null, primary_guest_name: null,
+        accommodation_notes: null, owner_account_id: null, pii_anonymized_at: expect.any(Date),
+      });
+      expect(redacted.rows[0]).toMatchObject(reservationFactsBefore.rows[0]);
+
+      const redactionAudits = await runtime.database.pool.query<{ payload: unknown }>(`
+        SELECT payload FROM platform_audit_log
+        WHERE action = 'booking.reservation.pii-anonymized' AND resource_id = $1
+      `, [reservation.id]);
+      expect(redactionAudits.rows).toHaveLength(1);
+      expect(redactionAudits.rows[0]?.payload).toMatchObject({
+        redactedFields: ['bookerName', 'bookerEmail', 'bookerPhone', 'primaryGuestName', 'accommodationNotes'],
+        ownershipUnlinked: true, managementAccessRevoked: true,
+      });
+      expect(JSON.stringify(redactionAudits.rows)).not.toMatch(
+        /Private Booker Name|private\.booker@example\.test|\+1 555 0100|Private Guest Name|Private arrival note|booking-payment:/,
+      );
+    } finally {
+      paymentResult = defaultPaymentResult;
+    }
   }, 120_000);
 
   it('drains more than one retention batch, preserves Reservation facts, and revokes local access once', async () => {

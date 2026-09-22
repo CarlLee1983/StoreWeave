@@ -22,7 +22,7 @@
 | AC | Method | Evidence | Fixture / precondition | Expected observation |
 | --- | --- | --- | --- | --- |
 | `AC-001` | integration | scheduled retention job and post-redaction access tests | eligible stay and a claimed Reservation | fields are NULL, Account link is removed, and old management credential is rejected |
-| `AC-002` | integration | post-redaction lifecycle/frozen-terms/audit query; paid/refunded evidence query when SW-127–129 exist | eligible Reservation with preserved evidence | all required evidence remains traceable |
+| `AC-002` | integration | post-redaction lifecycle/frozen-terms query plus a real winning Attempt, winner pointer, and payment-result audit query; refund evidence query after SW-129 | eligible Reservation with preserved evidence | frozen Reservation facts, winner pointer, current Attempt/audit evidence remain traceable; refund evidence remains pending |
 | `AC-003` | integration | repeat, ineligible, and cursor-continuation drain tests | repeated schedule and more than one batch | one redaction audit per Reservation; continuation cursors persist and no eligible backlog remains |
 | `AC-004` | integration | policy/date validation test | missing/invalid policy, day before cutoff, invalid frozen date/timezone | no mutation for invalid or ineligible row |
 | `AC-005` | architecture | package dependency scan | completed package | no external ownership expansion |
@@ -36,11 +36,11 @@
 * Focused unit/architecture checks — 2 files / 7 tests passed, covering retention date boundaries, overflow-safe policy dates, package registration, and module boundary.
 * Focused `tests/integration/booking-reservation.test.ts` — 14 tests passed after the delta, including multi-batch cursor drain, fact preservation, access revocation, direct SQL marker-reversal rejection, and operation after redaction.
 * `make verify` — passed on 2026-09-22: backend and Admin typechecks; unit 137 files / 1,419 tests; Admin 32 files / 351 tests; integration 111 files / 940 tests.
-* AC-002 remains open. The current PostgreSQL fixture proves lifecycle, frozen quote facts, and audit evidence survive redaction; it does not fabricate payment/refund rows. Recheck those rows after SW-127–129 and before SW-145 closes the journey.
+* AC-002 remains open. The current PostgreSQL fixture proves lifecycle and frozen quote facts plus a real SW-128 winning Attempt, Reservation winner pointer, and payment-result audit evidence survive redaction. It does not fabricate SW-129 refund rows; recheck those rows before SW-145 closes the journey.
 
 ## Scope Decisions and Evidence Limits
 
 * The deadline is inclusive on the first Property-local calendar date at or after checkout date plus configured retention days. A one-day policy first becomes eligible on the local date after checkout.
 * Payment status does not override the frozen-date cutoff: an otherwise valid pending-payment Reservation is also redacted once that local date is eligible.
 * The redaction set includes the Reservation-local Account link and management access state. It does not delete or mutate the linked Base Account or provider records.
-* At implementation start, SW-127–129 payment/refund tables and flows are not present. Do not add placeholder financial records or mark AC-002 complete without a real paid/refunded fixture; verify those rows after SW-127–129 and before SW-145 closes the end-to-end retention journey.
+* SW-128 now supplies real Reservation winner-selection evidence. Do not add placeholder refund records, or mark AC-002 complete without real SW-129 fixtures; verify those rows before SW-145 closes the end-to-end retention journey.

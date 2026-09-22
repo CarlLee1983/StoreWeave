@@ -55,6 +55,7 @@ export const BOOKING_RESERVATION_ACTIVE_PAYMENT_ATTEMPT_STATUSES = [
 ] as const;
 
 export const bookingReservationPaymentAttemptStatusSchema = z.enum(BOOKING_RESERVATION_PAYMENT_ATTEMPT_STATUSES);
+export const bookingReservationPaymentSuccessKindSchema = z.enum(['winning', 'late', 'excess']);
 
 export const startBookingReservationPaymentInputSchema = z.object({
   reservationId: z.string().uuid(),
@@ -87,6 +88,19 @@ export const recordBookingReservationPaymentResultInputSchema = z.object({
 export const recordBookingReservationPaymentResultOutputSchema = z.object({
   attempt: bookingReservationPaymentAttemptSchema,
 }).strict();
+
+export const verifiedBookingPaymentOutcomeSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('payment_confirmed'), reference: z.string().min(1).max(200), providerRef: z.string().min(1).max(200) }).strict(),
+  z.object({ type: z.literal('payment_info_issued'), reference: z.string().min(1).max(200), providerRef: z.string().min(1).max(200), instructions: z.array(z.object({ label: z.string(), value: z.string() }).strict()), expiresAt: z.string().datetime() }).strict(),
+  z.object({ type: z.literal('payment_failed'), reference: z.string().min(1).max(200), providerRef: z.string().min(1).max(200).optional(), message: z.string().min(1).max(2000).optional() }).strict(),
+]);
+
+export const recordVerifiedBookingPaymentOutcomeInputSchema = z.object({
+  provider: z.string().min(1).max(200),
+  event: verifiedBookingPaymentOutcomeSchema,
+}).strict();
+
+export const recordVerifiedBookingPaymentOutcomeOutputSchema = recordBookingReservationPaymentResultOutputSchema;
 
 export const getBookingReservationPaymentAttemptForProcessingInputSchema = z.object({
   attemptId: z.string().uuid(),
@@ -163,6 +177,7 @@ export type BookingReservationPaymentAttempt = z.infer<typeof bookingReservation
 export type StartBookingReservationPaymentInput = z.infer<typeof startBookingReservationPaymentInputSchema>;
 export type StartBookingReservationPaymentOutput = z.infer<typeof startBookingReservationPaymentOutputSchema>;
 export type RecordBookingReservationPaymentResultInput = z.infer<typeof recordBookingReservationPaymentResultInputSchema>;
+export type RecordVerifiedBookingPaymentOutcomeInput = z.infer<typeof recordVerifiedBookingPaymentOutcomeInputSchema>;
 export type GetBookingReservationPaymentAttemptForProcessingInput = z.infer<typeof getBookingReservationPaymentAttemptForProcessingInputSchema>;
 export type ClaimBookingReservationInput = z.infer<typeof claimBookingReservationInputSchema>;
 export type ClaimBookingReservationOutput = z.infer<typeof claimBookingReservationOutputSchema>;

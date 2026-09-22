@@ -53,6 +53,19 @@ export class BookingReservationRepository {
     return row;
   }
 
+  async findPaymentAttemptByReference(tx: Tx, reference: string): Promise<BookingReservationPaymentAttemptRow | undefined> {
+    const [row] = await tx.select().from(bookingReservationPaymentAttempts)
+      .where(eq(bookingReservationPaymentAttempts.reference, reference));
+    return row;
+  }
+
+  async lockPaymentAttemptsForReservation(tx: Tx, reservationId: string): Promise<BookingReservationPaymentAttemptRow[]> {
+    return tx.select().from(bookingReservationPaymentAttempts)
+      .where(eq(bookingReservationPaymentAttempts.reservationId, reservationId))
+      .orderBy(asc(bookingReservationPaymentAttempts.createdAt), asc(bookingReservationPaymentAttempts.id))
+      .for('update');
+  }
+
   async findActivePaymentAttempt(
     tx: Tx,
     reservationId: string,
@@ -70,7 +83,7 @@ export class BookingReservationRepository {
     tx: Tx,
     attemptId: string,
     values: Partial<Pick<typeof bookingReservationPaymentAttempts.$inferInsert,
-      'status' | 'providerRef' | 'action' | 'instructions' | 'expiresAt' | 'failureReason' | 'failureMessage'>>,
+      'status' | 'providerRef' | 'action' | 'instructions' | 'expiresAt' | 'failureReason' | 'failureMessage' | 'successKind' | 'succeededAt'>>,
     now: Date,
   ): Promise<BookingReservationPaymentAttemptRow | undefined> {
     const [row] = await tx.update(bookingReservationPaymentAttempts)
@@ -78,6 +91,16 @@ export class BookingReservationRepository {
       .where(eq(bookingReservationPaymentAttempts.id, attemptId))
       .returning();
     return row;
+  }
+
+  async confirmWithWinningAttempt(tx: Tx, reservationId: string, attemptId: string): Promise<void> {
+    await tx.update(bookingReservationReservations).set({ status: 'confirmed', winningPaymentAttemptId: attemptId })
+      .where(eq(bookingReservationReservations.id, reservationId));
+  }
+
+  async extendPaymentDeadline(tx: Tx, reservationId: string, paymentExpiresAt: Date): Promise<void> {
+    await tx.update(bookingReservationReservations).set({ paymentExpiresAt })
+      .where(eq(bookingReservationReservations.id, reservationId));
   }
 
   async expireActivePaymentAttempts(
@@ -90,6 +113,7 @@ export class BookingReservationRepository {
         eq(bookingReservationPaymentAttempts.reservationId, reservationId),
         inArray(bookingReservationPaymentAttempts.status, [...BOOKING_RESERVATION_ACTIVE_PAYMENT_ATTEMPT_STATUSES]),
       ))
+      .orderBy(asc(bookingReservationPaymentAttempts.createdAt), asc(bookingReservationPaymentAttempts.id))
       .for('update');
     return tx.update(bookingReservationPaymentAttempts)
       .set({ status: 'expired', updatedAt: now })

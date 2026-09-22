@@ -53,9 +53,6 @@ export function createProcessBookingReservationPaymentJob(provider: BookingReser
       { attemptId: payload.attemptId, provider: provider.id, result },
       `booking-reservation:payment-result:${provider.id}:${payload.attemptId}:${result.status}:${'providerRef' in result ? result.providerRef ?? 'none' : 'none'}`,
     );
-    if (result.status === 'confirmed') {
-      throw new PermanentJobError('Synchronous Booking payment confirmation requires SW-128 winner selection');
-    }
   };
 }
 

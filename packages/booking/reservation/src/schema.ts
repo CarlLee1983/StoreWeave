@@ -31,6 +31,7 @@ export const bookingReservationReservations = pgTable('booking_reservation_reser
   managementTokenHash: text('management_token_hash'),
   ownerAccountId: uuid('owner_account_id'),
   piiAnonymizedAt: timestamp('pii_anonymized_at', { withTimezone: true }),
+  winningPaymentAttemptId: uuid('winning_payment_attempt_id'),
 }, table => [
   check('booking_reservation_status_check', sql`${table.status} IN ('pending_payment', 'confirmed', 'expired', 'cancelled')`),
   check('booking_reservation_dates_check', sql`${table.checkOutLocalDate} > ${table.checkInLocalDate}`),
@@ -58,6 +59,7 @@ export const bookingReservationReservations = pgTable('booking_reservation_reser
     AND ${table.accessGrantNonce} IS NULL AND ${table.accessGrantExpiresAt} IS NULL
     AND ${table.accessGrantUsedAt} IS NULL AND ${table.managementTokenHash} IS NULL
   )`),
+  check('booking_reservation_winning_payment_attempt_check', sql`${table.winningPaymentAttemptId} IS NULL OR ${table.status} IN ('confirmed', 'cancelled')`),
   index('booking_reservation_owner_account_idx').on(table.ownerAccountId),
   index('booking_reservation_retention_candidate_idx').on(table.id)
     .where(sql`${table.piiAnonymizedAt} IS NULL`),
@@ -80,6 +82,8 @@ export const bookingReservationPaymentAttempts = pgTable('booking_reservation_pa
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   failureReason: text('failure_reason'),
   failureMessage: text('failure_message'),
+  successKind: text('success_kind').$type<'winning' | 'late' | 'excess' | null>(),
+  succeededAt: timestamp('succeeded_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, table => [
@@ -90,11 +94,25 @@ export const bookingReservationPaymentAttempts = pgTable('booking_reservation_pa
   check('booking_reservation_payment_attempt_amount_check', sql`${table.amountMinor} > 0`),
   check('booking_reservation_payment_attempt_currency_check', sql`${table.currency} ~ '^[A-Z]{3}$'`),
   check('booking_reservation_payment_attempt_provider_ref_check', sql`${table.providerRef} IS NULL OR length(${table.providerRef}) BETWEEN 1 AND 200`),
+  check('booking_reservation_payment_attempt_success_evidence_check', sql`
+    (
+      ${table.status} <> 'succeeded'
+      AND ${table.successKind} IS NULL
+      AND ${table.succeededAt} IS NULL
+    ) OR (
+      ${table.status} = 'succeeded'
+      AND ${table.successKind} IN ('winning', 'late', 'excess')
+      AND ${table.succeededAt} IS NOT NULL
+      AND ${table.providerRef} IS NOT NULL
+    )
+  `),
   uniqueIndex('booking_reservation_payment_attempt_reference_key').on(table.reference),
   uniqueIndex('booking_reservation_payment_attempt_provider_ref_key').on(table.provider, table.providerRef)
     .where(sql`${table.providerRef} IS NOT NULL`),
   uniqueIndex('booking_reservation_payment_attempt_active_reservation_key').on(table.reservationId)
     .where(sql`${table.status} IN ('created', 'submitted', 'awaiting_payment')`),
+  uniqueIndex('booking_reservation_payment_attempt_winning_reservation_key').on(table.reservationId)
+    .where(sql`${table.successKind} = 'winning'`),
 ]);
 
 export type BookingReservationPaymentAttemptRow = typeof bookingReservationPaymentAttempts.$inferSelect;

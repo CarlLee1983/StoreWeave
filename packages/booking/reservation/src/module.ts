@@ -10,10 +10,12 @@ import {
 import { createBookingReservationCommand, createBookingReservationHandler } from './commands';
 import {
   createRecordBookingReservationPaymentResultHandler,
+  createRecordVerifiedBookingPaymentOutcomeHandler,
   createStartBookingReservationPaymentHandler,
   getBookingReservationPaymentAttemptForProcessingHandler,
   getBookingReservationPaymentAttemptForProcessingQuery,
   recordBookingReservationPaymentResultCommand,
+  recordVerifiedBookingPaymentOutcomeCommand,
   startBookingReservationPaymentCommand,
   type BookingReservationPaymentProvider,
 } from './payment-attempts';
@@ -103,6 +105,7 @@ export function createBookingReservationModule(
       { descriptor: createBookingReservationCommand, handler: createBookingReservationHandler(availabilityBinding.value) },
       { descriptor: startBookingReservationPaymentCommand, handler: createStartBookingReservationPaymentHandler(paymentProvider) },
       { descriptor: recordBookingReservationPaymentResultCommand, handler: createRecordBookingReservationPaymentResultHandler() },
+      { descriptor: recordVerifiedBookingPaymentOutcomeCommand, handler: createRecordVerifiedBookingPaymentOutcomeHandler() },
       { descriptor: expireBookingReservationCommand, handler: createExpireBookingReservationHandler(roomNightOperationsBinding.value) },
       { descriptor: claimBookingReservationCommand, handler: createClaimBookingReservationHandler(access) },
       { descriptor: updateBookingReservationDetailsCommand, handler: createUpdateBookingReservationDetailsHandler(access) },

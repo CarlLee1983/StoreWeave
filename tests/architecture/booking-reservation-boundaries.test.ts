@@ -101,6 +101,7 @@ describe('Booking Reservation package boundary', () => {
     expect(packageIndex).not.toMatch(/export \* from '\.\/(?:repository|schema)'/);
     expect(module.commands?.map(command => command.descriptor.name)).toEqual([
       'booking.reservation.create', 'booking.reservation.startPayment', 'booking.reservation.recordPaymentResult',
+      'booking.reservation.recordVerifiedPaymentOutcome',
       'booking.reservation.expire',
       'booking.reservation.claim', 'booking.reservation.updateManagedDetails', 'booking.reservation.anonymizeExpiredPii',
     ]);
@@ -117,6 +118,16 @@ describe('Booking Reservation package boundary', () => {
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.booking_reservation_reservations');
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.booking_reservation_payment_attempts');
     expect(migration).toMatch(/booking_reservation_payment_attempt_active_reservation_key[\s\S]*?status IN \('created', 'submitted', 'awaiting_payment'\)/i);
+    expect(migration).toContain('winning_payment_attempt_id uuid');
+    expect(migration).toContain('success_kind text');
+    expect(migration).toContain('succeeded_at timestamptz');
+    expect(migration).toContain('booking_reservation_payment_attempt_success_evidence_check');
+    expect(migration).toContain('booking_reservation_payment_attempt_winning_reservation_key');
+    expect(migration).toContain('booking_reservation_payment_attempt_id_reservation_key');
+    expect(migration).toContain('booking_reservation_winning_payment_attempt_integrity');
+    expect(migration).toContain('booking_reservation_winning_attempt_requires_pointer');
+    expect(migration).toContain('DEFERRABLE INITIALLY DEFERRED');
+    expect(migration).toContain("winning_payment_attempt_id IS NULL OR status IN ('confirmed', 'cancelled')");
     expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS owner_account_id uuid/);
     expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS pii_anonymized_at timestamptz/);
     expect(migration).toContain('booking_reservation_anonymized_state_check');
