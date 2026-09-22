@@ -38,6 +38,7 @@ const RESERVATION_ACTOR = actor([
   'booking-reservation:create', 'booking-reservation:pay', 'booking-reservation:claim', 'booking-reservation:read-self',
   'booking-reservation:read-managed', 'booking-reservation:manage-self',
 ]);
+const OPERATOR_ACTOR = actor(['booking-reservation:cancel']);
 function signedInAccountActor(accountId = randomUUID(), type: 'user' | 'customer' = 'user'): Actor {
   return {
     id: `user:${accountId}`,
@@ -320,6 +321,23 @@ async function recordVerifiedPaymentOutcome(provider: string, event: Record<stri
     'booking.reservation.recordVerifiedPaymentOutcome', { provider, event },
     { actor: SYSTEM_ACTOR, idempotencyKey },
   );
+}
+
+async function confirmReservationForCancellation(reservationId: string) {
+  const started = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+    'booking.reservation.startPayment', { reservationId, method: 'deferred' },
+    { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+  );
+  await clearPaymentAttemptJobs(reservationId);
+  await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+    type: 'payment_confirmed', reference: started.attempt.reference, providerRef: `callback:cancel:${started.attempt.id}`,
+  });
+  return started.attempt;
+}
+
+async function managementCredentialFor(reservationId: string) {
+  const issued = await runtime.database.transaction(tx => reservationAccess.issueGrant(tx, { reservationId, ttlMs: 15 * 60_000 }));
+  return (await runtime.database.transaction(tx => reservationAccess.redeemGrant(tx, { grantToken: issued.grantToken }))).managementCredential;
 }
 
 async function enqueueRetentionJob(dedupeKey: string) {
@@ -1203,7 +1221,7 @@ describe('Booking Reservation PostgreSQL integration', () => {
     }
   }, 120_000);
 
-  it('serializes verified callbacks after expiry and test-only cancellation as late payments', async () => {
+  it('serializes verified callbacks after expiry and cancellation as late payments', async () => {
     const expired = await createReservation('verified-callback-expiry-race');
     const expiredAttempt = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
       'booking.reservation.startPayment', { reservationId: expired.reservation.id, method: 'deferred' },
@@ -1229,23 +1247,10 @@ describe('Booking Reservation PostgreSQL integration', () => {
       { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
     );
     await clearPaymentAttemptJobs(cancelled.reservation.id);
-    const cancelledStay = await runtime.database.pool.query<{ check_in_local_date: string; check_out_local_date: string }>(
-      'SELECT check_in_local_date::text, check_out_local_date::text FROM booking_reservation_reservations WHERE id = $1',
-      [cancelled.reservation.id],
-    );
-    // Cancellation production behavior is deliberately out of scope; this
-    // test-only transaction supplies the terminal-state race boundary and
-    // releases Room Nights atomically with that transition.
     const releaseCancellationBarrier = await holdReservationLifecycleLock(cancelled.reservation.id);
-    const cancellation = runtime.database.transaction(async tx => {
-      await tx.execute(sql`UPDATE booking_reservation_reservations SET status = 'cancelled' WHERE id = ${cancelled.reservation.id}`);
-      await bookingAvailabilityRoomNightOperations.release(tx, {
-        roomTypeId: cancelled.roomType.id,
-        startLocalDate: cancelledStay.rows[0]!.check_in_local_date,
-        endLocalDateExclusive: cancelledStay.rows[0]!.check_out_local_date,
-        roomCount: 1,
-      }, new Date());
-    });
+    const cancellation = runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: cancelled.reservation.id, refundAmountMinor: 0, reason: 'callback race cancellation',
+    }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() });
     await waitForDatabaseLockWait();
     const afterCancellation = recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
       type: 'payment_confirmed', reference: cancelledAttempt.attempt.reference, providerRef: 'callback:cancelled',
@@ -2640,4 +2645,237 @@ describe('Booking Reservation PostgreSQL integration', () => {
       && row.access_generation === 0 && row.access_grant_nonce === null && row.access_grant_expires_at === null
       && row.access_grant_used_at === null && row.management_token_hash === null)).toBe(true);
   }, 180_000);
+
+  it('self-cancels before the frozen deadline through management access, refunds the winner, and redacts the credential', async () => {
+    const { roomType, reservation } = await createReservation('cancel-self-management');
+    const winner = await confirmReservationForCancellation(reservation.id);
+    const credential = await managementCredentialFor(reservation.id);
+    const result = await runtime.commands.execute<{
+      reservationId: string; cancelled: true; refund: { id: string; amountMinor: number; currency: string } | null;
+    }>('booking.reservation.cancelSelf', { reservationId: reservation.id, managementCredential: credential }, {
+      actor: RESERVATION_ACTOR, idempotencyKey: randomUUID(),
+    });
+    expect(result).toEqual({ reservationId: reservation.id, cancelled: true, refund: {
+      id: expect.any(String), amountMinor: 24_690, currency: 'USD',
+    } });
+    expect(await reservedCounts(roomType.id)).toEqual([0, 0]);
+    const state = await runtime.database.pool.query<{ status: string; attempt_status: string; refund_reason: string }>(`
+      SELECT r.status, a.status AS attempt_status, f.reason AS refund_reason
+      FROM booking_reservation_reservations r
+      JOIN booking_reservation_payment_attempts a ON a.id = $2
+      JOIN booking_reservation_refunds f ON f.reservation_id = r.id
+      WHERE r.id = $1
+    `, [reservation.id, winner.id]);
+    expect(state.rows).toEqual([{ status: 'cancelled', attempt_status: 'succeeded', refund_reason: 'reservation_cancellation' }]);
+    const audit = await runtime.database.pool.query<{ payload: string }>(`
+      SELECT payload::text AS payload FROM platform_audit_log
+      WHERE action = 'booking.reservation.self-cancelled' AND resource_id = $1
+    `, [reservation.id]);
+    expect(audit.rows).toEqual([{ payload: expect.not.stringContaining(credential) }]);
+    await clearRefundJobs(reservation.id);
+
+    const owned = await createReservation('cancel-self-owner');
+    const ownerCredential = await managementCredentialFor(owned.reservation.id);
+    const owner = signedInAccountActor();
+    await runtime.commands.execute('booking.reservation.claim', {
+      reservationId: owned.reservation.id, managementCredential: ownerCredential,
+    }, { actor: owner, idempotencyKey: randomUUID() });
+    await confirmReservationForCancellation(owned.reservation.id);
+    await expect(runtime.commands.execute('booking.reservation.cancelSelf', { reservationId: owned.reservation.id }, {
+      actor: owner, idempotencyKey: randomUUID(),
+    })).resolves.toMatchObject({ reservationId: owned.reservation.id, cancelled: true, refund: { amountMinor: 24_690 } });
+    expect(await reservedCounts(owned.roomType.id)).toEqual([0, 0]);
+    await clearRefundJobs(owned.reservation.id);
+  }, 120_000);
+
+  it('lets an operator record zero, partial, and full refund decisions without provider I/O', async () => {
+    for (const [suffix, amount] of [['zero', 0], ['partial', 12_345], ['full', 24_690]] as const) {
+      const { roomType, reservation } = await createReservation(`cancel-operator-${suffix}`);
+      await confirmReservationForCancellation(reservation.id);
+      const result = await runtime.commands.execute<{ cancelled: true; refund: { amountMinor: number } | null }>(
+        'booking.reservation.cancelByOperator', { reservationId: reservation.id, refundAmountMinor: amount, reason: `operator ${suffix}` },
+        { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() },
+      );
+      expect(result).toMatchObject({ cancelled: true, refund: amount === 0 ? null : { amountMinor: amount } });
+      expect(await reservedCounts(roomType.id)).toEqual([0, 0]);
+      const audit = await runtime.database.pool.query<{ payload: { reason: string; refundAmountMinor: number } }>(`
+        SELECT payload FROM platform_audit_log WHERE action = 'booking.reservation.operator-cancelled' AND resource_id = $1
+      `, [reservation.id]);
+      expect(audit.rows).toEqual([{ payload: { reason: `operator ${suffix}`, refundAmountMinor: amount } }]);
+      await clearRefundJobs(reservation.id);
+    }
+  }, 120_000);
+
+  it('rejects unauthorized, late, invalid, and concurrent cancellations without duplicate release or refund evidence', async () => {
+    const unauthorized = await createReservation('cancel-reject-unauthorized');
+    await expect(runtime.commands.execute('booking.reservation.cancelSelf', { reservationId: unauthorized.reservation.id }, {
+      actor: RESERVATION_ACTOR, idempotencyKey: randomUUID(),
+    })).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+    expect(await reservedCounts(unauthorized.roomType.id)).toEqual([1, 1]);
+
+    const ownedByAnotherAccount = await createReservation('cancel-reject-nonowner');
+    const ownerCredential = await managementCredentialFor(ownedByAnotherAccount.reservation.id);
+    const owner = signedInAccountActor();
+    await runtime.commands.execute('booking.reservation.claim', {
+      reservationId: ownedByAnotherAccount.reservation.id, managementCredential: ownerCredential,
+    }, { actor: owner, idempotencyKey: randomUUID() });
+    await expect(runtime.commands.execute('booking.reservation.cancelSelf', { reservationId: ownedByAnotherAccount.reservation.id }, {
+      actor: signedInAccountActor(), idempotencyKey: randomUUID(),
+    })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(await reservedCounts(ownedByAnotherAccount.roomType.id)).toEqual([1, 1]);
+
+    const credentialSource = await createReservation('cancel-reject-cross-credential-source');
+    const crossCredential = await managementCredentialFor(credentialSource.reservation.id);
+    const credentialTarget = await createReservation('cancel-reject-cross-credential-target');
+    for (const managementCredential of [crossCredential, 'brm1.2.invalid']) {
+      await expect(runtime.commands.execute('booking.reservation.cancelSelf', {
+        reservationId: credentialTarget.reservation.id, managementCredential,
+      }, { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+    }
+    expect(await reservedCounts(credentialTarget.roomType.id)).toEqual([1, 1]);
+    const rejectedAuthState = await runtime.database.pool.query<{
+      id: string; status: string; refunds: string; audits: string;
+    }>(`
+      SELECT r.id::text AS id, r.status, count(DISTINCT f.id)::text AS refunds, count(DISTINCT a.id)::text AS audits
+      FROM booking_reservation_reservations r
+      LEFT JOIN booking_reservation_refunds f ON f.reservation_id = r.id
+      LEFT JOIN platform_audit_log a ON a.resource_id = r.id::text
+        AND a.action = 'booking.reservation.self-cancelled'
+      WHERE r.id = ANY($1::uuid[]) GROUP BY r.id, r.status ORDER BY r.id
+    `, [[unauthorized.reservation.id, ownedByAnotherAccount.reservation.id, credentialTarget.reservation.id]]);
+    expect(rejectedAuthState.rows).toHaveLength(3);
+    expect(rejectedAuthState.rows.every(row => row.status === 'pending_payment' && row.refunds === '0' && row.audits === '0')).toBe(true);
+
+    const late = await createReservation('cancel-reject-late');
+    await runtime.database.pool.query(`UPDATE booking_reservation_reservations
+      SET cancellation_policy = jsonb_set(cancellation_policy, '{freeCancellationHoursBeforeCheckIn}', '8760'::jsonb)
+      WHERE id = $1`, [late.reservation.id]);
+    const lateCredential = await managementCredentialFor(late.reservation.id);
+    await expect(runtime.commands.execute('booking.reservation.cancelSelf', {
+      reservationId: late.reservation.id, managementCredential: lateCredential,
+    }, { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(await reservedCounts(late.roomType.id)).toEqual([1, 1]);
+
+    const invalid = await createReservation('cancel-reject-invalid');
+    await confirmReservationForCancellation(invalid.reservation.id);
+    const invalidKey = randomUUID();
+    await expect(runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: invalid.reservation.id, refundAmountMinor: 24_691, reason: 'too much',
+    }, { actor: OPERATOR_ACTOR, idempotencyKey: invalidKey })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await expect(runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: invalid.reservation.id, refundAmountMinor: 0, reason: ' ',
+    }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await expect(runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: invalid.reservation.id, refundAmountMinor: 0, reason: 'no partial mutation', roomCount: 2,
+    } as never, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await runtime.database.pool.query(`UPDATE booking_reservation_reservations SET status = 'cancelled'
+      WHERE id = $1`, [invalid.reservation.id]);
+    await expect(runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: invalid.reservation.id, refundAmountMinor: 0, reason: 'terminal state',
+    }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'CONFLICT' });
+    const invalidState = await runtime.database.pool.query<{ status: string; room_count: number; refunds: string }>(`
+      SELECT r.status, r.room_count, count(f.id)::text AS refunds FROM booking_reservation_reservations r
+      LEFT JOIN booking_reservation_refunds f ON f.reservation_id = r.id WHERE r.id = $1 GROUP BY r.status, r.room_count
+    `, [invalid.reservation.id]);
+    expect(invalidState.rows).toEqual([{ status: 'cancelled', room_count: 1, refunds: '0' }]);
+    expect(await reservedCounts(invalid.roomType.id)).toEqual([1, 1]);
+
+    const race = await createReservation('cancel-concurrent');
+    await confirmReservationForCancellation(race.reservation.id);
+    const results = await Promise.allSettled([
+      runtime.commands.execute('booking.reservation.cancelByOperator', {
+        reservationId: race.reservation.id, refundAmountMinor: 24_690, reason: 'first cancellation',
+      }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() }),
+      runtime.commands.execute('booking.reservation.cancelByOperator', {
+        reservationId: race.reservation.id, refundAmountMinor: 24_690, reason: 'second cancellation',
+      }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() }),
+    ]);
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(result => result.status === 'rejected').map(result => (result as PromiseRejectedResult).reason.code)).toEqual(['CONFLICT']);
+    expect(await reservedCounts(race.roomType.id)).toEqual([0, 0]);
+    const refunds = await runtime.database.pool.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM booking_reservation_refunds WHERE reservation_id = $1', [race.reservation.id],
+    );
+    expect(refunds.rows).toEqual([{ count: '1' }]);
+    await clearRefundJobs(race.reservation.id);
+  }, 120_000);
+
+  it('uses a post-lock database wall clock so a self-cancellation that waits through the exact cutoff leaves no drift', async () => {
+    const { roomType, reservation } = await createReservation('cancel-self-wall-clock-cutoff');
+    const credential = await managementCredentialFor(reservation.id);
+    // Arrange the next minute boundary while keeping the actual row-lock wait comfortably below PostgreSQL's statement timeout.
+    const initialClock = await runtime.database.pool.query<{ now: Date }>('SELECT clock_timestamp() AS now');
+    const millisecondsIntoMinute = initialClock.rows[0]!.now.getTime() % 60_000;
+    const millisecondsUntilFortySeconds = (40_000 - millisecondsIntoMinute + 60_000) % 60_000;
+    if (millisecondsUntilFortySeconds > 0) {
+      await new Promise<void>(resolve => setTimeout(resolve, millisecondsUntilFortySeconds));
+    }
+    const clock = await runtime.database.pool.query<{ now: Date }>('SELECT clock_timestamp() AS now');
+    const deadline = new Date((Math.floor(clock.rows[0]!.now.getTime() / 60_000) + 1) * 60_000);
+    await runtime.database.pool.query(`UPDATE booking_reservation_reservations
+      SET cancellation_policy = jsonb_build_object(
+        'freeCancellationHoursBeforeCheckIn', 0,
+        'propertyTimeZone', 'UTC',
+        'checkInTime', $2::text
+      ), check_in_local_date = $3::date
+      WHERE id = $1`, [reservation.id, deadline.toISOString().slice(11, 16), deadline.toISOString().slice(0, 10)]);
+    const releaseLock = await holdReservationLifecycleLock(reservation.id);
+    expect(Date.now()).toBeLessThan(deadline.getTime());
+    const cancellation = runtime.commands.execute('booking.reservation.cancelSelf', {
+      reservationId: reservation.id, managementCredential: credential,
+    }, { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() });
+    await waitForDatabaseLockWait();
+    await new Promise<void>(resolve => setTimeout(resolve, Math.max(0, deadline.getTime() - Date.now()) + 25));
+    await releaseLock();
+    await expect(cancellation).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(await reservedCounts(roomType.id)).toEqual([1, 1]);
+    const unchanged = await runtime.database.pool.query<{ status: string; refunds: string; audits: string }>(`
+      SELECT r.status, count(DISTINCT f.id)::text AS refunds, count(DISTINCT a.id)::text AS audits
+      FROM booking_reservation_reservations r
+      LEFT JOIN booking_reservation_refunds f ON f.reservation_id = r.id
+      LEFT JOIN platform_audit_log a ON a.resource_id = r.id::text AND a.action = 'booking.reservation.self-cancelled'
+      WHERE r.id = $1 GROUP BY r.status
+    `, [reservation.id]);
+    expect(unchanged.rows).toEqual([{ status: 'pending_payment', refunds: '0', audits: '0' }]);
+  }, 120_000);
+
+  it('rolls cancellation back when release fails, but retains cancelled and released state if its asynchronous refund later fails', async () => {
+    const rollback = await createReservation('cancel-release-failure');
+    await confirmReservationForCancellation(rollback.reservation.id);
+    failAfterRoomNightRelease = true;
+    try {
+      await expect(runtime.commands.execute('booking.reservation.cancelByOperator', {
+        reservationId: rollback.reservation.id, refundAmountMinor: 24_690, reason: 'release fails',
+      }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() })).rejects.toThrow('forced post-release failure');
+    } finally {
+      failAfterRoomNightRelease = false;
+    }
+    expect(await reservedCounts(rollback.roomType.id)).toEqual([1, 1]);
+    const rollbackState = await runtime.database.pool.query<{ status: string; refunds: string }>(`
+      SELECT r.status, count(f.id)::text AS refunds FROM booking_reservation_reservations r
+      LEFT JOIN booking_reservation_refunds f ON f.reservation_id = r.id WHERE r.id = $1 GROUP BY r.status
+    `, [rollback.reservation.id]);
+    expect(rollbackState.rows).toEqual([{ status: 'confirmed', refunds: '0' }]);
+
+    const failed = await createReservation('cancel-refund-failure');
+    await confirmReservationForCancellation(failed.reservation.id);
+    await runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: failed.reservation.id, refundAmountMinor: 24_690, reason: 'refund later fails',
+    }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() });
+    await runtime.database.pool.query(`UPDATE platform_jobs SET attempts = 4 WHERE type = 'booking.reservation.process-refund'
+      AND payload->>'refundId' IN (SELECT id::text FROM booking_reservation_refunds WHERE reservation_id = $1)`, [failed.reservation.id]);
+    refundError = new Error('refund provider unavailable');
+    try {
+      await expect(new Worker(runtime, { workerId: `cancel-refund-failure-${randomUUID().slice(0, 8)}`, concurrency: 1 }).runJobs())
+        .resolves.toMatchObject({ failed: 1 });
+    } finally {
+      refundError = undefined;
+    }
+    expect(await reservedCounts(failed.roomType.id)).toEqual([0, 0]);
+    const failedState = await runtime.database.pool.query<{ status: string; refund_status: string }>(`
+      SELECT r.status, f.status AS refund_status FROM booking_reservation_reservations r
+      JOIN booking_reservation_refunds f ON f.reservation_id = r.id WHERE r.id = $1
+    `, [failed.reservation.id]);
+    expect(failedState.rows).toEqual([{ status: 'cancelled', refund_status: 'failed' }]);
+  }, 120_000);
 });

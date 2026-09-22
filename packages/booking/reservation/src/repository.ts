@@ -24,6 +24,18 @@ export class BookingReservationRepository {
     return now;
   }
 
+  /** Wall-clock time is intentionally distinct from PostgreSQL transaction time. */
+  async databaseWallClock(tx: Tx): Promise<Date> {
+    const result = await tx.execute<{ now_ms: unknown }>(sql`
+      SELECT (extract(epoch FROM clock_timestamp()) * 1000)::float8 AS now_ms
+    `);
+    const now = new Date(Number(result.rows[0]?.now_ms));
+    if (!Number.isFinite(now.getTime())) {
+      throw new Error('Database returned an invalid wall-clock timestamp');
+    }
+    return now;
+  }
+
   async insert(tx: Tx, values: typeof bookingReservationReservations.$inferInsert): Promise<BookingReservationRow> {
     const [row] = await tx.insert(bookingReservationReservations).values(values).returning();
     return row!;
@@ -105,6 +117,15 @@ export class BookingReservationRepository {
   async extendPaymentDeadline(tx: Tx, reservationId: string, paymentExpiresAt: Date): Promise<void> {
     await tx.update(bookingReservationReservations).set({ paymentExpiresAt })
       .where(eq(bookingReservationReservations.id, reservationId));
+  }
+
+  async cancelIfCurrent(tx: Tx, reservationId: string): Promise<boolean> {
+    const [row] = await tx.update(bookingReservationReservations).set({ status: 'cancelled' })
+      .where(and(
+        eq(bookingReservationReservations.id, reservationId),
+        inArray(bookingReservationReservations.status, ['pending_payment', 'confirmed']),
+      )).returning({ id: bookingReservationReservations.id });
+    return row !== undefined;
   }
 
   async expireActivePaymentAttempts(

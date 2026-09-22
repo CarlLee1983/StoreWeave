@@ -20,7 +20,7 @@ function unauthenticated(): PlatformError {
   return new PlatformError('UNAUTHENTICATED', 'A current Account identity and valid Reservation management access are required');
 }
 
-function accountIdFromActor(actor: Actor): string {
+export function accountIdFromActor(actor: Actor): string {
   if (actor.type !== 'user' && actor.type !== 'customer') throw unauthenticated();
   const match = accountActorId.exec(actor.id);
   if (!match) throw unauthenticated();

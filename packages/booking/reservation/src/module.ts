@@ -31,6 +31,12 @@ import {
 } from './management';
 import { createExpireBookingReservationHandler, expireBookingReservationCommand } from './expiry';
 import {
+  cancelBookingReservationByOperatorCommand,
+  cancelBookingReservationSelfCommand,
+  createCancelBookingReservationByOperatorHandler,
+  createCancelBookingReservationSelfHandler,
+} from './cancellation';
+import {
   createAnonymizeExpiredBookingReservationPiiJob,
   createExpireBookingReservationJob,
   createProcessBookingReservationPaymentJob,
@@ -119,6 +125,7 @@ export function createBookingReservationModule(
       { key: 'booking-reservation:read-self', description: 'Read an owned Reservation', owner: 'booking-reservation' },
       { key: 'booking-reservation:read-managed', description: 'Read a Reservation with valid management access', owner: 'booking-reservation' },
       { key: 'booking-reservation:manage-self', description: 'Update authorized Booker details', owner: 'booking-reservation' },
+      { key: 'booking-reservation:cancel', description: 'Cancel a Reservation as an operator', owner: 'booking-reservation' },
       { key: 'booking-reservation:retention-write', description: 'Anonymize expired Reservation personal data', owner: 'booking-reservation' },
       { key: 'booking-reservation:refund-retry', description: 'Retry a failed Reservation refund', owner: 'booking-reservation' },
       { key: 'booking-reservation:refund-read', description: 'Read Reservation refund evidence', owner: 'booking-reservation' },
@@ -128,6 +135,8 @@ export function createBookingReservationModule(
       { descriptor: startBookingReservationPaymentCommand, handler: createStartBookingReservationPaymentHandler(paymentProvider) },
       { descriptor: recordBookingReservationPaymentResultCommand, handler: createRecordBookingReservationPaymentResultHandler() },
       { descriptor: recordVerifiedBookingPaymentOutcomeCommand, handler: createRecordVerifiedBookingPaymentOutcomeHandler() },
+      { descriptor: cancelBookingReservationSelfCommand, handler: createCancelBookingReservationSelfHandler(access, roomNightOperationsBinding.value) },
+      { descriptor: cancelBookingReservationByOperatorCommand, handler: createCancelBookingReservationByOperatorHandler(roomNightOperationsBinding.value) },
       { descriptor: requestRequiredBookingReservationRefundCommand, handler: createRequestRequiredBookingReservationRefundHandler() },
       { descriptor: recordBookingReservationRefundInvocationCommand, handler: createRecordBookingReservationRefundInvocationHandler() },
       { descriptor: retryBookingReservationRefundCommand, handler: createRetryBookingReservationRefundHandler() },

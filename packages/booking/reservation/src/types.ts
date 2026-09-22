@@ -47,6 +47,25 @@ export const expireBookingReservationOutputSchema = z.object({
   kind: z.enum(['expired', 'noop']),
 }).strict();
 
+const bookingReservationCancellationResultSchema = z.object({
+  reservationId: z.string().uuid(),
+  cancelled: z.literal(true),
+  refund: z.object({ id: z.string().uuid(), amountMinor: z.number().safe().int().positive(), currency: z.string().regex(/^[A-Z]{3}$/) }).strict().nullable(),
+}).strict();
+
+export const cancelBookingReservationSelfInputSchema = z.object({
+  reservationId: z.string().uuid(),
+  managementCredential: z.string().min(1).max(128).optional(),
+}).strict();
+export const cancelBookingReservationSelfOutputSchema = bookingReservationCancellationResultSchema;
+
+export const cancelBookingReservationByOperatorInputSchema = z.object({
+  reservationId: z.string().uuid(),
+  refundAmountMinor: z.number().safe().int().nonnegative(),
+  reason: z.string().trim().min(1).max(1000),
+}).strict();
+export const cancelBookingReservationByOperatorOutputSchema = bookingReservationCancellationResultSchema;
+
 export const BOOKING_RESERVATION_PAYMENT_ATTEMPT_STATUSES = [
   'created', 'submitted', 'awaiting_payment', 'succeeded', 'failed', 'expired',
 ] as const;
@@ -216,6 +235,8 @@ export type BookingQuoteSubmission = z.infer<typeof bookingQuoteSubmissionSchema
 export type CreateBookingReservationInput = z.infer<typeof createBookingReservationInputSchema>;
 export type CreateBookingReservationOutput = z.infer<typeof createBookingReservationOutputSchema>;
 export type ExpireBookingReservationInput = z.infer<typeof expireBookingReservationInputSchema>;
+export type CancelBookingReservationSelfInput = z.infer<typeof cancelBookingReservationSelfInputSchema>;
+export type CancelBookingReservationByOperatorInput = z.infer<typeof cancelBookingReservationByOperatorInputSchema>;
 export type BookingReservationPaymentAttempt = z.infer<typeof bookingReservationPaymentAttemptSchema>;
 export type StartBookingReservationPaymentInput = z.infer<typeof startBookingReservationPaymentInputSchema>;
 export type StartBookingReservationPaymentOutput = z.infer<typeof startBookingReservationPaymentOutputSchema>;

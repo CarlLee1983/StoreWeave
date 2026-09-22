@@ -1,4 +1,6 @@
 export * from './access';
+export * from './cancellation';
+export * from './cancellation-policy';
 export * from './commands';
 export * from './expiry';
 export * from './jobs';

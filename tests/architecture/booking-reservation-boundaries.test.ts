@@ -105,6 +105,7 @@ describe('Booking Reservation package boundary', () => {
     expect(module.commands?.map(command => command.descriptor.name)).toEqual([
       'booking.reservation.create', 'booking.reservation.startPayment', 'booking.reservation.recordPaymentResult',
       'booking.reservation.recordVerifiedPaymentOutcome',
+      'booking.reservation.cancelSelf', 'booking.reservation.cancelByOperator',
       'booking.reservation.requestRequiredPaymentRefund', 'booking.reservation.recordRefundInvocation',
       'booking.reservation.retryRefund', 'booking.reservation.reconcileRefunds',
       'booking.reservation.expire',
@@ -154,6 +155,7 @@ describe('Booking Reservation package boundary', () => {
     expect(source).not.toMatch(/@storeweave\/(?:payment|notification)/i);
     expect(source).not.toMatch(/@storeweave\/payment/i);
     expect(source).not.toMatch(/booking_availability_(?:room_nights|room_type_prices)/);
+    expect(source).not.toMatch(/(?:fetch\(|axios|node:http|node:https)/);
     expect(migration).not.toMatch(/REFERENCES\s+public\.booking_availability_/i);
     expect(migration).not.toMatch(/REFERENCES\s+public\.platform_users/i);
   });

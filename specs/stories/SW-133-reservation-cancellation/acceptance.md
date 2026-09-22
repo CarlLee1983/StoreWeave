@@ -2,20 +2,20 @@
 
 ## Happy Path
 
-* [ ] AC-001: An authorized Booker before deadline cancels the whole Reservation, releases all Room Nights, and creates a full-refund request.
+* [x] AC-001: An authorized Booker before deadline cancels the whole Reservation, releases all Room Nights, and creates a full-refund request.
 
 ## Business Rules
 
-* [ ] AC-002: Operator cancellation records reason and permits only zero through actual received refund amount.
-* [ ] AC-003: Cancellation/release are atomic; refund failure leaves Reservation cancelled and visible for retry.
+* [x] AC-002: Operator cancellation records reason and permits only zero through actual received refund amount.
+* [x] AC-003: Cancellation/release are atomic; refund failure leaves Reservation cancelled and visible for retry.
 
 ## Failure Cases
 
-* [ ] AC-004: Late/unauthorized self-service, partial change, invalid state, missing reason, and invalid refund are rejected without drift.
+* [x] AC-004: Late/unauthorized self-service, partial change, invalid state, missing reason, and invalid refund are rejected without drift.
 
 ## Regression Requirements
 
-* [ ] AC-005: Dates, Room Type, and room count remain immutable; no partial cancellation is added.
+* [x] AC-005: Dates, Room Type, and room count remain immutable; no partial cancellation is added.
 
 ## Acceptance Evidence
 
