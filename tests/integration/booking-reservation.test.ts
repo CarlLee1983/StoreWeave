@@ -2326,6 +2326,147 @@ describe('Booking Reservation PostgreSQL integration', () => {
     }
   }, 120_000);
 
+  it('retains cancelled lifecycle, real refund header and invocation evidence while redacting eligible Reservation PII', async () => {
+    refundInvocations.length = 0;
+    refundResult = { status: 'succeeded', providerRefundRef: 'booking-test-refund:retention' };
+    try {
+      const { reservation } = await createReservation('retention-cancellation-refund-evidence');
+      const managementCredential = await managementCredentialFor(reservation.id);
+      const owner = signedInAccountActor();
+      await runtime.commands.execute('booking.reservation.claim', {
+        reservationId: reservation.id, managementCredential,
+      }, { actor: owner, idempotencyKey: randomUUID() });
+      const winner = await confirmReservationForCancellation(reservation.id);
+      const cancellation = await runtime.commands.execute<{
+        reservationId: string; cancelled: true; refund: { id: string; amountMinor: number; currency: string } | null;
+      }>('booking.reservation.cancelByOperator', {
+        reservationId: reservation.id, refundAmountMinor: 12_345, reason: 'retention refund evidence fixture',
+      }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() });
+      expect(cancellation).toEqual({
+        reservationId: reservation.id, cancelled: true,
+        refund: { id: expect.any(String), amountMinor: 12_345, currency: 'USD' },
+      });
+
+      const refundWorker = new Worker(runtime, {
+        workerId: `booking-retention-refund-${randomUUID().slice(0, 8)}`, concurrency: 1,
+      });
+      const isFixtureRefundInvocation = (input: PaymentRefundInputV2) => input.providerRef === `callback:cancel:${winner.id}`;
+      for (let round = 0; round < 10 && !refundInvocations.some(isFixtureRefundInvocation); round += 1) await refundWorker.runJobs();
+      const fixtureRefundInvocations = refundInvocations.filter(isFixtureRefundInvocation);
+      expect(fixtureRefundInvocations).toEqual([expect.objectContaining({
+        providerRef: `callback:cancel:${winner.id}`, amount: 12_345, currency: 'USD',
+        reference: expect.stringMatching(/^booking-refund:/),
+      })]);
+
+      const evidenceBefore = await runtime.database.pool.query<{
+        reservation_status: string; winning_payment_attempt_id: string | null; check_in_local_date: string; check_out_local_date: string;
+        currency: string; total_minor: number; nightly_prices: unknown; cancellation_policy: unknown; quote_fingerprint: string;
+        attempt_id: string; attempt_status: string; attempt_success_kind: string | null; attempt_provider_ref: string | null;
+        refund_id: string; refund_reason: string; refund_amount_minor: number; refund_currency: string; refund_status: string;
+        provider_request_ref: string; provider_refund_ref: string | null; invocation_outcome: string; worker_attempt: number;
+      }>(`
+        SELECT r.status AS reservation_status, r.winning_payment_attempt_id, r.check_in_local_date::text,
+               r.check_out_local_date::text, r.currency, r.total_minor::float8 AS total_minor,
+               r.nightly_prices, r.cancellation_policy, r.quote_fingerprint,
+               a.id AS attempt_id, a.status AS attempt_status, a.success_kind AS attempt_success_kind,
+               a.provider_ref AS attempt_provider_ref, f.id AS refund_id, f.reason AS refund_reason,
+               f.amount_minor::float8 AS refund_amount_minor, f.currency AS refund_currency, f.status AS refund_status,
+               f.provider_request_ref, f.provider_refund_ref, i.outcome AS invocation_outcome, i.worker_attempt
+        FROM booking_reservation_reservations r
+        JOIN booking_reservation_payment_attempts a ON a.id = r.winning_payment_attempt_id
+        JOIN booking_reservation_refunds f ON f.reservation_id = r.id AND f.payment_attempt_id = a.id
+        JOIN booking_reservation_refund_invocations i ON i.refund_id = f.id
+        WHERE r.id = $1
+      `, [reservation.id]);
+      expect(evidenceBefore.rows).toEqual([{
+        reservation_status: 'cancelled', winning_payment_attempt_id: winner.id,
+        check_in_local_date: expect.any(String), check_out_local_date: expect.any(String),
+        currency: 'USD', total_minor: 24_690, nightly_prices: expect.any(Object), cancellation_policy: expect.any(Object),
+        quote_fingerprint: expect.any(String), attempt_id: winner.id, attempt_status: 'succeeded',
+        attempt_success_kind: 'winning', attempt_provider_ref: `callback:cancel:${winner.id}`,
+        refund_id: cancellation.refund!.id, refund_reason: 'reservation_cancellation', refund_amount_minor: 12_345,
+        refund_currency: 'USD', refund_status: 'succeeded', provider_request_ref: fixtureRefundInvocations[0]!.reference,
+        provider_refund_ref: 'booking-test-refund:retention', invocation_outcome: 'succeeded', worker_attempt: 1,
+      }]);
+      const auditBefore = await runtime.database.pool.query<{ action: string; resource_id: string; payload: unknown }>(`
+        SELECT action, resource_id, payload FROM platform_audit_log
+        WHERE (action = 'booking.reservation.verified-payment-outcome-recorded' AND payload->>'reference' = $1)
+           OR (action = 'booking.reservation.refund-invocation-recorded' AND resource_id = $2)
+        ORDER BY action
+      `, [winner.reference, cancellation.refund!.id]);
+      expect(auditBefore.rows.map(row => row.action).sort()).toEqual([
+        'booking.reservation.refund-invocation-recorded', 'booking.reservation.verified-payment-outcome-recorded',
+      ]);
+
+      // Preserve the terminal lifecycle while making only the frozen stay dates retention-eligible.
+      const databaseNow = await runtime.database.pool.query<{ now: Date }>('SELECT now() AS now');
+      const checkout = addDays(propertyLocalDate(databaseNow.rows[0]!.now), -2);
+      await runtime.database.pool.query(`
+        UPDATE booking_reservation_reservations
+        SET check_in_local_date = $2, check_out_local_date = $3
+        WHERE id = $1
+      `, [reservation.id, addDays(checkout, -2), checkout]);
+      const evidenceAtRedaction = [{
+        ...evidenceBefore.rows[0]!, check_in_local_date: addDays(checkout, -2), check_out_local_date: checkout,
+      }];
+
+      await expect(enqueueAndRunRetentionJob(`booking-retention-cancellation-refund:${randomUUID()}`))
+        .resolves.toMatchObject({ processed: 1, failed: 0 });
+
+      const redacted = await runtime.database.pool.query<{
+        booker_name: string | null; booker_email: string | null; booker_phone: string | null;
+        primary_guest_name: string | null; accommodation_notes: string | null; owner_account_id: string | null;
+        access_generation: number; access_grant_nonce: string | null; access_grant_expires_at: Date | null;
+        access_grant_used_at: Date | null; management_token_hash: string | null; pii_anonymized_at: Date | null;
+      }>(`
+        SELECT booker_name, booker_email, booker_phone, primary_guest_name, accommodation_notes, owner_account_id,
+               access_generation, access_grant_nonce, access_grant_expires_at, access_grant_used_at,
+               management_token_hash, pii_anonymized_at
+        FROM booking_reservation_reservations WHERE id = $1
+      `, [reservation.id]);
+      expect(redacted.rows).toEqual([{
+        booker_name: null, booker_email: null, booker_phone: null, primary_guest_name: null,
+        accommodation_notes: null, owner_account_id: null, access_generation: 0, access_grant_nonce: null,
+        access_grant_expires_at: null, access_grant_used_at: null, management_token_hash: null,
+        pii_anonymized_at: expect.any(Date),
+      }]);
+
+      const evidenceAfter = await runtime.database.pool.query<typeof evidenceBefore.rows[0]>(`
+        SELECT r.status AS reservation_status, r.winning_payment_attempt_id, r.check_in_local_date::text,
+               r.check_out_local_date::text, r.currency, r.total_minor::float8 AS total_minor,
+               r.nightly_prices, r.cancellation_policy, r.quote_fingerprint,
+               a.id AS attempt_id, a.status AS attempt_status, a.success_kind AS attempt_success_kind,
+               a.provider_ref AS attempt_provider_ref, f.id AS refund_id, f.reason AS refund_reason,
+               f.amount_minor::float8 AS refund_amount_minor, f.currency AS refund_currency, f.status AS refund_status,
+               f.provider_request_ref, f.provider_refund_ref, i.outcome AS invocation_outcome, i.worker_attempt
+        FROM booking_reservation_reservations r
+        JOIN booking_reservation_payment_attempts a ON a.id = r.winning_payment_attempt_id
+        JOIN booking_reservation_refunds f ON f.reservation_id = r.id AND f.payment_attempt_id = a.id
+        JOIN booking_reservation_refund_invocations i ON i.refund_id = f.id
+        WHERE r.id = $1
+      `, [reservation.id]);
+      expect(evidenceAfter.rows).toEqual(evidenceAtRedaction);
+      const auditAfter = await runtime.database.pool.query<typeof auditBefore.rows[0]>(`
+        SELECT action, resource_id, payload FROM platform_audit_log
+        WHERE (action = 'booking.reservation.verified-payment-outcome-recorded' AND payload->>'reference' = $1)
+           OR (action = 'booking.reservation.refund-invocation-recorded' AND resource_id = $2)
+        ORDER BY action
+      `, [winner.reference, cancellation.refund!.id]);
+      expect(auditAfter.rows).toEqual(auditBefore.rows);
+      const redactionAudit = await runtime.database.pool.query<{ payload: unknown }>(`
+        SELECT payload FROM platform_audit_log
+        WHERE action = 'booking.reservation.pii-anonymized' AND resource_id = $1
+      `, [reservation.id]);
+      expect(redactionAudit.rows).toHaveLength(1);
+      expect(JSON.stringify(redactionAudit.rows)).not.toMatch(
+        /Private Booker Name|private\.booker@example\.test|\+1 555 0100|Private Guest Name|Private arrival note|brm1\./,
+      );
+    } finally {
+      refundResult = { status: 'succeeded', providerRefundRef: 'booking-test-refund' };
+      refundError = undefined;
+    }
+  }, 120_000);
+
   it('drains more than one retention batch, preserves Reservation facts, and revokes local access once', async () => {
     const { reservation: ownedReservation } = await createReservation('retention-owned');
     const { reservation: grantReservation } = await createReservation('retention-unredeemed-grant');

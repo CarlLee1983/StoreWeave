@@ -6,7 +6,7 @@
 
 ## Business Rules
 
-* [ ] AC-002: Lifecycle, frozen financial facts, payment/refund evidence, and audit evidence remain traceable after redaction.
+* [x] AC-002: Lifecycle, frozen financial facts, payment/refund evidence, and audit evidence remain traceable after redaction.
 * [x] AC-003: The job processes bounded batches, durably continues its cursor until the run is drained, is idempotent, and leaves ineligible Reservations unchanged.
 
 ## Failure Cases
@@ -22,7 +22,7 @@
 | AC | Method | Evidence | Fixture / precondition | Expected observation |
 | --- | --- | --- | --- | --- |
 | `AC-001` | integration | scheduled retention job and post-redaction access tests | eligible stay and a claimed Reservation | fields are NULL, Account link is removed, and old management credential is rejected |
-| `AC-002` | integration | post-redaction lifecycle/frozen-terms query plus a real winning Attempt, winner pointer, and payment-result audit query; refund evidence query after SW-129 | eligible Reservation with preserved evidence | frozen Reservation facts, winner pointer, current Attempt/audit evidence remain traceable; refund evidence remains pending |
+| `AC-002` | integration | post-redaction lifecycle/frozen-terms query plus a real winning Attempt, winner pointer, verified-payment audit, SW-129 cancellation refund header, and worker-recorded immutable refund invocation query | eligible cancelled Reservation with claimed owner, management credential, and preserved payment/refund evidence | frozen Reservation facts, winner pointer, current Attempt, refund header/invocation, and audit evidence remain traceable; Booker PII, ownership, Grant state, and management credential hash are removed |
 | `AC-003` | integration | repeat, ineligible, and cursor-continuation drain tests | repeated schedule and more than one batch | one redaction audit per Reservation; continuation cursors persist and no eligible backlog remains |
 | `AC-004` | integration | policy/date validation test | missing/invalid policy, day before cutoff, invalid frozen date/timezone | no mutation for invalid or ineligible row |
 | `AC-005` | architecture | package dependency scan | completed package | no external ownership expansion |
@@ -36,11 +36,12 @@
 * Focused unit/architecture checks — 2 files / 7 tests passed, covering retention date boundaries, overflow-safe policy dates, package registration, and module boundary.
 * Focused `tests/integration/booking-reservation.test.ts` — 14 tests passed after the delta, including multi-batch cursor drain, fact preservation, access revocation, direct SQL marker-reversal rejection, and operation after redaction.
 * `make verify` — passed on 2026-09-22: backend and Admin typechecks; unit 137 files / 1,419 tests; Admin 32 files / 351 tests; integration 111 files / 940 tests.
-* AC-002 remains open. The current PostgreSQL fixture proves lifecycle and frozen quote facts plus a real SW-128 winning Attempt, Reservation winner pointer, and payment-result audit evidence survive redaction. SW-129 now creates real refund headers and immutable invocation evidence, but no post-redaction refund-row fixture has yet verified that evidence; recheck those rows before SW-145 closes the journey.
+* AC-002 is covered by the focused PostgreSQL retention fixture: it creates a real winning Attempt, operator cancellation refund header, and provider-worker invocation, then proves the cancelled lifecycle, frozen terms, payment/refund rows, and their audit evidence are unchanged after redaction while Reservation PII and local access state are cleared.
+* Focused post-redaction refund-retention integration — passed: `pnpm exec vitest run --project integration tests/integration/booking-reservation.test.ts -t "retains cancelled lifecycle, real refund header and invocation evidence"` (1 passed, 44 skipped).
 
 ## Scope Decisions and Evidence Limits
 
 * The deadline is inclusive on the first Property-local calendar date at or after checkout date plus configured retention days. A one-day policy first becomes eligible on the local date after checkout.
 * Payment status does not override the frozen-date cutoff: an otherwise valid pending-payment Reservation is also redacted once that local date is eligible.
 * The redaction set includes the Reservation-local Account link and management access state. It does not delete or mutate the linked Base Account or provider records.
-* SW-128 now supplies real Reservation winner-selection evidence and SW-129 now supplies real refund rows. Do not mark AC-002 complete without a post-redaction refund-evidence fixture; verify those rows before SW-145 closes the end-to-end retention journey.
+* SW-128 supplies real Reservation winner-selection evidence and SW-129 supplies real refund rows. The post-redaction fixture verifies their linked payment/refund evidence, including an immutable provider invocation, before SW-145 closes the end-to-end retention journey.
