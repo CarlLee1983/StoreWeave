@@ -3,6 +3,7 @@ import { bookingQuoteInputSchema, bookingQuoteSchema } from '@storeweave/booking
 import {
   paymentInitiationInputSchema,
   paymentInitiationResultSchema,
+  paymentRefundInputSchema,
 } from '@storeweave/extension-sdk';
 
 const quoteFingerprintSchema = bookingQuoteSchema.shape.fingerprint;
@@ -113,6 +114,48 @@ export const getBookingReservationPaymentAttemptForProcessingOutputSchema = z.di
   z.object({ kind: z.literal('invoke'), request: paymentInitiationInputSchema }).strict(),
 ]);
 
+export const bookingReservationRefundStatusSchema = z.enum(['pending', 'succeeded', 'failed']);
+export const bookingReservationRefundReasonSchema = z.enum(['late_payment', 'excess_payment', 'reservation_cancellation']);
+export const requiredBookingReservationRefundReasonSchema = z.enum(['late_payment', 'excess_payment']);
+export const bookingReservationRefundSchema = z.object({
+  id: z.string().uuid(), reservationId: z.string().uuid(), paymentAttemptId: z.string().uuid(),
+  reason: bookingReservationRefundReasonSchema, provider: z.string().min(1).max(200),
+  paymentProviderRef: z.string().min(1).max(200), amountMinor: z.number().safe().int().positive(),
+  currency: z.string().regex(/^[A-Z]{3}$/), providerRequestRef: z.string().min(1).max(200),
+  status: bookingReservationRefundStatusSchema, generation: z.number().safe().int().positive(),
+  providerRefundRef: z.string().nullable(), failureKind: z.enum(['rejected', 'unsupported', 'indeterminate']).nullable(),
+  failureMessage: z.string().nullable(), requestedAt: z.string().datetime(), completedAt: z.string().datetime().nullable(),
+  updatedAt: z.string().datetime(),
+}).strict();
+
+export const requestRequiredBookingReservationRefundInputSchema = z.object({
+  reservationId: z.string().uuid(), paymentAttemptId: z.string().uuid(), reason: requiredBookingReservationRefundReasonSchema,
+}).strict();
+export const requestRequiredBookingReservationRefundOutputSchema = z.object({ refund: bookingReservationRefundSchema }).strict();
+
+export const getBookingReservationRefundForProcessingInputSchema = z.object({
+  refundId: z.string().uuid(), generation: z.number().safe().int().positive(),
+}).strict();
+export const getBookingReservationRefundForProcessingOutputSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('noop') }).strict(),
+  z.object({ kind: z.literal('invoke'), provider: z.string().min(1).max(200), workerAttempt: z.number().safe().int().positive(), request: paymentRefundInputSchema }).strict(),
+]);
+
+export const recordBookingReservationRefundInvocationInputSchema = z.object({
+  refundId: z.string().uuid(), generation: z.number().safe().int().positive(), workerAttempt: z.number().safe().int().positive(),
+  result: z.discriminatedUnion('status', [
+    z.object({ status: z.literal('succeeded'), providerRefundRef: z.string().min(1).max(200) }).strict(),
+    z.object({ status: z.literal('rejected'), message: z.string().min(1).max(2000) }).strict(),
+    z.object({ status: z.literal('unsupported'), message: z.string().min(1).max(2000) }).strict(),
+    z.object({ status: z.literal('indeterminate'), message: z.string().min(1).max(2000), final: z.boolean().optional() }).strict(),
+  ]),
+}).strict();
+export const recordBookingReservationRefundInvocationOutputSchema = z.object({ refund: bookingReservationRefundSchema }).strict();
+export const retryBookingReservationRefundInputSchema = z.object({ refundId: z.string().uuid() }).strict();
+export const retryBookingReservationRefundOutputSchema = requestRequiredBookingReservationRefundOutputSchema;
+export const listBookingReservationRefundsInputSchema = z.object({ reservationId: z.string().uuid() }).strict();
+export const listBookingReservationRefundsOutputSchema = z.object({ items: z.array(bookingReservationRefundSchema) }).strict();
+
 export const claimBookingReservationInputSchema = z.object({
   reservationId: z.string().uuid(),
   managementCredential: z.string().min(1).max(128),
@@ -179,6 +222,12 @@ export type StartBookingReservationPaymentOutput = z.infer<typeof startBookingRe
 export type RecordBookingReservationPaymentResultInput = z.infer<typeof recordBookingReservationPaymentResultInputSchema>;
 export type RecordVerifiedBookingPaymentOutcomeInput = z.infer<typeof recordVerifiedBookingPaymentOutcomeInputSchema>;
 export type GetBookingReservationPaymentAttemptForProcessingInput = z.infer<typeof getBookingReservationPaymentAttemptForProcessingInputSchema>;
+export type BookingReservationRefund = z.infer<typeof bookingReservationRefundSchema>;
+export type RequestRequiredBookingReservationRefundInput = z.infer<typeof requestRequiredBookingReservationRefundInputSchema>;
+export type GetBookingReservationRefundForProcessingInput = z.infer<typeof getBookingReservationRefundForProcessingInputSchema>;
+export type RecordBookingReservationRefundInvocationInput = z.infer<typeof recordBookingReservationRefundInvocationInputSchema>;
+export type RetryBookingReservationRefundInput = z.infer<typeof retryBookingReservationRefundInputSchema>;
+export type ListBookingReservationRefundsInput = z.infer<typeof listBookingReservationRefundsInputSchema>;
 export type ClaimBookingReservationInput = z.infer<typeof claimBookingReservationInputSchema>;
 export type ClaimBookingReservationOutput = z.infer<typeof claimBookingReservationOutputSchema>;
 export type GetOwnedBookingReservationInput = z.infer<typeof getOwnedBookingReservationInputSchema>;

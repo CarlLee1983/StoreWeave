@@ -260,5 +260,78 @@ ALTER TABLE public.booking_reservation_reservations
 ALTER TABLE public.booking_reservation_reservations
   ADD CONSTRAINT booking_reservation_winning_payment_attempt_check
   CHECK (winning_payment_attempt_id IS NULL OR status IN ('confirmed', 'cancelled'));
+`), sqlMigration('0009_reservation_refunds', 'expand', `
+CREATE TABLE IF NOT EXISTS public.booking_reservation_refunds (
+  id uuid PRIMARY KEY,
+  reservation_id uuid NOT NULL REFERENCES public.booking_reservation_reservations(id),
+  payment_attempt_id uuid NOT NULL REFERENCES public.booking_reservation_payment_attempts(id),
+  reason text NOT NULL CHECK (reason IN ('late_payment', 'excess_payment', 'reservation_cancellation')),
+  provider text NOT NULL CHECK (length(provider) BETWEEN 1 AND 200),
+  payment_provider_ref text NOT NULL CHECK (length(payment_provider_ref) BETWEEN 1 AND 200),
+  amount_minor bigint NOT NULL CHECK (amount_minor > 0),
+  currency text NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+  provider_request_ref text NOT NULL UNIQUE CHECK (length(provider_request_ref) BETWEEN 1 AND 200),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'succeeded', 'failed')),
+  generation integer NOT NULL DEFAULT 1 CHECK (generation >= 1),
+  provider_refund_ref text,
+  failure_kind text CHECK (failure_kind IS NULL OR failure_kind IN ('rejected', 'unsupported', 'indeterminate')),
+  failure_message text,
+  requested_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+  completed_at timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+  UNIQUE (payment_attempt_id)
+);
+CREATE INDEX IF NOT EXISTS booking_reservation_refund_reservation_idx
+  ON public.booking_reservation_refunds (reservation_id, requested_at);
+
+CREATE TABLE IF NOT EXISTS public.booking_reservation_refund_invocations (
+  id uuid PRIMARY KEY,
+  refund_id uuid NOT NULL REFERENCES public.booking_reservation_refunds(id),
+  generation integer NOT NULL CHECK (generation >= 1),
+  worker_attempt integer NOT NULL CHECK (worker_attempt >= 1),
+  outcome text NOT NULL CHECK (outcome IN ('succeeded', 'rejected', 'unsupported', 'indeterminate')),
+  provider_refund_ref text,
+  message text,
+  invoked_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+  UNIQUE (refund_id, generation, worker_attempt)
+);
+
+-- SW-128 may already have classified a received late/excess payment before
+-- this additive migration reaches a Booking database. Backfill a deterministic
+-- header per Attempt; the runtime reconciler schedules its provider work.
+INSERT INTO public.booking_reservation_refunds (
+  id, reservation_id, payment_attempt_id, reason, provider, payment_provider_ref,
+  amount_minor, currency, provider_request_ref, status, generation, requested_at, updated_at
+)
+SELECT
+  (substr(md5('booking-reservation-refund:' || a.id::text), 1, 8) || '-' ||
+   substr(md5('booking-reservation-refund:' || a.id::text), 9, 4) || '-' ||
+   substr(md5('booking-reservation-refund:' || a.id::text), 13, 4) || '-' ||
+   substr(md5('booking-reservation-refund:' || a.id::text), 17, 4) || '-' ||
+   substr(md5('booking-reservation-refund:' || a.id::text), 21, 12))::uuid,
+  a.reservation_id, a.id,
+  CASE a.success_kind WHEN 'late' THEN 'late_payment' ELSE 'excess_payment' END,
+  a.provider, a.provider_ref, a.amount_minor, a.currency,
+  'booking-refund:' || (substr(md5('booking-reservation-refund:' || a.id::text), 1, 8) || '-' ||
+   substr(md5('booking-reservation-refund:' || a.id::text), 9, 4) || '-' ||
+   substr(md5('booking-reservation-refund:' || a.id::text), 13, 4) || '-' ||
+   substr(md5('booking-reservation-refund:' || a.id::text), 17, 4) || '-' ||
+   substr(md5('booking-reservation-refund:' || a.id::text), 21, 12)),
+  'pending', 1, a.succeeded_at, a.succeeded_at
+FROM public.booking_reservation_payment_attempts a
+WHERE a.status = 'succeeded' AND a.success_kind IN ('late', 'excess') AND a.provider_ref IS NOT NULL
+ON CONFLICT (payment_attempt_id) DO NOTHING;
+
+`), sqlMigration('0010_refund_attempt_reservation_integrity', 'expand', `
+-- 0007 already supplies the unique (id, reservation_id) parent key. Keep the
+-- separately-owned Refund header from ever mixing those two identities.
+DO $$ BEGIN
+  ALTER TABLE public.booking_reservation_refunds
+    ADD CONSTRAINT booking_reservation_refund_attempt_reservation_fk
+    FOREIGN KEY (payment_attempt_id, reservation_id)
+    REFERENCES public.booking_reservation_payment_attempts(id, reservation_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 `)],
 };

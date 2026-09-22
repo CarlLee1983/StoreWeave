@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { PlatformError, defineCommand, defineQuery, type CommandContext, type QueryContext } from '@storeweave/contracts';
-import type { PaymentInitiationInput, PaymentInitiationResult, PaymentMethod, PaymentCallbackEvent } from '@storeweave/extension-sdk';
+import type { PaymentInitiationInput, PaymentInitiationResult, PaymentMethod, PaymentCallbackEvent, PaymentRefundInputV2, PaymentRefundResult } from '@storeweave/extension-sdk';
 import { BookingReservationRepository } from './repository';
 import { EXPIRE_BOOKING_RESERVATION_JOB, PROCESS_BOOKING_RESERVATION_PAYMENT_JOB } from './jobs';
+import { createRequiredBookingReservationRefund } from './refunds';
 import {
   recordBookingReservationPaymentResultInputSchema,
   recordBookingReservationPaymentResultOutputSchema,
@@ -27,6 +28,7 @@ export interface BookingReservationPaymentProvider {
   readonly id: string;
   paymentMethods(): readonly PaymentMethod[];
   initiate(input: PaymentInitiationInput): Promise<PaymentInitiationResult>;
+  refund(input: PaymentRefundInputV2): Promise<PaymentRefundResult>;
 }
 
 function toAttemptOutput(row: {
@@ -251,6 +253,12 @@ async function applyPaymentOutcome(
     case 'payment_confirmed': {
       if (attempt.status === 'succeeded') {
         if (attempt.providerRef !== event.providerRef) throw PlatformError.conflict(`Payment attempt ${attempt.reference} was confirmed with a different provider reference`);
+        if (attempt.successKind === 'late' || attempt.successKind === 'excess') {
+          await createRequiredBookingReservationRefund(context, {
+            reservationId: reservation.id, paymentAttemptId: attempt.id,
+            reason: attempt.successKind === 'late' ? 'late_payment' : 'excess_payment', allowExisting: true,
+          });
+        }
         return { attempt: toAttemptOutput(attempt) };
       }
       const winner = attempts.find(candidate => candidate.successKind === 'winning');
@@ -263,6 +271,11 @@ async function applyPaymentOutcome(
       if (kind === 'winning') {
         await repository.confirmWithWinningAttempt(context.tx, reservation.id, attempt.id);
         await repository.expireActivePaymentAttempts(context.tx, reservation.id, databaseNow);
+      } else {
+        await createRequiredBookingReservationRefund(context, {
+          reservationId: reservation.id, paymentAttemptId: attempt.id,
+          reason: kind === 'late' ? 'late_payment' : 'excess_payment', allowExisting: true,
+        });
       }
       return { attempt: toAttemptOutput(updated) };
     }

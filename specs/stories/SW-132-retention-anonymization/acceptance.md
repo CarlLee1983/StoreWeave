@@ -36,11 +36,11 @@
 * Focused unit/architecture checks — 2 files / 7 tests passed, covering retention date boundaries, overflow-safe policy dates, package registration, and module boundary.
 * Focused `tests/integration/booking-reservation.test.ts` — 14 tests passed after the delta, including multi-batch cursor drain, fact preservation, access revocation, direct SQL marker-reversal rejection, and operation after redaction.
 * `make verify` — passed on 2026-09-22: backend and Admin typechecks; unit 137 files / 1,419 tests; Admin 32 files / 351 tests; integration 111 files / 940 tests.
-* AC-002 remains open. The current PostgreSQL fixture proves lifecycle and frozen quote facts plus a real SW-128 winning Attempt, Reservation winner pointer, and payment-result audit evidence survive redaction. It does not fabricate SW-129 refund rows; recheck those rows before SW-145 closes the journey.
+* AC-002 remains open. The current PostgreSQL fixture proves lifecycle and frozen quote facts plus a real SW-128 winning Attempt, Reservation winner pointer, and payment-result audit evidence survive redaction. SW-129 now creates real refund headers and immutable invocation evidence, but no post-redaction refund-row fixture has yet verified that evidence; recheck those rows before SW-145 closes the journey.
 
 ## Scope Decisions and Evidence Limits
 
 * The deadline is inclusive on the first Property-local calendar date at or after checkout date plus configured retention days. A one-day policy first becomes eligible on the local date after checkout.
 * Payment status does not override the frozen-date cutoff: an otherwise valid pending-payment Reservation is also redacted once that local date is eligible.
 * The redaction set includes the Reservation-local Account link and management access state. It does not delete or mutate the linked Base Account or provider records.
-* SW-128 now supplies real Reservation winner-selection evidence. Do not add placeholder refund records, or mark AC-002 complete without real SW-129 fixtures; verify those rows before SW-145 closes the end-to-end retention journey.
+* SW-128 now supplies real Reservation winner-selection evidence and SW-129 now supplies real refund rows. Do not mark AC-002 complete without a post-redaction refund-evidence fixture; verify those rows before SW-145 closes the end-to-end retention journey.

@@ -7,4 +7,5 @@ export * from './migrations';
 export * from './payment-attempts';
 export * from './module';
 export * from './retention';
+export * from './refunds';
 export * from './types';

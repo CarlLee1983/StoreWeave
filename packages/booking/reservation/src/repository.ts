@@ -1,9 +1,13 @@
-import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import type { Tx } from '@storeweave/contracts';
 import { BOOKING_RESERVATION_ACTIVE_PAYMENT_ATTEMPT_STATUSES } from './types';
 import {
   bookingReservationPaymentAttempts,
+  bookingReservationRefundInvocations,
+  bookingReservationRefunds,
   bookingReservationReservations,
+  type BookingReservationRefundInvocationRow,
+  type BookingReservationRefundRow,
   type BookingReservationPaymentAttemptRow,
   type BookingReservationRow,
 } from './schema';
@@ -286,6 +290,57 @@ export class BookingReservationRepository {
       ))
       .returning({ id: bookingReservationReservations.id });
     return updated !== undefined;
+  }
+
+  async findRefundByAttempt(tx: Tx, paymentAttemptId: string): Promise<BookingReservationRefundRow | undefined> {
+    const [row] = await tx.select().from(bookingReservationRefunds)
+      .where(eq(bookingReservationRefunds.paymentAttemptId, paymentAttemptId));
+    return row;
+  }
+
+  async findRefundById(tx: Tx, refundId: string): Promise<BookingReservationRefundRow | undefined> {
+    const [row] = await tx.select().from(bookingReservationRefunds).where(eq(bookingReservationRefunds.id, refundId));
+    return row;
+  }
+
+  async lockRefundById(tx: Tx, refundId: string): Promise<BookingReservationRefundRow | undefined> {
+    const [row] = await tx.select().from(bookingReservationRefunds).where(eq(bookingReservationRefunds.id, refundId)).for('update');
+    return row;
+  }
+
+  async insertRefund(tx: Tx, values: typeof bookingReservationRefunds.$inferInsert): Promise<BookingReservationRefundRow> {
+    const [row] = await tx.insert(bookingReservationRefunds).values(values).returning();
+    return row!;
+  }
+
+  async updateRefund(tx: Tx, refundId: string, values: Partial<typeof bookingReservationRefunds.$inferInsert>, now: Date): Promise<BookingReservationRefundRow | undefined> {
+    const [row] = await tx.update(bookingReservationRefunds).set({ ...values, updatedAt: now })
+      .where(eq(bookingReservationRefunds.id, refundId)).returning();
+    return row;
+  }
+
+  async listRefunds(tx: Tx, reservationId: string): Promise<BookingReservationRefundRow[]> {
+    return tx.select().from(bookingReservationRefunds).where(eq(bookingReservationRefunds.reservationId, reservationId))
+      .orderBy(desc(bookingReservationRefunds.requestedAt), desc(bookingReservationRefunds.id));
+  }
+
+  async listPendingRefunds(tx: Tx): Promise<BookingReservationRefundRow[]> {
+    return tx.select().from(bookingReservationRefunds).where(eq(bookingReservationRefunds.status, 'pending'))
+      .orderBy(asc(bookingReservationRefunds.requestedAt), asc(bookingReservationRefunds.id)).limit(100);
+  }
+
+  async nextRefundWorkerAttempt(tx: Tx, refundId: string, generation: number): Promise<number> {
+    const result = await tx.execute<{ next_attempt: unknown }>(sql`
+      SELECT coalesce(max(worker_attempt), 0) + 1 AS next_attempt
+      FROM ${bookingReservationRefundInvocations}
+      WHERE refund_id = ${refundId} AND generation = ${generation}
+    `);
+    return Number(result.rows[0]?.next_attempt);
+  }
+
+  async insertRefundInvocation(tx: Tx, values: typeof bookingReservationRefundInvocations.$inferInsert): Promise<BookingReservationRefundInvocationRow> {
+    const [row] = await tx.insert(bookingReservationRefundInvocations).values(values).returning();
+    return row!;
   }
 }
 

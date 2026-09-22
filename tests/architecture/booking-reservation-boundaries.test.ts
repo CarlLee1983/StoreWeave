@@ -22,6 +22,7 @@ import {
   createBookingReservationModule,
 } from '../../packages/booking/reservation/src/module';
 import type { BookingReservationPaymentProvider } from '../../packages/booking/reservation/src/payment-attempts';
+import { createProcessBookingReservationRefundJob } from '../../packages/booking/reservation/src/jobs';
 
 const paymentProvider: BookingReservationPaymentProvider = {
   id: 'booking-test-payment',
@@ -29,6 +30,7 @@ const paymentProvider: BookingReservationPaymentProvider = {
   initiate: async () => ({
     status: 'failed', reason: 'provider_rejected', message: 'not invoked by package-boundary checks',
   }),
+  refund: async () => ({ status: 'unsupported', message: 'not invoked by package-boundary checks' }),
 };
 
 const ROOT = process.cwd();
@@ -82,6 +84,7 @@ describe('Booking Reservation package boundary', () => {
 
     expect(module.data?.owns).toEqual([
       'booking_reservation_reservations', 'booking_reservation_payment_attempts',
+      'booking_reservation_refunds', 'booking_reservation_refund_invocations',
     ]);
     expect(module.dependencies?.required).toContainEqual({ name: 'booking-availability', versionRange: '^0.1.0' });
     expect(module.capabilities?.required).toContainEqual({
@@ -102,11 +105,14 @@ describe('Booking Reservation package boundary', () => {
     expect(module.commands?.map(command => command.descriptor.name)).toEqual([
       'booking.reservation.create', 'booking.reservation.startPayment', 'booking.reservation.recordPaymentResult',
       'booking.reservation.recordVerifiedPaymentOutcome',
+      'booking.reservation.requestRequiredPaymentRefund', 'booking.reservation.recordRefundInvocation',
+      'booking.reservation.retryRefund', 'booking.reservation.reconcileRefunds',
       'booking.reservation.expire',
       'booking.reservation.claim', 'booking.reservation.updateManagedDetails', 'booking.reservation.anonymizeExpiredPii',
     ]);
     expect(module.queries?.map(query => query.descriptor.name)).toEqual([
       'booking.reservation.getPaymentAttemptForProcessing',
+      'booking.reservation.getRefundForProcessing', 'booking.reservation.listRefunds',
       'booking.reservation.getOwned', 'booking.reservation.getManaged',
     ]);
     expect(module.jobs?.map(job => job.type)).toContain('booking.reservation.anonymize-expired-pii');
@@ -114,6 +120,8 @@ describe('Booking Reservation package boundary', () => {
       .toEqual({ everyMs: 24 * 60 * 60 * 1000 });
     expect(module.jobs?.map(job => job.type)).toContain('booking.reservation.expire');
     expect(module.jobs?.map(job => job.type)).toContain('booking.reservation.process-payment');
+    expect(module.jobs?.map(job => job.type)).toContain('booking.reservation.process-refund');
+    expect(module.jobs?.map(job => job.type)).toContain('booking.reservation.reconcile-refunds');
     expect(bookingReservationMigrations.module).toBe('booking-reservation');
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.booking_reservation_reservations');
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.booking_reservation_payment_attempts');
@@ -123,6 +131,14 @@ describe('Booking Reservation package boundary', () => {
     expect(migration).toContain('succeeded_at timestamptz');
     expect(migration).toContain('booking_reservation_payment_attempt_success_evidence_check');
     expect(migration).toContain('booking_reservation_payment_attempt_winning_reservation_key');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.booking_reservation_refunds');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.booking_reservation_refund_invocations');
+    expect(migration).toContain("reason IN ('late_payment', 'excess_payment', 'reservation_cancellation')");
+    expect(migration).toContain('UNIQUE (payment_attempt_id)');
+    expect(migration).toContain('booking_reservation_refund_attempt_reservation_fk');
+    expect(migration).toContain('FOREIGN KEY (payment_attempt_id, reservation_id)');
+    expect(migration).toContain('INSERT INTO public.booking_reservation_refunds');
+    expect(migration).not.toContain('platform_jobs');
     expect(migration).toContain('booking_reservation_payment_attempt_id_reservation_key');
     expect(migration).toContain('booking_reservation_winning_payment_attempt_integrity');
     expect(migration).toContain('booking_reservation_winning_attempt_requires_pointer');
@@ -148,5 +164,25 @@ describe('Booking Reservation package boundary', () => {
       { reservationPiiRetentionDays: Number.MAX_SAFE_INTEGER + 1 }, { reservationPiiRetentionDays: 30, extra: true }]) {
       expect(bookingReservationRetentionPolicySchema.safeParse(invalid).success).toBe(false);
     }
+  });
+
+  it('does not invoke a refund provider when persisted refund evidence selects another provider', async () => {
+    let calls = 0;
+    const recorded: unknown[] = [];
+    const handler = createProcessBookingReservationRefundJob({
+      ...paymentProvider,
+      refund: async () => { calls += 1; return { status: 'succeeded', providerRefundRef: 'should-not-happen' }; },
+    });
+    await expect(handler({ refundId: '00000000-0000-4000-8000-000000000000', generation: 1 }, {
+      attempt: 1,
+      executeQuery: async () => ({ kind: 'invoke', provider: 'another-provider', workerAttempt: 1, request: {
+        providerRef: 'received-payment', amount: 100, currency: 'USD', reference: 'booking-refund:test',
+      } }),
+      executeCommand: async (_name: string, input: unknown) => { recorded.push(input); },
+    } as never)).rejects.toThrow('requires provider another-provider');
+    expect(calls).toBe(0);
+    expect(recorded).toEqual([expect.objectContaining({
+      result: { status: 'indeterminate', final: true, message: 'Configured refund provider does not match persisted refund evidence' },
+    })]);
   });
 });

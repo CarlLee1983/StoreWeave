@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { BASE_ROLES } from '@storeweave/authorization';
 import { baseConfigSchema } from '@storeweave/config';
-import { noopLogger, SYSTEM_ACTOR, type Actor } from '@storeweave/contracts';
+import { noopLogger, SYSTEM_ACTOR, type Actor, type CommandContext } from '@storeweave/contracts';
 import { sha256Hex, signValue, type Keyring } from '@storeweave/crypto';
-import type { PaymentInitiationInput, PaymentInitiationResult, PaymentMethod, PaymentProviderV2 } from '@storeweave/extension-sdk';
+import type { PaymentInitiationInput, PaymentInitiationResult, PaymentMethod, PaymentProviderV2, PaymentRefundInputV2, PaymentRefundResult } from '@storeweave/extension-sdk';
 import { bindModuleCapability, createRuntime, resolveKeyring, Worker, type Runtime } from '@storeweave/kernel';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -25,7 +25,9 @@ import {
   createBookingReservationAccess,
   type BookingReservationAccess,
 } from '../../packages/booking/reservation/src/access';
+import { bookingReservationMigrations } from '../../packages/booking/reservation/src/migrations';
 import { createBookingReservationModule } from '../../packages/booking/reservation/src/module';
+import { createRequiredBookingReservationRefund } from '../../packages/booking/reservation/src/refunds';
 
 const actor = (permissions: string[]): Actor => ({
   id: 'test:booking-reservation', type: 'user', displayName: 'Booking Reservation Test', permissions,
@@ -63,6 +65,9 @@ let paymentResult = defaultPaymentResult;
 let paymentMethods: readonly PaymentMethod[] = [{ code: 'deferred', label: 'Deferred test payment', timing: 'deferred' }];
 let paymentSetupError: Error | undefined;
 let bookingPaymentProviderId = 'booking-test-payment';
+const refundInvocations: PaymentRefundInputV2[] = [];
+let refundResult: PaymentRefundResult = { status: 'succeeded', providerRefundRef: 'booking-test-refund' };
+let refundError: Error | undefined;
 
 const bookingPaymentProvider: PaymentProviderV2 = {
   get id() { return bookingPaymentProviderId; },
@@ -75,7 +80,11 @@ const bookingPaymentProvider: PaymentProviderV2 = {
     paymentInitiations.push(input);
     return paymentResult(input);
   },
-  refund: async () => ({ status: 'unsupported', message: 'not used by Reservation payment-attempt tests' }),
+  refund: async input => {
+    refundInvocations.push(input);
+    if (refundError) throw refundError;
+    return refundResult;
+  },
   parseCallback: async () => {
     throw new Error('callback mapping belongs to SW-128');
   },
@@ -231,6 +240,34 @@ async function clearPaymentAttemptJobs(reservationId: string) {
     DELETE FROM platform_jobs
     WHERE type = 'booking.reservation.process-payment' AND payload->>'reservationId' = $1
   `, [reservationId]);
+}
+
+async function clearRefundJobs(reservationId: string) {
+  await runtime.database.pool.query(`
+    DELETE FROM platform_jobs
+    WHERE type = 'booking.reservation.process-refund'
+      AND payload->>'refundId' IN (SELECT id::text FROM booking_reservation_refunds WHERE reservation_id = $1)
+  `, [reservationId]);
+}
+
+async function createCancellationRefund(input: { reservationId: string; paymentAttemptId: string; amountMinor: number }) {
+  return runtime.database.transaction(async tx => {
+    const context: CommandContext = {
+      actor: SYSTEM_ACTOR,
+      tx,
+      logger: noopLogger,
+      correlationId: `booking-reservation-cancellation-refund:${randomUUID()}`,
+      now: new Date(),
+      publish: async () => {},
+      audit: async () => {},
+      enqueue: async job => { await runtime.jobs.enqueue(tx, job); },
+    };
+    return createRequiredBookingReservationRefund(context, {
+      ...input,
+      reason: 'reservation_cancellation',
+      allowExisting: false,
+    });
+  });
 }
 
 async function createReservation(code: string) {
@@ -654,9 +691,10 @@ describe('Booking Reservation PostgreSQL integration', () => {
     expect(winningReservation.rows).toEqual([{
       status: 'confirmed', winning_payment_attempt_id: second.attempt.id,
     }]);
+    const firstDeliveryKey = randomUUID();
     await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
       type: 'payment_confirmed', reference: first.attempt.reference, providerRef: 'callback:late-first',
-    });
+    }, firstDeliveryKey);
     const outcomes = await runtime.database.pool.query<{ id: string; status: string; success_kind: string | null }>(
       'SELECT id, status, success_kind FROM booking_reservation_payment_attempts WHERE reservation_id = $1 ORDER BY created_at, id', [reservation.id],
     );
@@ -664,6 +702,31 @@ describe('Booking Reservation PostgreSQL integration', () => {
       { id: first.attempt.id, status: 'succeeded', success_kind: 'excess' },
       { id: second.attempt.id, status: 'succeeded', success_kind: 'winning' },
     ]);
+    const refunds = await runtime.database.pool.query<{
+      payment_attempt_id: string; reason: string; amount_minor: string; currency: string; status: string; provider_request_ref: string;
+    }>('SELECT payment_attempt_id, reason, amount_minor::text, currency, status, provider_request_ref FROM booking_reservation_refunds WHERE reservation_id = $1', [reservation.id]);
+    expect(refunds.rows).toEqual([{
+      payment_attempt_id: first.attempt.id, reason: 'excess_payment', amount_minor: '24690', currency: 'USD', status: 'pending',
+      provider_request_ref: expect.stringMatching(/^booking-refund:/),
+    }]);
+    const refund = refunds.rows[0]!;
+    const processing = await runtime.queries.execute<any>('booking.reservation.getRefundForProcessing', {
+      refundId: (await runtime.database.pool.query<{ id: string }>('SELECT id FROM booking_reservation_refunds WHERE payment_attempt_id = $1', [first.attempt.id])).rows[0]!.id,
+      generation: 1,
+    }, { actor: SYSTEM_ACTOR });
+    expect(processing).toMatchObject({ kind: 'invoke', request: {
+      providerRef: 'callback:late-first', amount: 24690, currency: 'USD', reference: refund.provider_request_ref,
+    } });
+    const replayDeliveryKey = randomUUID();
+    expect(replayDeliveryKey).not.toBe(firstDeliveryKey);
+    await expect(recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: first.attempt.reference, providerRef: 'callback:late-first',
+    }, replayDeliveryKey)).resolves.toMatchObject({ attempt: { id: first.attempt.id, status: 'succeeded' } });
+    const replayedRefunds = await runtime.database.pool.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM booking_reservation_refunds WHERE payment_attempt_id = $1', [first.attempt.id],
+    );
+    expect(replayedRefunds.rows).toEqual([{ count: '1' }]);
+    await clearRefundJobs(reservation.id);
   }, 120_000);
 
   it('rejects untrusted callback callers, provider mismatches, and unknown references', async () => {
@@ -685,6 +748,459 @@ describe('Booking Reservation PostgreSQL integration', () => {
       provider: bookingPaymentProviderId,
       event: { type: 'payment_confirmed', reference: started.attempt.reference },
     }, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  }, 120_000);
+
+  it('executes an excess refund through the neutral Provider with a stable request reference and immutable invocation evidence', async () => {
+    refundInvocations.length = 0;
+    refundResult = { status: 'succeeded', providerRefundRef: 'booking-test-refund:stable' };
+    refundError = new Error('secret transport detail must not persist');
+    const { reservation } = await createReservation('refund-provider-success');
+    await clearRefundJobs(reservation.id);
+    const first = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(reservation.id);
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_failed', reference: first.attempt.reference, providerRef: 'refund:first', message: 'retry fixture',
+    });
+    const winner = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(reservation.id);
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: winner.attempt.reference, providerRef: 'refund:winner',
+    });
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: first.attempt.reference, providerRef: 'refund:excess',
+    });
+    await runtime.database.pool.query(`UPDATE platform_jobs SET attempts = 4 WHERE type = 'booking.reservation.process-refund'
+      AND payload->>'refundId' IN (SELECT id::text FROM booking_reservation_refunds WHERE payment_attempt_id = $1)`, [first.attempt.id]);
+    const worker = new Worker(runtime, { workerId: `booking-refund-${randomUUID().slice(0, 8)}`, concurrency: 1 });
+    await expect(worker.runJobs()).resolves.toMatchObject({ failed: 1 });
+    const failed = await runtime.database.pool.query<{ id: string; status: string; failure_kind: string; failure_message: string }>(
+      'SELECT id, status, failure_kind, failure_message FROM booking_reservation_refunds WHERE payment_attempt_id = $1', [first.attempt.id],
+    );
+    expect(failed.rows[0]).toMatchObject({ status: 'failed', failure_kind: 'indeterminate', failure_message: 'Provider refund transport failed' });
+    refundError = undefined;
+    await runtime.commands.execute('booking.reservation.retryRefund', { refundId: failed.rows[0]!.id }, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() });
+    for (let round = 0; round < 10 && refundInvocations.length < 2; round += 1) await worker.runJobs();
+    expect(refundInvocations).toHaveLength(2);
+    expect(refundInvocations[1]!.reference).toBe(refundInvocations[0]!.reference);
+    expect(refundInvocations[1]).toMatchObject({ providerRef: 'refund:excess', amount: 24690, currency: 'USD', reference: expect.stringMatching(/^booking-refund:/) });
+    const evidence = await runtime.database.pool.query<{
+      status: string; generation: number; provider_request_ref: string; provider_refund_ref: string | null;
+      outcome: string; worker_attempt: number;
+    }>(`
+      SELECT r.status, r.generation, r.provider_request_ref, r.provider_refund_ref, i.outcome, i.worker_attempt
+      FROM booking_reservation_refunds r
+      JOIN booking_reservation_refund_invocations i ON i.refund_id = r.id
+      WHERE r.payment_attempt_id = $1
+    `, [first.attempt.id]);
+    expect(evidence.rows).toEqual(expect.arrayContaining([{
+      status: 'succeeded', generation: 2, provider_request_ref: refundInvocations[1]!.reference,
+      provider_refund_ref: 'booking-test-refund:stable', outcome: 'succeeded', worker_attempt: 1,
+    }]));
+    refundError = undefined;
+    await expect(runtime.commands.execute('booking.reservation.requestRequiredPaymentRefund', {
+      reservationId: reservation.id, paymentAttemptId: first.attempt.id, reason: 'excess_payment',
+    }, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'CONFLICT' });
+    await clearRefundJobs(reservation.id);
+  }, 120_000);
+
+  it('persists a terminal indeterminate refund before dead-lettering a provider mismatch without invoking the adapter', async () => {
+    refundInvocations.length = 0;
+    const { reservation } = await createReservation('refund-provider-mismatch');
+    const first = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(reservation.id);
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_failed', reference: first.attempt.reference, providerRef: 'refund:mismatch-first', message: 'retry fixture',
+    });
+    const winner = await runtime.commands.execute<{ attempt: { reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(reservation.id);
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: winner.attempt.reference, providerRef: 'refund:mismatch-winner',
+    });
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: first.attempt.reference, providerRef: 'refund:mismatch-excess',
+    });
+
+    bookingPaymentProviderId = 'booking-replaced-payment';
+    try {
+      const worker = new Worker(runtime, { workerId: `booking-refund-provider-mismatch-${randomUUID().slice(0, 8)}`, concurrency: 1 });
+      await expect(worker.runJobs()).resolves.toMatchObject({ processed: 0, failed: 1 });
+      expect(refundInvocations).toEqual([]);
+      const evidence = await runtime.database.pool.query<{
+        refund_status: string; failure_kind: string; failure_message: string; outcome: string; reservation_status: string;
+      }>(`
+        SELECT r.status AS refund_status, r.failure_kind, r.failure_message, i.outcome, reservation.status AS reservation_status
+        FROM booking_reservation_refunds r
+        JOIN booking_reservation_refund_invocations i ON i.refund_id = r.id
+        JOIN booking_reservation_reservations reservation ON reservation.id = r.reservation_id
+        WHERE r.payment_attempt_id = $1
+      `, [first.attempt.id]);
+      expect(evidence.rows).toEqual([{
+        refund_status: 'failed', failure_kind: 'indeterminate',
+        failure_message: 'Configured refund provider does not match persisted refund evidence',
+        outcome: 'indeterminate', reservation_status: 'confirmed',
+      }]);
+      const job = await runtime.database.pool.query<{ status: string }>(`
+        SELECT status FROM platform_jobs
+        WHERE type = 'booking.reservation.process-refund' AND payload->>'refundId' IN (
+          SELECT id::text FROM booking_reservation_refunds WHERE payment_attempt_id = $1
+        )
+      `, [first.attempt.id]);
+      expect(job.rows).toEqual([{ status: 'dead' }]);
+    } finally {
+      bookingPaymentProviderId = 'booking-test-payment';
+      await clearRefundJobs(reservation.id);
+    }
+  }, 120_000);
+
+  it('keeps unsupported Provider results durable and leaves the Reservation confirmed', async () => {
+    refundInvocations.length = 0;
+    refundResult = { status: 'unsupported', message: 'Booking provider does not support refunds' };
+    const { reservation } = await createReservation('refund-provider-unsupported');
+    const first = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(reservation.id);
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_failed', reference: first.attempt.reference, providerRef: 'refund:unsupported-first', message: 'retry fixture',
+    });
+    const winner = await runtime.commands.execute<{ attempt: { reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(reservation.id);
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: winner.attempt.reference, providerRef: 'refund:unsupported-winner',
+    });
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: first.attempt.reference, providerRef: 'refund:unsupported-excess',
+    });
+    try {
+      const worker = new Worker(runtime, { workerId: `booking-refund-unsupported-${randomUUID().slice(0, 8)}`, concurrency: 1 });
+      await expect(worker.runJobs()).resolves.toMatchObject({ processed: 1, failed: 0 });
+      expect(refundInvocations).toHaveLength(1);
+      const result = await runtime.database.pool.query<{
+        refund_status: string; failure_kind: string; failure_message: string; outcome: string; reservation_status: string;
+      }>(`
+        SELECT r.status AS refund_status, r.failure_kind, r.failure_message, i.outcome, reservation.status AS reservation_status
+        FROM booking_reservation_refunds r
+        JOIN booking_reservation_refund_invocations i ON i.refund_id = r.id
+        JOIN booking_reservation_reservations reservation ON reservation.id = r.reservation_id
+        WHERE r.payment_attempt_id = $1
+      `, [first.attempt.id]);
+      expect(result.rows).toEqual([{
+        refund_status: 'failed', failure_kind: 'unsupported', failure_message: 'Booking provider does not support refunds',
+        outcome: 'unsupported', reservation_status: 'confirmed',
+      }]);
+    } finally {
+      refundResult = { status: 'succeeded', providerRefundRef: 'booking-test-refund' };
+      await clearRefundJobs(reservation.id);
+    }
+  }, 120_000);
+
+  it('database-enforces that a refund and its payment Attempt belong to the same Reservation', async () => {
+    const source = await createReservation('refund-attempt-reservation-source');
+    const sourcePayment = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: source.reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(source.reservation.id);
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: sourcePayment.attempt.reference, providerRef: 'refund:cross-reservation-source',
+    });
+    const other = await createReservation('refund-attempt-reservation-other');
+    await expect(runtime.database.pool.query(`
+      INSERT INTO booking_reservation_refunds (
+        id, reservation_id, payment_attempt_id, reason, provider, payment_provider_ref,
+        amount_minor, currency, provider_request_ref
+      ) VALUES ($1, $2, $3, 'reservation_cancellation', 'booking-test-payment', 'refund:cross-reservation-source',
+        24690, 'USD', $4)
+    `, [randomUUID(), other.reservation.id, sourcePayment.attempt.id, `booking-refund:cross-reservation:${randomUUID()}`]))
+      .rejects.toThrow(/booking_reservation_refund_attempt_reservation_fk/i);
+  }, 120_000);
+
+  it('reconciles past a dead oldest refund job without starving later pending refunds', async () => {
+    const fixtures = Array.from({ length: 101 }, () => ({
+      reservationId: randomUUID(), roomTypeId: randomUUID(), attemptId: randomUUID(), refundId: randomUUID(),
+    }));
+    const reservationIds = fixtures.map(fixture => fixture.reservationId);
+    const roomTypeIds = fixtures.map(fixture => fixture.roomTypeId);
+    const attemptIds = fixtures.map(fixture => fixture.attemptId);
+    const refundIds = fixtures.map(fixture => fixture.refundId);
+    await runtime.database.pool.query(`
+      INSERT INTO booking_reservation_reservations (
+        id, room_type_id, check_in_local_date, check_out_local_date, room_count, adults, children,
+        booker_name, booker_email, booker_phone, primary_guest_name, status, payment_expires_at,
+        currency, total_minor, nightly_prices, cancellation_policy, quote_fingerprint
+      )
+      SELECT reservation_id, room_type_id, '2026-10-01', '2026-10-02', 1, 1, 0,
+        'Reconcile Booker', 'reconcile@example.test', '000', 'Reconcile Guest', 'expired', clock_timestamp(),
+        'USD', 24690, '[]'::jsonb, '{}'::jsonb, 'booking-quote-v1:reconcile:${'a'.repeat(64)}'
+      FROM unnest($1::uuid[], $2::uuid[]) AS seed(reservation_id, room_type_id)
+    `, [reservationIds, roomTypeIds]);
+    await runtime.database.pool.query(`
+      INSERT INTO booking_reservation_payment_attempts (
+        id, reservation_id, reference, provider, method, amount_minor, currency, status,
+        provider_ref, expires_at, success_kind, succeeded_at
+      )
+      SELECT attempt_id, reservation_id, 'booking-payment:reconcile:' || attempt_id::text,
+        'booking-test-payment', 'deferred', 24690, 'USD', 'succeeded', 'reconcile-provider:' || attempt_id::text,
+        clock_timestamp(), 'late', clock_timestamp()
+      FROM unnest($1::uuid[], $2::uuid[]) AS seed(attempt_id, reservation_id)
+    `, [attemptIds, reservationIds]);
+    await runtime.database.pool.query(`
+      INSERT INTO booking_reservation_refunds (
+        id, reservation_id, payment_attempt_id, reason, provider, payment_provider_ref,
+        amount_minor, currency, provider_request_ref, status, generation, requested_at, updated_at
+      )
+      SELECT refund_id, reservation_id, attempt_id, 'late_payment', 'booking-test-payment',
+        'reconcile-provider:' || attempt_id::text, 24690, 'USD', 'booking-refund:' || refund_id::text,
+        'pending', 1, clock_timestamp() - interval '1 day', clock_timestamp() - interval '1 day'
+      FROM unnest($1::uuid[], $2::uuid[], $3::uuid[]) AS seed(refund_id, reservation_id, attempt_id)
+    `, [refundIds, reservationIds, attemptIds]);
+    const ordered = await runtime.database.pool.query<{ id: string }>(`
+      SELECT id FROM booking_reservation_refunds WHERE id = ANY($1::uuid[]) ORDER BY requested_at, id
+    `, [refundIds]);
+    const oldestRefundId = ordered.rows[0]!.id;
+    const deadJobId = randomUUID();
+    await runtime.database.pool.query(`
+      INSERT INTO platform_jobs (id, type, payload, dedupe_key, status, attempts, max_attempts, run_at)
+      VALUES ($1, 'booking.reservation.process-refund', jsonb_build_object('refundId', $2::text, 'generation', 1),
+        $3, 'dead', 5, 5, clock_timestamp())
+    `, [deadJobId, oldestRefundId, `booking-reservation:refund:${oldestRefundId}:1`]);
+    try {
+      await expect(runtime.commands.execute<{ enqueued: number }>(
+        'booking.reservation.reconcileRefunds', {}, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() },
+      )).resolves.toEqual({ enqueued: 100 });
+      await expect(runtime.database.pool.query('SELECT status FROM platform_jobs WHERE id = $1', [deadJobId]))
+        .resolves.toMatchObject({ rows: [{ status: 'pending' }] });
+      const firstPass = await runtime.database.pool.query<{ refund_id: string }>(`
+        SELECT payload->>'refundId' AS refund_id
+        FROM platform_jobs
+        WHERE type = 'booking.reservation.process-refund' AND payload->>'refundId' = ANY($1::text[])
+      `, [refundIds]);
+      expect(firstPass.rows).toHaveLength(100);
+      const laterRefundId = refundIds.find(refundId => !firstPass.rows.some(row => row.refund_id === refundId));
+      expect(laterRefundId).toBeDefined();
+      await runtime.database.pool.query("UPDATE booking_reservation_refunds SET status = 'failed' WHERE id = $1", [oldestRefundId]);
+      await expect(runtime.commands.execute<{ enqueued: number }>(
+        'booking.reservation.reconcileRefunds', {}, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() },
+      )).resolves.toEqual({ enqueued: 100 });
+      await expect(runtime.database.pool.query(`
+        SELECT payload->>'refundId' AS refund_id FROM platform_jobs
+        WHERE type = 'booking.reservation.process-refund' AND payload->>'refundId' = $1
+      `, [laterRefundId])).resolves.toMatchObject({ rows: [{ refund_id: laterRefundId }] });
+    } finally {
+      await runtime.database.pool.query(`
+        DELETE FROM platform_jobs
+        WHERE type = 'booking.reservation.process-refund' AND payload->>'refundId' = ANY($1::text[])
+      `, [refundIds]);
+    }
+  }, 120_000);
+
+  it('keeps cancellation refund zero/full/partial decisions exact and rejects invalid or changed evidence', async () => {
+    async function cancelledWinningPayment(code: string) {
+      const fixture = await createReservation(code);
+      const payment = await runtime.commands.execute<{ attempt: { id: string; reference: string; amountMinor: number } }>(
+        'booking.reservation.startPayment', { reservationId: fixture.reservation.id, method: 'deferred' },
+        { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+      );
+      await clearPaymentAttemptJobs(fixture.reservation.id);
+      await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+        type: 'payment_confirmed', reference: payment.attempt.reference, providerRef: `refund:cancellation:${code}`,
+      });
+      await runtime.database.pool.query("UPDATE booking_reservation_reservations SET status = 'cancelled' WHERE id = $1", [fixture.reservation.id]);
+      return { reservationId: fixture.reservation.id, paymentAttemptId: payment.attempt.id, amountMinor: payment.attempt.amountMinor };
+    }
+
+    const zero = await cancelledWinningPayment('refund-cancellation-zero');
+    await expect(createCancellationRefund({ ...zero, amountMinor: 0 })).resolves.toMatchObject({ refund: null, created: false });
+    await expect(runtime.database.pool.query('SELECT id FROM booking_reservation_refunds WHERE payment_attempt_id = $1', [zero.paymentAttemptId]))
+      .resolves.toMatchObject({ rows: [] });
+
+    const full = await cancelledWinningPayment('refund-cancellation-full');
+    const fullResult = await createCancellationRefund(full);
+    expect(fullResult).toMatchObject({ created: true, refund: {
+      reason: 'reservation_cancellation', amountMinor: full.amountMinor, currency: 'USD', status: 'pending',
+    } });
+
+    const partial = await cancelledWinningPayment('refund-cancellation-partial');
+    const partialAmount = 12_000;
+    const partialResult = await createCancellationRefund({ ...partial, amountMinor: partialAmount });
+    expect(partialResult).toMatchObject({ created: true, refund: {
+      reason: 'reservation_cancellation', amountMinor: partialAmount, currency: 'USD', status: 'pending',
+    } });
+    await expect(createCancellationRefund({ ...partial, amountMinor: partialAmount - 1 })).rejects.toMatchObject({ code: 'CONFLICT' });
+    await expect(createCancellationRefund({ ...partial, amountMinor: 0 })).rejects.toMatchObject({ code: 'CONFLICT' });
+
+    const overRefund = await cancelledWinningPayment('refund-cancellation-over-refund');
+    await expect(createCancellationRefund({ ...overRefund, amountMinor: overRefund.amountMinor + 1 }))
+      .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    const currencyMismatch = await cancelledWinningPayment('refund-cancellation-currency-mismatch');
+    await runtime.database.pool.query("UPDATE booking_reservation_reservations SET currency = 'TWD' WHERE id = $1", [currencyMismatch.reservationId]);
+    await expect(createCancellationRefund(currencyMismatch)).rejects.toMatchObject({ code: 'CONFLICT' });
+
+    await Promise.all([zero, full, partial, overRefund, currencyMismatch].map(refund => clearRefundJobs(refund.reservationId)));
+  }, 120_000);
+
+  it('upgrades an SW-128 database through 0009, backfills classified receipts, and lets the public reconciler enqueue provider work', async () => {
+    const upgradeContainer = await new PostgreSqlContainer('postgres:17-alpine')
+      .withDatabase('booking_reservation_upgrade')
+      .withUsername('booking')
+      .withPassword('booking')
+      .start();
+    let legacyRuntime: Runtime | undefined;
+    let upgradedRuntime: Runtime | undefined;
+    try {
+      const config = baseConfigSchema.parse({
+        version: 1, store: { id: 'booking-reservation-upgrade', name: 'Booking Reservation Upgrade' },
+        database: { url: upgradeContainer.getConnectionUri() }, logging: { level: 'error' },
+        security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
+      });
+      const secrets = {
+        get: (name: string) => name === 'SW_SIGNING_KEY_TEST' ? TEST_SECRET : undefined,
+        has: (name: string) => name === 'SW_SIGNING_KEY_TEST',
+        listNames: () => ['SW_SIGNING_KEY_TEST'],
+      };
+      const upgradeKeyring = resolveKeyring(config, secrets)!;
+      const propertyBinding = bindModuleCapability('booking-property', BOOKING_PROPERTY_READ_CAPABILITY, bookingPropertyRead);
+      const quoteReservationBinding = bindBookingAvailabilityQuoteReservation(propertyBinding, QUOTE_LIMITS, upgradeKeyring);
+      const roomNightOperationsBinding = bindModuleCapability(
+        'booking-availability', BOOKING_AVAILABILITY_ROOM_NIGHT_OPERATIONS_CAPABILITY, testRoomNightOperations,
+      );
+      const reservationModule = createBookingReservationModule(
+        quoteReservationBinding, roomNightOperationsBinding, createBookingReservationAccess(upgradeKeyring),
+        RETENTION_POLICY, bookingPaymentProvider,
+      );
+      const legacyReservationModule = {
+        ...reservationModule,
+        migrations: { ...bookingReservationMigrations, migrations: bookingReservationMigrations.migrations.slice(0, 8) },
+        data: { owns: ['booking_reservation_reservations', 'booking_reservation_payment_attempts'] },
+      };
+      const options = {
+        release: { id: 'booking-reservation-upgrade', version: '1.0.0', buildManifestChecksum: `sha256:${'7'.repeat(64)}` },
+        roles: BASE_ROLES, config, secrets, logger: noopLogger, availableExtensions: {},
+      };
+      legacyRuntime = await createRuntime({
+        ...options,
+        modules: [
+          createBookingAvailabilityModule(propertyBinding, QUOTE_LIMITS, upgradeKeyring),
+          createBookingPropertyModule(),
+          legacyReservationModule,
+        ],
+      });
+      await legacyRuntime.migrate();
+
+      const lateReservationId = randomUUID();
+      const lateAttemptId = randomUUID();
+      const excessReservationId = randomUUID();
+      const winnerAttemptId = randomUUID();
+      const excessAttemptId = randomUUID();
+      await legacyRuntime.database.pool.query(`
+          INSERT INTO booking_reservation_reservations (
+            id, room_type_id, check_in_local_date, check_out_local_date, room_count, adults, children,
+            booker_name, booker_email, booker_phone, primary_guest_name, status, payment_expires_at,
+            currency, total_minor, nightly_prices, cancellation_policy, quote_fingerprint
+          ) VALUES ($1, $2, '2026-10-01', '2026-10-02', 1, 1, 0,
+            'Legacy Booker', 'legacy@example.test', '000', 'Legacy Guest', $3, clock_timestamp(),
+            'USD', 24690, '[]'::jsonb, '{}'::jsonb, 'booking-quote-v1:legacy:${'a'.repeat(64)}')
+        `, [lateReservationId, randomUUID(), 'expired']);
+      await legacyRuntime.database.pool.query(`
+          INSERT INTO booking_reservation_payment_attempts (
+            id, reservation_id, reference, provider, method, amount_minor, currency, status,
+            provider_ref, expires_at, success_kind, succeeded_at
+          ) VALUES ($1, $2, $3, 'booking-test-payment', 'deferred', 24690, 'USD', 'succeeded', $4,
+            clock_timestamp(), $5, clock_timestamp())
+        `, [lateAttemptId, lateReservationId, 'booking-payment:legacy-late', 'legacy-provider:late', 'late']);
+      await legacyRuntime.database.transaction(async tx => {
+        await tx.execute(sql`
+          INSERT INTO booking_reservation_reservations (
+            id, room_type_id, check_in_local_date, check_out_local_date, room_count, adults, children,
+            booker_name, booker_email, booker_phone, primary_guest_name, status, payment_expires_at,
+            currency, total_minor, nightly_prices, cancellation_policy, quote_fingerprint
+          ) VALUES (${excessReservationId}, ${randomUUID()}, '2026-10-01', '2026-10-02', 1, 1, 0,
+            'Legacy Booker', 'legacy@example.test', '000', 'Legacy Guest', 'confirmed', clock_timestamp(),
+            'USD', 24690, '[]'::jsonb, '{}'::jsonb, ${`booking-quote-v1:legacy:${'a'.repeat(64)}`})
+        `);
+        await tx.execute(sql`
+          INSERT INTO booking_reservation_payment_attempts (
+            id, reservation_id, reference, provider, method, amount_minor, currency, status,
+            provider_ref, expires_at, success_kind, succeeded_at
+          ) VALUES (${winnerAttemptId}, ${excessReservationId}, 'booking-payment:legacy-winner',
+            'booking-test-payment', 'deferred', 24690, 'USD', 'succeeded', 'legacy-provider:winner',
+            clock_timestamp(), 'winning', clock_timestamp())
+        `);
+        await tx.execute(sql`
+          INSERT INTO booking_reservation_payment_attempts (
+            id, reservation_id, reference, provider, method, amount_minor, currency, status,
+            provider_ref, expires_at, success_kind, succeeded_at
+          ) VALUES (${excessAttemptId}, ${excessReservationId}, 'booking-payment:legacy-excess',
+            'booking-test-payment', 'deferred', 24690, 'USD', 'succeeded', 'legacy-provider:excess',
+            clock_timestamp(), 'excess', clock_timestamp())
+        `);
+        await tx.execute(sql`
+          UPDATE booking_reservation_reservations
+          SET winning_payment_attempt_id = ${winnerAttemptId}
+          WHERE id = ${excessReservationId}
+        `);
+      });
+      await legacyRuntime.close();
+      legacyRuntime = undefined;
+
+      upgradedRuntime = await createRuntime({
+        ...options,
+        modules: [
+          createBookingAvailabilityModule(propertyBinding, QUOTE_LIMITS, upgradeKeyring),
+          createBookingPropertyModule(),
+          reservationModule,
+        ],
+      });
+      await expect(upgradedRuntime.migrate()).resolves.toEqual(expect.arrayContaining([
+        'booking-reservation/0009_reservation_refunds',
+        'booking-reservation/0010_refund_attempt_reservation_integrity',
+      ]));
+      const backfilled = await upgradedRuntime.database.pool.query<{
+        refund_id: string; payment_attempt_id: string; reason: string; amount_minor: string; currency: string; status: string; provider_request_ref: string;
+      }>(`
+        SELECT id AS refund_id, payment_attempt_id, reason, amount_minor::text, currency, status, provider_request_ref
+        FROM booking_reservation_refunds WHERE payment_attempt_id = ANY($1::uuid[]) ORDER BY payment_attempt_id
+      `, [[lateAttemptId, excessAttemptId]]);
+      expect(backfilled.rows).toEqual(expect.arrayContaining([
+        expect.objectContaining({ payment_attempt_id: lateAttemptId, reason: 'late_payment', amount_minor: '24690', currency: 'USD', status: 'pending', provider_request_ref: expect.stringMatching(/^booking-refund:/) }),
+        expect.objectContaining({ payment_attempt_id: excessAttemptId, reason: 'excess_payment', amount_minor: '24690', currency: 'USD', status: 'pending', provider_request_ref: expect.stringMatching(/^booking-refund:/) }),
+      ]));
+      await expect(upgradedRuntime.database.pool.query(`
+        SELECT id FROM platform_jobs WHERE type = 'booking.reservation.process-refund'
+      `)).resolves.toMatchObject({ rows: [] });
+
+      await expect(upgradedRuntime.commands.execute<{ enqueued: number }>(
+        'booking.reservation.reconcileRefunds', {}, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() },
+      )).resolves.toEqual({ enqueued: 2 });
+      const reconciled = await upgradedRuntime.database.pool.query<{ refund_id: string; generation: string }>(`
+        SELECT payload->>'refundId' AS refund_id, payload->>'generation' AS generation
+        FROM platform_jobs WHERE type = 'booking.reservation.process-refund' ORDER BY payload->>'refundId'
+      `);
+      expect(reconciled.rows).toEqual(backfilled.rows.map(refund => ({ refund_id: refund.refund_id, generation: '1' }))
+        .sort((left, right) => left.refund_id.localeCompare(right.refund_id)));
+    } finally {
+      await Promise.allSettled([
+        ...(legacyRuntime ? [legacyRuntime.close()] : []),
+        ...(upgradedRuntime ? [upgradedRuntime.close()] : []),
+        upgradeContainer.stop(),
+      ]);
+    }
   }, 120_000);
 
   it('serializes verified callbacks after expiry and test-only cancellation as late payments', async () => {
@@ -753,6 +1269,17 @@ describe('Booking Reservation PostgreSQL integration', () => {
     ]));
     expect(await reservedCounts(expired.roomType.id)).toEqual([0, 0]);
     expect(await reservedCounts(cancelled.roomType.id)).toEqual([0, 0]);
+    const refundEvidence = await runtime.database.pool.query<{
+      payment_attempt_id: string; reason: string; amount_minor: string; status: string;
+    }>('SELECT payment_attempt_id, reason, amount_minor::text, status FROM booking_reservation_refunds WHERE payment_attempt_id = ANY($1::uuid[]) ORDER BY payment_attempt_id', [
+      [expiredAttempt.attempt.id, cancelledAttempt.attempt.id],
+    ]);
+    expect(refundEvidence.rows).toEqual(expect.arrayContaining([
+      { payment_attempt_id: expiredAttempt.attempt.id, reason: 'late_payment', amount_minor: '24690', status: 'pending' },
+      { payment_attempt_id: cancelledAttempt.attempt.id, reason: 'late_payment', amount_minor: '24690', status: 'pending' },
+    ]));
+    await clearRefundJobs(expired.reservation.id);
+    await clearRefundJobs(cancelled.reservation.id);
 
     const terminalAttemptsBefore = await runtime.database.pool.query<{
       id: string; status: string; success_kind: string; updated_at: Date;
@@ -907,6 +1434,7 @@ describe('Booking Reservation PostgreSQL integration', () => {
       success_kind: 'late', succeeded_at: expect.any(Date),
     }]);
     await clearPaymentAttemptJobs(reservation.id);
+    await clearRefundJobs(reservation.id);
     paymentResult = defaultPaymentResult;
   }, 120_000);
 

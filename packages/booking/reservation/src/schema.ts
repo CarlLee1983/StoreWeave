@@ -1,4 +1,4 @@
-import { bigint, check, date, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, check, date, foreignKey, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import type { BookingQuote } from '@storeweave/booking-availability';
 import type { PaymentInitiationResult } from '@storeweave/extension-sdk';
@@ -109,6 +109,9 @@ export const bookingReservationPaymentAttempts = pgTable('booking_reservation_pa
   uniqueIndex('booking_reservation_payment_attempt_reference_key').on(table.reference),
   uniqueIndex('booking_reservation_payment_attempt_provider_ref_key').on(table.provider, table.providerRef)
     .where(sql`${table.providerRef} IS NOT NULL`),
+  // This redundant-in-shape key is the SQL parent key for the Refund's
+  // composite FK: a Refund cannot point at an Attempt from another Reservation.
+  uniqueIndex('booking_reservation_payment_attempt_id_reservation_key').on(table.id, table.reservationId),
   uniqueIndex('booking_reservation_payment_attempt_active_reservation_key').on(table.reservationId)
     .where(sql`${table.status} IN ('created', 'submitted', 'awaiting_payment')`),
   uniqueIndex('booking_reservation_payment_attempt_winning_reservation_key').on(table.reservationId)
@@ -116,3 +119,57 @@ export const bookingReservationPaymentAttempts = pgTable('booking_reservation_pa
 ]);
 
 export type BookingReservationPaymentAttemptRow = typeof bookingReservationPaymentAttempts.$inferSelect;
+
+/** Immutable required-refund header; each refunded received payment owns one. */
+export const bookingReservationRefunds = pgTable('booking_reservation_refunds', {
+  id: uuid('id').primaryKey(),
+  reservationId: uuid('reservation_id').notNull().references(() => bookingReservationReservations.id),
+  paymentAttemptId: uuid('payment_attempt_id').notNull().references(() => bookingReservationPaymentAttempts.id),
+  reason: text('reason').$type<'late_payment' | 'excess_payment' | 'reservation_cancellation'>().notNull(),
+  provider: text('provider').notNull(),
+  paymentProviderRef: text('payment_provider_ref').notNull(),
+  amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
+  currency: text('currency').notNull(),
+  providerRequestRef: text('provider_request_ref').notNull(),
+  status: text('status').$type<'pending' | 'succeeded' | 'failed'>().notNull().default('pending'),
+  generation: integer('generation').notNull().default(1),
+  providerRefundRef: text('provider_refund_ref'),
+  failureKind: text('failure_kind').$type<'rejected' | 'unsupported' | 'indeterminate' | null>(),
+  failureMessage: text('failure_message'),
+  requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  check('booking_reservation_refund_reason_check', sql`${table.reason} IN ('late_payment', 'excess_payment', 'reservation_cancellation')`),
+  check('booking_reservation_refund_amount_check', sql`${table.amountMinor} > 0`),
+  check('booking_reservation_refund_currency_check', sql`${table.currency} ~ '^[A-Z]{3}$'`),
+  check('booking_reservation_refund_generation_check', sql`${table.generation} >= 1`),
+  check('booking_reservation_refund_status_check', sql`${table.status} IN ('pending', 'succeeded', 'failed')`),
+  uniqueIndex('booking_reservation_refund_attempt_key').on(table.paymentAttemptId),
+  uniqueIndex('booking_reservation_refund_request_key').on(table.providerRequestRef),
+  index('booking_reservation_refund_reservation_idx').on(table.reservationId, table.requestedAt),
+  foreignKey({
+    columns: [table.paymentAttemptId, table.reservationId],
+    foreignColumns: [bookingReservationPaymentAttempts.id, bookingReservationPaymentAttempts.reservationId],
+    name: 'booking_reservation_refund_attempt_reservation_fk',
+  }),
+]);
+export type BookingReservationRefundRow = typeof bookingReservationRefunds.$inferSelect;
+
+/** Append-only provider invocation evidence; never overwrite an uncertain call. */
+export const bookingReservationRefundInvocations = pgTable('booking_reservation_refund_invocations', {
+  id: uuid('id').primaryKey(),
+  refundId: uuid('refund_id').notNull().references(() => bookingReservationRefunds.id),
+  generation: integer('generation').notNull(),
+  workerAttempt: integer('worker_attempt').notNull(),
+  outcome: text('outcome').$type<'succeeded' | 'rejected' | 'unsupported' | 'indeterminate'>().notNull(),
+  providerRefundRef: text('provider_refund_ref'),
+  message: text('message'),
+  invokedAt: timestamp('invoked_at', { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  check('booking_reservation_refund_invocation_generation_check', sql`${table.generation} >= 1`),
+  check('booking_reservation_refund_invocation_worker_attempt_check', sql`${table.workerAttempt} >= 1`),
+  check('booking_reservation_refund_invocation_outcome_check', sql`${table.outcome} IN ('succeeded', 'rejected', 'unsupported', 'indeterminate')`),
+  uniqueIndex('booking_reservation_refund_invocation_key').on(table.refundId, table.generation, table.workerAttempt),
+]);
+export type BookingReservationRefundInvocationRow = typeof bookingReservationRefundInvocations.$inferSelect;
