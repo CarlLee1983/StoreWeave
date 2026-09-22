@@ -1,14 +1,16 @@
 import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
-import type { Tx } from '@storeweave/contracts';
+import type { DrizzleDb, Tx } from '@storeweave/contracts';
 import { BOOKING_RESERVATION_ACTIVE_PAYMENT_ATTEMPT_STATUSES } from './types';
 import {
   bookingReservationPaymentAttempts,
+  bookingReservationNotificationLinks,
   bookingReservationRefundInvocations,
   bookingReservationRefunds,
   bookingReservationReservations,
   type BookingReservationRefundInvocationRow,
   type BookingReservationRefundRow,
   type BookingReservationPaymentAttemptRow,
+  type BookingReservationNotificationLinkRow,
   type BookingReservationRow,
 } from './schema';
 
@@ -348,6 +350,49 @@ export class BookingReservationRepository {
   async listPendingRefunds(tx: Tx): Promise<BookingReservationRefundRow[]> {
     return tx.select().from(bookingReservationRefunds).where(eq(bookingReservationRefunds.status, 'pending'))
       .orderBy(asc(bookingReservationRefunds.requestedAt), asc(bookingReservationRefunds.id)).limit(100);
+  }
+
+  async findNotificationLinkByEventTemplate(
+    tx: Tx,
+    eventId: string,
+    templateId: BookingReservationNotificationLinkRow['templateId'],
+  ): Promise<BookingReservationNotificationLinkRow | undefined> {
+    const [row] = await tx.select().from(bookingReservationNotificationLinks).where(and(
+      eq(bookingReservationNotificationLinks.eventId, eventId),
+      eq(bookingReservationNotificationLinks.templateId, templateId),
+    ));
+    return row;
+  }
+
+  async insertNotificationLink(
+    tx: Tx,
+    values: typeof bookingReservationNotificationLinks.$inferInsert,
+  ): Promise<BookingReservationNotificationLinkRow | undefined> {
+    const [row] = await tx.insert(bookingReservationNotificationLinks).values(values).onConflictDoNothing().returning();
+    return row;
+  }
+
+  async updateNotificationLink(
+    tx: Tx,
+    id: string,
+    values: Partial<Pick<typeof bookingReservationNotificationLinks.$inferInsert, 'mappingStatus' | 'mappingFailureCode'>>,
+    now: Date,
+  ): Promise<BookingReservationNotificationLinkRow | undefined> {
+    const [row] = await tx.update(bookingReservationNotificationLinks).set({ ...values, updatedAt: now })
+      .where(eq(bookingReservationNotificationLinks.id, id)).returning();
+    return row;
+  }
+
+  async listNotificationLinks(
+    db: DrizzleDb | Tx,
+    input: { reservationId: string; limit: number; offset: number },
+  ): Promise<{ items: BookingReservationNotificationLinkRow[]; total: number }> {
+    const where = eq(bookingReservationNotificationLinks.reservationId, input.reservationId);
+    const items = await db.select().from(bookingReservationNotificationLinks).where(where)
+      .orderBy(desc(bookingReservationNotificationLinks.createdAt), desc(bookingReservationNotificationLinks.id))
+      .limit(input.limit).offset(input.offset);
+    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(bookingReservationNotificationLinks).where(where);
+    return { items, total: Number(count) };
   }
 
   async nextRefundWorkerAttempt(tx: Tx, refundId: string, generation: number): Promise<number> {

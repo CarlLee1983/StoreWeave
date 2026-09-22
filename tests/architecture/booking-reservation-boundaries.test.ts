@@ -85,8 +85,10 @@ describe('Booking Reservation package boundary', () => {
     expect(module.data?.owns).toEqual([
       'booking_reservation_reservations', 'booking_reservation_payment_attempts',
       'booking_reservation_refunds', 'booking_reservation_refund_invocations',
+      'booking_reservation_notification_links',
     ]);
     expect(module.dependencies?.required).toContainEqual({ name: 'booking-availability', versionRange: '^0.1.0' });
+    expect(module.dependencies?.required).toContainEqual({ name: 'platform-notifications', versionRange: '^0.1.0' });
     expect(module.capabilities?.required).toContainEqual({
       from: 'booking-availability',
       capability: BOOKING_AVAILABILITY_QUOTE_RESERVATION_CAPABILITY,
@@ -110,11 +112,13 @@ describe('Booking Reservation package boundary', () => {
       'booking.reservation.retryRefund', 'booking.reservation.reconcileRefunds',
       'booking.reservation.expire',
       'booking.reservation.claim', 'booking.reservation.updateManagedDetails', 'booking.reservation.anonymizeExpiredPii',
+      'booking.reservation.materializeNotification', 'booking.reservation.recordNotificationMappingFailure',
     ]);
     expect(module.queries?.map(query => query.descriptor.name)).toEqual([
       'booking.reservation.getPaymentAttemptForProcessing',
       'booking.reservation.getRefundForProcessing', 'booking.reservation.listRefunds',
       'booking.reservation.getOwned', 'booking.reservation.getManaged',
+      'booking.reservation.listNotifications',
     ]);
     expect(module.jobs?.map(job => job.type)).toContain('booking.reservation.anonymize-expired-pii');
     expect(module.jobs?.find(job => job.type === 'booking.reservation.anonymize-expired-pii')?.schedule)
@@ -149,10 +153,19 @@ describe('Booking Reservation package boundary', () => {
     expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS pii_anonymized_at timestamptz/);
     expect(migration).toContain('booking_reservation_anonymized_state_check');
     expect(migration).toMatch(/CREATE INDEX IF NOT EXISTS booking_reservation_retention_candidate_idx[\s\S]*?WHERE pii_anonymized_at IS NULL/i);
+    expect(migration).toContain('booking_reservation_notification_links');
+    expect(bookingReservationMigrations.migrations.map(entry => entry.id)).toContain('0011_reservation_notification_links');
+    expect(migration).toContain("mapping_status IN ('pending', 'requested', 'mapping_failed', 'mapping_retryable', 'superseded')");
+    expect(migration).toContain('UNIQUE (event_id, template_id)');
+    expect(migration).not.toMatch(/booking_reservation_notification_links[\s\S]*?INSERT INTO/i);
+    expect(module.events?.map(event => event.name)).toEqual([
+      'booking.reservation.confirmed.v1', 'booking.reservation.cancelled.v1', 'booking.reservation.paymentExpiring.v1',
+    ]);
     expect(source).not.toMatch(/@storeweave\/(?:catalog|inventory|order|cart|customer|commerce)/);
     expect(source).not.toMatch(/@storeweave\/(?:identity|customer)/);
     expect(source).not.toMatch(/platform_users/);
-    expect(source).not.toMatch(/@storeweave\/(?:payment|notification)/i);
+    expect(source).not.toMatch(/@storeweave\/payment/i);
+    expect(source).not.toMatch(/@storeweave\/notification(?!s)/i);
     expect(source).not.toMatch(/@storeweave\/payment/i);
     expect(source).not.toMatch(/booking_availability_(?:room_nights|room_type_prices)/);
     expect(source).not.toMatch(/(?:fetch\(|axios|node:http|node:https)/);

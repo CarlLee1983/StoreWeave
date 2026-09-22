@@ -340,6 +340,22 @@ async function managementCredentialFor(reservationId: string) {
   return (await runtime.database.transaction(tx => reservationAccess.redeemGrant(tx, { grantToken: issued.grantToken }))).managementCredential;
 }
 
+async function drainBookingNotificationWork() {
+  const worker = new Worker(runtime, { workerId: `booking-notification-${randomUUID().slice(0, 8)}`, concurrency: 1 });
+  let relayed = 0;
+  let processed = 0;
+  let failed = 0;
+  for (let round = 0; round < 12; round += 1) {
+    const relay = await worker.relayOutbox();
+    const jobs = await worker.runJobs();
+    relayed += relay.relayed;
+    processed += jobs.processed;
+    failed += jobs.failed;
+    if (relay.relayed === 0 && jobs.processed === 0 && jobs.failed === 0) break;
+  }
+  return { relayed, processed, failed };
+}
+
 async function enqueueRetentionJob(dedupeKey: string) {
   const clock = await runtime.database.pool.query<{ now: Date }>('SELECT pg_catalog.clock_timestamp() AS now');
   await runtime.database.transaction(tx => runtime.jobs.enqueue(tx, {
@@ -2877,5 +2893,284 @@ describe('Booking Reservation PostgreSQL integration', () => {
       JOIN booking_reservation_refunds f ON f.reservation_id = r.id WHERE r.id = $1
     `, [failed.reservation.id]);
     expect(failedState.rows).toEqual([{ status: 'cancelled', refund_status: 'failed' }]);
+  }, 120_000);
+
+  it('materializes each current Reservation event once through Base notifications, with a redeem-once Grant and masked operator evidence', async () => {
+    const expiring = await createReservation('notification-payment-expiring');
+    const expiringAttempt = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: expiring.reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(expiring.reservation.id);
+    const providerExpiry = new Date(new Date(expiring.reservation.paymentExpiresAt).getTime() - 30_000).toISOString();
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_info_issued', reference: expiringAttempt.attempt.reference, providerRef: 'notification:payment-expiring',
+      instructions: [{ label: 'Bank code', value: '123456' }], expiresAt: providerExpiry,
+    });
+
+    const confirmed = await createReservation('notification-confirmed');
+    const confirmedAttempt = await confirmReservationForCancellation(confirmed.reservation.id);
+    const cancelled = await createReservation('notification-cancelled');
+    await runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: cancelled.reservation.id, refundAmountMinor: 0, reason: 'notification fixture',
+    }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() });
+
+    await expect(drainBookingNotificationWork()).resolves.toMatchObject({ failed: 0 });
+    const reservationIds = [expiring.reservation.id, confirmed.reservation.id, cancelled.reservation.id];
+    const links = await runtime.database.pool.query<{
+      reservation_id: string; event_id: string; kind: string; template_id: string; reference: string; mapping_status: string;
+    }>(`SELECT reservation_id, event_id, kind, template_id, reference, mapping_status
+      FROM booking_reservation_notification_links WHERE reservation_id = ANY($1::uuid[]) ORDER BY kind`, [reservationIds]);
+    expect(links.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reservation_id: expiring.reservation.id, kind: 'payment-expiring', template_id: 'booking.reservation.payment-expiring', mapping_status: 'requested' }),
+      expect.objectContaining({ reservation_id: confirmed.reservation.id, kind: 'confirmed', template_id: 'booking.reservation.confirmed', mapping_status: 'requested' }),
+      expect.objectContaining({ reservation_id: cancelled.reservation.id, kind: 'cancelled', template_id: 'booking.reservation.cancelled', mapping_status: 'requested' }),
+    ]));
+    expect(links.rows).toHaveLength(3);
+    const requests = await runtime.database.pool.query<{
+      reference: string; template_id: string; recipient_email: string; variables: { accessGrant: string; accessGrantExpiresAt: string };
+    }>(`SELECT reference, template_id, recipient_email, variables
+      FROM platform_notifications WHERE reference = ANY($1::text[]) ORDER BY template_id`, [links.rows.map(link => link.reference)]);
+    expect(requests.rows).toHaveLength(3);
+    expect(requests.rows.map(row => row.template_id).sort()).toEqual([
+      'booking.reservation.cancelled', 'booking.reservation.confirmed', 'booking.reservation.payment-expiring',
+    ]);
+    expect(requests.rows.every(row => row.recipient_email === 'private.booker@example.test')).toBe(true);
+
+    const expiringLink = links.rows.find(link => link.reservation_id === expiring.reservation.id)!;
+    const expiringRequest = requests.rows.find(row => row.reference === expiringLink.reference)!;
+    expect(expiringRequest.variables.accessGrant).toEqual(expect.any(String));
+    expect(JSON.stringify(expiringRequest)).not.toMatch(/(?:managementCredential|managementToken|brm1\.)/i);
+    await expect(runtime.database.transaction(tx => reservationAccess.redeemGrant(tx, {
+      grantToken: expiringRequest.variables.accessGrant,
+    }))).resolves.toMatchObject({ managementCredential: expect.stringMatching(/^brm1\./) });
+    await expect(runtime.database.transaction(tx => reservationAccess.redeemGrant(tx, {
+      grantToken: expiringRequest.variables.accessGrant,
+    }))).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+
+    // A replayed event materialization converges on its existing link/reference
+    // instead of issuing another Grant or creating another Base request.
+    await runtime.commands.execute('booking.reservation.materializeNotification', {
+      eventId: expiringLink.event_id, kind: 'payment-expiring', reservationId: expiring.reservation.id,
+      paymentAttemptId: expiringAttempt.attempt.id, expiresAt: providerExpiry,
+    }, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() });
+    const replayCounts = await runtime.database.pool.query<{ links: string; requests: string }>(`
+      SELECT
+        (SELECT count(*)::text FROM booking_reservation_notification_links WHERE reference = $1) AS links,
+        (SELECT count(*)::text FROM platform_notifications WHERE reference = $1) AS requests
+    `, [expiringLink.reference]);
+    expect(replayCounts.rows).toEqual([{ links: '1', requests: '1' }]);
+
+    // The Base delivery record is the source of truth. Simulate a terminal
+    // provider result and verify the Booking operator projection masks it.
+    await runtime.database.pool.query(`UPDATE platform_notification_deliveries d
+      SET status = 'failed', last_error = 'mail rejected private.booker@example.test'
+      FROM platform_notifications n WHERE n.id = d.notification_id AND n.reference = $1`, [expiringLink.reference]);
+    const evidence = await runtime.queries.execute<any>('booking.reservation.listNotifications', {
+      reservationId: expiring.reservation.id, limit: 20, offset: 0,
+    }, { actor: actor(['booking-reservation:notification-read']) });
+    expect(evidence.items).toEqual([expect.objectContaining({
+      reference: expiringLink.reference,
+      deliveries: [expect.objectContaining({ status: 'failed', recipientMasked: 'p***@example.test', lastError: 'mail rejected p***@example.test' })],
+    })]);
+    expect(JSON.stringify(evidence)).not.toContain('private.booker@example.test');
+    const unchanged = await runtime.database.pool.query<{ status: string; reserved: string }>(`
+      SELECT r.status, count(*)::text AS reserved
+      FROM booking_reservation_reservations r
+      JOIN booking_availability_room_nights n ON n.room_type_id = r.room_type_id
+      WHERE r.id = $1 GROUP BY r.status`, [expiring.reservation.id]);
+    expect(unchanged.rows).toEqual([{ status: 'pending_payment', reserved: '2' }]);
+    expect(confirmedAttempt.id).toEqual(expect.any(String));
+  }, 120_000);
+
+  it('records a failed event-to-notification mapping separately while leaving the cancelled Reservation and released Room Nights intact', async () => {
+    const fixture = await createReservation('notification-mapping-failure');
+    await runtime.database.pool.query('UPDATE booking_reservation_reservations SET booker_email = NULL WHERE id = $1', [fixture.reservation.id]);
+    await runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: fixture.reservation.id, refundAmountMinor: 0, reason: 'mapping failure fixture',
+    }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() });
+    await expect(drainBookingNotificationWork()).resolves.toMatchObject({ failed: 1 });
+    const mapping = await runtime.database.pool.query<{ mapping_status: string; mapping_failure_code: string; reference: string }>(`
+      SELECT mapping_status, mapping_failure_code, reference FROM booking_reservation_notification_links
+      WHERE reservation_id = $1`, [fixture.reservation.id]);
+    expect(mapping.rows).toEqual([{ mapping_status: 'mapping_failed', mapping_failure_code: 'booker_unavailable', reference: expect.any(String) }]);
+    const requestCount = await runtime.database.pool.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM platform_notifications WHERE reference = $1', [mapping.rows[0]!.reference],
+    );
+    expect(requestCount.rows).toEqual([{ count: '0' }]);
+    expect(await reservedCounts(fixture.roomType.id)).toEqual([0, 0]);
+    const reservation = await runtime.database.pool.query<{ status: string }>(
+      'SELECT status FROM booking_reservation_reservations WHERE id = $1', [fixture.reservation.id],
+    );
+    expect(reservation.rows).toEqual([{ status: 'cancelled' }]);
+  }, 120_000);
+
+  it('keeps a transient Base materialization failure retryable, then the same event creates exactly one request', async () => {
+    const fixture = await createReservation('notification-retryable-materialization');
+    const started = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: fixture.reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(fixture.reservation.id);
+    const expiresAt = new Date(new Date(fixture.reservation.paymentExpiresAt).getTime() - 30_000).toISOString();
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_info_issued', reference: started.attempt.reference, providerRef: 'notification:retryable',
+      instructions: [{ label: 'Bank code', value: '123456' }], expiresAt,
+    });
+    await runtime.database.pool.query(`CREATE OR REPLACE FUNCTION public.fail_booking_notification_materialization()
+      RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+        IF NEW.reference LIKE 'booking-reservation:%' THEN RAISE EXCEPTION 'temporary notification storage failure'; END IF;
+        RETURN NEW;
+      END; $$;
+      CREATE TRIGGER booking_notification_materialization_failure
+      BEFORE INSERT ON public.platform_notifications
+      FOR EACH ROW EXECUTE FUNCTION public.fail_booking_notification_materialization();`);
+    try {
+      await expect(drainBookingNotificationWork()).resolves.toMatchObject({ failed: 1 });
+    } finally {
+      await runtime.database.pool.query(`DROP TRIGGER IF EXISTS booking_notification_materialization_failure ON public.platform_notifications;
+        DROP FUNCTION IF EXISTS public.fail_booking_notification_materialization();`);
+    }
+    const first = await runtime.database.pool.query<{
+      event_id: string; mapping_status: string; mapping_failure_code: string; reference: string;
+    }>(`SELECT event_id, mapping_status, mapping_failure_code, reference
+      FROM booking_reservation_notification_links WHERE reservation_id = $1`, [fixture.reservation.id]);
+    expect(first.rows).toEqual([expect.objectContaining({
+      mapping_status: 'mapping_retryable', mapping_failure_code: 'materialization_retryable', reference: expect.any(String),
+    })]);
+    const eventId = first.rows[0]!.event_id;
+    await runtime.database.pool.query(`UPDATE platform_jobs SET status = 'pending', run_at = pg_catalog.clock_timestamp()
+      WHERE type = 'platform.event.deliver' AND payload->'event'->>'id' = $1`, [eventId]);
+    await expect(drainBookingNotificationWork()).resolves.toMatchObject({ failed: 0 });
+    const final = await runtime.database.pool.query<{ mapping_status: string; mapping_failure_code: string | null; reference: string }>(`
+      SELECT mapping_status, mapping_failure_code, reference FROM booking_reservation_notification_links WHERE reservation_id = $1
+    `, [fixture.reservation.id]);
+    expect(final.rows).toEqual([{ mapping_status: 'requested', mapping_failure_code: null, reference: first.rows[0]!.reference }]);
+    const counts = await runtime.database.pool.query<{ links: string; requests: string }>(`
+      SELECT
+        (SELECT count(*)::text FROM booking_reservation_notification_links WHERE reservation_id = $1) AS links,
+        (SELECT count(*)::text FROM platform_notifications WHERE reference = $2) AS requests
+    `, [fixture.reservation.id, first.rows[0]!.reference]);
+    expect(counts.rows).toEqual([{ links: '1', requests: '1' }]);
+  }, 120_000);
+
+  it('upgrades a retryable event mapping to terminal Booker evidence and lets the following event retry settle', async () => {
+    const fixture = await createReservation('notification-retryable-then-terminal');
+    const started = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', { reservationId: fixture.reservation.id, method: 'deferred' },
+      { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(fixture.reservation.id);
+    const expiresAt = new Date(new Date(fixture.reservation.paymentExpiresAt).getTime() - 30_000).toISOString();
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_info_issued', reference: started.attempt.reference, providerRef: 'notification:retryable-terminal',
+      instructions: [{ label: 'Bank code', value: '123456' }], expiresAt,
+    });
+    await runtime.database.pool.query(`CREATE OR REPLACE FUNCTION public.fail_booking_notification_materialization()
+      RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+        IF NEW.reference LIKE 'booking-reservation:%' THEN RAISE EXCEPTION 'temporary notification storage failure'; END IF;
+        RETURN NEW;
+      END; $$;
+      CREATE TRIGGER booking_notification_materialization_failure
+      BEFORE INSERT ON public.platform_notifications
+      FOR EACH ROW EXECUTE FUNCTION public.fail_booking_notification_materialization();`);
+    try {
+      await expect(drainBookingNotificationWork()).resolves.toMatchObject({ failed: 1 });
+    } finally {
+      await runtime.database.pool.query(`DROP TRIGGER IF EXISTS booking_notification_materialization_failure ON public.platform_notifications;
+        DROP FUNCTION IF EXISTS public.fail_booking_notification_materialization();`);
+    }
+    const retryable = await runtime.database.pool.query<{ event_id: string }>(`
+      SELECT event_id FROM booking_reservation_notification_links WHERE reservation_id = $1 AND mapping_status = 'mapping_retryable'
+    `, [fixture.reservation.id]);
+    const eventId = retryable.rows[0]!.event_id;
+    await runtime.database.pool.query('UPDATE booking_reservation_reservations SET booker_email = NULL WHERE id = $1', [fixture.reservation.id]);
+    await runtime.database.pool.query(`UPDATE platform_jobs SET status = 'pending', run_at = pg_catalog.clock_timestamp()
+      WHERE type = 'platform.event.deliver' AND payload->'event'->>'id' = $1`, [eventId]);
+    await expect(drainBookingNotificationWork()).resolves.toMatchObject({ failed: 1 });
+    await expect(runtime.database.pool.query(`SELECT mapping_status, mapping_failure_code
+      FROM booking_reservation_notification_links WHERE reservation_id = $1`, [fixture.reservation.id]))
+      .resolves.toMatchObject({ rows: [{ mapping_status: 'mapping_failed', mapping_failure_code: 'booker_unavailable' }] });
+    // Terminal linkage short-circuits the event's next delivery without ever
+    // issuing a grant or creating a Base request.
+    await runtime.database.pool.query(`UPDATE platform_jobs SET status = 'pending', run_at = pg_catalog.clock_timestamp()
+      WHERE type = 'platform.event.deliver' AND payload->'event'->>'id' = $1`, [eventId]);
+    await expect(drainBookingNotificationWork()).resolves.toMatchObject({ failed: 0 });
+    await expect(runtime.database.pool.query<{ count: string }>(`
+      SELECT count(*)::text AS count FROM platform_notifications
+      WHERE reference LIKE 'booking-reservation:' || $1 || ':%'
+    `, [eventId])).resolves.toMatchObject({ rows: [{ count: '0' }] });
+  }, 120_000);
+
+  it('upgrades a persisted 0011 materialization failure forward into retryable evidence', async () => {
+    const upgradeContainer = await new PostgreSqlContainer('postgres:17-alpine')
+      .withDatabase('booking_notification_0011_upgrade').withUsername('booking').withPassword('booking').start();
+    let legacyRuntime: Runtime | undefined;
+    let upgradedRuntime: Runtime | undefined;
+    try {
+      const config = baseConfigSchema.parse({
+        version: 1, store: { id: 'booking-notification-0011-upgrade', name: 'Booking Notification 0011 Upgrade' },
+        database: { url: upgradeContainer.getConnectionUri() }, logging: { level: 'error' },
+        security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
+      });
+      const secrets = {
+        get: (name: string) => name === 'SW_SIGNING_KEY_TEST' ? TEST_SECRET : undefined,
+        has: (name: string) => name === 'SW_SIGNING_KEY_TEST', listNames: () => ['SW_SIGNING_KEY_TEST'],
+      };
+      const upgradeKeyring = resolveKeyring(config, secrets)!;
+      const propertyBinding = bindModuleCapability('booking-property', BOOKING_PROPERTY_READ_CAPABILITY, bookingPropertyRead);
+      const quoteReservationBinding = bindBookingAvailabilityQuoteReservation(propertyBinding, QUOTE_LIMITS, upgradeKeyring);
+      const roomNightOperationsBinding = bindModuleCapability(
+        'booking-availability', BOOKING_AVAILABILITY_ROOM_NIGHT_OPERATIONS_CAPABILITY, testRoomNightOperations,
+      );
+      const reservationModule = createBookingReservationModule(
+        quoteReservationBinding, roomNightOperationsBinding, createBookingReservationAccess(upgradeKeyring),
+        RETENTION_POLICY, bookingPaymentProvider,
+      );
+      const legacyReservationModule = {
+        ...reservationModule,
+        migrations: { ...bookingReservationMigrations, migrations: bookingReservationMigrations.migrations.slice(0, 11) },
+      };
+      const options = {
+        release: { id: 'booking-notification-0011-upgrade', version: '1.0.0', buildManifestChecksum: `sha256:${'6'.repeat(64)}` },
+        roles: BASE_ROLES, config, secrets, logger: noopLogger, availableExtensions: {},
+      };
+      legacyRuntime = await createRuntime({
+        ...options,
+        modules: [
+          createBookingAvailabilityModule(propertyBinding, QUOTE_LIMITS, upgradeKeyring), createBookingPropertyModule(), legacyReservationModule,
+        ],
+      });
+      await legacyRuntime.migrate();
+      const reservationId = randomUUID();
+      const eventId = randomUUID();
+      await legacyRuntime.database.pool.query(`INSERT INTO booking_reservation_reservations (
+        id, room_type_id, check_in_local_date, check_out_local_date, room_count, adults, children,
+        booker_name, booker_email, booker_phone, primary_guest_name, status, payment_expires_at,
+        currency, total_minor, nightly_prices, cancellation_policy, quote_fingerprint
+      ) VALUES ($1, $2, '2026-10-01', '2026-10-02', 1, 1, 0,
+        'Legacy Booker', 'legacy@example.test', '000', 'Legacy Guest', 'pending_payment', clock_timestamp(),
+        'USD', 24690, '[]'::jsonb, '{}'::jsonb, 'booking-quote-v1:legacy:${'b'.repeat(64)}')`, [reservationId, randomUUID()]);
+      await legacyRuntime.database.pool.query(`INSERT INTO booking_reservation_notification_links (
+        id, reservation_id, event_id, kind, template_id, reference, mapping_status, mapping_failure_code
+      ) VALUES ($1, $2, $3, 'payment-expiring', 'booking.reservation.payment-expiring', $4,
+        'mapping_failed', 'materialization_failed')`, [randomUUID(), reservationId, eventId, `booking-reservation:${eventId}:booking.reservation.payment-expiring`]);
+      await legacyRuntime.close();
+      legacyRuntime = undefined;
+
+      upgradedRuntime = await createRuntime({
+        ...options,
+        modules: [
+          createBookingAvailabilityModule(propertyBinding, QUOTE_LIMITS, upgradeKeyring), createBookingPropertyModule(), reservationModule,
+        ],
+      });
+      await expect(upgradedRuntime.migrate()).resolves.toContain('booking-reservation/0012_reservation_notification_retryable_mapping_failure');
+      await expect(upgradedRuntime.database.pool.query(`SELECT mapping_status, mapping_failure_code
+        FROM booking_reservation_notification_links WHERE reservation_id = $1`, [reservationId]))
+        .resolves.toMatchObject({ rows: [{ mapping_status: 'mapping_retryable', mapping_failure_code: 'materialization_retryable' }] });
+    } finally {
+      await Promise.allSettled([...(legacyRuntime ? [legacyRuntime.close()] : []), ...(upgradedRuntime ? [upgradedRuntime.close()] : [])]);
+      await upgradeContainer.stop();
+    }
   }, 120_000);
 });

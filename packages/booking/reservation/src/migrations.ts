@@ -333,5 +333,49 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+`), sqlMigration('0011_reservation_notification_links', 'expand', `
+CREATE TABLE IF NOT EXISTS public.booking_reservation_notification_links (
+  id uuid PRIMARY KEY,
+  reservation_id uuid NOT NULL REFERENCES public.booking_reservation_reservations(id),
+  event_id uuid NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('confirmed', 'cancelled', 'payment-expiring')),
+  template_id text NOT NULL CHECK (template_id IN ('booking.reservation.confirmed', 'booking.reservation.cancelled', 'booking.reservation.payment-expiring')),
+  reference text NOT NULL UNIQUE CHECK (length(reference) BETWEEN 1 AND 240),
+  mapping_status text NOT NULL DEFAULT 'pending' CHECK (mapping_status IN ('pending', 'requested', 'mapping_failed', 'superseded')),
+  mapping_failure_code text CHECK (mapping_failure_code IN ('materialization_failed')),
+  created_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+  updated_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+  CONSTRAINT booking_reservation_notification_failure_code_check CHECK (
+    (mapping_failure_code IS NULL) = (mapping_status <> 'mapping_failed')
+  ),
+  UNIQUE (event_id, template_id)
+);
+CREATE INDEX IF NOT EXISTS booking_reservation_notification_reservation_idx
+  ON public.booking_reservation_notification_links (reservation_id, created_at DESC);
+`), sqlMigration('0012_reservation_notification_retryable_mapping_failure', 'expand', `
+ALTER TABLE public.booking_reservation_notification_links
+  DROP CONSTRAINT IF EXISTS booking_reservation_notification_links_mapping_status_check,
+  DROP CONSTRAINT IF EXISTS booking_reservation_notification_lin_mapping_status_check,
+  DROP CONSTRAINT IF EXISTS booking_reservation_notification_links_mapping_failure_code_check,
+  DROP CONSTRAINT IF EXISTS booking_reservation_notification_lin_mapping_failure_code_check,
+  DROP CONSTRAINT IF EXISTS booking_reservation_notification_failure_code_check;
+
+-- 0011 recorded every materialization error as terminal. Those rows were not
+-- evidence of malformed Booking content, so retain them as visible retryable
+-- work before replacing the narrower failure-code contract.
+UPDATE public.booking_reservation_notification_links
+SET mapping_status = 'mapping_retryable', mapping_failure_code = 'materialization_retryable'
+WHERE mapping_status = 'mapping_failed' AND mapping_failure_code = 'materialization_failed';
+
+ALTER TABLE public.booking_reservation_notification_links
+  ADD CONSTRAINT booking_reservation_notification_links_mapping_status_check
+    CHECK (mapping_status IN ('pending', 'requested', 'mapping_failed', 'mapping_retryable', 'superseded')),
+  ADD CONSTRAINT booking_reservation_notification_links_mapping_failure_code_check
+    CHECK (mapping_failure_code IS NULL OR mapping_failure_code IN ('booker_unavailable', 'materialization_retryable')),
+  ADD CONSTRAINT booking_reservation_notification_failure_code_check CHECK (
+    (mapping_status = 'mapping_failed' AND mapping_failure_code = 'booker_unavailable')
+    OR (mapping_status = 'mapping_retryable' AND mapping_failure_code = 'materialization_retryable')
+    OR (mapping_status IN ('pending', 'requested', 'superseded') AND mapping_failure_code IS NULL)
+  );
 `)],
 };

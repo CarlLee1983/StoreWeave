@@ -1,6 +1,7 @@
 import packageJson from '../package.json';
 import { bindModuleCapability, defineModule, type BoundModuleCapability } from '@storeweave/kernel';
 import type { Keyring } from '@storeweave/crypto';
+import type { NotificationsPort } from '@storeweave/notifications';
 import {
   BOOKING_AVAILABILITY_QUOTE_RESERVATION_CAPABILITY,
   type BookingAvailabilityQuoteReservation,
@@ -79,6 +80,42 @@ import {
   createBookingReservationAccess,
   type BookingReservationAccess,
 } from './access';
+import {
+  bookingReservationCancelledV1,
+  bookingReservationConfirmedV1,
+  bookingReservationEvents,
+  bookingReservationPaymentExpiringV1,
+} from './events';
+import {
+  createListBookingReservationNotificationsHandler,
+  createMaterializeBookingReservationNotificationHandler,
+  createRecordBookingReservationNotificationMappingFailureHandler,
+  listBookingReservationNotificationsQuery,
+  materializeBookingReservationNotificationCommand,
+  recordBookingReservationNotificationMappingFailureCommand,
+  PermanentBookingReservationNotificationMappingError,
+} from './notifications';
+
+function queueNotification(input: unknown, eventId: string, template: string) {
+  return async (_event: unknown, context: { executeCommand?: (name: string, input: unknown, idempotencyKey: string) => Promise<unknown> }) => {
+    if (!context.executeCommand) throw new Error('Reservation notification subscriber lacks core command access');
+    try {
+      await context.executeCommand('booking.reservation.materializeNotification', input,
+        `booking-reservation:notification:${eventId}:${template}`);
+    } catch (error) {
+      // A mapping error must be observable without coupling it to the state
+      // transition which emitted this event. Keep the failure code fixed and safe.
+      const failure = error instanceof PermanentBookingReservationNotificationMappingError ? 'permanent' : 'retryable';
+      await context.executeCommand('booking.reservation.recordNotificationMappingFailure', {
+        eventId, reservationId: (input as { reservationId: string }).reservationId,
+        kind: (input as { kind: string }).kind,
+        failure,
+      },
+        `booking-reservation:notification-failure:${eventId}:${template}:${failure}`);
+      throw error;
+    }
+  };
+}
 
 export function bindBookingReservationAccess(keyring: Keyring): BoundModuleCapability<BookingReservationAccess> {
   return bindModuleCapability(
@@ -96,11 +133,17 @@ export function createBookingReservationModule(
   paymentProvider: BookingReservationPaymentProvider,
 ) {
   const validatedRetentionPolicy = bookingReservationRetentionPolicySchema.parse(retentionPolicy);
+  let notificationPort: NotificationsPort | undefined;
+  const notifications = () => {
+    if (!notificationPort) throw new Error('Booking Reservation module was composed without the base notification capability');
+    return notificationPort;
+  };
   return defineModule({
     name: 'booking-reservation', version: packageJson.version, baseVersionRange: '^1.0.0',
     dependencies: { required: [
       { name: 'platform', versionRange: '^0.1.0' },
       { name: 'booking-availability', versionRange: '^0.1.0' },
+      { name: 'platform-notifications', versionRange: '^0.1.0' },
     ] },
     capabilities: {
       provides: [BOOKING_RESERVATION_ACCESS_CAPABILITY],
@@ -115,8 +158,9 @@ export function createBookingReservationModule(
       }],
       bound: [availabilityBinding, roomNightOperationsBinding],
     },
-    data: { owns: ['booking_reservation_reservations', 'booking_reservation_payment_attempts', 'booking_reservation_refunds', 'booking_reservation_refund_invocations'] },
+    data: { owns: ['booking_reservation_reservations', 'booking_reservation_payment_attempts', 'booking_reservation_refunds', 'booking_reservation_refund_invocations', 'booking_reservation_notification_links'] },
     migrations: bookingReservationMigrations,
+    bindPorts: (ports) => { notificationPort = ports.notifications; },
     permissions: [
       { key: 'booking-reservation:create', description: 'Create a Booking Reservation', owner: 'booking-reservation' },
       { key: 'booking-reservation:pay', description: 'Start a Booking Reservation payment attempt', owner: 'booking-reservation' },
@@ -129,6 +173,7 @@ export function createBookingReservationModule(
       { key: 'booking-reservation:retention-write', description: 'Anonymize expired Reservation personal data', owner: 'booking-reservation' },
       { key: 'booking-reservation:refund-retry', description: 'Retry a failed Reservation refund', owner: 'booking-reservation' },
       { key: 'booking-reservation:refund-read', description: 'Read Reservation refund evidence', owner: 'booking-reservation' },
+      { key: 'booking-reservation:notification-read', description: 'Read Reservation notification evidence', owner: 'booking-reservation' },
     ],
     commands: [
       { descriptor: createBookingReservationCommand, handler: createBookingReservationHandler(availabilityBinding.value) },
@@ -145,6 +190,8 @@ export function createBookingReservationModule(
       { descriptor: claimBookingReservationCommand, handler: createClaimBookingReservationHandler(access) },
       { descriptor: updateBookingReservationDetailsCommand, handler: createUpdateBookingReservationDetailsHandler(access) },
       { descriptor: anonymizeExpiredBookingReservationPiiCommand, handler: createAnonymizeExpiredBookingReservationPiiHandler(validatedRetentionPolicy) },
+      { descriptor: materializeBookingReservationNotificationCommand, handler: createMaterializeBookingReservationNotificationHandler({ access, notifications, locale: 'en' }) },
+      { descriptor: recordBookingReservationNotificationMappingFailureCommand, handler: createRecordBookingReservationNotificationMappingFailureHandler() },
     ],
     queries: [
       { descriptor: getBookingReservationPaymentAttemptForProcessingQuery, handler: getBookingReservationPaymentAttemptForProcessingHandler },
@@ -152,7 +199,9 @@ export function createBookingReservationModule(
       { descriptor: listBookingReservationRefundsQuery, handler: listBookingReservationRefundsHandler },
       { descriptor: getOwnedBookingReservationQuery, handler: getOwnedBookingReservationHandler },
       { descriptor: getManagedBookingReservationQuery, handler: createGetManagedBookingReservationHandler(access) },
+      { descriptor: listBookingReservationNotificationsQuery, handler: createListBookingReservationNotificationsHandler(notifications) },
     ],
+    events: bookingReservationEvents,
     jobs: [{
       type: PROCESS_BOOKING_RESERVATION_PAYMENT_JOB,
       handler: createProcessBookingReservationPaymentJob(paymentProvider),
@@ -176,5 +225,19 @@ export function createBookingReservationModule(
       jobContractV1: { currentVersion: 1, versions: { 1: anonymizeExpiredBookingReservationPiiJobPayload } },
       schedule: { everyMs: 24 * 60 * 60 * 1000 },
     }],
+    subscribers: [
+      { eventName: bookingReservationConfirmedV1.name, handler: (event, context) => queueNotification({
+        eventId: event.id, kind: 'confirmed', reservationId: event.payload.reservationId,
+        paymentAttemptId: event.payload.paymentAttemptId, confirmedAt: event.payload.confirmedAt.toISOString(),
+      }, event.id, 'booking.reservation.confirmed')(event, context) },
+      { eventName: bookingReservationCancelledV1.name, handler: (event, context) => queueNotification({
+        eventId: event.id, kind: 'cancelled', reservationId: event.payload.reservationId,
+        cancelledAt: event.payload.cancelledAt.toISOString(),
+      }, event.id, 'booking.reservation.cancelled')(event, context) },
+      { eventName: bookingReservationPaymentExpiringV1.name, handler: (event, context) => queueNotification({
+        eventId: event.id, kind: 'payment-expiring', reservationId: event.payload.reservationId,
+        paymentAttemptId: event.payload.paymentAttemptId, expiresAt: event.payload.expiresAt.toISOString(),
+      }, event.id, 'booking.reservation.payment-expiring')(event, context) },
+    ],
   });
 }

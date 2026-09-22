@@ -5,6 +5,7 @@ import { evaluateReservationCancellationEligibility } from './cancellation-polic
 import { accountIdFromActor } from './management';
 import { BookingReservationRepository } from './repository';
 import { createRequiredBookingReservationRefund } from './refunds';
+import { bookingReservationCancelledV1 } from './events';
 import {
   cancelBookingReservationByOperatorInputSchema,
   cancelBookingReservationByOperatorOutputSchema,
@@ -100,6 +101,9 @@ async function cancelLockedReservation(
     endLocalDateExclusive: reservation.checkOutLocalDate,
     roomCount: reservation.roomCount,
   }, databaseNow);
+  await context.publish({ name: bookingReservationCancelledV1.name, payload: {
+    reservationId: reservation.id, cancelledAt: databaseNow,
+  } });
   return cancellationOutput(reservation.id, refund === null ? null : {
     id: refund.id, amountMinor: refund.amountMinor, currency: refund.currency,
   });

@@ -2,20 +2,20 @@
 
 ## Happy Path
 
-* [ ] AC-001: Confirmed, cancelled, and payment-expiring Reservation events create the intended durable Booking notification requests.
+* [x] AC-001: Confirmed, cancelled, and payment-expiring Reservation events create the intended durable Booking notification requests.
 
 ## Business Rules
 
-* [ ] AC-002: Mapping/template wording remains Booking-owned while Base Notification owns delivery/retry/logging.
-* [ ] AC-003: Access emails use a short-lived Grant and never expose a raw management token.
+* [x] AC-002: Mapping/template wording remains Booking-owned while Base Notification owns delivery/retry/logging.
+* [x] AC-003: Access emails use a short-lived Grant and never expose a raw management token.
 
 ## Failure Cases
 
-* [ ] AC-004: Delivery or mapping failure is operator-visible and does not roll back Reservation state.
+* [x] AC-004: Delivery or mapping failure is operator-visible and does not roll back Reservation state.
 
 ## Regression Requirements
 
-* [ ] AC-005: The Story does not implement Base delivery, SMTP, or provider adapters.
+* [x] AC-005: The Story does not implement Base delivery, SMTP, or provider adapters.
 
 ## Acceptance Evidence
 

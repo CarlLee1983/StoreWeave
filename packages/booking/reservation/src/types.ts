@@ -5,6 +5,7 @@ import {
   paymentInitiationResultSchema,
   paymentRefundInputSchema,
 } from '@storeweave/extension-sdk';
+import { deliveryEvidenceDto } from '@storeweave/notifications';
 
 const quoteFingerprintSchema = bookingQuoteSchema.shape.fingerprint;
 
@@ -231,6 +232,77 @@ export const updateBookingReservationDetailsOutputSchema = z.object({
   updatedFields: z.array(z.enum(['booker', 'primaryGuestName', 'accommodationNotes'])).min(1),
 }).strict();
 
+export const bookingReservationNotificationKindSchema = z.enum(['confirmed', 'cancelled', 'payment-expiring']);
+export type BookingReservationNotificationKind = z.infer<typeof bookingReservationNotificationKindSchema>;
+
+export const bookingReservationNotificationTemplateIdSchema = z.enum([
+  'booking.reservation.confirmed',
+  'booking.reservation.cancelled',
+  'booking.reservation.payment-expiring',
+]);
+export type BookingReservationNotificationTemplateId = z.infer<typeof bookingReservationNotificationTemplateIdSchema>;
+
+const notificationEventBaseSchema = z.object({
+  eventId: z.string().uuid(), reservationId: z.string().uuid(),
+}).strict();
+
+export const materializeBookingReservationNotificationInputSchema = z.discriminatedUnion('kind', [
+  notificationEventBaseSchema.extend({
+    kind: z.literal('confirmed'), paymentAttemptId: z.string().uuid(), confirmedAt: z.string().datetime(),
+  }).strict(),
+  notificationEventBaseSchema.extend({
+    kind: z.literal('cancelled'), cancelledAt: z.string().datetime(),
+  }).strict(),
+  notificationEventBaseSchema.extend({
+    kind: z.literal('payment-expiring'), paymentAttemptId: z.string().uuid(), expiresAt: z.string().datetime(),
+  }).strict(),
+]);
+
+export const bookingReservationNotificationMappingStatusSchema = z.enum([
+  'pending', 'requested', 'mapping_failed', 'mapping_retryable', 'superseded',
+]);
+export const bookingReservationNotificationMappingFailureCodeSchema = z.enum([
+  'booker_unavailable', 'materialization_retryable',
+]);
+
+const bookingReservationNotificationLinkBaseSchema = z.object({
+  id: z.string().uuid(), reservationId: z.string().uuid(), eventId: z.string().uuid(),
+  kind: bookingReservationNotificationKindSchema, templateId: bookingReservationNotificationTemplateIdSchema,
+  reference: z.string().min(1).max(240), mappingStatus: bookingReservationNotificationMappingStatusSchema,
+  mappingFailureCode: bookingReservationNotificationMappingFailureCodeSchema.nullable(),
+  createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
+}).strict();
+export const bookingReservationNotificationLinkSchema = bookingReservationNotificationLinkBaseSchema.superRefine((value, context) => {
+  const expectedCode = value.mappingStatus === 'mapping_failed' ? 'booker_unavailable'
+    : value.mappingStatus === 'mapping_retryable' ? 'materialization_retryable' : null;
+  if (value.mappingFailureCode !== expectedCode) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['mappingFailureCode'], message: 'mapping failure code must match mapping status' });
+  }
+});
+
+export const materializeBookingReservationNotificationOutputSchema = bookingReservationNotificationLinkSchema;
+export const recordBookingReservationNotificationMappingFailureInputSchema = z.object({
+  eventId: z.string().uuid(), reservationId: z.string().uuid(), kind: bookingReservationNotificationKindSchema,
+  failure: z.enum(['permanent', 'retryable']),
+}).strict();
+export const recordBookingReservationNotificationMappingFailureOutputSchema = bookingReservationNotificationLinkSchema;
+
+export const listBookingReservationNotificationsInputSchema = z.object({
+  reservationId: z.string().uuid(), limit: z.number().int().min(1).max(100).default(50), offset: z.number().int().min(0).default(0),
+}).strict();
+export const bookingReservationNotificationEvidenceSchema = bookingReservationNotificationLinkBaseSchema.extend({
+  deliveries: z.array(deliveryEvidenceDto),
+}).strict().superRefine((value, context) => {
+  const expectedCode = value.mappingStatus === 'mapping_failed' ? 'booker_unavailable'
+    : value.mappingStatus === 'mapping_retryable' ? 'materialization_retryable' : null;
+  if (value.mappingFailureCode !== expectedCode) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['mappingFailureCode'], message: 'mapping failure code must match mapping status' });
+  }
+});
+export const listBookingReservationNotificationsOutputSchema = z.object({
+  items: z.array(bookingReservationNotificationEvidenceSchema), total: z.number().int().nonnegative(),
+}).strict();
+
 export type BookingQuoteSubmission = z.infer<typeof bookingQuoteSubmissionSchema>;
 export type CreateBookingReservationInput = z.infer<typeof createBookingReservationInputSchema>;
 export type CreateBookingReservationOutput = z.infer<typeof createBookingReservationOutputSchema>;
@@ -256,3 +328,6 @@ export type GetManagedBookingReservationInput = z.infer<typeof getManagedBooking
 export type ManagedBookingReservation = z.infer<typeof managedBookingReservationSchema>;
 export type UpdateBookingReservationDetailsInput = z.infer<typeof updateBookingReservationDetailsInputSchema>;
 export type UpdateBookingReservationDetailsOutput = z.infer<typeof updateBookingReservationDetailsOutputSchema>;
+export type MaterializeBookingReservationNotificationInput = z.infer<typeof materializeBookingReservationNotificationInputSchema>;
+export type BookingReservationNotificationLink = z.infer<typeof bookingReservationNotificationLinkSchema>;
+export type ListBookingReservationNotificationsInput = z.infer<typeof listBookingReservationNotificationsInputSchema>;

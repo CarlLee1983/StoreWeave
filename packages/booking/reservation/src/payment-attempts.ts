@@ -3,6 +3,7 @@ import { PlatformError, defineCommand, defineQuery, type CommandContext, type Qu
 import type { PaymentInitiationInput, PaymentInitiationResult, PaymentMethod, PaymentCallbackEvent, PaymentRefundInputV2, PaymentRefundResult } from '@storeweave/extension-sdk';
 import { BookingReservationRepository } from './repository';
 import { EXPIRE_BOOKING_RESERVATION_JOB, PROCESS_BOOKING_RESERVATION_PAYMENT_JOB } from './jobs';
+import { bookingReservationConfirmedV1, bookingReservationPaymentExpiringV1 } from './events';
 import { createRequiredBookingReservationRefund } from './refunds';
 import {
   recordBookingReservationPaymentResultInputSchema,
@@ -271,6 +272,9 @@ async function applyPaymentOutcome(
       if (kind === 'winning') {
         await repository.confirmWithWinningAttempt(context.tx, reservation.id, attempt.id);
         await repository.expireActivePaymentAttempts(context.tx, reservation.id, databaseNow);
+        await context.publish({ name: bookingReservationConfirmedV1.name, payload: {
+          reservationId: reservation.id, paymentAttemptId: attempt.id, confirmedAt: databaseNow,
+        } });
       } else {
         await createRequiredBookingReservationRefund(context, {
           reservationId: reservation.id, paymentAttemptId: attempt.id,
@@ -312,6 +316,9 @@ async function applyPaymentOutcome(
         payload: { reservationId: reservation.id, expectedPaymentExpiresAt: reservationExpiresAt.toISOString() },
         dedupeKey: `booking-reservation:expire:${reservation.id}`, runAt: reservationExpiresAt, replaceExisting: true,
       });
+      await context.publish({ name: bookingReservationPaymentExpiringV1.name, payload: {
+        reservationId: reservation.id, paymentAttemptId: attempt.id, expiresAt: updated.expiresAt,
+      } });
       return { attempt: toAttemptOutput(updated) };
     }
     case 'payment_failed': {

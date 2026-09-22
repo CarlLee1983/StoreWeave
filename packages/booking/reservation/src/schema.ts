@@ -173,3 +173,31 @@ export const bookingReservationRefundInvocations = pgTable('booking_reservation_
   uniqueIndex('booking_reservation_refund_invocation_key').on(table.refundId, table.generation, table.workerAttempt),
 ]);
 export type BookingReservationRefundInvocationRow = typeof bookingReservationRefundInvocations.$inferSelect;
+
+/** Booking's durable correlation to Base delivery evidence; it never copies delivery state. */
+export const bookingReservationNotificationLinks = pgTable('booking_reservation_notification_links', {
+  id: uuid('id').primaryKey(),
+  reservationId: uuid('reservation_id').notNull().references(() => bookingReservationReservations.id),
+  eventId: uuid('event_id').notNull(),
+  kind: text('kind').$type<'confirmed' | 'cancelled' | 'payment-expiring'>().notNull(),
+  templateId: text('template_id').$type<'booking.reservation.confirmed' | 'booking.reservation.cancelled' | 'booking.reservation.payment-expiring'>().notNull(),
+  reference: text('reference').notNull(),
+  mappingStatus: text('mapping_status').$type<'pending' | 'requested' | 'mapping_failed' | 'mapping_retryable' | 'superseded'>().notNull().default('pending'),
+  mappingFailureCode: text('mapping_failure_code').$type<'booker_unavailable' | 'materialization_retryable' | null>(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  check('booking_reservation_notification_kind_check', sql`${table.kind} IN ('confirmed', 'cancelled', 'payment-expiring')`),
+  check('booking_reservation_notification_template_check', sql`${table.templateId} IN ('booking.reservation.confirmed', 'booking.reservation.cancelled', 'booking.reservation.payment-expiring')`),
+  check('booking_reservation_notification_mapping_status_check', sql`${table.mappingStatus} IN ('pending', 'requested', 'mapping_failed', 'mapping_retryable', 'superseded')`),
+  check('booking_reservation_notification_failure_code_check', sql`
+    (${table.mappingStatus} = 'mapping_failed' AND ${table.mappingFailureCode} = 'booker_unavailable')
+    OR (${table.mappingStatus} = 'mapping_retryable' AND ${table.mappingFailureCode} = 'materialization_retryable')
+    OR (${table.mappingStatus} IN ('pending', 'requested', 'superseded') AND ${table.mappingFailureCode} IS NULL)
+  `),
+  uniqueIndex('booking_reservation_notification_event_template_key').on(table.eventId, table.templateId),
+  uniqueIndex('booking_reservation_notification_reference_key').on(table.reference),
+  index('booking_reservation_notification_reservation_idx').on(table.reservationId, table.createdAt),
+]);
+
+export type BookingReservationNotificationLinkRow = typeof bookingReservationNotificationLinks.$inferSelect;
