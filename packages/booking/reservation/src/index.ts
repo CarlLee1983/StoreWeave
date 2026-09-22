@@ -4,6 +4,7 @@ export * from './expiry';
 export * from './jobs';
 export * from './management';
 export * from './migrations';
+export * from './payment-attempts';
 export * from './module';
 export * from './retention';
 export * from './types';

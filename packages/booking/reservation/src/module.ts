@@ -9,6 +9,15 @@ import {
 } from '@storeweave/booking-availability';
 import { createBookingReservationCommand, createBookingReservationHandler } from './commands';
 import {
+  createRecordBookingReservationPaymentResultHandler,
+  createStartBookingReservationPaymentHandler,
+  getBookingReservationPaymentAttemptForProcessingHandler,
+  getBookingReservationPaymentAttemptForProcessingQuery,
+  recordBookingReservationPaymentResultCommand,
+  startBookingReservationPaymentCommand,
+  type BookingReservationPaymentProvider,
+} from './payment-attempts';
+import {
   claimBookingReservationCommand,
   createClaimBookingReservationHandler,
   createGetManagedBookingReservationHandler,
@@ -22,10 +31,13 @@ import { createExpireBookingReservationHandler, expireBookingReservationCommand 
 import {
   createAnonymizeExpiredBookingReservationPiiJob,
   createExpireBookingReservationJob,
+  createProcessBookingReservationPaymentJob,
   ANONYMIZE_EXPIRED_BOOKING_RESERVATION_PII_JOB,
   anonymizeExpiredBookingReservationPiiJobPayload,
   EXPIRE_BOOKING_RESERVATION_JOB,
   expireBookingReservationJobPayload,
+  PROCESS_BOOKING_RESERVATION_PAYMENT_JOB,
+  processBookingReservationPaymentJobPayload,
 } from './jobs';
 import {
   bookingReservationRetentionPolicySchema,
@@ -53,6 +65,7 @@ export function createBookingReservationModule(
   roomNightOperationsBinding: BoundModuleCapability<BookingAvailabilityRoomNightOperations>,
   access: BookingReservationAccess,
   retentionPolicy: BookingReservationRetentionPolicy,
+  paymentProvider: BookingReservationPaymentProvider,
 ) {
   const validatedRetentionPolicy = bookingReservationRetentionPolicySchema.parse(retentionPolicy);
   return defineModule({
@@ -74,10 +87,11 @@ export function createBookingReservationModule(
       }],
       bound: [availabilityBinding, roomNightOperationsBinding],
     },
-    data: { owns: ['booking_reservation_reservations'] },
+    data: { owns: ['booking_reservation_reservations', 'booking_reservation_payment_attempts'] },
     migrations: bookingReservationMigrations,
     permissions: [
       { key: 'booking-reservation:create', description: 'Create a Booking Reservation', owner: 'booking-reservation' },
+      { key: 'booking-reservation:pay', description: 'Start a Booking Reservation payment attempt', owner: 'booking-reservation' },
       { key: 'booking-reservation:system-write', description: 'Expire a Booking Reservation', owner: 'booking-reservation' },
       { key: 'booking-reservation:claim', description: 'Claim a Reservation for the authenticated Account', owner: 'booking-reservation' },
       { key: 'booking-reservation:read-self', description: 'Read an owned Reservation', owner: 'booking-reservation' },
@@ -87,16 +101,23 @@ export function createBookingReservationModule(
     ],
     commands: [
       { descriptor: createBookingReservationCommand, handler: createBookingReservationHandler(availabilityBinding.value) },
+      { descriptor: startBookingReservationPaymentCommand, handler: createStartBookingReservationPaymentHandler(paymentProvider) },
+      { descriptor: recordBookingReservationPaymentResultCommand, handler: createRecordBookingReservationPaymentResultHandler() },
       { descriptor: expireBookingReservationCommand, handler: createExpireBookingReservationHandler(roomNightOperationsBinding.value) },
       { descriptor: claimBookingReservationCommand, handler: createClaimBookingReservationHandler(access) },
       { descriptor: updateBookingReservationDetailsCommand, handler: createUpdateBookingReservationDetailsHandler(access) },
       { descriptor: anonymizeExpiredBookingReservationPiiCommand, handler: createAnonymizeExpiredBookingReservationPiiHandler(validatedRetentionPolicy) },
     ],
     queries: [
+      { descriptor: getBookingReservationPaymentAttemptForProcessingQuery, handler: getBookingReservationPaymentAttemptForProcessingHandler },
       { descriptor: getOwnedBookingReservationQuery, handler: getOwnedBookingReservationHandler },
       { descriptor: getManagedBookingReservationQuery, handler: createGetManagedBookingReservationHandler(access) },
     ],
     jobs: [{
+      type: PROCESS_BOOKING_RESERVATION_PAYMENT_JOB,
+      handler: createProcessBookingReservationPaymentJob(paymentProvider),
+      jobContractV1: { currentVersion: 1, versions: { 1: processBookingReservationPaymentJobPayload } },
+    }, {
       type: EXPIRE_BOOKING_RESERVATION_JOB,
       handler: createExpireBookingReservationJob(),
       jobContractV1: { currentVersion: 1, versions: { 1: expireBookingReservationJobPayload } },

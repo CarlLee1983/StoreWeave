@@ -36,6 +36,9 @@ export function createExpireBookingReservationHandler(availability: BookingAvail
     const databaseNow = await repository.databaseNow(context.tx);
     if (reservation.paymentExpiresAt.getTime() > databaseNow.getTime()) return { kind: 'noop' as const };
 
+    // Reservation locks before its active Attempts. This keeps an expiry from
+    // racing a payment result into a released Room Night reservation.
+    await repository.expireActivePaymentAttempts(context.tx, reservation.id, databaseNow);
     const updated = await repository.expireIfCurrent(context.tx, reservation, expectedPaymentExpiresAt);
     if (!updated) return { kind: 'noop' as const };
 

@@ -1,8 +1,18 @@
 import { z } from 'zod';
-import type { JobContext, JobHandler } from '@storeweave/jobs';
+import { PermanentJobError, type JobContext, type JobHandler } from '@storeweave/jobs';
+import type { BookingReservationPaymentProvider } from './payment-attempts';
+import { getBookingReservationPaymentAttemptForProcessingOutputSchema } from './types';
 
 export const EXPIRE_BOOKING_RESERVATION_JOB = 'booking.reservation.expire';
 export const ANONYMIZE_EXPIRED_BOOKING_RESERVATION_PII_JOB = 'booking.reservation.anonymize-expired-pii';
+export const PROCESS_BOOKING_RESERVATION_PAYMENT_JOB = 'booking.reservation.process-payment';
+
+export const processBookingReservationPaymentJobPayload = z.object({
+  attemptId: z.string().uuid(),
+  reservationId: z.string().uuid(),
+  provider: z.string().min(1).max(200),
+  reference: z.string().min(1).max(200),
+}).strict();
 
 export const anonymizeExpiredBookingReservationPiiJobPayload = z.object({
   bucket: z.number().int(),
@@ -19,7 +29,35 @@ export const expireBookingReservationJobPayload = z.object({
   expectedPaymentExpiresAt: z.string().datetime(),
 }).strict();
 
-type CoreJobContext = Pick<JobContext, 'executeCommand'>;
+type CoreJobContext = Pick<JobContext, 'executeCommand' | 'executeQuery'>;
+
+export function createProcessBookingReservationPaymentJob(provider: BookingReservationPaymentProvider): JobHandler {
+  return async (rawPayload, rawContext) => {
+    const payload = processBookingReservationPaymentJobPayload.parse(rawPayload);
+    const context = rawContext as CoreJobContext;
+    if (!context.executeCommand || !context.executeQuery) throw new Error('Reservation payment job requires the core command and query bridges');
+    if (payload.provider !== provider.id) {
+      throw new PermanentJobError(`Reservation payment attempt ${payload.attemptId} requires provider ${payload.provider}`);
+    }
+    const preflight = getBookingReservationPaymentAttemptForProcessingOutputSchema.parse(await context.executeQuery(
+      'booking.reservation.getPaymentAttemptForProcessing',
+      { attemptId: payload.attemptId, provider: payload.provider, reference: payload.reference },
+    ));
+    if (preflight.kind === 'noop') return;
+
+    // This is deliberately outside the command transaction. The stable attempt
+    // reference lets a provider replay safely after a worker crash or timeout.
+    const result = await provider.initiate(preflight.request);
+    await context.executeCommand(
+      'booking.reservation.recordPaymentResult',
+      { attemptId: payload.attemptId, provider: provider.id, result },
+      `booking-reservation:payment-result:${provider.id}:${payload.attemptId}:${result.status}:${'providerRef' in result ? result.providerRef ?? 'none' : 'none'}`,
+    );
+    if (result.status === 'confirmed') {
+      throw new PermanentJobError('Synchronous Booking payment confirmation requires SW-128 winner selection');
+    }
+  };
+}
 
 export function createExpireBookingReservationJob(): JobHandler {
   return async (rawPayload, rawContext) => {

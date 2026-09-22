@@ -21,6 +21,15 @@ import {
   bindBookingReservationAccess,
   createBookingReservationModule,
 } from '../../packages/booking/reservation/src/module';
+import type { BookingReservationPaymentProvider } from '../../packages/booking/reservation/src/payment-attempts';
+
+const paymentProvider: BookingReservationPaymentProvider = {
+  id: 'booking-test-payment',
+  paymentMethods: () => [{ code: 'deferred', label: 'Deferred test payment', timing: 'deferred' }],
+  initiate: async () => ({
+    status: 'failed', reason: 'provider_rejected', message: 'not invoked by package-boundary checks',
+  }),
+};
 
 const ROOT = process.cwd();
 
@@ -65,13 +74,15 @@ describe('Booking Reservation package boundary', () => {
     }));
     const module = createBookingReservationModule(binding, roomNightOperationsBinding, accessBinding.value, {
       reservationPiiRetentionDays: 30,
-    });
+    }, paymentProvider);
     const source = sourceFiles('packages/booking/reservation/src')
       .map(path => readFileSync(join(ROOT, path), 'utf8')).join('\n');
     const migration = bookingReservationMigrations.migrations.map(entry => entry.up).join('\n');
     const packageIndex = readFileSync(join(ROOT, 'packages/booking/reservation/src/index.ts'), 'utf8');
 
-    expect(module.data?.owns).toEqual(['booking_reservation_reservations']);
+    expect(module.data?.owns).toEqual([
+      'booking_reservation_reservations', 'booking_reservation_payment_attempts',
+    ]);
     expect(module.dependencies?.required).toContainEqual({ name: 'booking-availability', versionRange: '^0.1.0' });
     expect(module.capabilities?.required).toContainEqual({
       from: 'booking-availability',
@@ -89,18 +100,23 @@ describe('Booking Reservation package boundary', () => {
     expect(accessBinding).toMatchObject({ from: 'booking-reservation', capability: BOOKING_RESERVATION_ACCESS_CAPABILITY });
     expect(packageIndex).not.toMatch(/export \* from '\.\/(?:repository|schema)'/);
     expect(module.commands?.map(command => command.descriptor.name)).toEqual([
-      'booking.reservation.create', 'booking.reservation.expire',
+      'booking.reservation.create', 'booking.reservation.startPayment', 'booking.reservation.recordPaymentResult',
+      'booking.reservation.expire',
       'booking.reservation.claim', 'booking.reservation.updateManagedDetails', 'booking.reservation.anonymizeExpiredPii',
     ]);
     expect(module.queries?.map(query => query.descriptor.name)).toEqual([
+      'booking.reservation.getPaymentAttemptForProcessing',
       'booking.reservation.getOwned', 'booking.reservation.getManaged',
     ]);
     expect(module.jobs?.map(job => job.type)).toContain('booking.reservation.anonymize-expired-pii');
     expect(module.jobs?.find(job => job.type === 'booking.reservation.anonymize-expired-pii')?.schedule)
       .toEqual({ everyMs: 24 * 60 * 60 * 1000 });
     expect(module.jobs?.map(job => job.type)).toContain('booking.reservation.expire');
+    expect(module.jobs?.map(job => job.type)).toContain('booking.reservation.process-payment');
     expect(bookingReservationMigrations.module).toBe('booking-reservation');
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.booking_reservation_reservations');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.booking_reservation_payment_attempts');
+    expect(migration).toMatch(/booking_reservation_payment_attempt_active_reservation_key[\s\S]*?status IN \('created', 'submitted', 'awaiting_payment'\)/i);
     expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS owner_account_id uuid/);
     expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS pii_anonymized_at timestamptz/);
     expect(migration).toContain('booking_reservation_anonymized_state_check');
@@ -109,7 +125,7 @@ describe('Booking Reservation package boundary', () => {
     expect(source).not.toMatch(/@storeweave\/(?:identity|customer)/);
     expect(source).not.toMatch(/platform_users/);
     expect(source).not.toMatch(/@storeweave\/(?:payment|notification)/i);
-    expect(source).not.toMatch(/payment_attempt|notification/i);
+    expect(source).not.toMatch(/@storeweave\/payment/i);
     expect(source).not.toMatch(/booking_availability_(?:room_nights|room_type_prices)/);
     expect(migration).not.toMatch(/REFERENCES\s+public\.booking_availability_/i);
     expect(migration).not.toMatch(/REFERENCES\s+public\.platform_users/i);

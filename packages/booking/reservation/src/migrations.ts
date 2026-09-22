@@ -111,5 +111,34 @@ DROP TRIGGER IF EXISTS booking_reservation_pii_marker_terminal
 CREATE TRIGGER booking_reservation_pii_marker_terminal
   BEFORE UPDATE OF pii_anonymized_at ON public.booking_reservation_reservations
   FOR EACH ROW EXECUTE FUNCTION public.reject_booking_reservation_pii_marker_rewrite();
+`), sqlMigration('0006_reservation_payment_attempts', 'expand', `
+CREATE TABLE IF NOT EXISTS public.booking_reservation_payment_attempts (
+  id uuid PRIMARY KEY,
+  reservation_id uuid NOT NULL REFERENCES public.booking_reservation_reservations(id),
+  reference text NOT NULL CHECK (length(reference) BETWEEN 1 AND 200),
+  provider text NOT NULL CHECK (length(provider) BETWEEN 1 AND 200),
+  method text NOT NULL CHECK (length(method) BETWEEN 1 AND 100),
+  amount_minor bigint NOT NULL CHECK (amount_minor > 0),
+  currency text NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+  status text NOT NULL DEFAULT 'created'
+    CHECK (status IN ('created', 'submitted', 'awaiting_payment', 'succeeded', 'failed', 'expired')),
+  provider_ref text CHECK (provider_ref IS NULL OR length(provider_ref) BETWEEN 1 AND 200),
+  action jsonb,
+  instructions jsonb,
+  expires_at timestamptz NOT NULL,
+  failure_reason text,
+  failure_message text,
+  created_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+  updated_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS booking_reservation_payment_attempt_reference_key
+  ON public.booking_reservation_payment_attempts (reference);
+CREATE UNIQUE INDEX IF NOT EXISTS booking_reservation_payment_attempt_provider_ref_key
+  ON public.booking_reservation_payment_attempts (provider, provider_ref)
+  WHERE provider_ref IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS booking_reservation_payment_attempt_active_reservation_key
+  ON public.booking_reservation_payment_attempts (reservation_id)
+  WHERE status IN ('created', 'submitted', 'awaiting_payment');
 `)],
 };

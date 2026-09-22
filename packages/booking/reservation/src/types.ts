@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { bookingQuoteInputSchema, bookingQuoteSchema } from '@storeweave/booking-availability';
+import {
+  paymentInitiationInputSchema,
+  paymentInitiationResultSchema,
+} from '@storeweave/extension-sdk';
 
 const quoteFingerprintSchema = bookingQuoteSchema.shape.fingerprint;
 
@@ -41,6 +45,59 @@ export const expireBookingReservationInputSchema = z.object({
 export const expireBookingReservationOutputSchema = z.object({
   kind: z.enum(['expired', 'noop']),
 }).strict();
+
+export const BOOKING_RESERVATION_PAYMENT_ATTEMPT_STATUSES = [
+  'created', 'submitted', 'awaiting_payment', 'succeeded', 'failed', 'expired',
+] as const;
+
+export const BOOKING_RESERVATION_ACTIVE_PAYMENT_ATTEMPT_STATUSES = [
+  'created', 'submitted', 'awaiting_payment',
+] as const;
+
+export const bookingReservationPaymentAttemptStatusSchema = z.enum(BOOKING_RESERVATION_PAYMENT_ATTEMPT_STATUSES);
+
+export const startBookingReservationPaymentInputSchema = z.object({
+  reservationId: z.string().uuid(),
+  method: z.string().trim().min(1).max(100),
+}).strict();
+
+export const bookingReservationPaymentAttemptSchema = z.object({
+  id: z.string().uuid(),
+  reservationId: z.string().uuid(),
+  reference: z.string().min(1).max(200),
+  provider: z.string().min(1).max(200),
+  method: z.string().min(1).max(100),
+  amountMinor: z.number().safe().int().positive(),
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  status: bookingReservationPaymentAttemptStatusSchema,
+  providerRef: z.string().min(1).max(200).nullable(),
+  expiresAt: z.string().datetime(),
+}).strict();
+
+export const startBookingReservationPaymentOutputSchema = z.object({
+  attempt: bookingReservationPaymentAttemptSchema,
+}).strict();
+
+export const recordBookingReservationPaymentResultInputSchema = z.object({
+  attemptId: z.string().uuid(),
+  provider: z.string().min(1).max(200),
+  result: paymentInitiationResultSchema,
+}).strict();
+
+export const recordBookingReservationPaymentResultOutputSchema = z.object({
+  attempt: bookingReservationPaymentAttemptSchema,
+}).strict();
+
+export const getBookingReservationPaymentAttemptForProcessingInputSchema = z.object({
+  attemptId: z.string().uuid(),
+  provider: z.string().min(1).max(200),
+  reference: z.string().min(1).max(200),
+}).strict();
+
+export const getBookingReservationPaymentAttemptForProcessingOutputSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('noop') }).strict(),
+  z.object({ kind: z.literal('invoke'), request: paymentInitiationInputSchema }).strict(),
+]);
 
 export const claimBookingReservationInputSchema = z.object({
   reservationId: z.string().uuid(),
@@ -102,6 +159,11 @@ export type BookingQuoteSubmission = z.infer<typeof bookingQuoteSubmissionSchema
 export type CreateBookingReservationInput = z.infer<typeof createBookingReservationInputSchema>;
 export type CreateBookingReservationOutput = z.infer<typeof createBookingReservationOutputSchema>;
 export type ExpireBookingReservationInput = z.infer<typeof expireBookingReservationInputSchema>;
+export type BookingReservationPaymentAttempt = z.infer<typeof bookingReservationPaymentAttemptSchema>;
+export type StartBookingReservationPaymentInput = z.infer<typeof startBookingReservationPaymentInputSchema>;
+export type StartBookingReservationPaymentOutput = z.infer<typeof startBookingReservationPaymentOutputSchema>;
+export type RecordBookingReservationPaymentResultInput = z.infer<typeof recordBookingReservationPaymentResultInputSchema>;
+export type GetBookingReservationPaymentAttemptForProcessingInput = z.infer<typeof getBookingReservationPaymentAttemptForProcessingInputSchema>;
 export type ClaimBookingReservationInput = z.infer<typeof claimBookingReservationInputSchema>;
 export type ClaimBookingReservationOutput = z.infer<typeof claimBookingReservationOutputSchema>;
 export type GetOwnedBookingReservationInput = z.infer<typeof getOwnedBookingReservationInputSchema>;

@@ -1,6 +1,12 @@
-import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import type { Tx } from '@storeweave/contracts';
-import { bookingReservationReservations, type BookingReservationRow } from './schema';
+import { BOOKING_RESERVATION_ACTIVE_PAYMENT_ATTEMPT_STATUSES } from './types';
+import {
+  bookingReservationPaymentAttempts,
+  bookingReservationReservations,
+  type BookingReservationPaymentAttemptRow,
+  type BookingReservationRow,
+} from './schema';
 
 export class BookingReservationRepository {
   async databaseNow(tx: Tx): Promise<Date> {
@@ -24,6 +30,74 @@ export class BookingReservationRepository {
       .where(eq(bookingReservationReservations.id, id))
       .for('update');
     return row;
+  }
+
+  async insertPaymentAttempt(
+    tx: Tx,
+    values: typeof bookingReservationPaymentAttempts.$inferInsert,
+  ): Promise<BookingReservationPaymentAttemptRow> {
+    const [row] = await tx.insert(bookingReservationPaymentAttempts).values(values).returning();
+    return row!;
+  }
+
+  async lockPaymentAttemptById(tx: Tx, id: string): Promise<BookingReservationPaymentAttemptRow | undefined> {
+    const [row] = await tx.select().from(bookingReservationPaymentAttempts)
+      .where(eq(bookingReservationPaymentAttempts.id, id))
+      .for('update');
+    return row;
+  }
+
+  async findPaymentAttemptById(tx: Tx, id: string): Promise<BookingReservationPaymentAttemptRow | undefined> {
+    const [row] = await tx.select().from(bookingReservationPaymentAttempts)
+      .where(eq(bookingReservationPaymentAttempts.id, id));
+    return row;
+  }
+
+  async findActivePaymentAttempt(
+    tx: Tx,
+    reservationId: string,
+  ): Promise<BookingReservationPaymentAttemptRow | undefined> {
+    const [row] = await tx.select().from(bookingReservationPaymentAttempts)
+      .where(and(
+        eq(bookingReservationPaymentAttempts.reservationId, reservationId),
+        inArray(bookingReservationPaymentAttempts.status, [...BOOKING_RESERVATION_ACTIVE_PAYMENT_ATTEMPT_STATUSES]),
+      ))
+      .for('update');
+    return row;
+  }
+
+  async updatePaymentAttempt(
+    tx: Tx,
+    attemptId: string,
+    values: Partial<Pick<typeof bookingReservationPaymentAttempts.$inferInsert,
+      'status' | 'providerRef' | 'action' | 'instructions' | 'expiresAt' | 'failureReason' | 'failureMessage'>>,
+    now: Date,
+  ): Promise<BookingReservationPaymentAttemptRow | undefined> {
+    const [row] = await tx.update(bookingReservationPaymentAttempts)
+      .set({ ...values, updatedAt: now })
+      .where(eq(bookingReservationPaymentAttempts.id, attemptId))
+      .returning();
+    return row;
+  }
+
+  async expireActivePaymentAttempts(
+    tx: Tx,
+    reservationId: string,
+    now: Date,
+  ): Promise<BookingReservationPaymentAttemptRow[]> {
+    await tx.select({ id: bookingReservationPaymentAttempts.id }).from(bookingReservationPaymentAttempts)
+      .where(and(
+        eq(bookingReservationPaymentAttempts.reservationId, reservationId),
+        inArray(bookingReservationPaymentAttempts.status, [...BOOKING_RESERVATION_ACTIVE_PAYMENT_ATTEMPT_STATUSES]),
+      ))
+      .for('update');
+    return tx.update(bookingReservationPaymentAttempts)
+      .set({ status: 'expired', updatedAt: now })
+      .where(and(
+        eq(bookingReservationPaymentAttempts.reservationId, reservationId),
+        inArray(bookingReservationPaymentAttempts.status, [...BOOKING_RESERVATION_ACTIVE_PAYMENT_ATTEMPT_STATUSES]),
+      ))
+      .returning();
   }
 
   async claimAccount(tx: Tx, reservationId: string, accountId: string): Promise<'claimed' | 'already-owner' | 'not-found' | 'owned-by-another' | 'anonymized'> {

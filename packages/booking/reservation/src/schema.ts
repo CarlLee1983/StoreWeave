@@ -1,6 +1,7 @@
-import { bigint, check, date, index, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, check, date, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import type { BookingQuote } from '@storeweave/booking-availability';
+import type { PaymentInitiationResult } from '@storeweave/extension-sdk';
 
 export const bookingReservationReservations = pgTable('booking_reservation_reservations', {
   id: uuid('id').primaryKey(),
@@ -63,3 +64,37 @@ export const bookingReservationReservations = pgTable('booking_reservation_reser
 ]);
 
 export type BookingReservationRow = typeof bookingReservationReservations.$inferSelect;
+
+export const bookingReservationPaymentAttempts = pgTable('booking_reservation_payment_attempts', {
+  id: uuid('id').primaryKey(),
+  reservationId: uuid('reservation_id').notNull().references(() => bookingReservationReservations.id),
+  reference: text('reference').notNull(),
+  provider: text('provider').notNull(),
+  method: text('method').notNull(),
+  amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
+  currency: text('currency').notNull(),
+  status: text('status').notNull().default('created'),
+  providerRef: text('provider_ref'),
+  action: jsonb('action').$type<Extract<PaymentInitiationResult, { status: 'redirect' }>['action'] | null>(),
+  instructions: jsonb('instructions').$type<Extract<PaymentInitiationResult, { status: 'awaiting_payment' }>['instructions'] | null>(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  failureReason: text('failure_reason'),
+  failureMessage: text('failure_message'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  check('booking_reservation_payment_attempt_status_check', sql`${table.status} IN ('created', 'submitted', 'awaiting_payment', 'succeeded', 'failed', 'expired')`),
+  check('booking_reservation_payment_attempt_reference_check', sql`length(${table.reference}) BETWEEN 1 AND 200`),
+  check('booking_reservation_payment_attempt_provider_check', sql`length(${table.provider}) BETWEEN 1 AND 200`),
+  check('booking_reservation_payment_attempt_method_check', sql`length(${table.method}) BETWEEN 1 AND 100`),
+  check('booking_reservation_payment_attempt_amount_check', sql`${table.amountMinor} > 0`),
+  check('booking_reservation_payment_attempt_currency_check', sql`${table.currency} ~ '^[A-Z]{3}$'`),
+  check('booking_reservation_payment_attempt_provider_ref_check', sql`${table.providerRef} IS NULL OR length(${table.providerRef}) BETWEEN 1 AND 200`),
+  uniqueIndex('booking_reservation_payment_attempt_reference_key').on(table.reference),
+  uniqueIndex('booking_reservation_payment_attempt_provider_ref_key').on(table.provider, table.providerRef)
+    .where(sql`${table.providerRef} IS NOT NULL`),
+  uniqueIndex('booking_reservation_payment_attempt_active_reservation_key').on(table.reservationId)
+    .where(sql`${table.status} IN ('created', 'submitted', 'awaiting_payment')`),
+]);
+
+export type BookingReservationPaymentAttemptRow = typeof bookingReservationPaymentAttempts.$inferSelect;
