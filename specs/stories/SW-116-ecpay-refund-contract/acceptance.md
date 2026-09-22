@@ -1,6 +1,6 @@
 # Acceptance Criteria
 
-**Status: done (local implementation); merchant UAT release gate remains blocked.**
+**Status: closed under accepted risk (local implementation complete); merchant UAT remains unverified.**
 
 ## Happy Path
 
@@ -26,7 +26,7 @@
 
 ## Current status
 
-SW-116 local implementation is complete. The adapter is explicitly disabled by default and selects only the documented legacy AIO production contract when `creditRefund.mode=aio-production`, production is selected, card checkout is enabled, and `ECPAY_CREDIT_CHECK_CODE` is present. Public ECPay documentation describes multiple products and does not establish which capability this merchant account has enabled; the separate staging/UAT release gate remains blocked until merchant evidence is supplied.
+SW-116 local implementation is complete. On 2026-09-22, Carl Lee accepted closing this Story with the merchant UAT release gate unverified; this is not proof that a merchant account has the refund product enabled. The adapter is explicitly disabled by default and selects only the documented legacy AIO production contract when `creditRefund.mode=aio-production`, production is selected, card checkout is enabled, and `ECPAY_CREDIT_CHECK_CODE` is present. Public ECPay documentation describes multiple products and does not establish which capability this merchant account has enabled.
 
 - `pnpm typecheck` — passed.
 - `pnpm exec vitest run --project unit packages/extensions/ecpay/test/provider.test.ts tests/unit/ecpay-callback-http.test.ts` — 2 files, 32 tests passed.

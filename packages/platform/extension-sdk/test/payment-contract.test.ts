@@ -3,7 +3,6 @@ import type {
   AnyProvider,
   PaymentInitiationInput,
   PaymentInitiationResult,
-  PaymentProvider,
   PaymentProviderV2,
   PaymentRefundInputV2,
   PaymentRefundResult,
@@ -31,7 +30,18 @@ const initiation = {
 type Assert<T extends true> = T;
 const v2DoesNotExposeLegacyStart: Assert<'start' extends keyof PaymentProviderV2 ? false : true> = true;
 const pureV2IsRegistrable: Assert<PaymentProviderV2 extends AnyProvider ? true : false> = true;
-const legacyOnlyIsNotRegistrable: Assert<PaymentProvider extends AnyProvider ? false : true> = true;
+// @ts-expect-error SW-118 removes this Order-shaped input from the public SDK.
+type RemovedPaymentStartInput = import('@storeweave/extension-sdk').PaymentStartInput;
+// @ts-expect-error SW-118 removes this legacy result from the public SDK.
+type RemovedPaymentStartResult = import('@storeweave/extension-sdk').PaymentStartResult;
+// @ts-expect-error SW-118 removes this Order-shaped refund input from the public SDK.
+type RemovedPaymentRefundInput = import('@storeweave/extension-sdk').PaymentRefundInput;
+// @ts-expect-error SW-118 removes this legacy provider contract from the public SDK.
+type RemovedPaymentProvider = import('@storeweave/extension-sdk').PaymentProvider;
+// @ts-expect-error SW-118 removes this temporary migration contract from the public SDK.
+type RemovedMigrationPaymentProvider = import('@storeweave/extension-sdk').PaymentProviderDuringMigration;
+// @ts-expect-error SW-118 removes this legacy initiation result from the public SDK.
+type RemovedPaymentFailedResult = import('@storeweave/extension-sdk').PaymentFailedResult;
 
 const v2OnlyProvider: PaymentProviderV2 = {
   id: 'v2-only-payment',
@@ -50,16 +60,6 @@ const v2OnlyProvider: PaymentProviderV2 = {
     return { body: 'OK' };
   },
 };
-
-// A transitional provider may retain its extra legacy method, while registration
-// only depends on the neutral ABI required by all current consumers.
-const transitionalProvider = {
-  ...v2OnlyProvider,
-  async start() {
-    return { status: 'confirmed', providerRef: 'provider:1' };
-  },
-};
-const transitionalProviderIsRegistrable: AnyProvider = transitionalProvider;
 
 function acceptInitiationInput(input: PaymentInitiationInput) {
   return input;
@@ -130,13 +130,11 @@ function fakeProvider(
 }
 
 describe('domain-neutral Payment Provider contract v2', () => {
-  it('accepts the exact reference, display reference, amount, currency, and method input', () => {
+  it('exports only the domain-neutral payment ABI', () => {
     expect(paymentInitiationInputSchema.parse(initiation)).toEqual(initiation);
     expect(acceptInitiationInput(initiation)).toEqual(initiation);
     expect(v2DoesNotExposeLegacyStart).toBe(true);
     expect(pureV2IsRegistrable).toBe(true);
-    expect(legacyOnlyIsNotRegistrable).toBe(true);
-    expect(transitionalProviderIsRegistrable.kind).toBe('payment');
     expect(PAYMENT_PROVIDER_CONTRACT_V2.referencePolicy.conflictPrecedence)
       .toBe('existing-reference-before-provider-capability-validation');
   });

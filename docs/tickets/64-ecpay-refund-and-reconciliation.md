@@ -5,9 +5,15 @@
 
 **Blocked by:** 58, 63
 
-**Status:** blocked — waiting for the merchant's enabled refund/query product, its contract, and UAT evidence from 58.
+**Status:** closed under accepted risk without merchant UAT (2026-09-22; Carl Lee).
 
-The provider-neutral refund worker seam is in place for the mock provider: it uses a platform refund-attempt reference for replay safety, keeps transport uncertainty in `requested`, and only records a provider-confirmed success. The ECPay provider explicitly returns `unsupported` and performs no network I/O until the merchant capability below is confirmed.
+The merchant's enabled refund/query product, its contract, and UAT evidence from
+58 remain unverified. This closure does not claim that the ECPay adapter,
+reconciliation workflow, or a refundable release is production-ready; the
+unchecked requirements below remain unimplemented and must be reopened if the
+merchant enables ECPay refunds.
+
+The provider-neutral refund worker seam is in place for the mock provider: it uses a platform refund-attempt reference for replay safety, keeps transport uncertainty in `requested`, and only records a provider-confirmed success. The ECPay extension remains refund-disabled by default and returns `unsupported` until an approved production configuration selects it; no merchant entitlement has been verified.
 
 Before unblocking, record the ECPay product/endpoint, required request identifiers and signature, partial-refund and replay semantics, success/rejection/timeout responses, and the query/reconciliation contract. The UAT callback limitation alone is acceptable for development; the missing merchant refund capability is not.
 

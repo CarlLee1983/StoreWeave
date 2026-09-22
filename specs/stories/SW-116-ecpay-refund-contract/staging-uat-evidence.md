@@ -2,6 +2,24 @@
 
 **Status: BLOCKED.** This template is not evidence that an ECPay refund product is enabled or that UAT passed. Do not select ECPay for a refundable release until the merchant-specific contract is approved and the required staging evidence below is recorded.
 
+## Release-owner approval
+
+Carl Lee approved the SW-116 local implementation on 2026-09-22. This approval
+does not clear the UAT gate: the merchant-approved contract and all required
+sanitized staging evidence remain outstanding.
+
+## Risk acceptance for local-work closure
+
+On 2026-09-22, Carl Lee accepted the risk of treating SW-116's local
+implementation work as complete based on the documented public API baseline and
+the recorded local verification. This is not merchant UAT approval and does not
+assert that an ECPay merchant account is entitled to refunds.
+
+This acceptance does not clear this gate, enable the default-disabled adapter,
+authorize a production refund, or permit ECPay to be selected for a refundable
+release. Those actions still require the merchant-approved contract and the
+sanitized evidence below.
+
 ## Merchant-approved contract
 
 | Field | Evidence |

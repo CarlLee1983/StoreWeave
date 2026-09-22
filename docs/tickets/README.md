@@ -154,7 +154,7 @@ ForgeFlowV2 是開發協定，不是 workflow engine，所以「整合」是這�
 | [61](61-admin-shipping-and-fulfillment.md) | 後台配送方式與出貨管理 | 59 |
 | [62](62-shipment-tracking-and-order-notifications.md) | 物流追蹤與訂單生命週期通知 | 59, 61 |
 | [63](63-refund-domain-and-operations.md) | 已付款訂單退款模型與後台作業 | 58 |
-| [64](64-ecpay-refund-and-reconciliation.md) | ECPay 退款 Adapter 與付款對帳 | 58, 63 |
+| [64](64-ecpay-refund-and-reconciliation.md) | ECPay 退款 Adapter 與付款對帳（**closed under accepted risk; merchant UAT unverified**） | 58, 63 |
 | [65](65-returns-and-exchanges.md) | 退貨與換貨案件（RMA） | 62, 63, 64 |
 | [66](66-electronic-invoice-provider.md) | 台灣電子發票 Provider 與帳務流程 | 63 |
 | [67](67-storefront-product-discovery.md) | 前台商品搜尋、篩選與分頁 | 56 |
@@ -184,7 +184,7 @@ ForgeFlowV2 是開發協定，不是 workflow engine，所以「整合」是這�
 | [91](91-forgeflowv2-integration-discovery.md) | 釐清 ForgeFlowv2 整合責任與契約（discovery）（**done**） | — |
 | [99](99-make-verify-and-agents-guide.md) | 一個指令代表「做完了」：`make verify` 與 `AGENTS.md` | 91 |
 | [100](100-story-format-pilot.md) | 用一張真工作試 Story 格式（**blocked**） | 99 |
-| [101](101-cache-mutex-independent-key-timeout.md) | Advisory mutex 的獨立 key 整合測試偶發取得逾時 | — |
+| [101](101-cache-mutex-independent-key-timeout.md) | Advisory mutex 的獨立 key 整合測試偶發取得逾時（**closed without corrective change**） | — |
 | [102](102-paired-upgrade-crash-injection-suite-flake.md) | Paired upgrade crash-injection 測試偶發未收到 SIGKILL | — |
 | [103](103-payment-abi-consumer-migration.md) | Payment ABI contract cleanup 前遷移剩餘消費端 | SW-114, SW-115, SW-117 |
 | [104](104-booking-quote-signer-runtime-seam.md) | Booking Quote 簽章金鑰 runtime seam | SW-122，SW-138 前 |
