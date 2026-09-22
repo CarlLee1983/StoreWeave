@@ -8,6 +8,9 @@ export const ECPAY_CREDIT_CHECK_CODE_SECRET = 'ECPAY_CREDIT_CHECK_CODE';
 
 export const ECPAY_STAGE_CHECKOUT_URL = 'https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5';
 export const ECPAY_PRODUCTION_CHECKOUT_URL = 'https://payment.ecpay.com.tw/Cashier/AioCheckOut/V5';
+export const ECPAY_CREDIT_REFUND_ACTION_URL = 'https://payment.ecpay.com.tw/CreditDetail/DoAction';
+export const ECPAY_CREDIT_REFUND_QUERY_URL = 'https://payment.ecpay.com.tw/CreditDetail/QueryTrade/V2';
+export const ECPAY_CREDIT_REFUND_ALLOWED_HOSTS = ['payment.ecpay.com.tw'] as const;
 
 /** Store-facing method codes; ECPay-specific values stay in the provider. */
 export const ecpayEnabledMethodSchema = z.enum(['card', 'atm', 'cvs_code', 'cvs_barcode']);
@@ -73,6 +76,16 @@ export const ecpayPaymentConfig = z.object({
   enabledMethods: enabledMethodsSchema.default(['card']),
   itemName: z.string().min(1).max(400).default('StoreWeave order'),
   tradeDescription: z.string().min(1).max(200).default('StoreWeave order payment'),
+  /**
+   * The documented legacy credit-refund APIs are production-only. Keep them
+   * explicitly disabled until merchant entitlement and UAT evidence are ready.
+   */
+  creditRefund: z.object({
+    /** Locks this adapter to the documented legacy AIO product, never POS. */
+    mode: z.enum(['disabled', 'aio-production']).default('disabled'),
+    /** ECPay asks callers that receive 403 to wait at least 30 minutes. */
+    timeoutMs: z.number().int().min(100).max(60_000).default(10_000),
+  }).strict().default({ mode: 'disabled', timeoutMs: 10_000 }),
 }).strict().superRefine((config, context) => {
   if (config.enabledMethods.some((method) => deferredMethodCodes.has(method)) && !config.paymentInfoUrl) {
     context.addIssue({
@@ -80,6 +93,12 @@ export const ecpayPaymentConfig = z.object({
       path: ['paymentInfoUrl'],
       message: 'paymentInfoUrl is required when ATM, CVS, or BARCODE payment methods are enabled',
     });
+  }
+  if (config.creditRefund.mode === 'aio-production' && config.environment !== 'production') {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['creditRefund', 'mode'], message: 'aio-production requires the production environment because ECPay credit refunds cannot use Stage' });
+  }
+  if (config.creditRefund.mode === 'aio-production' && !config.enabledMethods.includes('card')) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['creditRefund', 'mode'], message: 'aio-production requires the card payment method so ECPay can return the credit refund identifier' });
   }
 });
 

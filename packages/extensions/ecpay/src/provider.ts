@@ -13,10 +13,14 @@ import type {
   PaymentRefundInputV2,
   PaymentRefundResult,
 } from '@storeweave/extension-sdk';
-import { paymentInitiationInputSchema } from '@storeweave/extension-sdk';
+import { paymentInitiationInputSchema, paymentRefundInputSchema } from '@storeweave/extension-sdk';
 import { createCheckMacValue, verifyCheckMacValue, type EcpayFields } from './check-mac-value';
 import {
   checkoutUrl,
+  ECPAY_CREDIT_CHECK_CODE_SECRET,
+  ECPAY_CREDIT_REFUND_ACTION_URL,
+  ECPAY_CREDIT_REFUND_ALLOWED_HOSTS,
+  ECPAY_CREDIT_REFUND_QUERY_URL,
   ECPAY_HASH_IV_SECRET,
   ECPAY_HASH_KEY_SECRET,
   ECPAY_MERCHANT_ID_SECRET,
@@ -42,6 +46,27 @@ interface InitiationOutcome {
   readonly record?: TradeRecord;
 }
 
+interface ConfirmedCardRecord {
+  readonly trade: TradeRecord;
+  readonly providerRef: string;
+  readonly creditRefundId?: string;
+}
+
+type RefundState = 'checking' | 'follow_up' | 'succeeded' | 'rejected' | 'indeterminate';
+interface RefundRecord {
+  readonly request: PaymentRefundInputV2;
+  readonly payment: ConfirmedCardRecord;
+  readonly state: RefundState;
+  readonly result?: PaymentRefundResult;
+  readonly lastAction?: 'E';
+}
+
+interface CreditQuery {
+  readonly status: string;
+  readonly amount: number;
+  readonly closeData: readonly { readonly status: string; readonly amount: number }[];
+}
+
 interface EcpayMethod extends PaymentMethod {
   readonly code: EcpayPaymentMethodCode;
   readonly ecpayChoosePayment: string;
@@ -56,8 +81,11 @@ const METHODS: Readonly<Record<EcpayPaymentMethodCode, EcpayMethod>> = {
 
 export function createEcpayPaymentProvider(ctx: ExtensionContext<EcpayPaymentConfig>): PaymentProviderV2 {
   const credentials = requiredCredentials(ctx);
+  const creditRefundEnabled = ctx.config.creditRefund.mode === 'aio-production';
+  const creditCheckCode = creditRefundEnabled ? ctx.secret(ECPAY_CREDIT_CHECK_CODE_SECRET) : undefined;
+  if (creditRefundEnabled && !creditCheckCode) throw new Error('ECPay credit refunds require the configured CreditCheckCode secret');
   const createRedirect = (record: TradeRecord): PaymentInitiationResult => {
-    const fields: Record<string, string> = {
+    const requestFields: Record<string, string> = {
       MerchantID: credentials.merchantId,
       MerchantTradeNo: record.merchantTradeNo,
       MerchantTradeDate: record.merchantTradeDate,
@@ -69,10 +97,11 @@ export function createEcpayPaymentProvider(ctx: ExtensionContext<EcpayPaymentCon
       ChoosePayment: METHODS[record.method].ecpayChoosePayment,
       EncryptType: '1',
     };
-    if (ctx.config.paymentInfoUrl) fields.PaymentInfoURL = ctx.config.paymentInfoUrl;
-    if (ctx.config.clientBackUrl) fields.ClientBackURL = ctx.config.clientBackUrl;
-    fields.CheckMacValue = createCheckMacValue(fields, credentials.hashKey, credentials.hashIv);
-    return { status: 'redirect', providerRef: record.merchantTradeNo, action: { type: 'form_post', url: checkoutUrl(ctx.config), fields } };
+    if (ctx.config.paymentInfoUrl) requestFields.PaymentInfoURL = ctx.config.paymentInfoUrl;
+    if (ctx.config.clientBackUrl) requestFields.ClientBackURL = ctx.config.clientBackUrl;
+    if (creditRefundEnabled && record.method === 'card') requestFields.NeedExtraPaidInfo = 'Y';
+    requestFields.CheckMacValue = createCheckMacValue(requestFields, credentials.hashKey, credentials.hashIv);
+    return { status: 'redirect', providerRef: record.merchantTradeNo, action: { type: 'form_post', url: checkoutUrl(ctx.config), fields: requestFields } };
   };
 
   async function initiate(input: PaymentInitiationInput): Promise<PaymentInitiationResult> {
@@ -181,7 +210,10 @@ export function createEcpayPaymentProvider(ctx: ExtensionContext<EcpayPaymentCon
       const providerRef = fields.TradeNo || merchantTradeNo;
       const paymentInfo = paymentInfoEvent(fields, record, providerRef);
       if (paymentInfo) return paymentInfo;
-      if (fields.RtnCode === '1') return { type: 'payment_confirmed', reference: record.reference, providerRef };
+      if (fields.RtnCode === '1') {
+        await recordConfirmedCard(fields, record, providerRef);
+        return { type: 'payment_confirmed', reference: record.reference, providerRef };
+      }
       return { type: 'payment_failed', reference: record.reference, providerRef, message: fields.RtnMsg || `ECPay RtnCode ${requiredField(fields, 'RtnCode')}` };
     },
 
@@ -193,11 +225,27 @@ export function createEcpayPaymentProvider(ctx: ExtensionContext<EcpayPaymentCon
         : { statusCode: 500, headers: { 'content-type': 'text/plain; charset=utf-8' }, body: '0|FAIL' };
     },
 
-    async refund(_input: PaymentRefundInputV2): Promise<PaymentRefundResult> {
-      // Ticket 58 has not yet established which refund/query product this
-      // merchant account can use. Keep the local refund requested and stop the
-      // job permanently rather than inventing an endpoint or moving money facts.
-      return { status: 'unsupported' as const, message: 'ECPay refund automation is unavailable until the merchant refund product and UAT contract are confirmed' };
+    async refund(input: PaymentRefundInputV2): Promise<PaymentRefundResult> {
+      if (!creditRefundEnabled) return { status: 'unsupported', message: 'ECPay credit refunds are disabled until merchant entitlement and UAT are approved' };
+      if (!creditCheckCode) return { status: 'unsupported', message: 'ECPay credit refunds require the configured CreditCheckCode secret' };
+      const valid = paymentRefundInputSchema.safeParse(input);
+      if (!valid.success) return { status: 'rejected', message: 'invalid ECPay refund input' };
+      if (input.currency !== 'TWD' || input.amount % 100 !== 0) return { status: 'rejected', message: 'ECPay credit refunds require a positive whole-TWD amount' };
+
+      const payment = await ctx.store.get<ConfirmedCardRecord>(providerRefKey(input.providerRef));
+      if (!payment || payment.providerRef !== input.providerRef) return { status: 'rejected', message: 'ECPay confirmed card payment is unavailable for refund' };
+      if (!payment.creditRefundId) return { status: 'unsupported', message: 'ECPay payment callback did not supply the credit refund identifier required for query' };
+      if (input.amount > payment.trade.amountTwd * 100) return { status: 'rejected', message: 'ECPay refund amount exceeds the original payment' };
+
+      let reserved = false;
+      const reservation = await ctx.store.mutate<RefundRecord>(refundLedgerKey(payment.providerRef), (current) => {
+        if (current) return current;
+        reserved = true;
+        return { request: input, payment, state: 'checking' };
+      });
+      if (!sameRefundInput(reservation.request, input)) return { status: 'rejected', message: 'ECPay payment already has a refund operation with different facts' };
+      if (!reserved) return continueRefund(reservation, input, creditCheckCode);
+      return performRefund(reservation, creditCheckCode);
     },
 
     async healthCheck() {
@@ -211,6 +259,145 @@ export function createEcpayPaymentProvider(ctx: ExtensionContext<EcpayPaymentCon
       };
     },
   };
+
+  async function recordConfirmedCard(fields: EcpayFields, trade: TradeRecord, providerRef: string): Promise<void> {
+    if (trade.method !== 'card') return;
+    const key = providerRefKey(providerRef);
+    await ctx.store.mutate<ConfirmedCardRecord | null>(key, (current) => {
+      const next = { trade, providerRef, ...(fields.gwsr ? { creditRefundId: fields.gwsr } : {}) };
+      if (current && (current.providerRef !== next.providerRef || current.creditRefundId !== next.creditRefundId || current.trade.merchantTradeNo !== next.trade.merchantTradeNo)) {
+        throw new Error('ECPay callback conflicts with the recorded card payment');
+      }
+      return current ?? next;
+    });
+  }
+
+  async function continueRefund(record: RefundRecord, input: PaymentRefundInputV2, creditCheckCode: string): Promise<PaymentRefundResult> {
+    if (!sameRefundInput(record.request, input)) return { status: 'rejected', message: 'ECPay refund reference is already used for different facts' };
+    if (record.result) return record.result;
+    if (record.state === 'follow_up') {
+      let claimed = false;
+      const claimedRecord = await ctx.store.mutate<RefundRecord>(refundLedgerKey(record.payment.providerRef), (current) => {
+        if (!current || current.result || current.state !== 'follow_up') return current ?? record;
+        claimed = true;
+        return { ...current, state: 'checking' };
+      });
+      if (!claimed) {
+        if (claimedRecord.result) return claimedRecord.result;
+        throw new Error('ECPay refund follow-up is indeterminate and requires reconciliation before another action');
+      }
+      let query: CreditQuery;
+      try {
+        query = await queryCredit(claimedRecord.payment, creditCheckCode);
+      } catch (error) {
+        await ctx.store.set(refundLedgerKey(record.payment.providerRef), { ...claimedRecord, state: 'follow_up' });
+        throw error;
+      }
+      if (query.status === '操作取消') return finishAbandon(claimedRecord);
+      await ctx.store.set(refundLedgerKey(record.payment.providerRef), { ...claimedRecord, state: 'follow_up' });
+      throw new Error('ECPay refund follow-up is still pending and requires reconciliation before another action');
+    } else {
+      await queryCredit(record.payment, creditCheckCode);
+    }
+    // A duplicate caller, process interruption, or network uncertainty must not
+    // make another DoAction request: public AIO docs give no idempotency key.
+    throw new Error(`ECPay refund is indeterminate and requires reconciliation before another action (${record.state})`);
+  }
+
+  async function finishAbandon(record: RefundRecord): Promise<PaymentRefundResult> {
+    let response: EcpayFields;
+    try {
+      response = await postRefundAction(record.payment, record.request.amount / 100, 'N');
+    } catch (error) {
+      await ctx.store.set(refundLedgerKey(record.payment.providerRef), { ...record, state: 'indeterminate' });
+      throw error;
+    }
+    if (response.RtnCode !== '1') {
+      const result: PaymentRefundResult = { status: 'rejected', message: response.RtnMsg || 'ECPay refund abandon action was rejected' };
+      await ctx.store.set(refundLedgerKey(record.payment.providerRef), { ...record, state: 'rejected', result, lastAction: 'E' });
+      return result;
+    }
+    const result: PaymentRefundResult = { status: 'succeeded', providerRefundRef: response.TradeNo || record.payment.providerRef, ...(response.RtnMsg ? { message: response.RtnMsg } : {}) };
+    await ctx.store.set(refundLedgerKey(record.payment.providerRef), { ...record, state: 'succeeded', result, lastAction: 'E' });
+    return result;
+  }
+
+  async function performRefund(record: RefundRecord, creditCheckCode: string): Promise<PaymentRefundResult> {
+    let query: CreditQuery;
+    try {
+      query = await queryCredit(record.payment, creditCheckCode);
+    } catch (error) {
+      await ctx.store.set(refundLedgerKey(record.payment.providerRef), { ...record, state: 'indeterminate' });
+      throw error;
+    }
+    const action = refundActionFor(query, record.request.amount / 100);
+    if (action instanceof Error) {
+      const result: PaymentRefundResult = { status: 'rejected', message: action.message };
+      await ctx.store.set(refundLedgerKey(record.payment.providerRef), { ...record, state: 'rejected', result });
+      return result;
+    }
+    await ctx.store.set(refundLedgerKey(record.payment.providerRef), { ...record, state: 'checking', ...(action === 'E' ? { lastAction: action } : {}) });
+    let response: EcpayFields;
+    try {
+      response = await postRefundAction(record.payment, record.request.amount / 100, action);
+    } catch (error) {
+      await ctx.store.set(refundLedgerKey(record.payment.providerRef), { ...record, state: 'indeterminate', lastAction: action === 'E' ? action : record.lastAction });
+      throw error;
+    }
+    if (response.RtnCode !== '1') {
+      const result: PaymentRefundResult = { status: 'rejected', message: response.RtnMsg || `ECPay refund action ${action} was rejected` };
+      await ctx.store.set(refundLedgerKey(record.payment.providerRef), { ...record, state: 'rejected', result, lastAction: action === 'E' ? action : record.lastAction });
+      return result;
+    }
+    if (action === 'E') {
+      await ctx.store.set(refundLedgerKey(record.payment.providerRef), { ...record, state: 'follow_up', lastAction: action });
+      throw new Error('ECPay refund cancellation step completed; query reconciliation must confirm the follow-up abandon action');
+    }
+    const result: PaymentRefundResult = { status: 'succeeded', providerRefundRef: response.TradeNo || record.payment.providerRef, ...(response.RtnMsg ? { message: response.RtnMsg } : {}) };
+    await ctx.store.set(refundLedgerKey(record.payment.providerRef), { ...record, state: 'succeeded', result, lastAction: record.lastAction });
+    return result;
+  }
+
+  async function queryCredit(payment: ConfirmedCardRecord, creditCheckCode: string): Promise<CreditQuery> {
+    const fields: Record<string, string> = {
+      MerchantID: credentials.merchantId,
+      CreditRefundId: payment.creditRefundId!,
+      CreditAmount: String(payment.trade.amountTwd),
+      CreditCheckCode: creditCheckCode,
+    };
+    fields.CheckMacValue = createCheckMacValue(fields, credentials.hashKey, credentials.hashIv);
+    const http = ctx.http({ timeoutMs: ctx.config.creditRefund.timeoutMs, maxAttempts: 1, allowedHosts: ECPAY_CREDIT_REFUND_ALLOWED_HOSTS });
+    const response = await http.requestJson<{ RtnMsg?: unknown; RtnValue?: unknown }>({ method: 'POST', url: ECPAY_CREDIT_REFUND_QUERY_URL, headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(fields).toString() });
+    if (!response.ok) throw new Error(`ECPay credit refund query is indeterminate (${response.reason})`);
+    const query = parseCreditQuery(response.body);
+    if (!query) throw new Error('ECPay credit refund query is indeterminate (invalid response)');
+    return query;
+  }
+
+  async function postRefundAction(payment: ConfirmedCardRecord, amountTwd: number, action: 'R' | 'E' | 'N'): Promise<EcpayFields> {
+    const requestFields: Record<string, string> = {
+      MerchantID: credentials.merchantId,
+      MerchantTradeNo: payment.trade.merchantTradeNo,
+      TradeNo: payment.providerRef,
+      Action: action,
+      TotalAmount: String(amountTwd),
+    };
+    requestFields.CheckMacValue = createCheckMacValue(requestFields, credentials.hashKey, credentials.hashIv);
+    const http = ctx.http({ timeoutMs: ctx.config.creditRefund.timeoutMs, maxAttempts: 1, allowedHosts: ECPAY_CREDIT_REFUND_ALLOWED_HOSTS });
+    const response = await http.request({ method: 'POST', url: ECPAY_CREDIT_REFUND_ACTION_URL, headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(requestFields).toString() });
+    if (!response.ok) throw new Error(`ECPay credit refund action is indeterminate (${response.reason})`);
+    const fields = parseActionResponse(response.body);
+    if (fields.MerchantID !== credentials.merchantId) {
+      throw new Error('ECPay credit refund action is indeterminate (response merchant mismatch)');
+    }
+    if (fields.TradeNo !== payment.providerRef) {
+      throw new Error('ECPay credit refund action is indeterminate (response trade mismatch)');
+    }
+    if (fields.MerchantTradeNo !== payment.trade.merchantTradeNo) {
+      throw new Error('ECPay credit refund action is indeterminate (response merchant trade mismatch)');
+    }
+    return fields;
+  }
 }
 
 function capabilityFailure(input: PaymentInitiationInput, enabledMethods: readonly EcpayPaymentMethodCode[]): string | null {
@@ -264,6 +451,62 @@ function merchantTradeNo(reference: string): string {
 
 function referenceKey(reference: string) { return `ecpay:reference:${reference}`; }
 function tradeKey(merchantTradeNo: string) { return `ecpay:trade:${merchantTradeNo}`; }
+function providerRefKey(providerRef: string) { return `ecpay:provider-ref:${providerRef}`; }
+function refundLedgerKey(providerRef: string) { return `ecpay:refund-ledger:${providerRef}`; }
+
+function sameRefundInput(left: PaymentRefundInputV2, right: PaymentRefundInputV2): boolean {
+  return left.providerRef === right.providerRef && left.amount === right.amount && left.currency === right.currency && left.reference === right.reference;
+}
+
+function parseCreditQuery(body: { RtnMsg?: unknown; RtnValue?: unknown }): CreditQuery | null {
+  if (body.RtnMsg !== '') return null;
+  const value = typeof body.RtnValue === 'string' ? parseJson(body.RtnValue) : body.RtnValue;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const amount = integer(record.amount);
+  if (amount === null || typeof record.status !== 'string') return null;
+  const closeData = Array.isArray(record.close_data)
+    ? record.close_data.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+      const close = entry as Record<string, unknown>;
+      const closeAmount = integer(close.amount);
+      return typeof close.status === 'string' && closeAmount !== null ? [{ status: close.status, amount: closeAmount }] : [];
+    })
+    : [];
+  return { status: record.status, amount, closeData };
+}
+
+function refundActionFor(query: CreditQuery, amountTwd: number): 'R' | 'E' | 'N' | Error {
+  if (!Number.isSafeInteger(amountTwd) || amountTwd <= 0 || amountTwd > query.amount) {
+    return new Error('ECPay refund amount is unavailable from the current credit query');
+  }
+  if (query.status === '已授權') return amountTwd === query.amount ? 'N' : new Error('ECPay authorised credit can only be abandoned in full');
+  if (query.status === '已關帳') return 'R';
+  if (query.status === '操作取消') return 'N';
+  if (query.status === '要關帳') {
+    const close = [...query.closeData].reverse().find((entry) => entry.amount > 0);
+    if (!close || amountTwd > close.amount) return new Error('ECPay pending-close amount is unavailable for refund');
+    return amountTwd === close.amount ? 'E' : 'R';
+  }
+  return new Error(`ECPay credit status requires manual reconciliation: ${query.status}`);
+}
+
+function parseActionResponse(body: string): EcpayFields {
+  const parsed = body.trim().startsWith('{') ? parseJson(body) : Object.fromEntries(new URLSearchParams(body));
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('ECPay credit refund action is indeterminate (invalid response)');
+  const fields = Object.fromEntries(Object.entries(parsed as Record<string, unknown>).filter(([, value]) => typeof value === 'string').map(([key, value]) => [key, value as string]));
+  if (!fields.RtnCode) throw new Error('ECPay credit refund action is indeterminate (missing RtnCode)');
+  return fields;
+}
+
+function parseJson(value: string): unknown {
+  try { return JSON.parse(value); } catch { return null; }
+}
+
+function integer(value: unknown): number | null {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : NaN;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
 
 function formatEcpayDate(date: Date): string {
   const local = new Intl.DateTimeFormat('en-CA', {

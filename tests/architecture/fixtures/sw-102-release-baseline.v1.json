@@ -236,11 +236,11 @@
           },
           {
             "path": "docs/base/b17/commerce-public-contract.structural.v1.json",
-            "sha256": "9e871b7019dc44a9da0f81d6f7bd64ffa37b20eaec0edd87281461b4536b1fb8"
+            "sha256": "8181bc2aca70013d5215e2e95a15cbf9f7547de5bb9eaf3bd403df241bd927e7"
           },
           {
             "path": "docs/base/b17/commerce-public-contract.semantic.v2.json",
-            "sha256": "072a59d204a7228a37ac6d520a3b4ade36ce004c6b92668153fed572e2131e00"
+            "sha256": "32445ab2be6412ebc4c2bb386c84a56b3822d73b46160b07f52b10b1baa3311b"
           }
         ]
       }

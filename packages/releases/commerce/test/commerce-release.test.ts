@@ -50,9 +50,9 @@ const LEGACY_ADMIN_ROUTES = [
 const LEGACY_PUBLIC_CONTRACT_HASHES = {
   'docs/base/b17/b00-catalog.json': '7a6c392a4ab3bf752b5bd764d2904ac06f35832342e9c095a6406b08950d3a5e',
   'docs/base/b17/commerce-http-contract.v1.json': '1f9c5563cd8cada3c51a797a121bd3a21c17ced22329eb9e6091da8f66c7066a',
-  'docs/base/b17/commerce-public-contract.structural.v1.json': '9e871b7019dc44a9da0f81d6f7bd64ffa37b20eaec0edd87281461b4536b1fb8',
+  'docs/base/b17/commerce-public-contract.structural.v1.json': '8181bc2aca70013d5215e2e95a15cbf9f7547de5bb9eaf3bd403df241bd927e7',
 } as const;
-const LEGACY_SEMANTIC_CONTRACT_HASH = '9f536e6a81a0de022feb1218f298ab131ee8690ece9b01134439d0ceb4234267';
+const LEGACY_SEMANTIC_CONTRACT_HASH = '227e5f7e5be34d072f16a37a2dca9e9b4fe25ba1dc34e9cc3f66fd1e1d6390ac';
 const SEMANTIC_CONTRACT_FIELDS = [
   'format', 'schemaVersion', 'scope', 'limitations', 'surfaces', 'runtimeFacets', 'cases', 'caseCount', 'caseDigest', 'remaining',
 ] as const;

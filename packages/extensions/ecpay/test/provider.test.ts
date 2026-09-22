@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
-import { createTestExtensionContext, runPaymentProviderContractChecks } from '@storeweave/extension-sdk';
+import { describe, expect, it, vi } from 'vitest';
+import { createTestExtensionContext, paymentRefundResultSchema, runPaymentProviderContractChecks } from '@storeweave/extension-sdk';
 import type { PaymentInitiationInput, PaymentRefundInputV2 } from '@storeweave/extension-sdk';
 import {
   createCheckMacValue,
@@ -9,7 +9,7 @@ import {
   ECPAY_STAGE_CHECKOUT_URL,
 } from '../src';
 
-const secrets = { ECPAY_MERCHANT_ID: 'test-merchant-id', ECPAY_HASH_KEY: 'test-hash-key', ECPAY_HASH_IV: 'test-hash-iv' };
+const secrets = { ECPAY_MERCHANT_ID: 'test-merchant-id', ECPAY_HASH_KEY: 'test-hash-key', ECPAY_HASH_IV: 'test-hash-iv', ECPAY_CREDIT_CHECK_CODE: 'test-credit-check-code' };
 const declaredEcpaySecrets = [...Object.keys(secrets), 'ECPAY_CREDIT_CHECK_CODE'];
 const neutralInput: PaymentInitiationInput = {
   reference: 'payment:ecpay-contract-1',
@@ -20,12 +20,13 @@ const neutralInput: PaymentInitiationInput = {
 };
 const callbackUrl = 'https://store.example.test/callbacks/payment/ecpay';
 
-function provider() {
+function provider(options: { readonly config?: Record<string, unknown>; readonly fetch?: typeof fetch; readonly suppliedSecrets?: Record<string, string> } = {}) {
   const ctx = createTestExtensionContext({
     extensionId: 'ecpay',
-    config: ecpayPaymentConfig.parse({ returnUrl: callbackUrl, paymentInfoUrl: callbackUrl }),
-    secrets, declaredSecrets: declaredEcpaySecrets,
+    config: ecpayPaymentConfig.parse({ returnUrl: callbackUrl, paymentInfoUrl: callbackUrl, ...options.config }),
+    secrets: options.suppliedSecrets ?? secrets, declaredSecrets: declaredEcpaySecrets,
     now: () => new Date('2026-08-24T12:34:56.000Z'),
+    ...(options.fetch ? { fetch: options.fetch } : {}),
   });
   return { provider: createEcpayPaymentProvider(ctx), ctx };
 }
@@ -77,6 +78,30 @@ function merchantTradeNoFor(reference: string): string {
 
 function refundInput(providerRef: string, reference: string): PaymentRefundInputV2 {
   return { providerRef, amount: 10_000, currency: 'TWD', reference };
+}
+
+function refundQuery(status: string, closeData: readonly Record<string, string>[] = [{ status, amount: '100', sno: '1', datetime: '2026/08/24 20:00:00' }]) {
+  return new Response(JSON.stringify({ RtnMsg: '', RtnValue: { TradeID: '1234567890', amount: '100', clsamt: '100', status, close_data: closeData } }), {
+    status: 200, headers: { 'content-type': 'application/json' },
+  });
+}
+
+function refundAction(fields: Record<string, string>) {
+  return new Response(new URLSearchParams(fields).toString(), { status: 200, headers: { 'content-type': 'text/plain' } });
+}
+
+async function confirmedCard(providerContext: ReturnType<typeof provider>) {
+  const started = await providerContext.provider.initiate(neutralInput);
+  if (started.status !== 'redirect') throw new Error('expected ECPay redirect');
+  await providerContext.provider.parseCallback(callback({
+    MerchantID: secrets.ECPAY_MERCHANT_ID,
+    MerchantTradeNo: started.providerRef,
+    TradeNo: '2408241234567890',
+    TradeAmt: '100',
+    RtnCode: '1',
+    gwsr: '1234567890',
+  }));
+  return started;
 }
 
 describe('ECPay CheckMacValue', () => {
@@ -371,6 +396,118 @@ describe('ECPay payment provider', () => {
   it('does not invent a refund transport before the merchant capability is confirmed', async () => {
     const { provider: p } = provider();
     await expect(p.refund(refundInput('2408241234567890', 'refund:test:attempt:1')))
-      .resolves.toEqual({ status: 'unsupported', message: expect.stringMatching(/UAT contract/) });
+      .resolves.toEqual({ status: 'unsupported', message: expect.stringMatching(/entitlement and UAT/) });
+  });
+
+  it('queries the confirmed card first, posts a signed production refund once, and replays its provider-confirmed result', async () => {
+    const request = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/CreditDetail/QueryTrade/V2')) {
+        expect(init.headers).toMatchObject({ 'content-type': 'application/x-www-form-urlencoded' });
+        expect(Object.fromEntries(new URLSearchParams(String(init.body)))).toMatchObject({
+          MerchantID: secrets.ECPAY_MERCHANT_ID, CreditRefundId: '1234567890', CreditAmount: '100', CreditCheckCode: secrets.ECPAY_CREDIT_CHECK_CODE,
+        });
+        return refundQuery('已關帳');
+      }
+      expect(url).toBe('https://payment.ecpay.com.tw/CreditDetail/DoAction');
+      const fields = Object.fromEntries(new URLSearchParams(String(init.body)));
+      expect(fields).toMatchObject({ MerchantID: secrets.ECPAY_MERCHANT_ID, TradeNo: '2408241234567890', Action: 'R', TotalAmount: '100' });
+      expect(fields.CheckMacValue).toBe(createCheckMacValue(fields, secrets.ECPAY_HASH_KEY, secrets.ECPAY_HASH_IV));
+      return refundAction({ MerchantID: secrets.ECPAY_MERCHANT_ID, MerchantTradeNo: String(fields.MerchantTradeNo), TradeNo: '2408241234567890', RtnCode: '1', RtnMsg: 'ok' });
+    });
+    const current = provider({ config: { environment: 'production', creditRefund: { mode: 'aio-production' } }, fetch: request as unknown as typeof fetch });
+    const started = await confirmedCard(current);
+    const input = refundInput('2408241234567890', 'refund:ecpay:confirmed');
+    const result = await current.provider.refund(input);
+    expect(paymentRefundResultSchema.safeParse(result).success).toBe(true);
+    expect(result).toEqual({ status: 'succeeded', providerRefundRef: '2408241234567890', message: 'ok' });
+    await expect(current.provider.refund(input)).resolves.toEqual({ status: 'succeeded', providerRefundRef: '2408241234567890', message: 'ok' });
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(await current.ctx.store.get('ecpay:refund-ledger:2408241234567890')).toMatchObject({ state: 'succeeded', request: input });
+    expect(started.providerRef).toBeDefined();
+  });
+
+  it('never enables a production refund action without the explicit switch, production environment, and CreditCheckCode', async () => {
+    const request = vi.fn();
+    const disabled = provider({ config: { environment: 'production' }, fetch: request as unknown as typeof fetch });
+    await expect(disabled.provider.refund(refundInput('2408241234567890', 'refund:disabled'))).resolves.toMatchObject({ status: 'unsupported' });
+    expect(request).not.toHaveBeenCalled();
+    expect(() => ecpayPaymentConfig.parse({ returnUrl: callbackUrl, paymentInfoUrl: callbackUrl, environment: 'stage', creditRefund: { mode: 'aio-production' } })).toThrow(/requires the production environment/);
+    expect(() => provider({ config: { environment: 'production', creditRefund: { mode: 'aio-production' } }, suppliedSecrets: { ...secrets, ECPAY_CREDIT_CHECK_CODE: '' } })).toThrow(/CreditCheckCode/);
+  });
+
+  it('records a timeout as indeterminate and queries only on every later retry', async () => {
+    let calls = 0;
+    const request = vi.fn(async (url: string) => {
+      calls += 1;
+      if (url.endsWith('/QueryTrade/V2')) return refundQuery('已關帳');
+      throw new Error('simulated response loss');
+    });
+    const current = provider({ config: { environment: 'production', creditRefund: { mode: 'aio-production' } }, fetch: request as unknown as typeof fetch });
+    await confirmedCard(current);
+    const input = refundInput('2408241234567890', 'refund:ecpay:timeout');
+    await expect(current.provider.refund(input)).rejects.toThrow(/indeterminate|response loss/i);
+    expect(await current.ctx.store.get('ecpay:refund-ledger:2408241234567890')).toMatchObject({ state: 'indeterminate', request: input });
+    await expect(current.provider.refund(input)).rejects.toThrow(/indeterminate|reconciliation/i);
+    expect(calls).toBe(3);
+  });
+
+  it('rejects unknown payments, unsupported provider states, and provider action failures without success', async () => {
+    const request = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/QueryTrade/V2')) return refundQuery('已關帳');
+      const fields = Object.fromEntries(new URLSearchParams(String(init.body)));
+      return refundAction({ MerchantID: secrets.ECPAY_MERCHANT_ID, MerchantTradeNo: String(fields.MerchantTradeNo), TradeNo: '2408241234567890', RtnCode: '0', RtnMsg: '拒絕' });
+    });
+    const current = provider({ config: { environment: 'production', creditRefund: { mode: 'aio-production' } }, fetch: request as unknown as typeof fetch });
+    await expect(current.provider.refund(refundInput('unknown-provider-ref', 'refund:ecpay:unknown'))).resolves.toMatchObject({ status: 'rejected' });
+    await confirmedCard(current);
+    await expect(current.provider.refund(refundInput('2408241234567890', 'refund:ecpay:provider-reject'))).resolves.toEqual({ status: 'rejected', message: '拒絕' });
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not accept a successful action response without all correlated provider identifiers', async () => {
+    const request = vi.fn(async (url: string) => url.endsWith('/QueryTrade/V2')
+      ? refundQuery('已關帳')
+      : refundAction({ RtnCode: '1', RtnMsg: 'ok' }));
+    const current = provider({ config: { environment: 'production', creditRefund: { mode: 'aio-production' } }, fetch: request as unknown as typeof fetch });
+    await confirmedCard(current);
+    await expect(current.provider.refund(refundInput('2408241234567890', 'refund:ecpay:malformed-success'))).rejects.toThrow(/response .*mismatch/i);
+    expect(await current.ctx.store.get('ecpay:refund-ledger:2408241234567890')).toMatchObject({ state: 'indeterminate' });
+  });
+
+  it('claims a pending follow-up before sending the abandon action', async () => {
+    const request = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/QueryTrade/V2')) return refundQuery('操作取消');
+      const fields = Object.fromEntries(new URLSearchParams(String(init.body)));
+      return refundAction({ MerchantID: secrets.ECPAY_MERCHANT_ID, MerchantTradeNo: String(fields.MerchantTradeNo), TradeNo: '2408241234567890', RtnCode: '1', RtnMsg: 'ok' });
+    });
+    const current = provider({ config: { environment: 'production', creditRefund: { mode: 'aio-production' } }, fetch: request as unknown as typeof fetch });
+    await confirmedCard(current);
+    const input = refundInput('2408241234567890', 'refund:ecpay:follow-up');
+    const payment = await current.ctx.store.get('ecpay:provider-ref:2408241234567890');
+    if (!payment) throw new Error('expected confirmed payment');
+    await current.ctx.store.set('ecpay:refund-ledger:2408241234567890', { request: input, payment, state: 'follow_up' });
+    const outcomes = await Promise.allSettled([current.provider.refund(input), current.provider.refund(input)]);
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(1);
+    expect(request.mock.calls.filter(([url]) => url.endsWith('/CreditDetail/DoAction'))).toHaveLength(1);
+  });
+
+  it('releases a follow-up claim when ECPay has not transitioned, allowing a later reconciliation retry', async () => {
+    let queryCount = 0;
+    const request = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/QueryTrade/V2')) return refundQuery(queryCount++ === 0 ? '已關帳' : '操作取消');
+      const fields = Object.fromEntries(new URLSearchParams(String(init.body)));
+      return refundAction({ MerchantID: secrets.ECPAY_MERCHANT_ID, MerchantTradeNo: String(fields.MerchantTradeNo), TradeNo: '2408241234567890', RtnCode: '1', RtnMsg: 'ok' });
+    });
+    const current = provider({ config: { environment: 'production', creditRefund: { mode: 'aio-production' } }, fetch: request as unknown as typeof fetch });
+    await confirmedCard(current);
+    const input = refundInput('2408241234567890', 'refund:ecpay:delayed-follow-up');
+    const payment = await current.ctx.store.get('ecpay:provider-ref:2408241234567890');
+    if (!payment) throw new Error('expected confirmed payment');
+    await current.ctx.store.set('ecpay:refund-ledger:2408241234567890', { request: input, payment, state: 'follow_up' });
+    await expect(current.provider.refund(input)).rejects.toThrow(/still pending/);
+    expect(await current.ctx.store.get('ecpay:refund-ledger:2408241234567890')).toMatchObject({ state: 'follow_up' });
+    await expect(current.provider.refund(input)).resolves.toMatchObject({ status: 'succeeded' });
+    expect(request.mock.calls.filter(([url]) => url.endsWith('/CreditDetail/DoAction'))).toHaveLength(1);
   });
 });

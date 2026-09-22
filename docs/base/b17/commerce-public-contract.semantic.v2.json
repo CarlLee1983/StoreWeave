@@ -38479,13 +38479,13 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src + packages/commerce + packages/extensions + packages/platform + packages/releases/commerce/src + packages/themes/default/src",
-      "fingerprint": "4d3874f0253dabafb2652d2e5b8deef88bba6d4e5e92748cdf8e29ce7282ad51",
+      "fingerprint": "4000ea92dd6f38fdb0845655e053b490ebba926e58eebe8067a0c6659e3295c3",
       "id": "zod:commerce-production-source-inventory",
       "limitations": [
         "A source fingerprint detects drift but does not prove behavior.",
         "Called predicate bodies and the complete input domain are not inferred from this AST inventory."
       ],
-      "occurrences": 1043,
+      "occurrences": 1048,
       "operator": "zod-semantic-operations"
     }
   ],
@@ -38500,7 +38500,7 @@
       "Only executable cases may remove runtime obligations from remaining."
     ],
     "structural": "docs/base/b17/commerce-public-contract.structural.v1.json",
-    "structuralSha256": "9e871b7019dc44a9da0f81d6f7bd64ffa37b20eaec0edd87281461b4536b1fb8"
+    "structuralSha256": "8181bc2aca70013d5215e2e95a15cbf9f7547de5bb9eaf3bd403df241bd927e7"
   },
   "sourceFiles": [
     {
@@ -39606,7 +39606,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/extensions/ecpay/src/config.ts",
-      "fingerprint": "4cb4685158d8d4f73f670954e6af12d7b8d75ee61441dcd38a5a539f5a26e930"
+      "fingerprint": "eb647de4b0de5fe6fed4605ab50c31ff9341a1a6d319c70f0fe7ce6c8ed80250"
     },
     {
       "assurance": "provenance-only",
@@ -39616,7 +39616,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/extensions/ecpay/src/provider.ts",
-      "fingerprint": "09204d5bf197dbf0e95a3b9437ab6a9b7a79c78cd8ab67179ed8b86a6e95f09d"
+      "fingerprint": "5868aeea4f84f54998e1b727979b96f9d6e346e40c6ab085bc8d740bda20f574"
     },
     {
       "assurance": "provenance-only",
@@ -42726,7 +42726,7 @@
     {
       "assurance": "provenance-only",
       "category": "extension-config",
-      "fingerprint": "251964a54c23864fcb17fceeafe426402882b3c05f65bac6e6737cfabcb57380",
+      "fingerprint": "921fc08ee366d7db5d508a62a5ef78ef50edd7cfe1109c1a4ccff2200828dcb9",
       "id": "extension:ecpay:config"
     },
     {
