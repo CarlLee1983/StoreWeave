@@ -80,6 +80,7 @@ export async function runExtensionContractChecks(
     commands: options.commands,
     queries: options.queries,
     secrets: options.secrets,
+    declaredSecrets: [...(manifest.requiredSecrets ?? []), ...(manifest.optionalSecrets ?? [])],
   });
 
   let registration;

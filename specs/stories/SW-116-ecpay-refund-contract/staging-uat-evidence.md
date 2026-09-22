@@ -19,6 +19,24 @@
 
 The public [ECPay AIO Capture and Refund documentation](https://developers.ecpay.com.tw/16567/) describes one credit-card product whose refund path depends on transaction status and states that its staging API cannot be used without real authorizations. That public document is not proof that this merchant account has the product enabled, and it does not select the product for this adapter.
 
+## Public-contract baseline (not merchant approval)
+
+On 2026-09-22 the release owner supplied ECPay's official
+[legacy AIO credit-card refund operation](https://developers.ecpay.com.tw/2885/).
+It documents production-only form posts to
+`https://payment.ecpay.com.tw/CreditDetail/DoAction`, signed with
+`CheckMacValue`, and a state-dependent `N` / `E` then `N` / `R` workflow. Its
+linked [credit-card detail query](https://developers.ecpay.com.tw/2894/) requires
+`CreditRefundId` (`gwsr` from a signed payment callback with
+`NeedExtraPaidInfo=Y`), `CreditAmount`, and merchant `CreditCheckCode` before an
+action can be selected. The complete source-grounded analysis is in
+[the ECPay credit refund and reconciliation contract note](../../../docs/research/64-ecpay-credit-refund-and-reconciliation-contract.md).
+
+This establishes a candidate legacy AIO implementation contract only. It does
+not fill any blank field above: the merchant account identifier, account
+entitlement, `CreditCheckCode` secret, replay/recovery agreement, and every UAT
+case remain required before this gate can clear.
+
 ## Staging cases
 
 Record one sanitized evidence reference per case. Use the merchant-approved product contract to determine expected results before running UAT.

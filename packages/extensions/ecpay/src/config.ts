@@ -3,6 +3,8 @@ import { z } from 'zod';
 export const ECPAY_MERCHANT_ID_SECRET = 'ECPAY_MERCHANT_ID';
 export const ECPAY_HASH_KEY_SECRET = 'ECPAY_HASH_KEY';
 export const ECPAY_HASH_IV_SECRET = 'ECPAY_HASH_IV';
+/** Required only when the explicitly enabled credit-card refund capability queries ECPay. */
+export const ECPAY_CREDIT_CHECK_CODE_SECRET = 'ECPAY_CREDIT_CHECK_CODE';
 
 export const ECPAY_STAGE_CHECKOUT_URL = 'https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5';
 export const ECPAY_PRODUCTION_CHECKOUT_URL = 'https://payment.ecpay.com.tw/Cashier/AioCheckOut/V5';

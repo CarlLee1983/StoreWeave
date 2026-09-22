@@ -129,6 +129,7 @@ async function projectExtensions(): Promise<ExtensionContract[]> {
       platformVersion: commerceRelease.baseVersion,
       config,
       secrets: requiredSecretPlaceholders(manifest.requiredSecrets ?? []),
+      declaredSecrets: [...(manifest.requiredSecrets ?? []), ...(manifest.optionalSecrets ?? [])],
     }));
     const commands = (registration.commands ?? []).map((entry: any) => ({
       name: entry.descriptor.name, version: entry.descriptor.version, permission: entry.descriptor.permission,

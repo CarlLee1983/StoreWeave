@@ -38479,13 +38479,13 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src + packages/commerce + packages/extensions + packages/platform + packages/releases/commerce/src + packages/themes/default/src",
-      "fingerprint": "79f7fe93066cebc88fdb083ac8f6a93533a45b51e8d8586c3f22ebf24540b610",
+      "fingerprint": "4d3874f0253dabafb2652d2e5b8deef88bba6d4e5e92748cdf8e29ce7282ad51",
       "id": "zod:commerce-production-source-inventory",
       "limitations": [
         "A source fingerprint detects drift but does not prove behavior.",
         "Called predicate bodies and the complete input domain are not inferred from this AST inventory."
       ],
-      "occurrences": 1042,
+      "occurrences": 1043,
       "operator": "zod-semantic-operations"
     }
   ],
@@ -39606,12 +39606,12 @@
     {
       "assurance": "provenance-only",
       "file": "packages/extensions/ecpay/src/config.ts",
-      "fingerprint": "6b83ca8400a313c6823268545b930d0ab7bf4d4e25da0d8ae5ddbd473b483d64"
+      "fingerprint": "4cb4685158d8d4f73f670954e6af12d7b8d75ee61441dcd38a5a539f5a26e930"
     },
     {
       "assurance": "provenance-only",
       "file": "packages/extensions/ecpay/src/index.ts",
-      "fingerprint": "ed4b3d77c86848275cbf89135172aaae3847cc3361b026dff8e7602456ea7daf"
+      "fingerprint": "56ef8ab0d9de2d8f229b96424a1a96524c2c9cd6e7f58ab69c18cc1420248ae9"
     },
     {
       "assurance": "provenance-only",
@@ -39966,7 +39966,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/extension-sdk/src/contract-test.ts",
-      "fingerprint": "dd627e2d164a3bfd3766455195cab2c1c865e717ecd07530857d40efed77ee79"
+      "fingerprint": "a85959c5aad1558295fc176e343fc1f1a66b48f0d757af8ca3ddfd05d36076d2"
     },
     {
       "assurance": "provenance-only",
@@ -39981,7 +39981,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/extension-sdk/src/manifest.ts",
-      "fingerprint": "f4373aa8e8df80be125b52f4a0465738d5e6ba77afad4ab77de667b5953f0f5c"
+      "fingerprint": "3336bec2e662af841e94c54cae32b89d9cf9dabb76592c0bea135bffa0639eb4"
     },
     {
       "assurance": "provenance-only",
@@ -40016,7 +40016,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/extension-sdk/src/testing.ts",
-      "fingerprint": "804bfbd3947b29d29a4bbcf30a315bc8a77a2dbf66a1828078e2288d2850f56c"
+      "fingerprint": "78a1dacc1a852f13f3816562fc6cead571e23ceec1bf4b4f3b5eb8b47cd4f924"
     },
     {
       "assurance": "provenance-only",
@@ -40136,7 +40136,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/kernel/src/extension-host.ts",
-      "fingerprint": "d0b23fd9d367a315cebe352dd95454e7799c0ac25849122a11d23d86570fc2b6"
+      "fingerprint": "3258962def906e88e0f395a6d0517984c35edd3d02fab91eef86319cae300247"
     },
     {
       "assurance": "provenance-only",
@@ -40146,7 +40146,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/kernel/src/health.ts",
-      "fingerprint": "b1d4b19ed87aaa3c6e88e408bcf7cb21cf87b7a0357b253c38b649fe96fa0f9b"
+      "fingerprint": "ff0acd78623375294f8f0fdd9a044ecb01d1b5ddf4373d2bb9fc5e5b2987e4aa"
     },
     {
       "assurance": "provenance-only",

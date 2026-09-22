@@ -34,7 +34,8 @@ manifest: {
     { key: 'erp:read',  description: '讀取 ERP 投遞狀態' },
     { key: 'erp:write', description: '重送訂單到 ERP' },
   ],
-  requiredSecrets: ['DEMO_ERP_API_KEY'],// 只放名稱；值永遠來自環境變數或 Secret Provider
+  requiredSecrets: ['DEMO_ERP_API_KEY'],// 掛載時必須存在；只放名稱，值永遠來自 Secret Provider
+  optionalSecrets: ['DEMO_ERP_FEATURE_KEY'], // 可讀但缺失不阻止掛載；不得與 requiredSecrets 重複
   configuration: demoErpConfig,         // Zod schema
   subscribedEvents: ['commerce.order.paid.v2'],
   registeredCommands: ['ext.demo-erp.resendOrder'],
@@ -85,7 +86,7 @@ ctx.jobs.requeue(jobId)       // 人工重送
 ctx.jobs.retryDead(jobId)     // 僅重送死信；有外部副作用時優先使用
 ctx.store                     // 以 extension id 隔離的 get/set/delete/list/mutate
 ctx.getProvider('erp')        // 只拿得到宣告過的 provider kind
-ctx.secret('DEMO_ERP_API_KEY')// 只讀得到 requiredSecrets 列出的名稱
+ctx.secret('DEMO_ERP_API_KEY')// 只讀得到 requiredSecrets 或 optionalSecrets 列出的名稱
 ctx.now()
 ```
 
@@ -282,9 +283,11 @@ describe('gift-wrap 契約', () => {
 manifest 宣告與實際註冊是否一致、命名空間是否正確、job type 是否重複，以及 scheduled job 的
 current payload 是否接受 recurring scheduler 產生的 shape。
 
-用 `createTestExtensionContext()` 可以進一步做行為測試：它提供記憶體版 Store、
-Command/Query stub、以及 `drainJobs()` 讓你在測試裡走完整條背景工作流程
-（範例見 `packages/extensions/demo-erp/test/delivery.test.ts`）。
+用 `createTestExtensionContext({ declaredSecrets: [...] })` 可以進一步做行為測試：
+`declaredSecrets` 必須列出 manifest 的 `requiredSecrets` 與 `optionalSecrets` 聯集，讓測試也
+拒絕未宣告的讀取；未提供的可選值會讀成 `undefined`。它提供記憶體版 Store、Command/Query
+stub、以及 `drainJobs()` 讓你在測試裡走完整條背景工作流程（範例見
+`packages/extensions/demo-erp/test/delivery.test.ts`）。
 
 ## 掛進 Release
 
@@ -314,7 +317,7 @@ extensions:
 | `Extension "x" commands mismatch` | manifest 宣告與 `setup()` 註冊不一致 |
 | `may only register commands under "ext.x."` | 命名空間錯誤 |
 | `Forbidden: missing permission ...` | 呼叫了 manifest 沒宣告權限的 Command |
-| `must declare secret "X" in requiredSecrets` | 讀取未宣告的機密 |
+| `must declare secret "X" in requiredSecrets or optionalSecrets` | 讀取未宣告的機密 |
 | `requires secret "X" which is not set` | 環境變數或 Secret Provider 沒有提供該機密 |
 | `is incompatible: extension requires platform ^1.0.0` | `platformVersion` 與目前平台版本不符 |
 | `did not declare access to payment providers` | 取用未宣告的 provider kind |

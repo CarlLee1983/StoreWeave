@@ -13,6 +13,7 @@ const secrets = {
   ECPAY_HASH_KEY: 'test-hash-key',
   ECPAY_HASH_IV: 'test-hash-iv',
 };
+const declaredEcpaySecrets = [...Object.keys(secrets), 'ECPAY_CREDIT_CHECK_CODE'];
 
 const callbackHttpAdapter = {
   releaseId: 'callback-test', anonymousRole: null,
@@ -28,6 +29,7 @@ async function providerWithStartedTrade() {
       paymentInfoUrl: 'https://store.example.test/callbacks/payment/ecpay',
     }),
     secrets,
+    declaredSecrets: declaredEcpaySecrets,
     now: () => new Date('2026-08-24T12:34:56.000Z'),
   });
   const provider = createEcpayPaymentProvider(context);

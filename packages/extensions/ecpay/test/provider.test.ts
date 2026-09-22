@@ -10,6 +10,7 @@ import {
 } from '../src';
 
 const secrets = { ECPAY_MERCHANT_ID: 'test-merchant-id', ECPAY_HASH_KEY: 'test-hash-key', ECPAY_HASH_IV: 'test-hash-iv' };
+const declaredEcpaySecrets = [...Object.keys(secrets), 'ECPAY_CREDIT_CHECK_CODE'];
 const neutralInput: PaymentInitiationInput = {
   reference: 'payment:ecpay-contract-1',
   displayReference: 'SW-2000',
@@ -23,7 +24,7 @@ function provider() {
   const ctx = createTestExtensionContext({
     extensionId: 'ecpay',
     config: ecpayPaymentConfig.parse({ returnUrl: callbackUrl, paymentInfoUrl: callbackUrl }),
-    secrets,
+    secrets, declaredSecrets: declaredEcpaySecrets,
     now: () => new Date('2026-08-24T12:34:56.000Z'),
   });
   return { provider: createEcpayPaymentProvider(ctx), ctx };
@@ -33,7 +34,7 @@ function providerWithMethods(enabledMethods: string[]) {
   const ctx = createTestExtensionContext({
     extensionId: 'ecpay',
     config: ecpayPaymentConfig.parse({ returnUrl: callbackUrl, paymentInfoUrl: callbackUrl, enabledMethods }),
-    secrets,
+    secrets, declaredSecrets: declaredEcpaySecrets,
     now: () => new Date('2026-08-24T12:34:56.000Z'),
   });
   return createEcpayPaymentProvider(ctx);
@@ -89,7 +90,7 @@ describe('ECPay CheckMacValue', () => {
 describe('ECPay release configuration', () => {
   it('requires secret-provider credentials and rejects credentials in the extension configuration', () => {
     const config = ecpayPaymentConfig.parse({ returnUrl: callbackUrl });
-    expect(() => createEcpayPaymentProvider(createTestExtensionContext({ extensionId: 'ecpay', config }))).toThrow(/required secrets/);
+    expect(() => createEcpayPaymentProvider(createTestExtensionContext({ extensionId: 'ecpay', config, declaredSecrets: declaredEcpaySecrets }))).toThrow(/required secrets/);
     expect(() => ecpayPaymentConfig.parse({ returnUrl: callbackUrl, merchantId: 'must-not-be-in-yaml' })).toThrow(/unrecognized/i);
   });
 

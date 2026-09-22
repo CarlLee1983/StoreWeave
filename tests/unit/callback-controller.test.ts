@@ -71,6 +71,7 @@ const ecpaySecrets = {
   ECPAY_HASH_KEY: 'test-hash-key',
   ECPAY_HASH_IV: 'test-hash-iv',
 };
+const declaredEcpaySecrets = [...Object.keys(ecpaySecrets), 'ECPAY_CREDIT_CHECK_CODE'];
 
 async function startedEcpayProvider() {
   const context = createTestExtensionContext({
@@ -80,6 +81,7 @@ async function startedEcpayProvider() {
       paymentInfoUrl: 'https://store.example.test/callbacks/payment/ecpay',
     }),
     secrets: ecpaySecrets,
+    declaredSecrets: declaredEcpaySecrets,
     now: () => new Date('2026-08-24T12:34:56.000Z'),
   });
   const provider = createEcpayPaymentProvider(context);

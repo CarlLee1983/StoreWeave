@@ -10,6 +10,7 @@ function provider(overrides: Record<string, unknown> = {}) {
   const ctx = createTestExtensionContext({
     extensionId: 'mock-payment',
     config: mockPaymentConfig.parse(overrides),
+    declaredSecrets: [],
   });
   return { provider: createMockPaymentProvider(ctx), ctx };
 }

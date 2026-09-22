@@ -32,6 +32,8 @@ export const manifestShapeSchema = z.object({
   declaredPermissions: z.array(z.object({ key: z.string(), description: z.string() })).default([]),
   /** 需要的機密環境變數名稱；只放名稱，永遠不放值。 */
   requiredSecrets: z.array(z.string()).default([]),
+  /** 可讀但不阻止掛載的機密名稱；只放名稱，永遠不放值。 */
+  optionalSecrets: z.array(z.string()).default([]),
 });
 
 export interface ExtensionManifest<TConfig = unknown> {
@@ -51,6 +53,7 @@ export interface ExtensionManifest<TConfig = unknown> {
   readonly registeredProviders: readonly ProviderDeclaration[];
   readonly declaredPermissions?: readonly { key: string; description: string }[];
   readonly requiredSecrets?: readonly string[];
+  readonly optionalSecrets?: readonly string[];
 }
 
 export function validateManifestShape(manifest: ExtensionManifest<any>): void {
@@ -75,6 +78,12 @@ export function validateManifestShape(manifest: ExtensionManifest<any>): void {
   assertUnique('provider', manifest.registeredProviders.map(provider => `${provider.kind}:${provider.id}`));
   assertUnique('declared permission', (manifest.declaredPermissions ?? []).map(permission => permission.key));
   assertUnique('required secret', manifest.requiredSecrets ?? []);
+  assertUnique('optional secret', manifest.optionalSecrets ?? []);
+  const requiredSecrets = new Set(manifest.requiredSecrets ?? []);
+  const overlappingSecrets = (manifest.optionalSecrets ?? []).filter((secret) => requiredSecrets.has(secret));
+  if (overlappingSecrets.length > 0) {
+    throw PlatformError.validation(`Extension "${manifest.id}" declares a secret as both required and optional: ${overlappingSecrets.join(', ')}`);
+  }
 }
 
 export function providerKinds(manifest: ExtensionManifest<any>): ProviderKind[] {

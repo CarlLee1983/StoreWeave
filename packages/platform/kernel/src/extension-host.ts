@@ -445,8 +445,8 @@ export class ExtensionHost {
         return deps.providers.get<T>(kind, id);
       },
       secret(name) {
-        if (!(manifest.requiredSecrets ?? []).includes(name)) {
-          throw PlatformError.forbidden(`Extension "${manifest.id}" must declare secret "${name}" in requiredSecrets`);
+        if (!declaresSecret(manifest, name)) {
+          throw PlatformError.forbidden(`Extension "${manifest.id}" must declare secret "${name}" in requiredSecrets or optionalSecrets`);
         }
         return deps.secrets.get(name);
       },
@@ -454,6 +454,10 @@ export class ExtensionHost {
       now: () => new Date(),
     };
   }
+}
+
+function declaresSecret(manifest: ExtensionManifest, name: string): boolean {
+  return (manifest.requiredSecrets ?? []).includes(name) || (manifest.optionalSecrets ?? []).includes(name);
 }
 
 export { SYSTEM_ACTOR };
