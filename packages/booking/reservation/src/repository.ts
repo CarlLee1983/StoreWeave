@@ -112,7 +112,7 @@ export class BookingReservationRepository {
   }
 
   async confirmWithWinningAttempt(tx: Tx, reservationId: string, attemptId: string): Promise<void> {
-    await tx.update(bookingReservationReservations).set({ status: 'confirmed', winningPaymentAttemptId: attemptId })
+    await tx.update(bookingReservationReservations).set({ status: 'confirmed', winningPaymentAttemptId: attemptId, checkoutCredentialRevokedAt: sql`pg_catalog.clock_timestamp()` })
       .where(eq(bookingReservationReservations.id, reservationId));
   }
 
@@ -122,7 +122,7 @@ export class BookingReservationRepository {
   }
 
   async cancelIfCurrent(tx: Tx, reservationId: string): Promise<boolean> {
-    const [row] = await tx.update(bookingReservationReservations).set({ status: 'cancelled' })
+    const [row] = await tx.update(bookingReservationReservations).set({ status: 'cancelled', checkoutCredentialRevokedAt: sql`pg_catalog.clock_timestamp()` })
       .where(and(
         eq(bookingReservationReservations.id, reservationId),
         inArray(bookingReservationReservations.status, ['pending_payment', 'confirmed']),
@@ -231,6 +231,19 @@ export class BookingReservationRepository {
     return row;
   }
 
+  async lockCheckoutAccessState(tx: Tx, id: string) {
+    const [row] = await tx.select({
+      id: bookingReservationReservations.id, status: bookingReservationReservations.status,
+      piiAnonymizedAt: bookingReservationReservations.piiAnonymizedAt,
+      checkoutCredentialKeyId: bookingReservationReservations.checkoutCredentialKeyId,
+      checkoutCredentialNonce: bookingReservationReservations.checkoutCredentialNonce,
+      checkoutCredentialHash: bookingReservationReservations.checkoutCredentialHash,
+      checkoutCredentialExpiresAt: bookingReservationReservations.checkoutCredentialExpiresAt,
+      checkoutCredentialRevokedAt: bookingReservationReservations.checkoutCredentialRevokedAt,
+    }).from(bookingReservationReservations).where(eq(bookingReservationReservations.id, id)).for('update');
+    return row;
+  }
+
   async lockRetentionBatch(tx: Tx, afterId: string | null, limit: number): Promise<BookingReservationRow[]> {
     const conditions = [
       isNull(bookingReservationReservations.piiAnonymizedAt),
@@ -256,6 +269,11 @@ export class BookingReservationRepository {
       accessGrantExpiresAt: null,
       accessGrantUsedAt: null,
       managementTokenHash: null,
+      checkoutCredentialKeyId: null,
+      checkoutCredentialNonce: null,
+      checkoutCredentialHash: null,
+      checkoutCredentialExpiresAt: null,
+      checkoutCredentialRevokedAt: sql`pg_catalog.clock_timestamp()`,
       piiAnonymizedAt: anonymizedAt,
     }).where(and(
       eq(bookingReservationReservations.id, reservationId),
@@ -305,7 +323,7 @@ export class BookingReservationRepository {
 
   async expireIfCurrent(tx: Tx, reservation: BookingReservationRow, expectedPaymentExpiresAt: Date): Promise<boolean> {
     const [updated] = await tx.update(bookingReservationReservations)
-      .set({ status: 'expired' })
+      .set({ status: 'expired', checkoutCredentialRevokedAt: sql`pg_catalog.clock_timestamp()` })
       .where(and(
         eq(bookingReservationReservations.id, reservation.id),
         eq(bookingReservationReservations.status, 'pending_payment'),

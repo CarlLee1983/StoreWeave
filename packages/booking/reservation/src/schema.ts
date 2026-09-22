@@ -29,6 +29,11 @@ export const bookingReservationReservations = pgTable('booking_reservation_reser
   accessGrantExpiresAt: timestamp('access_grant_expires_at', { withTimezone: true }),
   accessGrantUsedAt: timestamp('access_grant_used_at', { withTimezone: true }),
   managementTokenHash: text('management_token_hash'),
+  checkoutCredentialKeyId: text('checkout_credential_key_id'),
+  checkoutCredentialNonce: uuid('checkout_credential_nonce'),
+  checkoutCredentialHash: text('checkout_credential_hash'),
+  checkoutCredentialExpiresAt: timestamp('checkout_credential_expires_at', { withTimezone: true }),
+  checkoutCredentialRevokedAt: timestamp('checkout_credential_revoked_at', { withTimezone: true }),
   ownerAccountId: uuid('owner_account_id'),
   piiAnonymizedAt: timestamp('pii_anonymized_at', { withTimezone: true }),
   winningPaymentAttemptId: uuid('winning_payment_attempt_id'),
@@ -52,12 +57,16 @@ export const bookingReservationReservations = pgTable('booking_reservation_reser
   check('booking_reservation_access_grant_pair_check', sql`(${table.accessGrantNonce} IS NULL) = (${table.accessGrantExpiresAt} IS NULL)`),
   check('booking_reservation_access_grant_used_check', sql`${table.accessGrantUsedAt} IS NULL OR ${table.accessGrantNonce} IS NOT NULL`),
   check('booking_reservation_management_token_hash_check', sql`${table.managementTokenHash} IS NULL OR (${table.accessGrantUsedAt} IS NOT NULL AND ${table.managementTokenHash} ~ '^[0-9a-f]{64}$')`),
+  check('booking_reservation_checkout_credential_pair_check', sql`(${table.checkoutCredentialKeyId} IS NULL) = (${table.checkoutCredentialNonce} IS NULL) AND (${table.checkoutCredentialNonce} IS NULL) = (${table.checkoutCredentialHash} IS NULL) AND (${table.checkoutCredentialHash} IS NULL) = (${table.checkoutCredentialExpiresAt} IS NULL)`),
+  check('booking_reservation_checkout_credential_hash_check', sql`${table.checkoutCredentialHash} IS NULL OR ${table.checkoutCredentialHash} ~ '^[0-9a-f]{64}$'`),
   check('booking_reservation_anonymized_state_check', sql`${table.piiAnonymizedAt} IS NULL OR (
     ${table.bookerName} IS NULL AND ${table.bookerEmail} IS NULL AND ${table.bookerPhone} IS NULL
     AND ${table.primaryGuestName} IS NULL AND ${table.accommodationNotes} IS NULL
     AND ${table.ownerAccountId} IS NULL AND ${table.accessGeneration} = 0
     AND ${table.accessGrantNonce} IS NULL AND ${table.accessGrantExpiresAt} IS NULL
     AND ${table.accessGrantUsedAt} IS NULL AND ${table.managementTokenHash} IS NULL
+    AND ${table.checkoutCredentialKeyId} IS NULL AND ${table.checkoutCredentialNonce} IS NULL
+    AND ${table.checkoutCredentialHash} IS NULL AND ${table.checkoutCredentialExpiresAt} IS NULL
   )`),
   check('booking_reservation_winning_payment_attempt_check', sql`${table.winningPaymentAttemptId} IS NULL OR ${table.status} IN ('confirmed', 'cancelled')`),
   index('booking_reservation_owner_account_idx').on(table.ownerAccountId),

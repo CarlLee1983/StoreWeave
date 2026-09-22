@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createBookingReservationInputSchema } from '../src/types';
+import { createBookingReservationInputSchema, startBookingReservationPaymentInputSchema } from '../src/types';
 
 const validInput = {
   quote: {
@@ -31,5 +31,17 @@ describe('Booking Reservation input', () => {
     expect(createBookingReservationInputSchema.safeParse({
       ...validInput, booker: { ...validInput.booker, fullGuestList: ['another person'] },
     }).success).toBe(false);
+  });
+});
+
+describe('Booking Reservation payment input', () => {
+  it('requires a bounded checkout credential and rejects unexpected fields', () => {
+    const valid = {
+      reservationId: '123e4567-e89b-12d3-a456-426614174000', method: 'deferred', checkoutCredential: 'brc1.example',
+    };
+    expect(startBookingReservationPaymentInputSchema.safeParse(valid).success).toBe(true);
+    expect(startBookingReservationPaymentInputSchema.parse({ ...valid, checkoutCredential: '' }).checkoutCredential).toBe('');
+    expect(startBookingReservationPaymentInputSchema.parse({ reservationId: valid.reservationId, method: valid.method }).checkoutCredential).toBe('');
+    expect(startBookingReservationPaymentInputSchema.safeParse({ ...valid, email: 'not-an-authorizer@example.test' }).success).toBe(false);
   });
 });

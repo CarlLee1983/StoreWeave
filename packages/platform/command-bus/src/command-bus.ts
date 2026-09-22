@@ -29,6 +29,14 @@ export interface CommandRegistration {
 export interface ExecuteOptions {
   actor: Actor;
   idempotencyKey?: string;
+  /**
+   * A capability check which must happen in the same transaction, before an
+   * idempotency replay can return its cached response. This is intentionally
+   * an adapter-supplied guard rather than descriptor metadata: it is needed
+   * only when a short-lived external credential can be revoked independently
+   * of the command's persisted response.
+   */
+  beforeIdempotency?: (tx: Tx) => Promise<void>;
   correlationId?: string;
   /** 由呼叫者宣告的介面來源，只寫進 log/audit，不影響授權。 */
   channel?: 'rest' | 'mcp' | 'cli' | 'admin' | 'internal' | 'worker';
@@ -147,6 +155,10 @@ export class CommandBus {
     const hash = requestHash(input);
 
     return this.deps.database.transaction(async (tx) => {
+      // A completed idempotency row normally returns before the handler. For a
+      // revocable capability, authenticate while holding the aggregate lock so
+      // terminal lifecycle work cannot race a cached response.
+      await options.beforeIdempotency?.(tx);
       if (options.idempotencyKey) {
         const replay = await this.claimIdempotency(tx, name, options.idempotencyKey, hash, options.actor.id);
         if (replay.kind === 'replay') {

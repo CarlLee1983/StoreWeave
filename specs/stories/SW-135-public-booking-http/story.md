@@ -19,7 +19,7 @@
 * plan: yes
 * modify: yes
 * add_dependency: no
-* migration: no
+* migration: yes — authorized additive Reservation checkout-credential state
 * commit: yes
 * push: yes
 * deploy: no
@@ -35,6 +35,7 @@
 
 * Add Booking public HTTP controller/adapter contribution and DTO validation for public browse/search, Quote, Reservation creation, and payment initiation.
 * Map domain outcomes to stable HTTP responses without exposing provider, token, or persistence details.
+* **Authorized scope expansion:** add the smallest Reservation-owned checkout-access slice required to authorize anonymous payment initiation securely: hash-only credential persistence, deterministic opaque bearer derivation, payment-command authorization, and terminal revocation. This exception supersedes the original HTTP-only/no-migration boundary.
 
 ### Out of Scope
 
@@ -55,6 +56,10 @@
 * R2: Payment initiation passes only the authorized Reservation/payment input to its capability and exposes no provider secret or persistence detail.
 * R3: Reservation number plus Email is never authorization; management-session behavior belongs to SW-136.
 * R4: Public routes do not expose Account claim, Booker/Guest update, cancellation, Access Grant redemption, or callback behavior.
+* R5: The create Command output, idempotency response, audit records, logs, and Reservation persistence never contain a raw checkout credential. The trusted adapter obtains it only after a successful create/replay and marks the response `Cache-Control: no-store`.
+* R6: Checkout authorization is Reservation-owned. A `brc1` bearer is deterministically HMAC-derived from Reservation ID, a stored nonce, and its original payment expiry; only key id, nonce, SHA-256 verifier, expiry, and revocation state persist.
+* R7: Authorization happens inside the payment-start transaction before method/status lookup. Missing, malformed, expired, revoked, cross-Reservation, and nonexistent-Reservation credentials produce the same 401 without an Attempt or other state drift.
+* R8: The checkout credential expires with the initial payment window and is atomically revoked on confirmation, cancellation, expiry, and PII anonymization. Existing pending Reservations are not backfilled because no safe credential delivery channel exists.
 
 ## Expected Errors
 
@@ -72,6 +77,7 @@
 
 ## Constraints
 
-* Boundary: Booking public HTTP adapter package only. Browser code must not import Nest, DB, provider, or worker code.
-* No migration, dependency, product-id branch, or Commerce implementation import.
+* Boundary: Booking public HTTP contribution plus the explicitly authorized Reservation checkout-access data and command slice. Browser code must not import Nest, DB, provider, or worker code.
+* Additive migration only; no dependency, product-id branch, or Commerce implementation import.
+* External payment-provider UAT remains a release gate and is pending; no provider secret is added to this story.
 * Sol/high design analysis and independent Sol/high review are required before implementation because this is a public Reservation/payment API boundary.

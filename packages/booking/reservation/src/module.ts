@@ -176,8 +176,8 @@ export function createBookingReservationModule(
       { key: 'booking-reservation:notification-read', description: 'Read Reservation notification evidence', owner: 'booking-reservation' },
     ],
     commands: [
-      { descriptor: createBookingReservationCommand, handler: createBookingReservationHandler(availabilityBinding.value) },
-      { descriptor: startBookingReservationPaymentCommand, handler: createStartBookingReservationPaymentHandler(paymentProvider) },
+      { descriptor: createBookingReservationCommand, handler: createBookingReservationHandler(availabilityBinding.value, access.checkout) },
+      { descriptor: startBookingReservationPaymentCommand, handler: createStartBookingReservationPaymentHandler(paymentProvider, access.checkout) },
       { descriptor: recordBookingReservationPaymentResultCommand, handler: createRecordBookingReservationPaymentResultHandler() },
       { descriptor: recordVerifiedBookingPaymentOutcomeCommand, handler: createRecordVerifiedBookingPaymentOutcomeHandler() },
       { descriptor: cancelBookingReservationSelfCommand, handler: createCancelBookingReservationSelfHandler(access, roomNightOperationsBinding.value) },

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { PlatformError, defineCommand, defineQuery, type CommandContext, type QueryContext } from '@storeweave/contracts';
 import type { PaymentInitiationInput, PaymentInitiationResult, PaymentMethod, PaymentCallbackEvent, PaymentRefundInputV2, PaymentRefundResult } from '@storeweave/extension-sdk';
 import { BookingReservationRepository } from './repository';
+import type { BookingReservationCheckoutAccess } from './checkout-access';
 import { EXPIRE_BOOKING_RESERVATION_JOB, PROCESS_BOOKING_RESERVATION_PAYMENT_JOB } from './jobs';
 import { bookingReservationConfirmedV1, bookingReservationPaymentExpiringV1 } from './events';
 import { createRequiredBookingReservationRefund } from './refunds';
@@ -151,11 +152,12 @@ export async function getBookingReservationPaymentAttemptForProcessingHandler(
   };
 }
 
-export function createStartBookingReservationPaymentHandler(provider: BookingReservationPaymentProvider) {
+export function createStartBookingReservationPaymentHandler(provider: BookingReservationPaymentProvider, checkout: BookingReservationCheckoutAccess) {
   return async (input: StartBookingReservationPaymentInput, context: CommandContext) => {
+    // Deliberately first: unauthenticated callers must not learn provider method
+    // support, Reservation existence, status, or active-attempt references.
+    const reservation = await checkout.authorizePayment(context.tx, input.reservationId, input.checkoutCredential);
     resolvePaymentMethod(provider, input.method);
-    const reservation = await repository.lockById(context.tx, input.reservationId);
-    if (!reservation) throw PlatformError.notFound('Reservation', input.reservationId);
     if (reservation.status !== 'pending_payment') {
       throw PlatformError.conflict(`Reservation ${reservation.id} cannot start payment while ${reservation.status}`);
     }

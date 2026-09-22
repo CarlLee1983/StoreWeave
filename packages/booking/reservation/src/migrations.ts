@@ -377,5 +377,43 @@ ALTER TABLE public.booking_reservation_notification_links
     OR (mapping_status = 'mapping_retryable' AND mapping_failure_code = 'materialization_retryable')
     OR (mapping_status IN ('pending', 'requested', 'superseded') AND mapping_failure_code IS NULL)
   );
+`), sqlMigration('0013_reservation_checkout_credentials', 'expand', `
+-- New reservations receive opaque, hash-only checkout access. Existing pending
+-- rows are intentionally not backfilled: there is no safe bearer delivery path.
+ALTER TABLE public.booking_reservation_reservations
+  ADD COLUMN IF NOT EXISTS checkout_credential_key_id text,
+  ADD COLUMN IF NOT EXISTS checkout_credential_nonce uuid,
+  ADD COLUMN IF NOT EXISTS checkout_credential_hash text,
+  ADD COLUMN IF NOT EXISTS checkout_credential_expires_at timestamptz,
+  ADD COLUMN IF NOT EXISTS checkout_credential_revoked_at timestamptz;
+
+DO $$ BEGIN
+  ALTER TABLE public.booking_reservation_reservations
+    ADD CONSTRAINT booking_reservation_checkout_credential_pair_check CHECK (
+      (checkout_credential_key_id IS NULL) = (checkout_credential_nonce IS NULL)
+      AND (checkout_credential_nonce IS NULL) = (checkout_credential_hash IS NULL)
+      AND (checkout_credential_hash IS NULL) = (checkout_credential_expires_at IS NULL)
+    ),
+    ADD CONSTRAINT booking_reservation_checkout_credential_hash_check CHECK (
+      checkout_credential_hash IS NULL OR checkout_credential_hash ~ '^[0-9a-f]{64}$'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Strengthen the earlier anonymization invariant for this additive state too.
+ALTER TABLE public.booking_reservation_reservations
+  DROP CONSTRAINT IF EXISTS booking_reservation_anonymized_state_check;
+ALTER TABLE public.booking_reservation_reservations
+  ADD CONSTRAINT booking_reservation_anonymized_state_check CHECK (
+    pii_anonymized_at IS NULL OR (
+      booker_name IS NULL AND booker_email IS NULL AND booker_phone IS NULL
+      AND primary_guest_name IS NULL AND accommodation_notes IS NULL
+      AND owner_account_id IS NULL AND access_generation = 0
+      AND access_grant_nonce IS NULL AND access_grant_expires_at IS NULL
+      AND access_grant_used_at IS NULL AND management_token_hash IS NULL
+      AND checkout_credential_key_id IS NULL AND checkout_credential_nonce IS NULL
+      AND checkout_credential_hash IS NULL AND checkout_credential_expires_at IS NULL
+    )
+  );
 `)],
 };

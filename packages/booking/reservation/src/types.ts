@@ -81,6 +81,9 @@ export const bookingReservationPaymentSuccessKindSchema = z.enum(['winning', 'la
 export const startBookingReservationPaymentInputSchema = z.object({
   reservationId: z.string().uuid(),
   method: z.string().trim().min(1).max(100),
+  // Missing/malformed bearer material is normalized by the public adapter and
+  // rejected by checkout authorization, so it cannot become a validation oracle.
+  checkoutCredential: z.string().max(256).optional().default(''),
 }).strict();
 
 export const bookingReservationPaymentAttemptSchema = z.object({

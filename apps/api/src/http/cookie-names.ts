@@ -20,6 +20,8 @@ export const CART_COOKIE = 'commerce_cart';
  * 因此走 cookie 送到下一頁，讀到就清掉。
  */
 export const CART_NOTICE_COOKIE = 'commerce_cart_notice';
+/** Server-issued namespace for anonymous Booking checkout idempotency. */
+export const BOOKING_PUBLIC_CLIENT_COOKIE = 'booking_public_client';
 
 const HOST_PREFIX = '__Host-';
 
@@ -28,7 +30,8 @@ export type CookieBase =
   | typeof SESSION_COOKIE
   | typeof CSRF_COOKIE
   | typeof CART_COOKIE
-  | typeof CART_NOTICE_COOKIE;
+  | typeof CART_NOTICE_COOKIE
+  | typeof BOOKING_PUBLIC_CLIENT_COOKIE;
 
 /**
  * 只有本機開發才允許非 Secure cookie。TLS 由反向代理終止、publicUrl 卻誤寫成 http 時，

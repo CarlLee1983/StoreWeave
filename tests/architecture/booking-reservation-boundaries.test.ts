@@ -133,6 +133,8 @@ describe('Booking Reservation package boundary', () => {
     expect(migration).toMatch(/booking_reservation_payment_attempt_active_reservation_key[\s\S]*?status IN \('created', 'submitted', 'awaiting_payment'\)/i);
     expect(migration).toContain('winning_payment_attempt_id uuid');
     expect(migration).toContain('success_kind text');
+    expect(migration).toContain('checkout_credential_hash text');
+    expect(migration).toContain('checkout_credential_revoked_at timestamptz');
     expect(migration).toContain('succeeded_at timestamptz');
     expect(migration).toContain('booking_reservation_payment_attempt_success_evidence_check');
     expect(migration).toContain('booking_reservation_payment_attempt_winning_reservation_key');
@@ -179,6 +181,22 @@ describe('Booking Reservation package boundary', () => {
       { reservationPiiRetentionDays: Number.MAX_SAFE_INTEGER + 1 }, { reservationPiiRetentionDays: 30, extra: true }]) {
       expect(bookingReservationRetentionPolicySchema.safeParse(invalid).success).toBe(false);
     }
+  });
+
+  it('keeps the public Booking surface explicit and free of provider/DB imports', () => {
+    const controller = readFileSync(join(ROOT, 'apps/api/src/controllers/booking-public.controller.ts'), 'utf8');
+    const adapter = readFileSync(join(ROOT, 'apps/api/src/releases/booking.ts'), 'utf8');
+
+    expect(controller).toContain("@Controller('api/v1/booking')");
+    expect(controller).toContain("@Post('reservations')");
+    expect(controller).toContain("@Post('reservations/:reservationId/payments')");
+    expect(controller).toContain("'x-booking-checkout-credential'");
+    expect(controller).toContain("'cache-control', 'no-store'");
+    // Public DTO schemas are a supported Booking package contract. What must
+    // not cross this adapter boundary are repository, provider, or worker internals.
+    expect(controller).not.toMatch(/from ['"][^'"]*(?:repository|payment-attempts|extension-sdk|worker)[^'"]*['"]/);
+    expect(controller).not.toMatch(/(?:\/commands|generic command|commandName)/i);
+    expect(adapter).toContain('BookingPublicController');
   });
 
   it('does not invoke a refund provider when persisted refund evidence selects another provider', async () => {

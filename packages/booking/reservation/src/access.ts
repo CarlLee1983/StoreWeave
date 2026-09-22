@@ -3,6 +3,7 @@ import { PlatformError, type Tx } from '@storeweave/contracts';
 import { constantTimeEquals, randomToken, sha256Hex, signValue, verifySignedValue, type Keyring } from '@storeweave/crypto';
 import { z } from 'zod';
 import { BookingReservationRepository } from './repository';
+import { createBookingReservationCheckoutAccess, type BookingReservationCheckoutAccess } from './checkout-access';
 
 export const BOOKING_RESERVATION_ACCESS_GRANT_PURPOSE = 'booking-reservation-access-grant';
 export const BOOKING_RESERVATION_ACCESS_CAPABILITY = 'booking.reservation.access.v1';
@@ -42,6 +43,8 @@ export interface RedeemedBookingReservationGrant {
 }
 
 export interface BookingReservationAccess {
+  /** Separate, payment-only credential; it never grants management access. */
+  readonly checkout: BookingReservationCheckoutAccess;
   issueGrant(tx: Tx, input: { reservationId: string; ttlMs: number }): Promise<IssuedBookingReservationGrant>;
   redeemGrant(tx: Tx, input: { grantToken: string }): Promise<RedeemedBookingReservationGrant>;
   /** Authorizes only the addressed Reservation and returns no Reservation data. */
@@ -84,6 +87,7 @@ export function createBookingReservationAccess(
   repository = new BookingReservationRepository(),
 ): BookingReservationAccess {
   return Object.freeze({
+    checkout: createBookingReservationCheckoutAccess(keyring, repository),
     async issueGrant(tx: Tx, rawInput: unknown) {
       const parsed = issueGrantInputSchema.safeParse(rawInput);
       if (!parsed.success) {

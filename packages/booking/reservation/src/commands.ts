@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { defineCommand, type CommandContext } from '@storeweave/contracts';
 import type { BookingAvailabilityQuoteReservation } from '@storeweave/booking-availability';
 import { BookingReservationRepository } from './repository';
+import type { BookingReservationCheckoutAccess } from './checkout-access';
 import { EXPIRE_BOOKING_RESERVATION_JOB } from './jobs';
 import {
   createBookingReservationInputSchema, createBookingReservationOutputSchema,
@@ -33,7 +34,7 @@ export const createBookingReservationCommand = defineCommand({
   },
 });
 
-export function createBookingReservationHandler(availability: BookingAvailabilityQuoteReservation) {
+export function createBookingReservationHandler(availability: BookingAvailabilityQuoteReservation, checkout: BookingReservationCheckoutAccess) {
   return async (input: CreateBookingReservationInput, context: CommandContext) => {
     const { fingerprint, ...quoteRequest } = input.quote;
     const result = await availability.revalidateAndReserve(context.tx, quoteRequest, fingerprint, context.now);
@@ -42,6 +43,7 @@ export function createBookingReservationHandler(availability: BookingAvailabilit
 
     const id = randomUUID();
     const paymentExpiresAt = new Date(context.now.getTime() + DEFAULT_PAYMENT_WINDOW_MS);
+    const checkoutCredential = checkout.prepare(id, paymentExpiresAt);
     await repository.insert(context.tx, {
       id,
       roomTypeId: result.quote.roomTypeId,
@@ -63,6 +65,10 @@ export function createBookingReservationHandler(availability: BookingAvailabilit
       cancellationPolicy: result.quote.cancellationPolicy,
       quoteFingerprint: result.quote.fingerprint,
       createdAt: context.now,
+      checkoutCredentialKeyId: checkoutCredential.keyId,
+      checkoutCredentialNonce: checkoutCredential.nonce,
+      checkoutCredentialHash: checkoutCredential.tokenHash,
+      checkoutCredentialExpiresAt: checkoutCredential.expiresAt,
     });
 
     await context.enqueue({
