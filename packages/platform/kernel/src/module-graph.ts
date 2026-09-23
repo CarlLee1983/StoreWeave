@@ -1,6 +1,7 @@
 import semver from 'semver';
 import { PlatformError, declaredInputKeys } from '@storeweave/contracts';
 import { PermissionRegistry } from '@storeweave/authorization';
+import { assertPurpose } from '@storeweave/crypto';
 import type { ModuleDependency, PlatformModule } from './module';
 
 const MODULE_NAME = /^[a-z][a-z0-9-]*$/;
@@ -38,6 +39,23 @@ export function validateModuleGraph(
     if (!semver.validRange(mod.baseVersionRange)) fail(`module "${mod.name}" has invalid Base range "${mod.baseVersionRange}"`);
     if (!semver.satisfies(baseVersion, mod.baseVersionRange, { includePrerelease: true })) {
       fail(`module "${mod.name}" requires Base ${mod.baseVersionRange}, running ${baseVersion}`);
+    }
+    const signingKeyPurposes = mod.runtimeSecurity?.signingKeyPurposes;
+    if (mod.bindRuntimeSecurity && !signingKeyPurposes) {
+      fail(`module "${mod.name}" has bindRuntimeSecurity but declares no signing key purposes`);
+    }
+    if (!mod.bindRuntimeSecurity && signingKeyPurposes) {
+      fail(`module "${mod.name}" declares signing key purposes but has no bindRuntimeSecurity`);
+    }
+    if (signingKeyPurposes) {
+      if (signingKeyPurposes.length === 0) fail(`module "${mod.name}" declares no signing key purposes`);
+      const purposes = new Set<string>();
+      for (const purpose of signingKeyPurposes) {
+        if (purposes.has(purpose)) fail(`module "${mod.name}" repeats signing key purpose "${purpose}"`);
+        try { assertPurpose(purpose); }
+        catch { fail(`module "${mod.name}" has invalid signing key purpose "${purpose}"`); }
+        purposes.add(purpose);
+      }
     }
     for (const capability of mod.capabilities?.provides ?? []) {
       if (!CAPABILITY_NAME.test(capability)) fail(`module "${mod.name}" provides invalid capability "${capability}"`);

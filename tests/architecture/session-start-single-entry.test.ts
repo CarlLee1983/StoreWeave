@@ -14,9 +14,14 @@ import { ROOT, importsOf, sourceFiles } from './source-graph';
  */
 const API_SRC = 'apps/api/src';
 const IMPLEMENTATION = 'http/session-start.ts';
-const releaseFiles = readdirSync(join(ROOT, API_SRC, 'releases'))
-  .filter(file => file.endsWith('.ts') && /\bexport const httpAdapter\b/.test(readFileSync(join(ROOT, API_SRC, 'releases', file), 'utf8')))
-  .map(file => `releases/${file}`);
+const releaseAdapters = readdirSync(join(ROOT, API_SRC, 'releases'))
+  .filter(file => file.endsWith('.ts'))
+  .flatMap(file => {
+    const body = readFileSync(join(ROOT, API_SRC, 'releases', file), 'utf8');
+    const declaration = /\bexport const (\w+): ReleaseHttpAdapter\b/.exec(body);
+    return declaration ? [{ file: `releases/${file}`, exportName: declaration[1]! }] : [];
+  });
+const releaseFiles = releaseAdapters.map(adapter => adapter.file);
 const files = sourceFiles(API_SRC).map(file => relative(join(ROOT, API_SRC), file));
 
 describe('簽發 session 的唯一入口', () => {
@@ -37,9 +42,9 @@ describe('簽發 session 的唯一入口', () => {
     // 比對值而不是比對字串：import 了再指派一個自己寫的函式，文字檢查看不出來。
     // 逐一載入目錄裡的每個 release，新增 release 不必回來改這條守衛。
     expect(releaseFiles).toEqual(expect.arrayContaining(['releases/base.ts', 'releases/commerce.ts']));
-    for (const release of releaseFiles) {
-      const { httpAdapter } = await import(join(ROOT, API_SRC, release)) as { httpAdapter: ReleaseHttpAdapter };
-      expect(httpAdapter.startSession, release).toBe(startSession);
+    for (const { file, exportName } of releaseAdapters) {
+      const exports = await import(join(ROOT, API_SRC, file)) as Record<string, ReleaseHttpAdapter>;
+      expect(exports[exportName]?.startSession, file).toBe(startSession);
     }
   }, 30_000);
 
@@ -65,6 +70,8 @@ describe('簽發 session 的唯一入口', () => {
     // 它的接線就是 base 那一份（呼叫時 this 指向自己）。自己組 controllers 的一律要自己接。
     for (const release of releaseFiles) {
       const body = readFileSync(join(ROOT, API_SRC, release), 'utf8');
+      // An API-only adapter has no storefront page outcome to execute.
+      if (!/createStorefrontController/.test(body) && !/from '\.\/base'/.test(body)) continue;
       const wiresItself = /start:\s*\([^)]*\)\s*=>\s*this\.startSession\(/.test(body);
       const delegatesToBase = /from '\.\/base'/.test(body) && /\.\.\.baseHttpAdapter/.test(body)
         && !/controllers\s*[(:]/.test(body) && !/startSession/.test(body);

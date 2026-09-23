@@ -27,3 +27,13 @@ export const BOOKING_RESERVATION_NOTIFICATION_TEMPLATES: Record<BookingReservati
     },
   },
 };
+
+/** Deliberately separate from lifecycle-event templates: this is user-requested. */
+export const BOOKING_RESERVATION_ACCESS_GRANT_RESEND_TEMPLATE: NotificationTemplate = {
+  id: 'booking.reservation.access-grant-resend', version: 1,
+  email: {
+    subject: 'Your reservation access link',
+    text: 'Use this short-lived access grant for reservation {reservationId} before {accessGrantExpiresAt}: {accessGrant}',
+    html: '<p>Use this short-lived access grant for reservation <strong>{reservationId}</strong> before {accessGrantExpiresAt}: <code>{accessGrant}</code></p>',
+  },
+};

@@ -22,16 +22,23 @@ export const CART_COOKIE = 'commerce_cart';
 export const CART_NOTICE_COOKIE = 'commerce_cart_notice';
 /** Server-issued namespace for anonymous Booking checkout idempotency. */
 export const BOOKING_PUBLIC_CLIENT_COOKIE = 'booking_public_client';
+/**
+ * Browser-session capability for one Booking Reservation. The server matches
+ * it to the addressed Reservation; the host-scoped cookie prevents subdomains
+ * from planting a credential for this origin.
+ */
+export const BOOKING_RESERVATION_MANAGEMENT_COOKIE = 'booking_reservation_management';
 
 const HOST_PREFIX = '__Host-';
 
-/** 只有這四張。收成聯集之後，「寫的名字和讀的名字不一致」是編譯期問題而不是執行期問題。 */
+/** 收成聯集之後，「寫的名字和讀的名字不一致」是編譯期問題而不是執行期問題。 */
 export type CookieBase =
   | typeof SESSION_COOKIE
   | typeof CSRF_COOKIE
   | typeof CART_COOKIE
   | typeof CART_NOTICE_COOKIE
-  | typeof BOOKING_PUBLIC_CLIENT_COOKIE;
+  | typeof BOOKING_PUBLIC_CLIENT_COOKIE
+  | typeof BOOKING_RESERVATION_MANAGEMENT_COOKIE;
 
 /**
  * 只有本機開發才允許非 Secure cookie。TLS 由反向代理終止、publicUrl 卻誤寫成 http 時，

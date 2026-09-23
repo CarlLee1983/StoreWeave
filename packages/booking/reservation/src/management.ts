@@ -1,5 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { PlatformError, defineCommand, defineQuery, type Actor, type CommandContext, type QueryContext, type Tx } from '@storeweave/contracts';
+import type { NotificationsPort } from '@storeweave/notifications';
 import type { BookingReservationAccess } from './access';
+import { BOOKING_RESERVATION_ACCESS_GRANT_RESEND_TEMPLATE } from './notification-templates';
 import { BookingReservationRepository, type ManagedReservationDetails } from './repository';
 import type { BookingReservationRow } from './schema';
 import {
@@ -11,6 +14,9 @@ import {
   getManagedBookingReservationOutputSchema,
   updateBookingReservationDetailsInputSchema,
   updateBookingReservationDetailsOutputSchema,
+  resendBookingReservationAccessGrantInputSchema,
+  resendBookingReservationAccessGrantOutputSchema,
+  type ResendBookingReservationAccessGrantInput,
 } from './types';
 
 const repository = new BookingReservationRepository();
@@ -197,5 +203,93 @@ export function createUpdateBookingReservationDetailsHandler(access: BookingRese
       payload: { accessMethod: authorization, changedFields: fields },
     });
     return { reservationId: input.reservationId, updatedFields: fields };
+  };
+}
+
+const ACCESS_GRANT_RESEND_TTL_MS = 15 * 60_000;
+
+function resendReference(reservationId: string): string {
+  return `booking-reservation:access-grant-resend:${reservationId}:${randomUUID()}`;
+}
+
+/**
+ * Both the handler and the HTTP adapter's pre-idempotency guard use this exact
+ * authorization decision. It locks the Reservation before a cached response
+ * can be returned, so a revoked management credential cannot replay an old
+ * acknowledgement.
+ */
+export async function authorizeResendBookingReservationAccessGrant(
+  tx: Tx,
+  actor: Actor,
+  input: ResendBookingReservationAccessGrantInput,
+  access: Pick<BookingReservationAccess, 'authorizeManagement'>,
+): Promise<'account-owner' | 'management-credential'> {
+  if (input.managementCredential !== undefined) {
+    const authorized = await access.authorizeManagement(tx, {
+      reservationId: input.reservationId,
+      managementCredential: input.managementCredential,
+    });
+    if (authorized.reservationId !== input.reservationId) throw invalidManagementAccess();
+    return 'management-credential';
+  }
+
+  const accountId = accountIdFromActor(actor);
+  const reservation = await repository.lockById(tx, input.reservationId);
+  if (!reservation || reservation.piiAnonymizedAt !== null || reservation.ownerAccountId !== accountId) {
+    throw ownedReservationNotFound();
+  }
+  return 'account-owner';
+}
+
+export const resendBookingReservationAccessGrantCommand = defineCommand({
+  name: 'booking.reservation.resendAccessGrant',
+  summary: 'Rotate and deliver a new Reservation Access Grant to the current Booker',
+  input: resendBookingReservationAccessGrantInputSchema,
+  output: resendBookingReservationAccessGrantOutputSchema,
+  permission: 'booking-reservation:manage-self',
+  idempotency: 'required',
+  requiresBeforeIdempotency: true,
+});
+
+export function createResendBookingReservationAccessGrantHandler(
+  access: BookingReservationAccess,
+  notifications: () => NotificationsPort,
+) {
+  return async (input: ResendBookingReservationAccessGrantInput, context: CommandContext) => {
+    const accessMethod = await authorizeResendBookingReservationAccessGrant(context.tx, context.actor, input, access);
+    const reservation = await repository.lockById(context.tx, input.reservationId);
+    if (!reservation) throw ownedReservationNotFound();
+    if (!reservation.bookerEmail) {
+      throw PlatformError.conflict('Reservation Booker email is unavailable');
+    }
+
+    // Issuance takes the same row lock and atomically invalidates the prior
+    // grant and any management credential derived from it.
+    const grant = await access.issueGrant(context.tx, {
+      reservationId: reservation.id,
+      ttlMs: ACCESS_GRANT_RESEND_TTL_MS,
+    });
+    await notifications().send(context.tx, {
+      reference: resendReference(reservation.id),
+      channels: ['email'],
+      locale: 'en',
+      recipient: {
+        email: reservation.bookerEmail,
+        ...(reservation.bookerName ? { name: reservation.bookerName } : {}),
+      },
+      template: BOOKING_RESERVATION_ACCESS_GRANT_RESEND_TEMPLATE,
+      variables: {
+        reservationId: reservation.id,
+        accessGrant: grant.grantToken,
+        accessGrantExpiresAt: grant.expiresAt.toISOString(),
+      },
+    }, job => context.enqueue(job), context.now);
+    await context.audit({
+      action: 'booking.reservation.access-grant-resent',
+      resourceType: 'booking_reservation',
+      resourceId: reservation.id,
+      payload: { accessMethod, notification: 'requested' },
+    });
+    return { reservationId: reservation.id, accepted: true as const };
   };
 }

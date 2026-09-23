@@ -26,7 +26,7 @@ async function database() {
   return pool;
 }
 const foundations: ModulePin[] = buildReleaseManifest(base).modules.map(({ baseVersionRange: _range,
-  requiredDependencies: _required, optionalDependencies: _optional, ...pin }) => pin);
+  requiredDependencies: _required, optionalDependencies: _optional, signingKeyPurposes: _purposes, ...pin }) => pin);
 const baseSets = [platformMigrations, cacheMigrations, identityMigrations, storageMigrations, mailMigrations, mediaMigrations, notificationsMigrations, siteMigrations, contentMigrations];
 const featureSet: MigrationSet = { module: 'feature', migrations: [
   sqlMigration('0001', 'expand', 'CREATE TABLE feature_rows(id integer PRIMARY KEY); INSERT INTO feature_rows VALUES (1)'),

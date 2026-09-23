@@ -3,8 +3,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { BASE_ROLES } from '@storeweave/authorization';
 import { baseConfigSchema } from '@storeweave/config';
-import { noopLogger, SYSTEM_ACTOR, type Actor } from '@storeweave/contracts';
-import { resolveKeyring, bindModuleCapability, createRuntime, type Runtime } from '@storeweave/kernel';
+import { SYSTEM_ACTOR, type Actor } from '@storeweave/contracts';
+import { signValue, type Keyring } from '@storeweave/crypto';
+import { csrfTokenFor } from '@storeweave/identity';
+import { resolveKeyring, bindModuleCapability, createMemoryLogger, createRuntime, type CapturedLine, type Runtime } from '@storeweave/kernel';
 import type { PaymentProviderV2 } from '@storeweave/extension-sdk';
 import {
   bindBookingAvailabilityQuoteReservation, BOOKING_PROPERTY_READ_CAPABILITY,
@@ -12,9 +14,10 @@ import {
   bookingAvailabilityRoomNightOperations,
 } from '../../packages/booking/availability/src';
 import { bookingPropertyRead, createBookingPropertyModule } from '../../packages/booking/property/src';
-import { createBookingReservationAccess, createBookingReservationModule } from '../../packages/booking/reservation/src';
+import { BOOKING_RESERVATION_ACCESS_GRANT_PURPOSE, createBookingReservationAccess, createBookingReservationModule, type BookingReservationAccess } from '../../packages/booking/reservation/src';
 import { createReleaseServer } from '../../apps/api/src/release-server';
 import { bookingHttpAdapter } from '../../apps/api/src/releases/booking';
+import { SESSION_COOKIE, cookieName } from '../../apps/api/src/http/cookie-names';
 
 const signingSecret = Buffer.alloc(32, 4).toString('base64url');
 const manager: Actor = {
@@ -36,6 +39,9 @@ let runtime: Runtime;
 let app: Awaited<ReturnType<typeof createReleaseServer>>;
 let roomTypeId: string;
 let quoteInput: Record<string, unknown>;
+let reservationAccess: BookingReservationAccess;
+let keyring: Keyring;
+let diagnosticLines: CapturedLine[];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -80,21 +86,39 @@ function localDate(now: Date): string {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
-async function quoteThenCreate(key: string) {
-  const quote = await app.inject({ method: 'POST', url: '/api/v1/booking/quotes', payload: quoteInput });
+async function quoteThenCreate(key: string, checkInOffsetDays = 0) {
+  const input = checkInOffsetDays === 0 ? quoteInput : {
+    ...quoteInput,
+    checkInLocalDate: addDays(quoteInput.checkInLocalDate as string, checkInOffsetDays),
+    checkOutLocalDate: addDays(quoteInput.checkOutLocalDate as string, checkInOffsetDays),
+  };
+  const quote = await app.inject({ method: 'POST', url: '/api/v1/booking/quotes', payload: input });
   expect(quote.statusCode, quote.body).toBe(201);
   const fingerprint = quote.json().data.quote.fingerprint as string;
   const create = await app.inject({ method: 'POST', url: '/api/v1/booking/reservations', headers: { 'idempotency-key': key }, payload: {
-    quote: { ...quoteInput, fingerprint },
+    quote: { ...input, fingerprint },
     booker: { name: 'Private Booker', email: 'private.booker@example.test', phone: '+1 555 0100' },
     primaryGuestName: 'Private Guest', accommodationNotes: 'Private note',
   } });
   expect(create.statusCode, create.body).toBe(201);
   return { create, payload: {
-    quote: { ...quoteInput, fingerprint },
+    quote: { ...input, fingerprint },
     booker: { name: 'Private Booker', email: 'private.booker@example.test', phone: '+1 555 0100' },
     primaryGuestName: 'Private Guest', accommodationNotes: 'Private note',
   } };
+}
+
+async function issueGrant(reservationId: string): Promise<string> {
+  return (await runtime.database.transaction(tx => reservationAccess.issueGrant(tx, {
+    reservationId, ttlMs: 15 * 60_000,
+  }))).grantToken;
+}
+
+async function registerAccount(email: string) {
+  const response = await app.inject({ method: 'POST', url: '/api/v1/auth/register', payload: { email, password: 'member-password' } });
+  expect(response.statusCode, response.body).toBe(200);
+  const session = response.cookies.find(cookie => cookie.name === cookieName(SESSION_COOKIE, 'https://booking.example.test'))!.value;
+  return { session, csrf: csrfTokenFor(session) };
 }
 
 beforeAll(async () => {
@@ -107,14 +131,17 @@ beforeAll(async () => {
   });
   const secrets = { get: (name: string) => name === 'SW_SIGNING_KEY_TEST' ? signingSecret : undefined,
     has: (name: string) => name === 'SW_SIGNING_KEY_TEST', listNames: () => ['SW_SIGNING_KEY_TEST'] };
-  const keyring = resolveKeyring(config, secrets)!;
+  keyring = resolveKeyring(config, secrets)!;
+  const diagnostics = createMemoryLogger();
+  diagnosticLines = diagnostics.lines;
   const property = bindModuleCapability('booking-property', BOOKING_PROPERTY_READ_CAPABILITY, bookingPropertyRead);
   const quoteReservation = bindBookingAvailabilityQuoteReservation(property, { maxRoomsPerRequest: 4 }, keyring);
   const roomNights = bindModuleCapability('booking-availability', BOOKING_AVAILABILITY_ROOM_NIGHT_OPERATIONS_CAPABILITY, bookingAvailabilityRoomNightOperations);
+  reservationAccess = createBookingReservationAccess(keyring);
   runtime = await createRuntime({ release: { id: 'booking-public-http', version: '1.0.0', buildManifestChecksum: `sha256:${'4'.repeat(64)}` },
-    roles: BASE_ROLES, config, secrets, logger: noopLogger, availableExtensions: {}, modules: [
+    roles: BASE_ROLES, config, secrets, logger: diagnostics.logger, availableExtensions: {}, modules: [
       createBookingAvailabilityModule(property, { maxRoomsPerRequest: 4 }, keyring), createBookingPropertyModule(),
-      createBookingReservationModule(quoteReservation, roomNights, createBookingReservationAccess(keyring), { reservationPiiRetentionDays: 1 }, testProvider),
+      createBookingReservationModule(quoteReservation, roomNights, reservationAccess, { reservationPiiRetentionDays: 1 }, testProvider),
     ] });
   await runtime.migrate();
   await runtime.commands.execute('booking.property.create', { name: 'HTTP Test Hotel', address: { countryCode: 'US', postalCode: '90210', administrativeArea: 'California', locality: 'Los Angeles', addressLine1: 'Ocean 1', addressLine2: null }, timezone: 'America/Los_Angeles', currency: 'USD', checkInTime: '15:00', checkOutTime: '11:00', defaultPolicy: { freeCancellationHoursBeforeCheckIn: 48 } }, { actor: manager, idempotencyKey: randomUUID() });
@@ -123,7 +150,7 @@ beforeAll(async () => {
   await runtime.commands.execute('booking.availability.setBaseNightlyPrice', { roomTypeId, baseNightlyPriceMinor: 12_345 }, { actor: manager, idempotencyKey: randomUUID() });
   const checkInLocalDate = addDays(localDate(new Date()), 7);
   const checkOutLocalDate = addDays(checkInLocalDate, 2);
-  await runtime.commands.execute('booking.availability.updateRoomNightRange', { roomTypeId, startLocalDate: checkInLocalDate, endLocalDateExclusive: checkOutLocalDate, sellableUnits: 4 }, { actor: manager, idempotencyKey: randomUUID() });
+  await runtime.commands.execute('booking.availability.updateRoomNightRange', { roomTypeId, startLocalDate: checkInLocalDate, endLocalDateExclusive: addDays(checkInLocalDate, 30), sellableUnits: 4 }, { actor: manager, idempotencyKey: randomUUID() });
   quoteInput = { roomTypeId, checkInLocalDate, checkOutLocalDate, adults: 2, children: 0, roomCount: 1 };
   app = await createReleaseServer({ runtime, httpAdapter: bookingHttpAdapter, release: { version: 'test', configPath: '<test>' } });
 }, 120_000);
@@ -149,8 +176,11 @@ describe('Booking public HTTP checkout credential boundary', () => {
     expect([quote.statusCode, invalidQuote.statusCode, soldOutQuote.statusCode, search.statusCode]).toEqual([201, 400, 201, 201]);
     const catalog = (app.getHttpAdapter().getInstance() as { storeweaveHttpCatalog?: Array<{ path: string; output: unknown }> }).storeweaveHttpCatalog!;
     const bookingRoutes = catalog.filter(route => route.path.startsWith('/api/v1/booking'));
-    expect(bookingRoutes).toHaveLength(7);
+    expect(bookingRoutes).toHaveLength(13);
     expect(bookingRoutes.map(route => route.path).sort()).toEqual([
+      '/api/v1/booking/management/:reservationId', '/api/v1/booking/management/:reservationId',
+      '/api/v1/booking/management/:reservationId/cancel', '/api/v1/booking/management/:reservationId/claim',
+      '/api/v1/booking/management/:reservationId/grants', '/api/v1/booking/management/:reservationId/resend-access-grant',
       '/api/v1/booking/property', '/api/v1/booking/quotes', '/api/v1/booking/quotes/search',
       '/api/v1/booking/reservations', '/api/v1/booking/reservations/:reservationId/payments',
       '/api/v1/booking/room-types', '/api/v1/booking/room-types/:roomTypeId',
@@ -257,5 +287,319 @@ describe('Booking public HTTP checkout credential boundary', () => {
     expect(revokedReplay.statusCode, revokedReplay.body).toBe(401);
     const badPaymentIdempotency = await app.inject({ method: 'POST', url: `/api/v1/booking/reservations/${firstData.reservation.id}/payments`, headers: { 'x-booking-checkout-credential': firstData.checkoutCredential, 'idempotency-key': 'predictable' }, payload: { method: 'deferred' } });
     expect(badPaymentIdempotency.statusCode).toBe(400);
+  });
+});
+
+describe('Booking Reservation management HTTP boundary', () => {
+  async function redeem(reservationId: string, grant: string, remoteAddress: string) {
+    return app.inject({ method: 'GET', url: `/api/v1/booking/management/${reservationId}/grants?grantToken=${encodeURIComponent(grant)}`, remoteAddress });
+  }
+
+  function managementCookies(response: Awaited<ReturnType<typeof redeem>>) {
+    const value = response.cookies.find(cookie => cookie.name === '__Host-booking_reservation_management')?.value;
+    expect(value).toEqual(expect.any(String));
+    return { '__Host-booking_reservation_management': value! };
+  }
+
+  it('redeems a Grant into a clean, host-only management session and permits only its scoped Reservation', async () => {
+    const { create } = await quoteThenCreate(randomUUID(), 3);
+    const reservationId = (create.json().data as { reservation: { id: string } }).reservation.id;
+    const grant = await issueGrant(reservationId);
+    const redeemed = await app.inject({ method: 'GET', url: `/api/v1/booking/management/${reservationId}/grants?grantToken=${encodeURIComponent(grant)}`, remoteAddress: '198.51.100.10' });
+    expect(redeemed.statusCode, redeemed.body).toBe(303);
+    expect(redeemed.headers.location).toBe(`/api/v1/booking/management/${reservationId}`);
+    expect(redeemed.headers.location).not.toContain(grant);
+    expect(redeemed.headers['cache-control']).toBe('no-store');
+    const management = redeemed.cookies.find(cookie => cookie.name === '__Host-booking_reservation_management')!;
+    expect(management).toMatchObject({ secure: true, path: '/', httpOnly: true, sameSite: 'Strict' });
+    expect(management.domain).toBeUndefined();
+    const cookies = { '__Host-booking_reservation_management': management.value };
+
+    const replay = await app.inject({ method: 'GET', url: `/api/v1/booking/management/${reservationId}/grants?grantToken=${encodeURIComponent(grant)}`, remoteAddress: '198.51.100.10' });
+    expect(replay.statusCode).toBe(401);
+    expect(replay.body).not.toContain(grant);
+
+    const read = await app.inject({ method: 'GET', url: `/api/v1/booking/management/${reservationId}`, cookies, remoteAddress: '198.51.100.10' });
+    expect(read.statusCode, read.body).toBe(200);
+    expect(read.headers['cache-control']).toBe('no-store');
+    expect(read.json().data.reservation).toMatchObject({ id: reservationId, booker: { email: 'private.booker@example.test' } });
+    expect(JSON.stringify(read.json())).not.toContain(management.value);
+
+    const updateKey = randomUUID();
+    const updated = await app.inject({
+      method: 'PATCH', url: `/api/v1/booking/management/${reservationId}`, cookies, remoteAddress: '198.51.100.10',
+      headers: { 'idempotency-key': updateKey }, payload: { primaryGuestName: 'Updated Guest' },
+    });
+    expect(updated.statusCode, updated.body).toBe(200);
+    expect(updated.json().data).toEqual({ reservationId, updatedFields: ['primaryGuestName'] });
+    expect(JSON.stringify(updated.json())).not.toContain(management.value);
+
+    const resendKey = randomUUID();
+    const resent = await app.inject({ method: 'POST', url: `/api/v1/booking/management/${reservationId}/resend-access-grant`, cookies, remoteAddress: '198.51.100.10', headers: { 'idempotency-key': resendKey } });
+    expect(resent.statusCode, resent.body).toBe(200);
+    expect(resent.json().data).toEqual({ reservationId, accepted: true });
+    expect(JSON.stringify(resent.json())).not.toMatch(/grant|credential|private\.booker@example\.test/i);
+    // Resend rotates the access generation and invalidates the just-used cookie.
+    // Its mandatory transaction-bound guard runs before an idempotency replay,
+    // so an old acknowledgement cannot be replayed after revocation.
+    expect((await app.inject({ method: 'POST', url: `/api/v1/booking/management/${reservationId}/resend-access-grant`, cookies, remoteAddress: '198.51.100.10', headers: { 'idempotency-key': resendKey } })).statusCode).toBe(401);
+    expect((await app.inject({
+      method: 'PATCH', url: `/api/v1/booking/management/${reservationId}`, cookies, remoteAddress: '198.51.100.10',
+      headers: { 'idempotency-key': updateKey }, payload: { primaryGuestName: 'Updated Guest' },
+    })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'GET', url: `/api/v1/booking/management/${reservationId}`, cookies, remoteAddress: '198.51.100.10' })).statusCode).toBe(401);
+  });
+
+  it('requires same-origin protection for anonymous management writes, then cancels the whole Reservation', async () => {
+    const { create } = await quoteThenCreate(randomUUID(), 6);
+    const reservationId = (create.json().data as { reservation: { id: string } }).reservation.id;
+    const grant = await issueGrant(reservationId);
+    const redeemed = await app.inject({ method: 'GET', url: `/api/v1/booking/management/${reservationId}/grants?grantToken=${encodeURIComponent(grant)}`, remoteAddress: '198.51.100.11' });
+    const cookie = redeemed.cookies.find(value => value.name === '__Host-booking_reservation_management')!.value;
+    const cookies = { '__Host-booking_reservation_management': cookie };
+    const key = randomUUID();
+    const crossSite = await app.inject({ method: 'POST', url: `/api/v1/booking/management/${reservationId}/cancel`, cookies, remoteAddress: '198.51.100.11', headers: { origin: 'https://attacker.example.test', 'idempotency-key': key } });
+    expect(crossSite.statusCode).toBe(403);
+    expect(crossSite.body).not.toContain(cookie);
+    const cancelled = await app.inject({ method: 'POST', url: `/api/v1/booking/management/${reservationId}/cancel`, cookies, remoteAddress: '198.51.100.11', headers: { 'idempotency-key': key } });
+    expect(cancelled.statusCode, cancelled.body).toBe(200);
+    expect(cancelled.json().data).toMatchObject({ reservationId, cancelled: true, refund: null });
+    const resent = await app.inject({ method: 'POST', url: `/api/v1/booking/management/${reservationId}/resend-access-grant`, cookies, remoteAddress: '198.51.100.11', headers: { 'idempotency-key': randomUUID() } });
+    expect(resent.statusCode, resent.body).toBe(200);
+    // The cancellation response is durable, but its old capability must be
+    // checked before idempotency can replay it.
+    expect((await app.inject({ method: 'POST', url: `/api/v1/booking/management/${reservationId}/cancel`, cookies, remoteAddress: '198.51.100.11', headers: { 'idempotency-key': key } })).statusCode).toBe(401);
+  });
+
+  it('never infers ownership from matching Booker Email and requires both re-login and management proof to claim', async () => {
+    const { create } = await quoteThenCreate(randomUUID(), 9);
+    const reservationId = (create.json().data as { reservation: { id: string } }).reservation.id;
+    const grant = await issueGrant(reservationId);
+    const redeemed = await app.inject({ method: 'GET', url: `/api/v1/booking/management/${reservationId}/grants?grantToken=${encodeURIComponent(grant)}`, remoteAddress: '198.51.100.12' });
+    const management = redeemed.cookies.find(cookie => cookie.name === '__Host-booking_reservation_management')!.value;
+    const account = await registerAccount('private.booker@example.test');
+    const sessionCookies = { '__Host-commerce_session': account.session };
+    const nonOwner = await registerAccount('not-the-booker@example.test');
+
+    const emailMatchOnly = await app.inject({ method: 'GET', url: `/api/v1/booking/management/${reservationId}`, cookies: sessionCookies, remoteAddress: '198.51.100.12' });
+    expect(emailMatchOnly.statusCode).toBe(404);
+    const nonOwnerWithManagement = await app.inject({
+      method: 'GET', url: `/api/v1/booking/management/${reservationId}`, remoteAddress: '198.51.100.12',
+      cookies: { '__Host-commerce_session': nonOwner.session, '__Host-booking_reservation_management': management },
+    });
+    expect(nonOwnerWithManagement.statusCode, nonOwnerWithManagement.body).toBe(200);
+    const missingManagement = await app.inject({ method: 'POST', url: `/api/v1/booking/management/${reservationId}/claim`, cookies: sessionCookies, remoteAddress: '198.51.100.12', headers: { 'x-csrf-token': account.csrf, 'idempotency-key': randomUUID() } });
+    expect(missingManagement.statusCode).toBe(401);
+
+    const claimed = await app.inject({
+      method: 'POST', url: `/api/v1/booking/management/${reservationId}/claim`, remoteAddress: '198.51.100.12',
+      cookies: { ...sessionCookies, '__Host-booking_reservation_management': management },
+      headers: { 'x-csrf-token': account.csrf, 'idempotency-key': randomUUID() }, payload: { accountId: randomUUID() },
+    });
+    expect(claimed.statusCode, claimed.body).toBe(200);
+    expect(claimed.json().data).toEqual({ reservationId, kind: 'claimed' });
+
+    const ownerResend = await app.inject({
+      method: 'POST', url: `/api/v1/booking/management/${reservationId}/resend-access-grant`, remoteAddress: '198.51.100.12',
+      cookies: { ...sessionCookies, '__Host-booking_reservation_management': management },
+      headers: { 'x-csrf-token': account.csrf, 'idempotency-key': randomUUID() },
+    });
+    expect(ownerResend.statusCode, ownerResend.body).toBe(200);
+    const owned = await app.inject({
+      method: 'GET', url: `/api/v1/booking/management/${reservationId}`, remoteAddress: '198.51.100.12',
+      cookies: { ...sessionCookies, '__Host-booking_reservation_management': management },
+    });
+    expect(owned.statusCode, owned.body).toBe(200);
+    expect(owned.json().data.reservation.id).toBe(reservationId);
+  });
+
+  it('declares and enforces the auth rate-limit bucket on every management route, including GET', async () => {
+    const catalog = (app.getHttpAdapter().getInstance() as { storeweaveHttpCatalog?: Array<{ path: string; rateLimit: string | null }> }).storeweaveHttpCatalog!;
+    const managementRoutes = catalog.filter(route => route.path.startsWith('/api/v1/booking/management'));
+    expect(managementRoutes).toHaveLength(6);
+    expect(managementRoutes.map(route => route.rateLimit)).toEqual(Array(6).fill('auth'));
+
+    const reservationId = randomUUID();
+    const responses = [];
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      responses.push(await app.inject({
+        method: 'GET', url: `/api/v1/booking/management/${reservationId}`,
+        cookies: { '__Host-booking_reservation_management': 'not-a-management-credential' }, remoteAddress: '198.51.100.13',
+      }));
+    }
+    expect(responses.slice(0, 10).map(response => response.statusCode)).toEqual(Array(10).fill(401));
+    expect(responses[10]!.statusCode).toBe(429);
+    expect(responses[10]!.headers['retry-after']).toEqual(expect.any(String));
+  });
+
+  it('does not consume a valid Grant addressed to another Reservation and rejects expired or rotated Grants', async () => {
+    const first = (await quoteThenCreate(randomUUID(), 12)).create.json().data.reservation.id as string;
+    const second = (await quoteThenCreate(randomUUID(), 15)).create.json().data.reservation.id as string;
+    const grant = await issueGrant(first);
+    const wrong = await redeem(second, grant, '198.51.100.14');
+    expect(wrong.statusCode).toBe(401);
+    expect(wrong.headers['set-cookie']).toBeUndefined();
+    expect(wrong.body).not.toContain(grant);
+    const valid = await redeem(first, grant, '198.51.100.14');
+    expect(valid.statusCode, valid.body).toBe(303);
+    const cookies = managementCookies(valid);
+    expect((await app.inject({ method: 'GET', url: `/api/v1/booking/management/${first}`, cookies, remoteAddress: '198.51.100.14' })).statusCode).toBe(200);
+    const missingSession = await app.inject({ method: 'GET', url: `/api/v1/booking/management/${first}`, remoteAddress: '198.51.100.14' });
+    const wrongSession = await app.inject({ method: 'GET', url: `/api/v1/booking/management/${second}`, cookies, remoteAddress: '198.51.100.14' });
+    expect([missingSession.statusCode, wrongSession.statusCode]).toEqual([401, 401]);
+    expect(wrongSession.body).not.toContain('private.booker@example.test');
+
+    const revoked = await issueGrant(second);
+    await issueGrant(second);
+    const rotated = await redeem(second, revoked, '198.51.100.15');
+    expect(rotated.statusCode).toBe(401);
+    expect(rotated.headers['set-cookie']).toBeUndefined();
+
+    const expiring = await runtime.database.transaction(tx => reservationAccess.issueGrant(tx, { reservationId: second, ttlMs: 15 * 60_000 }));
+    const state = await runtime.database.pool.query<{ access_grant_nonce: string }>(
+      'SELECT access_grant_nonce FROM booking_reservation_reservations WHERE id = $1', [second],
+    );
+    const expiredAt = new Date(Math.floor((Date.now() - 5_000) / 1_000) * 1_000);
+    const expiredToken = signValue(keyring, {
+      purpose: BOOKING_RESERVATION_ACCESS_GRANT_PURPOSE,
+      payload: JSON.stringify({ version: 1, reservationId: second, generation: expiring.generation, nonce: state.rows[0]!.access_grant_nonce }),
+      expiresAt: expiredAt,
+    });
+    await runtime.database.pool.query('UPDATE booking_reservation_reservations SET access_grant_expires_at = $2 WHERE id = $1', [second, expiredAt]);
+    const expired = await redeem(second, expiredToken, '198.51.100.15');
+    expect(expired.statusCode).toBe(401);
+    expect(expired.headers['set-cookie']).toBeUndefined();
+    expect(expired.body).not.toContain(expiredToken);
+  });
+
+  it('rejects non-owner Account writes and keeps immutable facts and invalid contact out of updates', async () => {
+    const reservationId = (await quoteThenCreate(randomUUID(), 18)).create.json().data.reservation.id as string;
+    const grant = await issueGrant(reservationId);
+    const redeemed = await redeem(reservationId, grant, '198.51.100.16');
+    const cookies = managementCookies(redeemed);
+    const stranger = await registerAccount('management-stranger@example.test');
+    const strangerCookies = { '__Host-commerce_session': stranger.session };
+    const url = `/api/v1/booking/management/${reservationId}`;
+    const denied = await app.inject({ method: 'PATCH', url, cookies: strangerCookies, remoteAddress: '198.51.100.16', headers: { 'x-csrf-token': stranger.csrf, 'idempotency-key': randomUUID() }, payload: { primaryGuestName: 'Intruder' } });
+    expect(denied.statusCode).toBe(404);
+    expect(denied.body).not.toContain('private.booker@example.test');
+    const deniedCancel = await app.inject({ method: 'POST', url: `${url}/cancel`, cookies: strangerCookies, remoteAddress: '198.51.100.16', headers: { 'x-csrf-token': stranger.csrf, 'idempotency-key': randomUUID() } });
+    expect(deniedCancel.statusCode).toBe(404);
+    const deniedResend = await app.inject({ method: 'POST', url: `${url}/resend-access-grant`, cookies: strangerCookies, remoteAddress: '198.51.100.16', headers: { 'x-csrf-token': stranger.csrf, 'idempotency-key': randomUUID() } });
+    expect(deniedResend.statusCode).toBe(404);
+
+    const immutable = await app.inject({ method: 'PATCH', url, cookies, remoteAddress: '198.51.100.16', headers: { 'idempotency-key': randomUUID() }, payload: { roomTypeId, primaryGuestName: 'Should Not Change' } });
+    expect(immutable.statusCode).toBe(400);
+    const invalidContact = await app.inject({ method: 'PATCH', url, cookies, remoteAddress: '198.51.100.16', headers: { 'idempotency-key': randomUUID() }, payload: { booker: { name: 'Valid', email: 'not-an-email', phone: '+1 555 0100' } } });
+    expect(invalidContact.statusCode).toBe(400);
+    const read = await app.inject({ method: 'GET', url, cookies, remoteAddress: '198.51.100.16' });
+    expect(read.statusCode).toBe(200);
+    expect(read.json().data.reservation.primaryGuestName).toBe('Private Guest');
+    expect(read.json().data.reservation.booker.email).toBe('private.booker@example.test');
+    expect(JSON.stringify(read.json())).not.toContain(cookies['__Host-booking_reservation_management']);
+  });
+
+  it('enforces the frozen cancellation deadline and leaves the Reservation active', async () => {
+    const reservationId = (await quoteThenCreate(randomUUID(), 21)).create.json().data.reservation.id as string;
+    const grant = await issueGrant(reservationId);
+    const cookies = managementCookies(await redeem(reservationId, grant, '198.51.100.17'));
+    await runtime.database.pool.query(`UPDATE booking_reservation_reservations
+      SET cancellation_policy = jsonb_set(cancellation_policy, '{freeCancellationHoursBeforeCheckIn}', '8760'::jsonb)
+      WHERE id = $1`, [reservationId]);
+    const url = `/api/v1/booking/management/${reservationId}`;
+    const refused = await app.inject({ method: 'POST', url: `${url}/cancel`, cookies, remoteAddress: '198.51.100.17', headers: { 'idempotency-key': randomUUID() } });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body).toMatch(/deadline/i);
+    expect(refused.body).not.toContain(cookies['__Host-booking_reservation_management']);
+    const read = await app.inject({ method: 'GET', url, cookies, remoteAddress: '198.51.100.17' });
+    expect(read.json().data.reservation.status).toBe('pending_payment');
+  });
+
+  it('requires session CSRF on PATCH, resend, and claim, and rejects cross-origin anonymous writes', async () => {
+    const reservationId = (await quoteThenCreate(randomUUID(), 24)).create.json().data.reservation.id as string;
+    const grant = await issueGrant(reservationId);
+    const management = managementCookies(await redeem(reservationId, grant, '198.51.100.18'));
+    const account = await registerAccount('csrf-management@example.test');
+    const cookies = { ...management, '__Host-commerce_session': account.session };
+    const url = `/api/v1/booking/management/${reservationId}`;
+    const patchKey = randomUUID();
+    const missingPatch = await app.inject({ method: 'PATCH', url, cookies, remoteAddress: '198.51.100.18', headers: { 'idempotency-key': patchKey }, payload: { primaryGuestName: 'After CSRF' } });
+    expect(missingPatch.statusCode).toBe(403);
+    const patch = await app.inject({ method: 'PATCH', url, cookies, remoteAddress: '198.51.100.18', headers: { 'idempotency-key': patchKey, 'x-csrf-token': account.csrf }, payload: { primaryGuestName: 'After CSRF' } });
+    expect(patch.statusCode, patch.body).toBe(200);
+    const claimKey = randomUUID();
+    const missingClaim = await app.inject({ method: 'POST', url: `${url}/claim`, cookies, remoteAddress: '198.51.100.18', headers: { 'idempotency-key': claimKey } });
+    expect(missingClaim.statusCode).toBe(403);
+    const claim = await app.inject({ method: 'POST', url: `${url}/claim`, cookies, remoteAddress: '198.51.100.18', headers: { 'idempotency-key': claimKey, 'x-csrf-token': account.csrf } });
+    expect(claim.statusCode, claim.body).toBe(200);
+    const resendKey = randomUUID();
+    const missingResend = await app.inject({ method: 'POST', url: `${url}/resend-access-grant`, cookies, remoteAddress: '198.51.100.18', headers: { 'idempotency-key': resendKey } });
+    expect(missingResend.statusCode).toBe(403);
+    const resend = await app.inject({ method: 'POST', url: `${url}/resend-access-grant`, cookies, remoteAddress: '198.51.100.18', headers: { 'idempotency-key': resendKey, 'x-csrf-token': account.csrf } });
+    expect(resend.statusCode, resend.body).toBe(200);
+
+    for (const [method, path, payload] of [
+      ['PATCH', url, { primaryGuestName: 'Cross Origin' }],
+      ['POST', `${url}/resend-access-grant`, undefined],
+    ] as const) {
+      const crossed = await app.inject({ method, url: path, cookies: management, remoteAddress: '198.51.100.19', headers: { origin: 'https://attacker.example.test', 'idempotency-key': randomUUID() }, payload });
+      expect(crossed.statusCode).toBe(403);
+      expect(crossed.body).not.toContain(management['__Host-booking_reservation_management']);
+    }
+  });
+
+  it('returns a safe claim conflict to another authenticated Account without changing the owner', async () => {
+    const reservationId = (await quoteThenCreate(randomUUID(), 27)).create.json().data.reservation.id as string;
+    const grant = await issueGrant(reservationId);
+    const management = managementCookies(await redeem(reservationId, grant, '198.51.100.20'));
+    const first = await registerAccount('claim-first@example.test');
+    const second = await registerAccount('claim-second@example.test');
+    const url = `/api/v1/booking/management/${reservationId}`;
+    const claim = (session: string, csrf: string) => app.inject({ method: 'POST', url: `${url}/claim`, cookies: { ...management, '__Host-commerce_session': session }, remoteAddress: '198.51.100.20', headers: { 'x-csrf-token': csrf, 'idempotency-key': randomUUID() } });
+    expect((await claim(first.session, first.csrf)).statusCode).toBe(200);
+    const conflict = await claim(second.session, second.csrf);
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.body).not.toContain(management['__Host-booking_reservation_management']);
+    expect(conflict.body).not.toContain('private.booker@example.test');
+    const owned = await app.inject({ method: 'GET', url, cookies: { '__Host-commerce_session': first.session }, remoteAddress: '198.51.100.20' });
+    expect(owned.statusCode).toBe(200);
+    const notOwned = await app.inject({ method: 'GET', url, cookies: { '__Host-commerce_session': second.session }, remoteAddress: '198.51.100.20' });
+    expect(notOwned.statusCode).toBe(404);
+    const operatorPath = `/api/v1/booking/management/${reservationId}/operator`;
+    expect((await app.inject({ method: 'GET', url: operatorPath, remoteAddress: '198.51.100.20' })).statusCode).toBe(404);
+  });
+
+  it('redacts credentials and unrelated PII from every management response and captured diagnostic', async () => {
+    const reservationId = (await quoteThenCreate(randomUUID(), 28)).create.json().data.reservation.id as string;
+    const grant = await issueGrant(reservationId);
+    const account = await registerAccount('redaction-owner@example.test');
+    const url = `/api/v1/booking/management/${reservationId}`;
+    diagnosticLines.length = 0;
+    const redeemed = await redeem(reservationId, grant, '198.51.100.21');
+    expect(redeemed.statusCode).toBe(303);
+    const management = managementCookies(redeemed);
+    const credential = management['__Host-booking_reservation_management'];
+    const read = await app.inject({ method: 'GET', url, cookies: management, remoteAddress: '198.51.100.21' });
+    const updated = await app.inject({ method: 'PATCH', url, cookies: management, remoteAddress: '198.51.100.21', headers: { 'idempotency-key': randomUUID() }, payload: { primaryGuestName: 'Redacted Guest' } });
+    const claimed = await app.inject({ method: 'POST', url: `${url}/claim`, cookies: { ...management, '__Host-commerce_session': account.session }, remoteAddress: '198.51.100.21', headers: { 'idempotency-key': randomUUID(), 'x-csrf-token': account.csrf } });
+    const cancelled = await app.inject({ method: 'POST', url: `${url}/cancel`, cookies: { '__Host-commerce_session': account.session }, remoteAddress: '198.51.100.21', headers: { 'idempotency-key': randomUUID(), 'x-csrf-token': account.csrf } });
+    const resent = await app.inject({ method: 'POST', url: `${url}/resend-access-grant`, cookies: { '__Host-commerce_session': account.session }, remoteAddress: '198.51.100.21', headers: { 'idempotency-key': randomUUID(), 'x-csrf-token': account.csrf } });
+    expect([read, updated, claimed, cancelled, resent].map(response => response.statusCode)).toEqual([200, 200, 200, 200, 200]);
+    expect(read.json().data.reservation.booker.email).toBe('private.booker@example.test');
+    for (const response of [redeemed, read, updated, claimed, cancelled, resent]) {
+      const text = response.body;
+      for (const secret of [grant, credential, account.session, account.csrf]) expect(text).not.toContain(secret);
+    }
+    for (const response of [updated, claimed, cancelled, resent]) {
+      expect(response.body).not.toContain('private.booker@example.test');
+      expect(response.body).not.toContain('Private note');
+      expect(response.body).not.toContain('Redacted Guest');
+    }
+    expect(diagnosticLines.length).toBeGreaterThan(0);
+    const diagnostics = JSON.stringify(diagnosticLines);
+    for (const secret of [grant, credential, account.session, account.csrf]) expect(diagnostics).not.toContain(secret);
+    expect(diagnostics).not.toContain('private.booker@example.test');
+    expect(diagnostics).not.toContain('Private note');
+    expect(diagnostics).not.toContain('Redacted Guest');
   });
 });

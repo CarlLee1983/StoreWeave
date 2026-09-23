@@ -38479,13 +38479,13 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src + packages/commerce + packages/extensions + packages/platform + packages/releases/commerce/src + packages/themes/default/src",
-      "fingerprint": "4000ea92dd6f38fdb0845655e053b490ebba926e58eebe8067a0c6659e3295c3",
+      "fingerprint": "ae8f978623e2db97f7e323a7907278793028cc30e3fe5170d750f7cc24879e9c",
       "id": "zod:commerce-production-source-inventory",
       "limitations": [
         "A source fingerprint detects drift but does not prove behavior.",
         "Called predicate bodies and the complete input domain are not inferred from this AST inventory."
       ],
-      "occurrences": 1048,
+      "occurrences": 1075,
       "operator": "zod-semantic-operations"
     }
   ],
@@ -38527,6 +38527,16 @@
       "assurance": "provenance-only",
       "file": "apps/api/src/controllers/base.ts",
       "fingerprint": "e0a75cfef1d12bd282faea23022ed11587fca6d81d6e64348e0babd318e4becd"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "apps/api/src/controllers/booking-management.controller.ts",
+      "fingerprint": "1ae0e65d3635ee4bceedb296334798952d68aff8e6ae82165a468174d376dfae"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "apps/api/src/controllers/booking-public.controller.ts",
+      "fingerprint": "b6cf4fb51c9bb9fd866d5260d2ddd0f82071a1b1e972dc7e7e564ed200667f3c"
     },
     {
       "assurance": "provenance-only",
@@ -38676,7 +38686,7 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src/http/cookie-names.ts",
-      "fingerprint": "2650162a54866b4618f36276673d57b4eceb66d94901335c7d8ebb298737d99a"
+      "fingerprint": "efc3ef520c2266608c211e94db92b5eceafba3b46067a72e69802e7c4da34953"
     },
     {
       "assurance": "provenance-only",
@@ -38746,12 +38756,17 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src/release-server.ts",
-      "fingerprint": "ffd9ee599c04bb909780efc5205a57d23fd82e8dbf52b6d670170d7417f33de9"
+      "fingerprint": "1c9be26ace67f24a3b71b5ce1f9abb20e6d80b320a896f80bfcff3d3afbd8e60"
     },
     {
       "assurance": "provenance-only",
       "file": "apps/api/src/releases/base.ts",
       "fingerprint": "c1d013b495218e24eaae703736ade6c1732543b8501d102b1a899090efe5e2b3"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "apps/api/src/releases/booking.ts",
+      "fingerprint": "06c46f9d86f63cdb48c78c40827baf06be6d93fe3a8bbec3a151f868e771bc10"
     },
     {
       "assurance": "provenance-only",
@@ -39726,7 +39741,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/command-bus/src/command-bus.ts",
-      "fingerprint": "0f952629de150dfc629ec13f69136982a9f705d9c3f06cd1b196bafa54d2488a"
+      "fingerprint": "87c2894710a019905b1d07ffe69429f57083e134a5f4492d293150daeaf61a35"
     },
     {
       "assurance": "provenance-only",
@@ -39826,7 +39841,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/contracts/src/descriptors.ts",
-      "fingerprint": "33851a21e11dabe52d298e8ec5d6822057fd2f701a01d498c9eff77d5a35ce0b"
+      "fingerprint": "0d55b1a12275ab24bd0ad59d478ef4587c2cc1ddb51650b66d709a96851bec1e"
     },
     {
       "assurance": "provenance-only",
@@ -40186,12 +40201,12 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/kernel/src/module-graph.ts",
-      "fingerprint": "4cf8b8ccaaacdc02ece24d6152da2bd1a16984cd4613fb835d2e7f0742515f77"
+      "fingerprint": "b56555bc492bfb10b33d850e225a45d4915d0db29e46acb03ba601aeb91e6d25"
     },
     {
       "assurance": "provenance-only",
       "file": "packages/platform/kernel/src/module.ts",
-      "fingerprint": "89ed8797ecc42c29dfce89a0989dac8d598c0859e81bb81feb5a85986c0c41bb"
+      "fingerprint": "e43d285e4bad54c01c3b4531acf20a7f96c2b9a1d5468b71b7c39f858fb278bb"
     },
     {
       "assurance": "provenance-only",
@@ -40221,7 +40236,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/kernel/src/runtime.ts",
-      "fingerprint": "6bada514801e43d68e82decfedc416990404c63c8b4d2fde37cd462e5fa83cf9"
+      "fingerprint": "632c367389ace08a0b6f2ece4cb599c79eaf108dcab70bdad0cb206bfa867131"
     },
     {
       "assurance": "provenance-only",
@@ -40346,7 +40361,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/release/src/runtime.ts",
-      "fingerprint": "60946f91271421d098f72a384cd63dbb99bc6dfd6b50df26a67913d622ae53fd"
+      "fingerprint": "6d6510dc13b974edbffb4da8ade05f301ec81bde97467c71dd6828707ec749fb"
     },
     {
       "assurance": "provenance-only",

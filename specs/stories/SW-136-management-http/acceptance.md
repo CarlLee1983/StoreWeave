@@ -2,20 +2,20 @@
 
 ## Happy Path
 
-* [ ] AC-001: A valid single-use Access Grant sets a scoped `HttpOnly`/`Secure`/`SameSite=Strict` management cookie and 303 clean URL; the resulting authorized management session or owning Account can safely read/update allowed Booker/Guest fields, cancel under policy, resend grant, and explicitly claim an Account.
+* [x] AC-001: A valid single-use Access Grant sets a scoped `HttpOnly`/`Secure`/`SameSite=Strict` management cookie and 303 clean URL; the resulting authorized management session or owning Account can safely read/update allowed Booker/Guest fields, cancel under policy, resend grant, and explicitly claim an Account.
 
 ## Business Rules
 
-* [ ] AC-002: Claim is explicit and authenticated; Email matching and client account id never create ownership.
-* [ ] AC-003: Self-service cancellation is whole-Reservation only, enforces the frozen Cancellation Policy, and every state-changing management endpoint enforces CSRF protection plus an explicit rate limit.
+* [x] AC-002: Claim is explicit and authenticated; Email matching and client account id never create ownership.
+* [x] AC-003: Self-service cancellation is whole-Reservation only, enforces the frozen Cancellation Policy, and every state-changing management endpoint enforces CSRF protection plus an explicit rate limit.
 
 ## Failure Cases
 
-* [ ] AC-004: Missing/revoked/replayed Grant or session, CSRF failure, rate-limit exhaustion, non-owner Account, expired policy, immutable booking fact, and claim conflict return safe distinct errors without consuming valid authorization.
+* [x] AC-004: Missing/revoked/replayed Grant or session, CSRF failure, rate-limit exhaustion, non-owner Account, expired policy, immutable booking fact, and claim conflict return safe distinct errors without consuming valid authorization.
 
 ## Regression Requirements
 
-* [ ] AC-005: Management routes expose no raw token/unauthorized PII and retain no Admin/operator capability.
+* [x] AC-005: Management routes expose no raw token/unauthorized PII and retain no Admin/operator capability.
 
 ## Acceptance Evidence
 

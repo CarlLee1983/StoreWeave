@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "story_ref": "specs/stories/SW-137-operator-callback-http",
+  "story_md_digest": "sha256:169959f3103f9dc66500d8d56958a87d262e404b73f7ba04e724f212d463e6fc",
+  "acceptance_md_digest": "sha256:f454b970d7e79cd50560d97ee430180c741e5e705db0f4c270d70ee7ce3fb980",
+  "criteria": [
+    { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-003", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-004", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-005", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] }
+  ],
+  "inputs": [
+    {
+      "id": "management-http-contribution",
+      "source": { "prerequisite_output": { "output_id": "sw-136" } }
+    },
+    {
+      "id": "reservation-payment-result-capability",
+      "source": { "preexisting_artifact": { "path": "packages/booking/reservation/src/module.ts" } }
+    },
+    {
+      "id": "release-server-adapter-boundary",
+      "source": { "preexisting_artifact": { "path": "apps/api/src/release-server.ts" } }
+    },
+    {
+      "id": "payment-provider-callback-verifier-contract",
+      "source": { "preexisting_artifact": { "path": "packages/platform/extension-sdk/src/providers.ts" } }
+    },
+    {
+      "id": "booking-property-operator-capabilities",
+      "source": { "preexisting_artifact": { "path": "packages/booking/property/src/module.ts" } }
+    },
+    {
+      "id": "booking-availability-operator-capabilities",
+      "source": { "preexisting_artifact": { "path": "packages/booking/availability/src/module.ts" } }
+    }
+  ],
+  "outputs": [
+    { "id": "sw-137" }
+  ],
+  "decision_follow_ups": []
+}

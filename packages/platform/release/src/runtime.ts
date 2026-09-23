@@ -97,6 +97,8 @@ export interface BuildModuleManifest extends ModulePin {
   readonly baseVersionRange: string;
   readonly requiredDependencies: readonly { name: string; versionRange: string }[];
   readonly optionalDependencies: readonly { name: string; versionRange: string }[];
+  /** Declared Keyring derivation authority; affects runtime security behavior. */
+  readonly signingKeyPurposes: readonly string[];
 }
 
 export interface BuildExtensionManifest extends ExtensionPin {
@@ -123,6 +125,7 @@ export function projectModules(modules: readonly PlatformModule[]): BuildModuleM
       baseVersionRange: module.baseVersionRange,
       requiredDependencies: [...module.dependencies?.required ?? []].sort((a, b) => compare(a.name, b.name)),
       optionalDependencies: [...module.dependencies?.optional ?? []].sort((a, b) => compare(a.name, b.name)),
+      signingKeyPurposes: [...module.runtimeSecurity?.signingKeyPurposes ?? []].sort(compare),
     };
   });
 }

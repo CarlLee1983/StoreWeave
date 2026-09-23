@@ -111,7 +111,8 @@ describe('Booking Reservation package boundary', () => {
       'booking.reservation.requestRequiredPaymentRefund', 'booking.reservation.recordRefundInvocation',
       'booking.reservation.retryRefund', 'booking.reservation.reconcileRefunds',
       'booking.reservation.expire',
-      'booking.reservation.claim', 'booking.reservation.updateManagedDetails', 'booking.reservation.anonymizeExpiredPii',
+      'booking.reservation.claim', 'booking.reservation.updateManagedDetails', 'booking.reservation.resendAccessGrant',
+      'booking.reservation.anonymizeExpiredPii',
       'booking.reservation.materializeNotification', 'booking.reservation.recordNotificationMappingFailure',
     ]);
     expect(module.queries?.map(query => query.descriptor.name)).toEqual([

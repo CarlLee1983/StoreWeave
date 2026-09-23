@@ -76,6 +76,20 @@ export interface ModuleStorageBinding {
   bind(scope: StorageScope): void;
 }
 
+/** A module sees a Keyring only through the purposes it declared in its graph metadata. */
+function scopedKeyring(keyring: Keyring, purposes: readonly string[]): Keyring {
+  const allowed = new Set(purposes);
+  return Object.freeze({
+    activeKeyId: keyring.activeKeyId,
+    keyIds: () => keyring.keyIds(),
+    has: (keyId: string) => keyring.has(keyId),
+    derive: (purpose: string, keyId: string) => {
+      if (!allowed.has(purpose)) throw PlatformError.forbidden(`Module is not allowed to derive signing purpose "${purpose}"`);
+      return keyring.derive(purpose, keyId);
+    },
+  });
+}
+
 /**
  * The cache, mutex, and storage namespace a module's scopes are fixed to. Module
  * ids are not length-limited, while persisted namespaces deliberately are.
@@ -287,6 +301,14 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     notifications: () => notifications,
     identityCleanup: () => identityCleanupDeps,
   });
+  // Release modules are composed from non-secret config before bootstrap can
+  // resolve secret references. Bind the resolved capability exactly once here,
+  // before any database, transport, or handler becomes available.
+  for (const mod of allModules) {
+    if (!mod.bindRuntimeSecurity) continue;
+    const purposes = mod.runtimeSecurity!.signingKeyPurposes;
+    mod.bindRuntimeSecurity(Object.freeze({ keyring: keyring && scopedKeyring(keyring, purposes) }));
+  }
   const enabled = config.extensions.filter(entry => entry.enabled).map(entry => {
     const definition = options.availableExtensions[entry.id];
     if (!definition || definition.manifest.id !== entry.id) {

@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "story_ref": "specs/stories/SW-142-reservation-admin",
+  "story_md_digest": "sha256:3e56b639b478af7ce56eb0a3114da42485e2bd4020fef8961728fae270e99c9e",
+  "acceptance_md_digest": "sha256:581dc4f5f3f16d92f6a9591b5861b36e7df923b1458449709f3448cb8055356a",
+  "criteria": [
+    { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-003", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-004", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-005", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] }
+  ],
+  "inputs": [
+    {
+      "id": "booking-operator-http-contribution",
+      "source": { "prerequisite_output": { "output_id": "sw-137" } }
+    },
+    {
+      "id": "availability-admin-contribution",
+      "source": { "prerequisite_output": { "output_id": "sw-141" } }
+    },
+    {
+      "id": "booking-reservation-operator-capabilities",
+      "source": { "preexisting_artifact": { "path": "packages/booking/reservation/src/module.ts" } }
+    },
+    {
+      "id": "admin-composition-contract",
+      "source": { "preexisting_artifact": { "path": "packages/platform/release/src/admin.ts" } }
+    }
+  ],
+  "outputs": [
+    { "id": "sw-142" }
+  ],
+  "decision_follow_ups": []
+}

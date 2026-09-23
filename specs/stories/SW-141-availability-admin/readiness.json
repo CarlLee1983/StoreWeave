@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "story_ref": "specs/stories/SW-141-availability-admin",
+  "story_md_digest": "sha256:0e4fd9762daf152a89a3db606613ea35d589775cbde759b02bafad0c399c7b83",
+  "acceptance_md_digest": "sha256:73f9fcfc86869160ab0d67d09a05d7ccd183c06c0103252275fec5d89fdb37ad",
+  "criteria": [
+    { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-003", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-004", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-005", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] }
+  ],
+  "inputs": [
+    {
+      "id": "property-admin-contribution",
+      "source": { "prerequisite_output": { "output_id": "sw-140" } }
+    },
+    {
+      "id": "booking-availability-commands-and-queries",
+      "source": { "preexisting_artifact": { "path": "packages/booking/availability/src/module.ts" } }
+    },
+    {
+      "id": "admin-composition-contract",
+      "source": { "preexisting_artifact": { "path": "packages/platform/release/src/admin.ts" } }
+    },
+    {
+      "id": "property-timezone-and-currency-facts",
+      "source": { "preexisting_artifact": { "path": "packages/booking/property/src/service.ts" } }
+    }
+  ],
+  "outputs": [
+    { "id": "sw-141" }
+  ],
+  "decision_follow_ups": []
+}

@@ -30,11 +30,9 @@ export interface ExecuteOptions {
   actor: Actor;
   idempotencyKey?: string;
   /**
-   * A capability check which must happen in the same transaction, before an
-   * idempotency replay can return its cached response. This is intentionally
-   * an adapter-supplied guard rather than descriptor metadata: it is needed
-   * only when a short-lived external credential can be revoked independently
-   * of the command's persisted response.
+   * A capability check in the same transaction, before an idempotency replay
+   * can return its cached response. Descriptors with
+   * `requiresBeforeIdempotency` make this callback mandatory for every caller.
    */
   beforeIdempotency?: (tx: Tx) => Promise<void>;
   correlationId?: string;
@@ -62,6 +60,9 @@ export class CommandBus {
   constructor(private readonly deps: CommandBusDeps) {}
 
   register(descriptor: CommandDescriptor, handler: CommandHandler, owner: string): void {
+    if (descriptor.requiresBeforeIdempotency && descriptor.idempotency !== 'required') {
+      throw PlatformError.internal(`Command "${descriptor.name}" requires required idempotency for a pre-idempotency guard`);
+    }
     if (this.registry.has(descriptor.name)) {
       throw PlatformError.conflict(`Command "${descriptor.name}" already registered by "${this.registry.get(descriptor.name)!.owner}"`);
     }
@@ -150,6 +151,9 @@ export class CommandBus {
 
     if (descriptor.idempotency === 'required' && !options.idempotencyKey) {
       throw PlatformError.validation(`Command "${name}" requires an idempotency key`);
+    }
+    if (descriptor.requiresBeforeIdempotency && !options.beforeIdempotency) {
+      throw PlatformError.internal(`Command "${name}" requires a pre-idempotency guard`);
     }
 
     const hash = requestHash(input);

@@ -1,13 +1,22 @@
 import packageJson from '../package.json';
-import { bindModuleCapability, type BoundModuleCapability, defineModule } from '@storeweave/kernel';
+import {
+  bindModuleCapability, type BoundModuleCapability, defineModule,
+  type PlatformModule, type RuntimeSecurity,
+} from '@storeweave/kernel';
 import type { Keyring } from '@storeweave/crypto';
 import {
   createSetBaseNightlyPriceHandler, createUpdateRoomNightRangeHandler,
   setBaseNightlyPriceCommand, updateRoomNightRangeCommand,
 } from './commands';
 import { bookingAvailabilityMigrations } from './migrations';
-import { createBookingAvailabilityQuote, createGetBookingQuoteHandler, getBookingQuoteQuery, type BookingQuoteLimits } from './quote';
-import { createBookingAvailabilitySearch, createSearchBookingQuotesHandler, searchBookingQuotesQuery } from './search';
+import {
+  createBookingAvailabilityQuote, createGetBookingQuoteHandler, getBookingQuoteQuery,
+  type BookingAvailabilityQuoteCapability, type BookingQuoteLimits,
+} from './quote';
+import {
+  createBookingAvailabilitySearch, createSearchBookingQuotesHandler, searchBookingQuotesQuery,
+  type BookingAvailabilitySearchCapability,
+} from './search';
 import { bookingAvailabilityPages } from './pages';
 import { createGetRoomNightRangeHandler, getRoomNightRangeQuery } from './queries';
 import {
@@ -35,14 +44,23 @@ export function bindBookingAvailabilityQuoteReservation(
   );
 }
 
-export function createBookingAvailabilityModule(
+export interface BookingAvailabilityRuntimeComposition {
+  readonly module: PlatformModule;
+  readonly quoteReservation: BoundModuleCapability<BookingAvailabilityQuoteReservation>;
+}
+
+type AvailabilityDelegates = {
+  readonly quote: BookingAvailabilityQuoteCapability;
+  readonly search: BookingAvailabilitySearchCapability;
+  readonly quoteReservation: BookingAvailabilityQuoteReservation;
+};
+
+function createAvailabilityModule(
   propertyBinding: BoundModuleCapability<BookingPropertyCapability>,
-  quoteLimits: BookingQuoteLimits,
-  quoteSigningKeyring: Keyring,
-) {
+  delegates: AvailabilityDelegates,
+  bindRuntimeSecurity?: (security: RuntimeSecurity) => void,
+): PlatformModule {
   const properties = propertyBinding.value;
-  const quote = createBookingAvailabilityQuote(properties, quoteLimits, quoteSigningKeyring);
-  const search = createBookingAvailabilitySearch(properties, quoteLimits, quoteSigningKeyring);
   return defineModule({
     name: 'booking-availability', version: packageJson.version, baseVersionRange: '^1.0.0',
     dependencies: { required: [
@@ -72,8 +90,75 @@ export function createBookingAvailabilityModule(
     ],
     queries: [
       { descriptor: getRoomNightRangeQuery, handler: createGetRoomNightRangeHandler(properties) },
-      { descriptor: getBookingQuoteQuery, handler: createGetBookingQuoteHandler(quote) },
-      { descriptor: searchBookingQuotesQuery, handler: createSearchBookingQuotesHandler(search) },
+      { descriptor: getBookingQuoteQuery, handler: createGetBookingQuoteHandler(delegates.quote) },
+      { descriptor: searchBookingQuotesQuery, handler: createSearchBookingQuotesHandler(delegates.search) },
     ],
+    ...(bindRuntimeSecurity ? { bindRuntimeSecurity } : {}),
+    ...(bindRuntimeSecurity ? { runtimeSecurity: { signingKeyPurposes: ['booking-quote'] } } : {}),
+  });
+}
+
+/**
+ * Builds the secret-free Availability contribution for a Release. The Kernel
+ * supplies its already-resolved Keyring through this module's synchronous
+ * runtime hook, before a database or handler is available. Quote, Search, and
+ * Quote Reservation all delegate through the same once-bound closure.
+ */
+export function composeBookingAvailabilityRuntime(
+  propertyBinding: BoundModuleCapability<BookingPropertyCapability>,
+  quoteLimits: BookingQuoteLimits,
+): BookingAvailabilityRuntimeComposition {
+  const properties = propertyBinding.value;
+  let state: 'unbound' | 'bound' | 'failed' = 'unbound';
+  let bound: AvailabilityDelegates | undefined;
+  const requireBound = (): AvailabilityDelegates => {
+    if (!bound) throw new Error('Booking Availability Quote runtime security is not bound');
+    return bound;
+  };
+  const delegates: AvailabilityDelegates = Object.freeze({
+    quote: Object.freeze({
+      quote: (...args: Parameters<BookingAvailabilityQuoteCapability['quote']>) => requireBound().quote.quote(...args),
+    }),
+    search: Object.freeze({
+      search: (...args: Parameters<BookingAvailabilitySearchCapability['search']>) => requireBound().search.search(...args),
+    }),
+    quoteReservation: Object.freeze({
+      revalidateAndReserve: (...args: Parameters<BookingAvailabilityQuoteReservation['revalidateAndReserve']>) =>
+        requireBound().quoteReservation.revalidateAndReserve(...args),
+    }),
+  });
+  const bindRuntimeSecurity = (security: RuntimeSecurity): void => {
+    if (state !== 'unbound') throw new TypeError('Booking Availability Quote runtime security may only be bound once');
+    state = 'failed';
+    // Quote construction hard-codes the booking-quote purpose. This narrow seam
+    // carries a Keyring only; it never exposes raw or purpose-derived bytes.
+    const keyring = security.keyring;
+    if (!keyring) throw new TypeError('Booking Availability Quote requires a configured signing Keyring');
+    bound = Object.freeze({
+      quote: createBookingAvailabilityQuote(properties, quoteLimits, keyring),
+      search: createBookingAvailabilitySearch(properties, quoteLimits, keyring),
+      quoteReservation: createBookingAvailabilityQuoteReservation(properties, quoteLimits, keyring),
+    });
+    state = 'bound';
+  };
+  return Object.freeze({
+    module: createAvailabilityModule(propertyBinding, delegates, bindRuntimeSecurity),
+    quoteReservation: bindModuleCapability(
+      'booking-availability', BOOKING_AVAILABILITY_QUOTE_RESERVATION_CAPABILITY, delegates.quoteReservation,
+    ),
+  });
+}
+
+/** Existing in-process callers compose with an explicit Keyring; Releases use the runtime seam above. */
+export function createBookingAvailabilityModule(
+  propertyBinding: BoundModuleCapability<BookingPropertyCapability>,
+  quoteLimits: BookingQuoteLimits,
+  quoteSigningKeyring: Keyring,
+): PlatformModule {
+  const properties = propertyBinding.value;
+  return createAvailabilityModule(propertyBinding, {
+    quote: createBookingAvailabilityQuote(properties, quoteLimits, quoteSigningKeyring),
+    search: createBookingAvailabilitySearch(properties, quoteLimits, quoteSigningKeyring),
+    quoteReservation: createBookingAvailabilityQuoteReservation(properties, quoteLimits, quoteSigningKeyring),
   });
 }

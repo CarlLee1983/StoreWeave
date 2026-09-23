@@ -235,6 +235,21 @@ export const updateBookingReservationDetailsOutputSchema = z.object({
   updatedFields: z.array(z.enum(['booker', 'primaryGuestName', 'accommodationNotes'])).min(1),
 }).strict();
 
+/**
+ * The management credential is supplied only by a trusted server adapter from
+ * its secure session state. An absent credential means the current Account
+ * must own the Reservation.
+ */
+export const resendBookingReservationAccessGrantInputSchema = z.object({
+  reservationId: z.string().uuid(),
+  managementCredential: z.string().min(1).max(128).optional(),
+}).strict();
+
+export const resendBookingReservationAccessGrantOutputSchema = z.object({
+  reservationId: z.string().uuid(),
+  accepted: z.literal(true),
+}).strict();
+
 export const bookingReservationNotificationKindSchema = z.enum(['confirmed', 'cancelled', 'payment-expiring']);
 export type BookingReservationNotificationKind = z.infer<typeof bookingReservationNotificationKindSchema>;
 
@@ -331,6 +346,8 @@ export type GetManagedBookingReservationInput = z.infer<typeof getManagedBooking
 export type ManagedBookingReservation = z.infer<typeof managedBookingReservationSchema>;
 export type UpdateBookingReservationDetailsInput = z.infer<typeof updateBookingReservationDetailsInputSchema>;
 export type UpdateBookingReservationDetailsOutput = z.infer<typeof updateBookingReservationDetailsOutputSchema>;
+export type ResendBookingReservationAccessGrantInput = z.infer<typeof resendBookingReservationAccessGrantInputSchema>;
+export type ResendBookingReservationAccessGrantOutput = z.infer<typeof resendBookingReservationAccessGrantOutputSchema>;
 export type MaterializeBookingReservationNotificationInput = z.infer<typeof materializeBookingReservationNotificationInputSchema>;
 export type BookingReservationNotificationLink = z.infer<typeof bookingReservationNotificationLinkSchema>;
 export type ListBookingReservationNotificationsInput = z.infer<typeof listBookingReservationNotificationsInputSchema>;

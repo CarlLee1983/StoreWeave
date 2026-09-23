@@ -136,7 +136,6 @@ export async function createReleaseServer(options: ReleaseServerOptions): Promis
     });
 
     app.getHttpAdapter().getInstance().addHook('preHandler', async (request, reply) => {
-      if (request.method !== 'POST') return;
       // Fastify selects this config after decoding and matching the route, so an
       // encoded path such as /api/v1/auth/%6cogin uses the login contract too.
       const contract = (request.routeOptions.config as HttpRouteConfig).storeweaveContract;

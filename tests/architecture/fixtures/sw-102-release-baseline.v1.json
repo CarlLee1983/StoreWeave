@@ -15,7 +15,7 @@
       "identity": {
         "id": "base",
         "version": "0.1.0-sw102",
-        "manifestChecksum": "sha256:1557b94ff28c57fd4ebf7906f2a8565c4ee7b1cfcc4537e3e39b843f08321734"
+        "manifestChecksum": "sha256:61e62730ec5b9208a04b682aae9e93770ff79da3459376f34d25789c05b5f1cf"
       },
       "selected": {
         "runtime": "packages/releases/base/src/runtime.ts",
@@ -122,7 +122,7 @@
       "identity": {
         "id": "commerce",
         "version": "0.1.0-sw102",
-        "manifestChecksum": "sha256:356cb6ec482e6c36cdda018eda8f921609625489322de4bf89f0b7df0cefba2b"
+        "manifestChecksum": "sha256:571ad8fb0685d0d7d0b26fec6b9b8a2fbddbd5e0015ed899721cfaa4ff440f27"
       },
       "selected": {
         "runtime": "packages/releases/commerce/src/runtime.ts",
@@ -240,7 +240,7 @@
           },
           {
             "path": "docs/base/b17/commerce-public-contract.semantic.v2.json",
-            "sha256": "aa62138d7f8674e0e9660af6d012676aa84c52b503b0fd14e0f7acec62cf38d1"
+            "sha256": "dff31cc8ee3adc68f9adb560335b986180dc25514db2cc0e6fa450e2ae72cf6c"
           }
         ]
       }

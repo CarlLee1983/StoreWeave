@@ -4,10 +4,14 @@ import {
   bookingReservationConfirmedV1,
   bookingReservationPaymentExpiringV1,
 } from '../src/events';
-import { BOOKING_RESERVATION_NOTIFICATION_TEMPLATES } from '../src/notification-templates';
+import {
+  BOOKING_RESERVATION_ACCESS_GRANT_RESEND_TEMPLATE,
+  BOOKING_RESERVATION_NOTIFICATION_TEMPLATES,
+} from '../src/notification-templates';
 import {
   materializeBookingReservationNotificationInputSchema,
   bookingReservationNotificationLinkSchema,
+  resendBookingReservationAccessGrantInputSchema,
 } from '../src/types';
 import {
   createMaterializeBookingReservationNotificationHandler,
@@ -40,6 +44,16 @@ function context() {
 }
 
 describe('Booking Reservation notification contracts', () => {
+  it('defines a generic resend request without accepting caller-supplied delivery fields', () => {
+    expect(resendBookingReservationAccessGrantInputSchema.parse({ reservationId }))
+      .toEqual({ reservationId });
+    expect(resendBookingReservationAccessGrantInputSchema.safeParse({
+      reservationId, managementCredential: 'brm1.1.example', email: 'booker@example.test',
+    }).success).toBe(false);
+    expect(BOOKING_RESERVATION_ACCESS_GRANT_RESEND_TEMPLATE.email?.text)
+      .toContain('{accessGrant}');
+  });
+
   it('keeps domain event payloads PII-free and gives deferred payment an exact stale guard', () => {
     expect(bookingReservationConfirmedV1.payload.parse({ reservationId, paymentAttemptId: attemptId, confirmedAt: new Date() }))
       .toEqual(expect.objectContaining({ reservationId, paymentAttemptId: attemptId }));

@@ -184,13 +184,20 @@ ForgeFlowV2 是開發協定，不是 workflow engine，所以「整合」是這�
 | [91](91-forgeflowv2-integration-discovery.md) | 釐清 ForgeFlowv2 整合責任與契約（discovery）（**done**） | — |
 | [99](99-make-verify-and-agents-guide.md) | 一個指令代表「做完了」：`make verify` 與 `AGENTS.md` | 91 |
 | [100](100-story-format-pilot.md) | 用一張真工作試 Story 格式（**blocked**） | 99 |
-| [101](101-cache-mutex-independent-key-timeout.md) | Advisory mutex 的獨立 key 整合測試偶發取得逾時（**closed without corrective change**） | — |
+| [101](101-cache-mutex-independent-key-timeout.md) | Advisory mutex 的獨立 key 整合測試逾時（**completed locally**） | — |
 | [102](102-paired-upgrade-crash-injection-suite-flake.md) | Paired upgrade crash-injection 測試偶發未收到 SIGKILL | — |
 | [103](103-payment-abi-consumer-migration.md) | Payment ABI contract cleanup 前遷移剩餘消費端 | SW-114, SW-115, SW-117 |
 | [104](104-booking-quote-signer-runtime-seam.md) | Booking Quote 簽章金鑰 runtime seam | SW-122，SW-138 前 |
 | [105](105-atomic-quote-revalidation-and-room-night-reservation.md) | Quote 驗證與房晚預留原子化 | SW-122、SW-123，SW-125 前 |
 | [106](106-release-artifact-worker-storage-root-eacces.md) | Commerce release artifact worker 測試 storage root 權限錯誤 | — |
 | [107](107-worker-recovery-readiness-exit.md) | Worker recovery 子程序在 ready marker 前退出 | — |
+| [108](108-booking-access-grant-resend-command.md) | Booking Access Grant 安全重發命令 | SW-130、SW-131、SW-134，SW-136 前 |
+| [109](109-management-get-rate-limit.md) | 讓宣告的管理端 GET rate limit 生效 | SW-136 前 |
+| [110](110-session-start-release-adapter-discovery.md) | Session-start 守衛辨識 Booking release adapter | SW-135 後 |
+| [111](111-forgepilot-node-runtime-locale-verification.md) | ForgePilot Node 選版與 Admin 日期測試相容性 | — |
+| [112](112-booking-operator-reservation-read-capability.md) | Booking operator Reservation 安全讀取能力 | SW-137、SW-142 前；尚未入 ForgePilot goal |
+| [113](113-snapshot-verification-database-session-flakes.md) | Snapshot 驗證的 PostgreSQL session／cutover 時序不穩定 | 完整 gate 偶發阻礙 |
+| [114](114-scheduler-dst-budgeted-tick-test.md) | DST 整合測試等待有界排程輪替（**completed locally**） | 完整 gate 穩定性 |
 
 **76–80 是 Spec 0007 的回填紀錄**（2026-08-26）：這一批不是先開工單再做，而是照
 [Spec 0007](../specs/0007-brand-content-and-contact.md) 直接實作完再補上工單。

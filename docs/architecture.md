@@ -79,6 +79,7 @@ deployments/            example-store、example-store-two、systemd unit、設�
    - `authorization.assert()` 檢查 `order:write`，並讓已註冊的 Policy 有機會否決。
    - 用 descriptor 的 Zod schema 驗證輸入（失敗 → `VALIDATION_ERROR`，不是 500）。
    - `idempotency: 'required'` 的 Command 沒帶 key 直接拒絕。
+   - 宣告 `requiresBeforeIdempotency` 的 Command 若呼叫端未提供交易內的授權 guard，也直接拒絕；撤銷式憑證必須在讀取冪等快取前重新驗權。
    - 開啟資料庫交易。
 4. **交易內**
    - 以 `INSERT ... ON CONFLICT DO NOTHING` 宣告 Idempotency Key。併發的第二個請求會卡在

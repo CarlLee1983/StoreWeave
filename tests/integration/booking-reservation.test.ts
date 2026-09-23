@@ -26,6 +26,7 @@ import {
   type BookingReservationAccess,
 } from '../../packages/booking/reservation/src/access';
 import { bookingReservationMigrations } from '../../packages/booking/reservation/src/migrations';
+import { authorizeResendBookingReservationAccessGrant } from '../../packages/booking/reservation/src/management';
 import { createBookingReservationModule } from '../../packages/booking/reservation/src/module';
 import { createRequiredBookingReservationRefund } from '../../packages/booking/reservation/src/refunds';
 
@@ -2018,6 +2019,132 @@ describe('Booking Reservation PostgreSQL integration', () => {
     await expect(runtime.database.transaction(tx => reservationAccess.redeemGrant(tx, {
       grantToken: firstGrant.grantToken,
     }))).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+  }, 120_000);
+
+  it('resends an Access Grant only to the current Booker, rotates management access, and keeps delivery failure operator-visible', async () => {
+    const { reservation } = await createReservation('access-grant-resend');
+    const initialGrant = await runtime.database.transaction(tx => reservationAccess.issueGrant(tx, {
+      reservationId: reservation.id, ttlMs: 15 * 60_000,
+    }));
+    const initialManagement = await runtime.database.transaction(tx => reservationAccess.redeemGrant(tx, {
+      grantToken: initialGrant.grantToken,
+    }));
+    const owner = signedInAccountActor(randomUUID(), 'customer');
+    await runtime.commands.execute('booking.reservation.claim', {
+      reservationId: reservation.id, managementCredential: initialManagement.managementCredential,
+    }, { actor: owner, idempotencyKey: randomUUID() });
+    await runtime.commands.execute('booking.reservation.updateManagedDetails', {
+      reservationId: reservation.id,
+      booker: { name: 'Current Booker', email: 'current.booker@example.test', phone: '+1 555 0152' },
+    }, { actor: owner, idempotencyKey: randomUUID() });
+
+    // This command rotates a revocable credential. The descriptor therefore
+    // rejects every direct Bus call that does not provide its transaction-bound
+    // replay guard, before it can claim idempotency or change Reservation state.
+    const missingGuardKey = randomUUID();
+    const beforeMissingGuard = await runtime.database.pool.query<{ access_generation: number; notifications: string }>(`
+      SELECT access_generation,
+        (SELECT count(*)::text FROM platform_notifications
+         WHERE reference LIKE 'booking-reservation:access-grant-resend:' || id::text || ':%') AS notifications
+      FROM booking_reservation_reservations WHERE id = $1
+    `, [reservation.id]);
+    await expect(runtime.commands.execute('booking.reservation.resendAccessGrant', {
+      reservationId: reservation.id,
+    }, { actor: owner, idempotencyKey: missingGuardKey })).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+    const afterMissingGuard = await runtime.database.pool.query<{
+      access_generation: number; notifications: string; idempotency: string; audits: string;
+    }>(`
+      SELECT access_generation,
+        (SELECT count(*)::text FROM platform_notifications
+         WHERE reference LIKE 'booking-reservation:access-grant-resend:' || id::text || ':%') AS notifications,
+        (SELECT count(*)::text FROM platform_idempotency
+         WHERE command_name = 'booking.reservation.resendAccessGrant' AND key = $2) AS idempotency,
+        (SELECT count(*)::text FROM platform_audit_log
+         WHERE resource_id = id::text AND action = 'booking.reservation.access-grant-resent') AS audits
+      FROM booking_reservation_reservations WHERE id = $1
+    `, [reservation.id, missingGuardKey]);
+    expect(afterMissingGuard.rows).toEqual([{
+      access_generation: beforeMissingGuard.rows[0]!.access_generation,
+      notifications: beforeMissingGuard.rows[0]!.notifications,
+      idempotency: '0',
+      audits: '0',
+    }]);
+
+    const executeResend = (
+      input: { reservationId: string; managementCredential?: string },
+      commandActor: Actor,
+      idempotencyKey: string,
+    ) => runtime.commands.execute('booking.reservation.resendAccessGrant', input, {
+      actor: commandActor,
+      idempotencyKey,
+      beforeIdempotency: tx => authorizeResendBookingReservationAccessGrant(tx, commandActor, input, reservationAccess).then(() => undefined),
+    });
+
+    await expect(executeResend({ reservationId: reservation.id }, signedInAccountActor(), randomUUID()))
+      .rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    const managementKey = randomUUID();
+    await expect(executeResend({
+      reservationId: reservation.id, managementCredential: initialManagement.managementCredential,
+    }, RESERVATION_ACTOR, managementKey)).resolves.toEqual({ reservationId: reservation.id, accepted: true });
+    // Rechecking before a cached replay matters: resend rotation revokes the
+    // credential which authorized the original request.
+    await expect(executeResend({
+      reservationId: reservation.id, managementCredential: initialManagement.managementCredential,
+    }, RESERVATION_ACTOR, managementKey)).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+
+    const afterManagementResend = await runtime.database.pool.query<{
+      reference: string; recipient_email: string; variables: { accessGrant: string };
+    }>(`SELECT reference, recipient_email, variables FROM platform_notifications
+       WHERE template_id = 'booking.reservation.access-grant-resend' ORDER BY created_at DESC LIMIT 1`);
+    expect(afterManagementResend.rows).toEqual([expect.objectContaining({
+      reference: expect.stringContaining(`:${reservation.id}:`), recipient_email: 'current.booker@example.test',
+      variables: expect.objectContaining({ accessGrant: expect.any(String) }),
+    })]);
+    const managementResend = afterManagementResend.rows[0]!;
+    await expect(runtime.database.transaction(tx => reservationAccess.authorizeManagement(tx, {
+      reservationId: reservation.id, managementCredential: initialManagement.managementCredential,
+    }))).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+
+    const ownerKey = randomUUID();
+    await expect(executeResend({ reservationId: reservation.id }, owner, ownerKey))
+      .resolves.toEqual({ reservationId: reservation.id, accepted: true });
+    await expect(executeResend({ reservationId: reservation.id }, owner, ownerKey))
+      .resolves.toEqual({ reservationId: reservation.id, accepted: true });
+    const resends = await runtime.database.pool.query<{
+      reference: string; recipient_email: string; variables: { accessGrant: string };
+    }>(`SELECT reference, recipient_email, variables FROM platform_notifications
+       WHERE template_id = 'booking.reservation.access-grant-resend' ORDER BY created_at`);
+    expect(resends.rows).toHaveLength(2);
+    expect(resends.rows.every(row => row.recipient_email === 'current.booker@example.test')).toBe(true);
+    await expect(runtime.database.transaction(tx => reservationAccess.redeemGrant(tx, {
+      grantToken: managementResend.variables.accessGrant,
+    }))).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+    const latestGrant = resends.rows[1]!.variables.accessGrant;
+    await expect(runtime.database.transaction(tx => reservationAccess.redeemGrant(tx, { grantToken: latestGrant })))
+      .resolves.toMatchObject({ managementCredential: expect.stringMatching(/^brm1\./) });
+
+    const persisted = await runtime.database.pool.query<{ payload: unknown; response: unknown }>(`
+      SELECT a.payload, i.response FROM platform_audit_log a
+      CROSS JOIN platform_idempotency i
+      WHERE a.resource_id = $1 AND a.action = 'booking.reservation.access-grant-resent'
+        AND i.command_name = 'booking.reservation.resendAccessGrant'
+    `, [reservation.id]);
+    expect(JSON.stringify(persisted.rows)).not.toMatch(/current\.booker@example\.test|brm1\.|accessGrant/i);
+
+    await runtime.database.pool.query(`UPDATE platform_notification_deliveries d
+      SET status = 'failed', last_error = 'mail rejected current.booker@example.test'
+      FROM platform_notifications n WHERE n.id = d.notification_id AND n.reference = $1`, [resends.rows[1]!.reference]);
+    const evidence = await runtime.queries.execute<any>('platform.notifications.listDeliveries', {
+      reference: resends.rows[1]!.reference, limit: 20, offset: 0,
+    }, { actor: actor(['notifications:read']) });
+    expect(evidence.items).toEqual([expect.objectContaining({
+      status: 'failed', recipientMasked: 'c***@example.test', lastError: 'mail rejected c***@example.test',
+    })]);
+    expect(JSON.stringify(evidence)).not.toContain('current.booker@example.test');
+    await expect(runtime.database.pool.query<{ owner_account_id: string }>(
+      'SELECT owner_account_id FROM booking_reservation_reservations WHERE id = $1', [reservation.id],
+    )).resolves.toMatchObject({ rows: [{ owner_account_id: owner.id.slice('user:'.length) }] });
   }, 120_000);
 
   it('claims with both management proof and Account identity, then scopes reads and audits owner updates', async () => {

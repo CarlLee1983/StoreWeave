@@ -257,21 +257,46 @@ describe('PostgreSQL advisory mutex', () => {
       operationId: 'holder', waitTimeoutMs: 1_000,
     }, async () => { entered.resolve(); await gate.promise; });
     await entered.promise;
-    await expect(secondMutex.forNamespace('inventory').runExclusive('sku:43', {
-      operationId: 'independent', waitTimeoutMs: 100,
-    }, async () => 'ran')).resolves.toBe('ran');
+    try {
+      const pool = mutexPool(secondMutex);
+      const connect = pool.connect.bind(pool);
+      let restoreQuery: (() => void) | undefined;
+      const delayedConnect = vi.spyOn(pool, 'connect').mockImplementation(async () => {
+        const client = await connect();
+        const query = client.query.bind(client);
+        let firstQuery = true;
+        const delayedQuery = vi.spyOn(client, 'query').mockImplementation(async (...args: Parameters<typeof client.query>) => {
+          if (firstQuery) {
+            firstQuery = false;
+            await pause(150);
+          }
+          return query(...args);
+        });
+        restoreQuery = () => delayedQuery.mockRestore();
+        return client;
+      });
+      try {
+        await expect(secondMutex.forNamespace('inventory').runExclusive('sku:43', {
+          operationId: 'independent', waitTimeoutMs: 5_000,
+        }, async () => 'ran')).resolves.toBe('ran');
+      } finally {
+        restoreQuery?.();
+        delayedConnect.mockRestore();
+      }
 
-    const abort = new AbortController();
-    const callback = vi.fn();
-    const waiting = secondMutex.forNamespace('inventory').runExclusive('sku:42', {
-      operationId: 'aborted', waitTimeoutMs: 1_000, signal: abort.signal,
-    }, async () => { callback(); });
-    await pause(20);
-    abort.abort(new Error('caller gave up'));
-    await expect(waiting).rejects.toThrow('caller gave up');
-    expect(callback).not.toHaveBeenCalled();
-    gate.resolve();
-    await holder;
+      const abort = new AbortController();
+      const callback = vi.fn();
+      const waiting = secondMutex.forNamespace('inventory').runExclusive('sku:42', {
+        operationId: 'aborted', waitTimeoutMs: 1_000, signal: abort.signal,
+      }, async () => { callback(); });
+      await pause(20);
+      abort.abort(new Error('caller gave up'));
+      await expect(waiting).rejects.toThrow('caller gave up');
+      expect(callback).not.toHaveBeenCalled();
+    } finally {
+      gate.resolve();
+      await holder;
+    }
   });
 
   it('uses pg_catalog functions even under a hostile search_path and releases on backend termination', async () => {

@@ -28,6 +28,8 @@ import {
   getManagedBookingReservationQuery,
   getOwnedBookingReservationHandler,
   getOwnedBookingReservationQuery,
+  createResendBookingReservationAccessGrantHandler,
+  resendBookingReservationAccessGrantCommand,
   updateBookingReservationDetailsCommand,
 } from './management';
 import { createExpireBookingReservationHandler, expireBookingReservationCommand } from './expiry';
@@ -189,6 +191,7 @@ export function createBookingReservationModule(
       { descriptor: expireBookingReservationCommand, handler: createExpireBookingReservationHandler(roomNightOperationsBinding.value) },
       { descriptor: claimBookingReservationCommand, handler: createClaimBookingReservationHandler(access) },
       { descriptor: updateBookingReservationDetailsCommand, handler: createUpdateBookingReservationDetailsHandler(access) },
+      { descriptor: resendBookingReservationAccessGrantCommand, handler: createResendBookingReservationAccessGrantHandler(access, notifications) },
       { descriptor: anonymizeExpiredBookingReservationPiiCommand, handler: createAnonymizeExpiredBookingReservationPiiHandler(validatedRetentionPolicy) },
       { descriptor: materializeBookingReservationNotificationCommand, handler: createMaterializeBookingReservationNotificationHandler({ access, notifications, locale: 'en' }) },
       { descriptor: recordBookingReservationNotificationMappingFailureCommand, handler: createRecordBookingReservationNotificationMappingFailureHandler() },

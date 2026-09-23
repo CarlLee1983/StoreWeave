@@ -4,12 +4,12 @@
 
 **Blocked by:** —
 
-**Status:** closed without corrective change（2026-09-22；Carl Lee 接受未重現的偶發測試風險）
+**Status:** completed locally（2026-09-23 同一失敗於 ForgePilot `VR-015`／`EV-018` 再現後重開並修正）。
 
-- [ ] 在完整 `make verify` 負載下確認並修正 `inventory` / `sku:43` 獨立 key 的 100ms acquisition timeout。
-- [ ] 確保測試失敗路徑會釋放 `sku:42` holder，避免 `afterEach` 因等待未結束的 callback 再次逾時。
-- [ ] 驗證同 namespace 不同 key 可併行、相同 key 仍互斥、已取消 waiter 不執行 callback。
-- [ ] `make verify` 通過。
+- [x] 以受控 query 延遲重現 `inventory` / `sku:43` 的 100ms acquisition timeout，將此測試的獨立 key deadline 改為有限的 5 秒；holder 保持未釋放，維持可偵測錯誤串行的斷言。
+- [x] 測試失敗路徑在 `finally` 釋放並等待 `sku:42` holder，避免 `afterEach` 因未結束的 callback 再次逾時。
+- [x] 驗證同 namespace 不同 key 可併行、相同 key 仍互斥、已取消 waiter 不執行 callback。
+- [x] `make verify` 通過。
 
 ## 結案決策
 
@@ -17,6 +17,10 @@
 未勾選項目仍是尚未完成的驗收，不得解讀為 timeout 已修正或 `make verify` 已在本票
 變更後通過。若同一個 `inventory` / `sku:43` 100ms timeout 再次出現，應重開本票並
 以當次已遮蔽的完整輸出建立可重現的診斷迴路。
+
+2026-09-23 ForgePilot `VR-015`／`EV-018` 再次遇到相同的 `sku:43`
+acquisition timeout，且因 holder gate 未釋放又產生 300 秒 hook timeout；依前述
+條件重開本票。此結果不能單憑一次正式驗證判定主機負載是唯一根因。
 
 ## 觀察到的證據
 
@@ -38,3 +42,17 @@
 ## 邊界
 
 本票只處理上述 mutex 整合測試及其最小必要測試設施。不要順帶更改 production mutex 行為；若診斷證明 production 行為本身有錯，先更新本票範圍與證據再實作。不要把此次單一失敗描述成 `make verify` 的穩定失敗。
+
+## 重開後的驗證
+
+- 同一候選先前直接 `make verify` 的 integration 989/989 通過；`VR-015` 的
+  unit 1452/1452、admin 351/351 通過，integration 988/989，唯一失敗為本票案例。
+- 聚焦案例原樣重跑通過。測試內只對第二個 mutex 的 acquisition query 注入
+  150ms 延遲後，100ms deadline 在 `packages/platform/cache/src/index.ts:520`
+  以相同訊息確定變紅，約 0.3 秒結束且不再發生清理 hook 逾時。
+- deadline 改為 5 秒後，同一受控延遲聚焦案例通過。這證明 100ms
+  測試預算對正常查詢延遲敏感，不證明正式失敗一定由主機負載造成；
+  production mutex 的 deadline 與 advisory lock 語意均未改動。
+- 調整後全檔 integration 12/12 與型別檢查通過；ForgePilot
+  `VR-016`／`EV-019` 的完整 snapshot `make verify` 通過（unit 1452、
+  admin 351、integration 989），其中本檔 12/12 通過。

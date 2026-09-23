@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "story_ref": "specs/stories/SW-152-access-grant-resend",
+  "story_md_digest": "sha256:e210a96cace23b7f81976d55423b7dc45f088fe64ba2e61029cc66ef518f30fc",
+  "acceptance_md_digest": "sha256:076f053a292093ca4acdbee881ca7600fccab6311526db7e29553405a65c75cc",
+  "criteria": [
+    { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-003", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-004", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-005", "operations": [], "owner": "canonical_verification", "future_identities": [] }
+  ],
+  "inputs": [
+    {
+      "id": "reservation-management-capability",
+      "source": { "preexisting_artifact": { "path": "packages/booking/reservation/src/management.ts" } }
+    },
+    {
+      "id": "booking-notification-template",
+      "source": { "preexisting_artifact": { "path": "packages/booking/reservation/src/notification-templates.ts" } }
+    }
+  ],
+  "outputs": [
+    { "id": "sw-152" }
+  ],
+  "decision_follow_ups": []
+}

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "story_ref": "specs/stories/SW-146-booking-verification",
+  "story_md_digest": "sha256:63481c8bf700238d151e8be374a3c934937d4c34270a54b584f9689afdb7540b",
+  "acceptance_md_digest": "sha256:366083ae477346b3ef510320a96ab5a44665ef42ae80a5a693f6c8ff05c1bee3",
+  "criteria": [
+    { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-002", "operations": [], "owner": "canonical_verification", "future_identities": [] },
+    { "id": "AC-003", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-004", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-005", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-006", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] }
+  ],
+  "inputs": [
+    { "id": "booking-e2e-evidence", "source": { "prerequisite_output": { "output_id": "sw-145" } } },
+    { "id": "booking-clean-start-evidence", "source": { "prerequisite_output": { "output_id": "sw-139" } } },
+    { "id": "booking-isolation-evidence", "source": { "prerequisite_output": { "output_id": "sw-144" } } },
+    { "id": "booking-implementation-plan", "source": { "preexisting_artifact": { "path": "docs/booking-implementation-plan.md" } } },
+    { "id": "booking-specification", "source": { "preexisting_artifact": { "path": "docs/specs/0011-booking-product-release.md" } } },
+    { "id": "booking-architecture-decision", "source": { "preexisting_artifact": { "path": "docs/adr/0052-booking-is-a-separate-product-release.md" } } },
+    { "id": "repository-verification-command", "source": { "preexisting_artifact": { "path": "Makefile" } } }
+  ],
+  "outputs": [{ "id": "sw-146" }],
+  "decision_follow_ups": []
+}
