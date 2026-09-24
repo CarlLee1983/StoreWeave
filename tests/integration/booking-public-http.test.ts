@@ -397,6 +397,54 @@ describe('Booking operator HTTP boundary', () => {
     expect((await app.inject({ method: 'PUT', url: '/api/v1/booking/operator/availability/base-price', cookies: reader.cookies, headers: reader.headers,
       payload: { roomTypeId, baseNightlyPriceMinor: 14_000 } })).statusCode).toBe(403);
   });
+
+  it('authorizes direct Property and Room Type operator URLs and rejects invalid facts', async () => {
+    const admin = await operatorSession('admin');
+    const reader = await operatorSession('readonly');
+    const propertyUrl = '/api/v1/booking/operator/property';
+    const roomsUrl = '/api/v1/booking/operator/room-types';
+    const existingProperty = (await app.inject({ url: propertyUrl, cookies: admin.cookies })).json().data.property;
+    const existingRoom = (await app.inject({ url: `${roomsUrl}/${roomTypeId}`, cookies: admin.cookies })).json().data;
+    const { id: _propertyId, createdAt: _propertyCreatedAt, updatedAt: _propertyUpdatedAt, ...propertyFacts } = existingProperty;
+    const { id: _roomId, status: _roomStatus, createdAt: _roomCreatedAt, updatedAt: _roomUpdatedAt, ...roomFacts } = existingRoom;
+    const { code: _roomCode, ...roomUpdateFacts } = roomFacts;
+
+    for (const url of [propertyUrl, roomsUrl, `${roomsUrl}/${roomTypeId}`]) {
+      expect((await app.inject({ url, cookies: reader.cookies })).statusCode, url).toBe(403);
+    }
+    for (const request of [
+      { method: 'POST' as const, url: propertyUrl, payload: propertyFacts },
+      { method: 'PUT' as const, url: propertyUrl, payload: propertyFacts },
+      { method: 'POST' as const, url: roomsUrl, payload: roomFacts },
+      { method: 'PUT' as const, url: roomsUrl, payload: { ...roomUpdateFacts, status: existingRoom.status, roomTypeId } },
+    ]) {
+      const response = await app.inject({ ...request, cookies: reader.cookies,
+        headers: { ...reader.headers, 'idempotency-key': randomUUID() } });
+      expect(response.statusCode, `${request.method} ${request.url}: ${response.body}`).toBe(403);
+    }
+
+    expect((await app.inject({ method: 'POST', url: propertyUrl, cookies: admin.cookies,
+      headers: { ...admin.headers, 'idempotency-key': randomUUID() },
+      payload: propertyFacts })).statusCode).toBe(409);
+    expect((await app.inject({ method: 'PUT', url: propertyUrl, cookies: admin.cookies,
+      headers: { ...admin.headers, 'idempotency-key': randomUUID() },
+      payload: { ...propertyFacts, timezone: 'Mars/Olympus' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: roomsUrl, cookies: admin.cookies,
+      headers: { ...admin.headers, 'idempotency-key': randomUUID() },
+      payload: roomFacts })).statusCode).toBe(409);
+    expect((await app.inject({ method: 'POST', url: roomsUrl, cookies: admin.cookies,
+      headers: { ...admin.headers, 'idempotency-key': randomUUID() },
+      payload: { ...roomFacts,
+        code: `new-${randomUUID()}`, maxOccupancyPerUnit: 0 } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: roomsUrl, cookies: admin.cookies,
+      headers: { ...admin.headers, 'idempotency-key': randomUUID() },
+      payload: { ...roomFacts,
+        code: `new-${randomUUID()}`, mediaAssetId: randomUUID() } })).statusCode).toBe(400);
+    expect((await app.inject({ url: `${roomsUrl}/${randomUUID()}`, cookies: admin.cookies })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'PUT', url: roomsUrl, cookies: admin.cookies,
+      headers: { ...admin.headers, 'idempotency-key': randomUUID() },
+      payload: { ...roomUpdateFacts, status: existingRoom.status, roomTypeId: randomUUID() } })).statusCode).toBe(404);
+  });
 });
 
 describe('Booking payment callback HTTP boundary', () => {
