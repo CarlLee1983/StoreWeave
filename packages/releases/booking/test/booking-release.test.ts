@@ -6,7 +6,6 @@ import { assertThemeCoversPages } from '@storeweave/kernel';
 import { buildReleaseManifest } from '@storeweave/release/runtime';
 import { seed } from '../../../../scripts/seeds/booking';
 import { BOOKING_TARGET_KEYS, BookingReleaseContributionError, bookingReleaseDefinition } from '../src';
-import { resolveBookingAdminProjection } from '../src/admin';
 import { resolveBookingCliProjection } from '../src/cli';
 import { bookingConfigDefinition, resolveBookingConfigProjection } from '../src/config';
 import { release } from '../src/runtime';
@@ -23,7 +22,6 @@ describe('Booking release assembly', () => {
     ));
     expect(resolveBookingServerProjection()).toEqual({ release, httpAdapter });
     expect(resolveBookingWorkerProjection()).toEqual({ target: 'worker', release });
-    expect(resolveBookingAdminProjection()).toEqual({ enabled: false, contributions: [] });
     expect(resolveBookingCliProjection()).toMatchObject({ release, seed, identity: { configFilename: 'booking.yaml' }, commands: { declared: [] } });
     expect(resolveBookingConfigProjection()).toEqual({ definition: bookingConfigDefinition, defaultFilename: 'booking.yaml' });
     expect(Object.keys(resolveBookingStorefrontProjection().themes)).toEqual(['booking-default']);

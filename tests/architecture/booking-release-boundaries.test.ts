@@ -12,7 +12,7 @@ const booking = releases.booking;
 describe('Booking release target boundaries', () => {
   it('registers its own build inputs and rejects a foreign Commerce implementation', () => {
     expect(resolveBuildProjections({ root, releaseId: 'booking', release: booking }).map(projection => projection.status))
-      .toEqual(['built', 'built', 'disabled', 'built']);
+      .toEqual(['built', 'built', 'built', 'built']);
     expect(() => validateBuildGraph({
       root, releaseId: 'booking', target: 'manifest',
       inputs: [booking.runtime, 'packages/commerce/order/src/module.ts'], forbiddenSources: booking.forbiddenInputs,
@@ -31,7 +31,7 @@ describe('Booking release target boundaries', () => {
   });
 
   it('has no product switch or Commerce implementation import in its assembly source', () => {
-    for (const path of [booking.runtime, booking.server, booking.worker, booking.cli, booking.configProjection, booking.storefrontProjection]) {
+    for (const path of [booking.runtime, booking.server, booking.worker, booking.cli, booking.configProjection, booking.storefrontProjection, booking.adminProjection]) {
       const source = readFileSync(resolve(root, path), 'utf8');
       expect(source).not.toMatch(/@storeweave\/(?:commerce-|release-commerce)|packages\/commerce\//);
       expect(source).not.toMatch(/release\.id\s*===\s*['"](?:commerce|booking)['"]/);
