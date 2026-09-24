@@ -38541,7 +38541,7 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src/controllers/booking-operator.controller.ts",
-      "fingerprint": "9c2ee54b7878b8cd4ec5803e8fde61f096b38cc895fb955042b9fd060f5ab889"
+      "fingerprint": "917b38e8d9330ead6fd40265195638957cb9c6557bc0282698ff3d863e12b131"
     },
     {
       "assurance": "provenance-only",

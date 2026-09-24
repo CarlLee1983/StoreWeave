@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "story_ref": "specs/stories/SW-141-availability-admin",
-  "story_md_digest": "sha256:0e4fd9762daf152a89a3db606613ea35d589775cbde759b02bafad0c399c7b83",
-  "acceptance_md_digest": "sha256:73f9fcfc86869160ab0d67d09a05d7ccd183c06c0103252275fec5d89fdb37ad",
+  "story_md_digest": "sha256:8d9a4c8bc1f003265c0bb637312c99fab11e131cbea9255831c98b287ee83cf2",
+  "acceptance_md_digest": "sha256:c14f3b2e3dbed36927edd25ba0d620e06ea030ae6bc04db5d2c7c556f8a6b531",
   "criteria": [
     { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
     { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },

@@ -47,6 +47,10 @@ Room Night 是 `(room_type_id, local_date)` 的供應與價格擁有者；sellab
 
 * Build-time Admin contribution for daily availability and price administration.
 
+## Decision during SW-141
+
+The Availability contribution provides one Admin route with a daily list and range controls. An Availability-owned, read-authorized Admin context query supplies only Property timezone/currency and active Room Type identity/occupancy, so an Availability operator does not need Property management permission. The operator HTTP endpoints remain the direct-URL authorization boundary. The route also exposes base nightly price because the daily range command requires a base price before updates. SW-143 owns selection of this contribution into the Booking Admin release artifact.
+
 ## Rules
 
 * R1: Dates render and validate in the Property timezone; money uses its single configured currency and integer minor units.

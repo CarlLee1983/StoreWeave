@@ -214,12 +214,12 @@ describe('Booking public HTTP checkout credential boundary', () => {
     const callbackRoutes = catalog.filter(route => route.path.startsWith('/callbacks/'));
     expect(callbackRoutes).toHaveLength(1);
     expect(callbackRoutes[0]?.path).toBe('/callbacks/:kind/:providerId');
-    expect(bookingRoutes).toHaveLength(30);
+    expect(bookingRoutes).toHaveLength(31);
     const operatorRoutes = bookingRoutes.filter(route => route.path.startsWith('/api/v1/booking/operator/')) as unknown as Array<{
       auth: string; owner: string | null; permission: unknown; target: { kind: string; name: string } | null;
       idempotencyKey: string;
     }>;
-    expect(operatorRoutes).toHaveLength(17);
+    expect(operatorRoutes).toHaveLength(18);
     for (const route of operatorRoutes) {
       expect(route.auth).toBe('session');
       expect(route.owner).toEqual(expect.any(String));
@@ -231,7 +231,7 @@ describe('Booking public HTTP checkout credential boundary', () => {
       '/api/v1/booking/management/:reservationId', '/api/v1/booking/management/:reservationId',
       '/api/v1/booking/management/:reservationId/cancel', '/api/v1/booking/management/:reservationId/claim',
       '/api/v1/booking/management/:reservationId/grants', '/api/v1/booking/management/:reservationId/resend-access-grant',
-      '/api/v1/booking/operator/availability/base-price', '/api/v1/booking/operator/availability/room-night-range',
+      '/api/v1/booking/operator/availability/base-price', '/api/v1/booking/operator/availability/context', '/api/v1/booking/operator/availability/room-night-range',
       '/api/v1/booking/operator/availability/room-night-range', '/api/v1/booking/operator/property',
       '/api/v1/booking/operator/property', '/api/v1/booking/operator/property',
       '/api/v1/booking/operator/refunds/retry', '/api/v1/booking/operator/reservations',
@@ -381,12 +381,18 @@ describe('Booking operator HTTP boundary', () => {
 
   it('routes Property and Availability writes through operator authorization and validates refund input', async () => {
     const admin = await operatorSession('admin');
+    const context = await app.inject({ url: '/api/v1/booking/operator/availability/context', cookies: admin.cookies });
+    expect(context.statusCode, context.body).toBe(200);
+    expect(context.headers['cache-control']).toBe('no-store');
+    expect(context.json().data).toEqual({ propertyTimeZone: 'America/Los_Angeles', currency: 'USD',
+      roomTypes: [{ id: roomTypeId, name: 'HTTP room', maxOccupancyPerUnit: 4 }] });
     const property = await app.inject({ url: '/api/v1/booking/operator/property', cookies: admin.cookies });
     expect(property.statusCode, property.body).toBe(200);
     expect(property.json().data.property.name).toBe('HTTP Test Hotel');
     const range = await app.inject({ url: `/api/v1/booking/operator/availability/room-night-range?roomTypeId=${roomTypeId}&startLocalDate=${quoteInput.checkInLocalDate}&endLocalDateExclusive=${quoteInput.checkOutLocalDate}`, cookies: admin.cookies });
     expect(range.statusCode, range.body).toBe(200);
     expect(range.json().data.nights).toHaveLength(2);
+    expect(range.json().data).toMatchObject({ propertyTimeZone: 'America/Los_Angeles', currency: 'USD' });
     const price = await app.inject({ method: 'PUT', url: '/api/v1/booking/operator/availability/base-price', cookies: admin.cookies, headers: admin.headers,
       payload: { roomTypeId, baseNightlyPriceMinor: 13_000 } });
     expect(price.statusCode, price.body).toBe(200);
@@ -394,8 +400,19 @@ describe('Booking operator HTTP boundary', () => {
       payload: { refundId: 'not-a-uuid' } });
     expect(invalidRefund.statusCode).toBe(400);
     const reader = await operatorSession('readonly');
+    expect((await app.inject({ url: '/api/v1/booking/operator/availability/context' })).statusCode).toBe(401);
+    expect((await app.inject({ url: '/api/v1/booking/operator/availability/context', cookies: reader.cookies })).statusCode).toBe(403);
+    const rangeUrl = `/api/v1/booking/operator/availability/room-night-range?roomTypeId=${roomTypeId}&startLocalDate=${quoteInput.checkInLocalDate}&endLocalDateExclusive=${quoteInput.checkOutLocalDate}`;
+    expect((await app.inject({ url: rangeUrl })).statusCode).toBe(401);
+    expect((await app.inject({ url: rangeUrl, cookies: reader.cookies })).statusCode).toBe(403);
+    expect((await app.inject({ url: `/api/v1/booking/operator/availability/room-night-range?roomTypeId=${randomUUID()}&startLocalDate=${quoteInput.checkInLocalDate}&endLocalDateExclusive=${quoteInput.checkOutLocalDate}`, cookies: admin.cookies })).statusCode).toBe(404);
+    expect((await app.inject({ url: `/api/v1/booking/operator/availability/room-night-range?roomTypeId=${roomTypeId}&startLocalDate=2026-02-30&endLocalDateExclusive=2026-03-01`, cookies: admin.cookies })).statusCode).toBe(400);
     expect((await app.inject({ method: 'PUT', url: '/api/v1/booking/operator/availability/base-price', cookies: reader.cookies, headers: reader.headers,
       payload: { roomTypeId, baseNightlyPriceMinor: 14_000 } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/booking/operator/availability/room-night-range', cookies: reader.cookies, headers: reader.headers,
+      payload: { roomTypeId, startLocalDate: quoteInput.checkInLocalDate, endLocalDateExclusive: quoteInput.checkOutLocalDate, sellableUnits: 2 } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/booking/operator/availability/base-price', cookies: admin.cookies, headers: { ...admin.headers, 'idempotency-key': randomUUID() },
+      payload: { roomTypeId, baseNightlyPriceMinor: 12.5 } })).statusCode).toBe(400);
   });
 
   it('authorizes direct Property and Room Type operator URLs and rejects invalid facts', async () => {

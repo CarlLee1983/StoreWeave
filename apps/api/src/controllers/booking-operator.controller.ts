@@ -6,7 +6,7 @@ import {
   createRoomTypeInputSchema, propertyDtoSchema, propertyInputSchema, roomTypeDtoSchema, updateRoomTypeInputSchema,
 } from '@storeweave/booking-property';
 import {
-  getRoomNightRangeInputSchema, roomNightRangeViewSchema, setBaseNightlyPriceInputSchema,
+  availabilityAdminContextSchema, getRoomNightRangeInputSchema, roomNightRangeViewSchema, setBaseNightlyPriceInputSchema,
   setBaseNightlyPriceOutputSchema, updateRoomNightRangeInputSchema, updateRoomNightRangeOutputSchema,
 } from '@storeweave/booking-availability';
 import {
@@ -47,6 +47,7 @@ const routes = {
   roomType: { kind: 'direct', auth: 'session', target: { kind: 'query', name: 'booking.property.getRoomType' }, request: 'none', input: jsonSchema(emptyInput), output: jsonSchema(response(roomTypeDtoSchema)) },
   createRoomType: { kind: 'direct', auth: 'session', target: { kind: 'command', name: 'booking.property.createRoomType' }, request: 'body', input: jsonSchema(createRoomTypeInputSchema), output: jsonSchema(response(roomTypeDtoSchema)) },
   updateRoomType: { kind: 'direct', auth: 'session', target: { kind: 'command', name: 'booking.property.updateRoomType' }, request: 'body', input: jsonSchema(updateRoomTypeInputSchema), output: jsonSchema(response(roomTypeDtoSchema)) },
+  availabilityContext: { kind: 'direct', auth: 'session', target: { kind: 'query', name: 'booking.availability.getAdminContext' }, request: 'none', input: jsonSchema(emptyInput), output: jsonSchema(response(availabilityAdminContextSchema.nullable())) },
   roomNightRange: { kind: 'direct', auth: 'session', target: { kind: 'query', name: 'booking.availability.getRoomNightRange' }, request: 'none', input: jsonSchema(getRoomNightRangeInputSchema), output: jsonSchema(response(roomNightRangeViewSchema)) },
   basePrice: { kind: 'direct', auth: 'session', target: { kind: 'command', name: 'booking.availability.setBaseNightlyPrice' }, request: 'body', input: jsonSchema(setBaseNightlyPriceInputSchema), output: jsonSchema(response(setBaseNightlyPriceOutputSchema)) },
   updateRoomNightRange: { kind: 'direct', auth: 'session', target: { kind: 'command', name: 'booking.availability.updateRoomNightRange' }, request: 'body', input: jsonSchema(updateRoomNightRangeInputSchema), output: jsonSchema(response(updateRoomNightRangeOutputSchema)) },
@@ -131,6 +132,13 @@ export class BookingOperatorController {
     const result = await this.query('booking.availability.getRoomNightRange', input, request);
     if (result === null) throw PlatformError.notFound('Booking Room Type', input.roomTypeId);
     return ok(result);
+  }
+
+  @Get('availability/context')
+  @HttpContract(routes.availabilityContext)
+  async getAvailabilityContext(@Req() request: AuthenticatedRequest, @Res({ passthrough: true }) reply: FastifyReply) {
+    reply.header('cache-control', 'no-store');
+    return ok(await this.query('booking.availability.getAdminContext', {}, request));
   }
 
   @Put('availability/base-price')

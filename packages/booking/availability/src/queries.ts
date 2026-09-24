@@ -2,11 +2,29 @@ import { z } from 'zod';
 import { defineQuery, type QueryContext } from '@storeweave/contracts';
 import { BookingAvailabilityRepository } from './repository';
 import {
-  getRoomNightRangeInputSchema, localDateRange, roomNightRangeViewSchema,
+  availabilityAdminContextSchema, getRoomNightRangeInputSchema, localDateRange, roomNightRangeViewSchema,
   type BookingPropertyLookup,
 } from './types';
 
 const repository = new BookingAvailabilityRepository();
+
+export const getAvailabilityAdminContextQuery = defineQuery({
+  name: 'booking.availability.getAdminContext',
+  summary: 'Read Property display facts and active Room Types for Availability administration',
+  input: z.object({}).strict(),
+  output: availabilityAdminContextSchema.nullable(),
+  permission: 'booking-availability:read',
+});
+
+export function createGetAvailabilityAdminContextHandler(properties: BookingPropertyLookup) {
+  return async (_input: unknown, context: QueryContext) => {
+    const property = await properties.getProperty(context.db);
+    if (!property) return null;
+    const roomTypes = await properties.listActiveRoomTypes(context.db);
+    return { propertyTimeZone: property.timezone, currency: property.currency,
+      roomTypes: roomTypes.map(room => ({ id: room.id, name: room.name, maxOccupancyPerUnit: room.maxOccupancyPerUnit })) };
+  };
+}
 
 export const getRoomNightRangeQuery = defineQuery({
   name: 'booking.availability.getRoomNightRange',
