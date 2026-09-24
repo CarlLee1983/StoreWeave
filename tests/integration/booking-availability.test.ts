@@ -92,6 +92,15 @@ const getRange = (runtime: Runtime, roomTypeId: string, startLocalDate: string, 
   } | null>('booking.availability.getRoomNightRange', { roomTypeId, startLocalDate, endLocalDateExclusive }, { actor });
 
 describe('Booking Availability administration', () => {
+  it('exposes only active room identity and Property display facts to an Availability reader', async () => {
+    const runtime = await start();
+    const room = await createRoomType(runtime);
+    const context = await runtime.queries.execute('booking.availability.getAdminContext', {}, { actor: AVAILABILITY_READER });
+    expect(context).toEqual({ propertyTimeZone: 'America/Los_Angeles', currency: 'USD',
+      roomTypes: [{ id: room.id, name: '海景雙人房', maxOccupancyPerUnit: 2 }] });
+    await expect(runtime.queries.execute('booking.availability.getAdminContext', {}, { actor: AVAILABILITY_MANAGER }))
+      .rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
   it('sets base price, materializes a half-open local-date range, preserves or clears overrides, and reads the fallback', async () => {
     const runtime = await start();
     const roomType = await createRoomType(runtime);

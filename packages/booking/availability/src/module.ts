@@ -18,7 +18,7 @@ import {
   type BookingAvailabilitySearchCapability,
 } from './search';
 import { bookingAvailabilityPages } from './pages';
-import { createGetRoomNightRangeHandler, getRoomNightRangeQuery } from './queries';
+import { createGetAvailabilityAdminContextHandler, createGetRoomNightRangeHandler, getAvailabilityAdminContextQuery, getRoomNightRangeQuery } from './queries';
 import {
   BOOKING_AVAILABILITY_QUOTE_RESERVATION_CAPABILITY, createBookingAvailabilityQuoteReservation,
   type BookingAvailabilityQuoteReservation,
@@ -89,6 +89,7 @@ function createAvailabilityModule(
       { descriptor: updateRoomNightRangeCommand, handler: createUpdateRoomNightRangeHandler(properties) },
     ],
     queries: [
+      { descriptor: getAvailabilityAdminContextQuery, handler: createGetAvailabilityAdminContextHandler(properties) },
       { descriptor: getRoomNightRangeQuery, handler: createGetRoomNightRangeHandler(properties) },
       { descriptor: getBookingQuoteQuery, handler: createGetBookingQuoteHandler(delegates.quote) },
       { descriptor: searchBookingQuotesQuery, handler: createSearchBookingQuotesHandler(delegates.search) },

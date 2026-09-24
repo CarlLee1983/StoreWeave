@@ -47,6 +47,10 @@ Property 擁有地址、時區、幣別、入住/退房時間、政策與房型�
 
 * Build-time Booking Admin contribution for Property and Room Type management.
 
+## Decision during SW-140
+
+The contribution is exported from `booking-property` and verified in an isolated Admin route fixture. SW-143 owns selection into the Booking Admin release artifact; that release target remains disabled until its three module contributions are ready. Direct operator API URLs, rather than client hash URLs, are the backend authorization seam.
+
 ## Rules
 
 * R1: Direct URLs require backend operator authorization; navigation visibility is not authorization.

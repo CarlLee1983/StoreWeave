@@ -101,6 +101,18 @@ export const roomNightRangeViewSchema = z.object({
   nights: z.array(roomNightViewSchema),
 }).strict();
 
+export const availabilityAdminContextSchema = z.object({
+  propertyTimeZone: z.string().min(1),
+  currency: z.string().length(3),
+  roomTypes: z.array(z.object({
+    id: roomTypeIdSchema,
+    name: z.string().min(1),
+    maxOccupancyPerUnit: z.number().int().positive(),
+  }).strict()),
+}).strict();
+
+export type AvailabilityAdminContext = z.infer<typeof availabilityAdminContextSchema>;
+
 export type BookingPropertyLookup = {
   getProperty(db: DrizzleDb | Tx): Promise<{
     id: string;

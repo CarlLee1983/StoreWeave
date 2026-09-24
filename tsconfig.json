@@ -1,6 +1,7 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    "jsx": "react-jsx",
     "incremental": true,
     "tsBuildInfoFile": "./node_modules/.cache/storeweave.tsbuildinfo"
   },
@@ -14,5 +15,5 @@
     "scripts/seed.ts",
     "scripts/seeds/**/*.ts"
   ],
-  "exclude": ["node_modules", "dist", "release", "apps/admin", "packages/releases/commerce/src/admin.tsx", "packages/releases/commerce/test/commerce-release.test.ts"]
+  "exclude": ["node_modules", "dist", "release", "apps/admin", "packages/releases/commerce/src/admin.tsx", "packages/releases/commerce/test/commerce-release.test.ts", "packages/releases/booking/src/admin.tsx", "tests/architecture/booking-admin-projection.test.ts"]
 }

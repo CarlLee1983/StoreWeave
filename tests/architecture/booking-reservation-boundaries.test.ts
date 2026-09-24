@@ -77,7 +77,9 @@ describe('Booking Reservation package boundary', () => {
     const module = createBookingReservationModule(binding, roomNightOperationsBinding, accessBinding.value, {
       reservationPiiRetentionDays: 30,
     }, paymentProvider);
-    const source = sourceFiles('packages/booking/reservation/src')
+    const files = sourceFiles('packages/booking/reservation/src');
+    const source = files.map(path => readFileSync(join(ROOT, path), 'utf8')).join('\n');
+    const serverSource = files.filter(path => !path.endsWith('/admin.ts') && !path.endsWith('/admin-api.ts'))
       .map(path => readFileSync(join(ROOT, path), 'utf8')).join('\n');
     const migration = bookingReservationMigrations.migrations.map(entry => entry.up).join('\n');
     const packageIndex = readFileSync(join(ROOT, 'packages/booking/reservation/src/index.ts'), 'utf8');
@@ -104,6 +106,7 @@ describe('Booking Reservation package boundary', () => {
     expect(module.capabilities?.provides).toContain(BOOKING_RESERVATION_ACCESS_CAPABILITY);
     expect(accessBinding).toMatchObject({ from: 'booking-reservation', capability: BOOKING_RESERVATION_ACCESS_CAPABILITY });
     expect(packageIndex).not.toMatch(/export \* from '\.\/(?:repository|schema)'/);
+    expect(packageIndex).not.toMatch(/from\s+['"]\.\/admin(?:-api)?['"]/);
     expect(module.commands?.map(command => command.descriptor.name)).toEqual([
       'booking.reservation.create', 'booking.reservation.startPayment', 'booking.reservation.recordPaymentResult',
       'booking.reservation.recordVerifiedPaymentOutcome',
@@ -174,7 +177,8 @@ describe('Booking Reservation package boundary', () => {
     expect(source).not.toMatch(/@storeweave\/notification(?!s)/i);
     expect(source).not.toMatch(/@storeweave\/payment/i);
     expect(source).not.toMatch(/booking_availability_(?:room_nights|room_type_prices)/);
-    expect(source).not.toMatch(/(?:fetch\(|axios|node:http|node:https)/);
+    expect(serverSource).not.toMatch(/(?:fetch\(|axios|node:http|node:https)/);
+    expect(serverSource).not.toMatch(/from\s+['"][^'"]*\/admin(?:-api)?['"]/);
     expect(migration).not.toMatch(/REFERENCES\s+public\.booking_availability_/i);
     expect(migration).not.toMatch(/REFERENCES\s+public\.platform_users/i);
   });
