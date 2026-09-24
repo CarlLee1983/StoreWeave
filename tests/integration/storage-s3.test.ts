@@ -15,7 +15,7 @@ let endpoint: string;
 let bucket: string;
 
 beforeAll(async () => {
-  minio = await new GenericContainer('quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z')
+  minio = await new GenericContainer('ghcr.io/l33tlamer/minio-backup@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e')
     .withEnvironment({ MINIO_ROOT_USER: accessKeyId, MINIO_ROOT_PASSWORD: secretAccessKey })
     .withExposedPorts(9000)
     .withCommand(['server', '/data'])
