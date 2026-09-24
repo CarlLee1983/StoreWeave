@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
+import { AdminOperationProvider, createAdminOperationStore } from '../../../../apps/admin/src/admin-operations';
+import { ApiError, setToken } from '../../../../apps/admin/src/api';
 import { bookingAvailabilityAdminContribution } from '../src/admin';
-import { bookingAvailabilityAdminApi, BookingAvailabilityAdminError } from '../src/admin-api';
+import { bookingAvailabilityAdminApi } from '../src/admin-api';
 
 const originalFetch = globalThis.fetch;
-afterEach(() => { cleanup(); globalThis.fetch = originalFetch; vi.restoreAllMocks(); });
+function render(node: React.ReactElement, store = createAdminOperationStore()) {
+  return rtlRender(React.createElement(AdminOperationProvider, { value: store }, node));
+}
+afterEach(() => { cleanup(); globalThis.fetch = originalFetch; setToken(''); vi.restoreAllMocks(); });
 
 const roomTypeId = 'a72f7770-1228-4522-8e8e-b89bb47fc532';
 const adminContext = { propertyTimeZone: 'America/Los_Angeles', currency: 'USD',
@@ -53,6 +58,7 @@ it('shows Property-local dates, distinct inventory and occupancy, and saves inte
 });
 
 it('uses session and CSRF for direct availability actions and hides server detail on safe failures', async () => {
+  setToken('static-admin-token');
   Object.defineProperty(document, 'cookie', { configurable: true, value: '__Host-commerce_csrf=secure%20token' });
   const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ updated: 1 }))
     .mockResolvedValueOnce(envelope({ code: 'FORBIDDEN', message: 'internal permission detail' }, 403))
@@ -63,13 +69,13 @@ it('uses session and CSRF for direct availability actions and hides server detai
   const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
   expect(url).toBe('/api/v1/booking/operator/availability/room-night-range');
   expect(options).toMatchObject({ method: 'PUT', credentials: 'same-origin', headers: {
-    'X-CSRF-Token': 'secure token', 'Idempotency-Key': 'stable-key', 'Content-Type': 'application/json',
+    'x-csrf-token': 'secure token', 'Idempotency-Key': 'stable-key', 'Content-Type': 'application/json',
   } });
   expect(options.headers).not.toHaveProperty('Authorization');
   await expect(bookingAvailabilityAdminApi.getRoomNightRange(input)).rejects.toMatchObject({ status: 403,
     message: 'Your session lacks permission to manage availability.' });
-  await expect(bookingAvailabilityAdminApi.getRoomNightRange(input)).rejects.toEqual(new BookingAvailabilityAdminError(409,
-    'CONFLICT', 'Availability conflicts with reserved units or required property facts.'));
+  await expect(bookingAvailabilityAdminApi.getRoomNightRange(input)).rejects.toEqual(new ApiError('CONFLICT',
+    'Availability conflicts with reserved units or required property facts.', 409));
 });
 
 it('rejects malformed local dates and fractional prices before sending range actions', async () => {
@@ -96,6 +102,7 @@ it('rejects malformed local dates and fractional prices before sending range act
 });
 
 it('retries an uncertain save with its original body and idempotency key', async () => {
+  const store = createAdminOperationStore();
   const writes: RequestInit[] = [];
   globalThis.fetch = vi.fn().mockImplementation(async (url: string, options: RequestInit) => {
     if (url.endsWith('/availability/context')) return envelope(adminContext);
@@ -104,12 +111,16 @@ it('retries an uncertain save with its original body and idempotency key', async
     if (writes.length === 1) throw new Error('lost response');
     return envelope({ updated: 1 });
   });
-  render(bookingAvailabilityAdminContribution.routes[0].render(undefined) as React.ReactElement);
+  const first = render(bookingAvailabilityAdminContribution.routes[0].render(undefined) as React.ReactElement, store);
   await screen.findByText('King');
   fireEvent.click(screen.getByRole('button', { name: 'View availability' }));
   await screen.findByRole('button', { name: 'Save range' });
   fireEvent.change(screen.getByLabelText('Sellable units'), { target: { value: '4' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save range' }));
+  await screen.findByRole('button', { name: 'Retry original range save' });
+  first.unmount();
+  render(bookingAvailabilityAdminContribution.routes[0].render(undefined) as React.ReactElement, store);
+  await screen.findByText('King');
   fireEvent.click(await screen.findByRole('button', { name: 'Retry original range save' }));
   await screen.findByRole('status');
   expect(writes).toHaveLength(2);
@@ -136,4 +147,31 @@ it('ignores a room-night response after the operator changes the local date rang
       nightlyPriceOverrideMinor: null, effectiveNightlyPriceMinor: 12000 }] })));
   await waitFor(() => expect(screen.queryByText('2026-10-01')).toBeNull());
   expect(screen.queryByRole('button', { name: 'Save range' })).toBeNull();
+});
+
+it('recovers a base price save after remount with its original price and key', async () => {
+  const store = createAdminOperationStore();
+  const writes: RequestInit[] = [];
+  globalThis.fetch = vi.fn().mockImplementation(async (url: string, options: RequestInit) => {
+    if (url.endsWith('/availability/context')) return envelope(adminContext);
+    if (options.method === 'GET') return envelope({ roomTypeId, propertyTimeZone: 'America/Los_Angeles', currency: 'USD', baseNightlyPriceMinor: 12000, nights: [] });
+    writes.push(options);
+    return writes.length === 1 ? Promise.reject(new Error('lost response')) : envelope({ roomTypeId, baseNightlyPriceMinor: 15000 });
+  });
+  const first = render(bookingAvailabilityAdminContribution.routes[0].render(undefined) as React.ReactElement, store);
+  await screen.findByText('King');
+  fireEvent.click(screen.getByRole('button', { name: 'View availability' }));
+  await screen.findByRole('button', { name: 'Save base price' });
+  fireEvent.change(screen.getByLabelText('Base nightly price (USD minor units)'), { target: { value: '15000' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save base price' }));
+  await screen.findByRole('button', { name: 'Retry original base price save' });
+  first.unmount();
+  render(bookingAvailabilityAdminContribution.routes[0].render(undefined) as React.ReactElement, store);
+  await screen.findByText('King');
+  fireEvent.click(screen.getByRole('button', { name: 'Retry original base price save' }));
+  await screen.findByRole('status');
+  expect(writes).toHaveLength(2);
+  expect(writes[1].body).toBe(writes[0].body);
+  expect((writes[1].headers as Record<string, string>)['Idempotency-Key'])
+    .toBe((writes[0].headers as Record<string, string>)['Idempotency-Key']);
 });

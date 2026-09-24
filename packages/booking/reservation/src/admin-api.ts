@@ -1,3 +1,5 @@
+import { ApiError, request as adminRequest } from '../../../../apps/admin/src/api';
+
 /** Browser-only adapter for the Booking operator session endpoints. */
 const base = '/api/v1/booking/operator';
 
@@ -24,49 +26,20 @@ export type NotificationEvidence = {
 export type Page<T> = { items: T[]; total: number };
 export type CancellationInput = { reservationId: string; reason: string; refundAmountMinor: number };
 
-export class BookingReservationAdminError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) { super(message); }
-}
-
-function csrfToken(cookie: string): string {
-  for (const name of ['__Host-commerce_csrf', 'commerce_csrf']) {
-    const value = cookie.split(';').map(part => part.trim()).find(part => part.startsWith(`${name}=`));
-    if (value) { try { return decodeURIComponent(value.slice(name.length + 1)); } catch { return ''; } }
-  }
-  return '';
-}
-
 async function request<T>(path: string, method = 'GET', body?: unknown, key?: string): Promise<T> {
-  const headers: Record<string, string> = {};
-  if (body !== undefined) {
-    headers['Content-Type'] = 'application/json';
-    headers['Idempotency-Key'] = key ?? crypto.randomUUID();
-    const csrf = csrfToken(document.cookie);
-    if (csrf) headers['X-CSRF-Token'] = csrf;
-  }
-  let response: Response;
   try {
-    response = await fetch(`${base}${path}`, { method, headers, credentials: 'same-origin',
-      body: body === undefined ? undefined : JSON.stringify(body) });
-  } catch {
-    throw new BookingReservationAdminError(0, 'NETWORK_ERROR', 'Connection lost. Retry the original operation.');
-  }
-  const envelope: unknown = await response.json().catch(() => null);
-  if (typeof envelope !== 'object' || envelope === null || !('success' in envelope)) {
-    throw new BookingReservationAdminError(response.status, 'INVALID_RESPONSE', 'The server returned an unreadable response.');
-  }
-  if (envelope.success !== true) {
-    const error = 'error' in envelope && typeof envelope.error === 'object' && envelope.error !== null ? envelope.error : {};
-    const code = 'code' in error && typeof error.code === 'string' ? error.code : 'REQUEST_FAILED';
-    const message = response.status === 401 || response.status === 403 ? 'Your session lacks permission for this Reservation action.'
-      : response.status === 404 ? 'The Reservation or refund was not found.'
-      : response.status === 409 ? 'The Reservation or refund state conflicts with this action. Refresh and review it.'
-      : response.status === 400 || response.status === 422 ? 'Check the refund amount and audit reason.'
+    return await adminRequest<T>(`${base}${path}`, { method, body, idempotent: body !== undefined, idempotencyKey: key, withAuth: false });
+  } catch (cause) {
+    if (!(cause instanceof ApiError)) throw new ApiError('NETWORK_ERROR', 'Connection lost. Retry the original operation.', 0);
+    const message = cause.code === 'IDEMPOTENCY_IN_PROGRESS' || cause.code === 'UNKNOWN_ERROR'
+      ? 'The outcome is unknown. Retry the original action.'
+      : cause.status === 401 || cause.status === 403 ? 'Your session lacks permission for this Reservation action.'
+      : cause.status === 404 ? 'The Reservation or refund was not found.'
+      : cause.status === 409 ? 'The Reservation or refund state conflicts with this action. Refresh and review it.'
+      : cause.status === 400 || cause.status === 422 ? 'Check the refund amount and audit reason.'
       : 'The request failed. Retry the original operation if its outcome is unknown.';
-    throw new BookingReservationAdminError(response.status, code, message);
+    throw new ApiError(cause.code, message, cause.status);
   }
-  if (!response.ok || !('data' in envelope)) throw new BookingReservationAdminError(response.status, 'INVALID_RESPONSE', 'The server returned an unreadable response.');
-  return envelope.data as T;
 }
 
 const page = (offset: number) => `?limit=100&offset=${offset}`;

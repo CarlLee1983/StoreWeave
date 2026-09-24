@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { AdminContribution, AdminRouteDefinition } from '@storeweave/release/admin';
 import type { PropertyDto, RoomTypeDto } from './types';
-import { bookingPropertyAdminApi, BookingPropertyAdminError, type PropertyInput, type RoomTypeInput, type RoomTypeUpdate } from './admin-api';
+import { bookingPropertyAdminApi, type PropertyInput, type RoomTypeInput, type RoomTypeUpdate } from './admin-api';
+import { executeAdminOperation, useAdminOperationEntries, useAdminOperations, type AdminOperation, type AdminOperationEntry } from '../../../../apps/admin/src/admin-operations';
 
 const h = React.createElement;
 const emptyProperty: PropertyInput = {
@@ -80,24 +81,23 @@ function validRoom(value: RoomForm, editing: boolean): RoomTypeInput {
     mediaAssetId: value.mediaAssetId,
   };
 }
-function useSaveKey<T>() {
-  const pending = useRef<{ input: T; key: string } | null>(null);
-  const [unknown, setUnknown] = useState(false);
-  return {
-    unknown,
-    prepare(input: T) {
-      if (!pending.current) pending.current = { input, key: crypto.randomUUID() };
-      return pending.current;
-    },
-    settle(error?: unknown) {
-      if (!error || (error instanceof BookingPropertyAdminError && error.status >= 400 && error.status < 500)) {
-        pending.current = null;
-        setUnknown(false);
-      } else {
-        setUnknown(true);
-      }
-    },
-  };
+type PropertyOperation = AdminOperation & (
+  | { area: 'booking-property'; kind: 'property-create' | 'property-update'; request: PropertyInput }
+  | { area: 'booking-property'; kind: 'room-create'; request: RoomTypeInput }
+  | { area: 'booking-property'; kind: 'room-update'; request: RoomTypeUpdate }
+);
+type PropertyOperationEntry = AdminOperationEntry<PropertyOperation>;
+function isPropertyOperation(entry: AdminOperationEntry): entry is PropertyOperationEntry {
+  return entry.operation.area === 'booking-property'
+    && ['property-create', 'property-update', 'room-create', 'room-update'].includes((entry.operation as PropertyOperation).kind);
+}
+async function runPropertyOperation(operation: PropertyOperation): Promise<PropertyDto | RoomTypeDto> {
+  switch (operation.kind) {
+    case 'property-create': return bookingPropertyAdminApi.createProperty(operation.request, operation.idempotencyKey);
+    case 'property-update': return bookingPropertyAdminApi.updateProperty(operation.request, operation.idempotencyKey);
+    case 'room-create': return bookingPropertyAdminApi.createRoomType(operation.request, operation.idempotencyKey);
+    case 'room-update': return bookingPropertyAdminApi.updateRoomType(operation.request, operation.idempotencyKey);
+  }
 }
 
 export function PropertyAdminPage() {
@@ -107,19 +107,30 @@ export function PropertyAdminPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const saveKey = useSaveKey<PropertyInput>();
+  const operations = useAdminOperations();
+  const recovery = useAdminOperationEntries().filter(isPropertyOperation).find(entry => entry.operation.scope === 'booking.property');
   useEffect(() => { let live = true; bookingPropertyAdminApi.getProperty().then(value => { if (live) { setProperty(value); setForm(value ? propertyInput(value) : emptyProperty); setLoading(false); } })
     .catch(cause => { if (live) { setError(message(cause)); setLoading(false); } }); return () => { live = false; }; }, []);
   const address = (key: keyof PropertyInput['address'], value: string) => setForm(old => ({ ...old, address: { ...old.address, [key]: key === 'postalCode' || key === 'addressLine2' ? optional(value) : value } }));
-  const submit = async (event: FormEvent) => { event.preventDefault(); setError(''); setNotice('');
-    try { const operation = saveKey.prepare(validProperty(form)); setBusy(true);
-      const saved = property ? await bookingPropertyAdminApi.updateProperty(operation.input, operation.key) : await bookingPropertyAdminApi.createProperty(operation.input, operation.key);
-      saveKey.settle(); setProperty(saved); setForm(propertyInput(saved)); setNotice('Property saved.');
-    } catch (cause) { saveKey.settle(cause); setError(message(cause)); } finally { setBusy(false); } };
+  const submit = async (event: FormEvent, retryEntry?: PropertyOperationEntry) => {
+    event.preventDefault(); setError(''); setNotice('');
+    try {
+      const operation: PropertyOperation = retryEntry?.operation ?? {
+        area: 'booking-property', scope: 'booking.property', kind: property ? 'property-update' : 'property-create',
+        request: validProperty(form), idempotencyKey: crypto.randomUUID(),
+      };
+      setBusy(true);
+      const outcome = await executeAdminOperation(operations, operation, runPropertyOperation, saved => {
+        if ('code' in saved) return;
+        setProperty(saved); setForm(propertyInput(saved)); setNotice('Property saved.');
+      }, retryEntry);
+      if (outcome.state === 'unknown' || outcome.state === 'rejected') setError(message(outcome.error));
+    } catch (cause) { setError(message(cause)); } finally { setBusy(false); }
+  };
   if (loading) return h('p', null, 'Loading property…');
   return h('section', null, h('h2', null, property ? 'Edit Property' : 'Create Property'),
     error && h('p', { role: 'alert' }, error), notice && h('p', { role: 'status' }, notice),
-    h('form', { onSubmit: submit }, h('fieldset', { disabled: busy || saveKey.unknown },
+    h('form', { onSubmit: submit }, h('fieldset', { disabled: busy || !!recovery },
       field('Property name', form.name, value => setForm(old => ({ ...old, name: value })), { required: true }),
       field('Country code', form.address.countryCode, value => address('countryCode', value.toUpperCase()), { required: true }),
       field('Postal code', form.address.postalCode ?? '', value => address('postalCode', value)),
@@ -133,7 +144,7 @@ export function PropertyAdminPage() {
       field('Check-out time', form.checkOutTime, value => setForm(old => ({ ...old, checkOutTime: value })), { type: 'time', required: true }),
       field('Free cancellation hours before check-in', form.defaultPolicy.freeCancellationHoursBeforeCheckIn, value => setForm(old => ({ ...old, defaultPolicy: { freeCancellationHoursBeforeCheckIn: Number(value) } })), { type: 'number', min: 0, max: 8760, required: true }),
       h('button', { type: 'submit' }, busy ? 'Saving…' : 'Save Property')),
-      saveKey.unknown && h('button', { type: 'button', disabled: busy, onClick: () => void submit({ preventDefault() {} } as FormEvent) }, 'Retry original save')));
+      recovery?.phase === 'unknown' && h('button', { type: 'button', disabled: busy, onClick: () => void submit({ preventDefault() {} } as FormEvent, recovery) }, 'Retry original save')));
 }
 
 export function RoomTypesAdminPage() {
@@ -146,30 +157,44 @@ export function RoomTypesAdminPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const saveKey = useSaveKey<RoomTypeInput | RoomTypeUpdate>();
+  const operations = useAdminOperations();
+  const recoveries = useAdminOperationEntries().filter(isPropertyOperation).filter(entry => entry.operation.kind === 'room-create' || entry.operation.kind === 'room-update');
   useEffect(() => { let live = true; bookingPropertyAdminApi.listRoomTypes().then(items => { if (live) { setRooms(items); setLoading(false); } })
     .catch(cause => { if (live) { setError(message(cause)); setLoading(false); } }); return () => { live = false; }; }, []);
   const select = (room: RoomTypeDto | null) => { setSelected(room?.id ?? null); setForm(room ?? emptyRoomForm);
     setBedsText(room?.beds.map(bed => `${bed.type},${bed.count}`).join('\n') ?? '');
     setAmenitiesText(room?.amenities.map(item => `${item.code},${item.label}`).join('\n') ?? ''); setError(''); setNotice(''); };
-  const submit = async (event: FormEvent) => { event.preventDefault(); setError(''); setNotice('');
-    try { const facts = validRoom({ ...form, beds: parseBeds(bedsText), amenities: parseAmenities(amenitiesText) }, selected !== null);
-      const input: RoomTypeInput | RoomTypeUpdate = selected ? { roomTypeId: selected, name: facts.name, description: facts.description,
-        maxOccupancyPerUnit: facts.maxOccupancyPerUnit, beds: facts.beds, amenities: facts.amenities,
-        minimumStayNights: facts.minimumStayNights, maximumStayNights: facts.maximumStayNights, mediaAssetId: facts.mediaAssetId, status: form.status } : facts;
-      const operation = saveKey.prepare(input); setBusy(true);
-      const saved = 'roomTypeId' in operation.input
-        ? await bookingPropertyAdminApi.updateRoomType(operation.input, operation.key)
-        : await bookingPropertyAdminApi.createRoomType(operation.input, operation.key);
-      saveKey.settle(); setRooms(old => selected ? old.map(room => room.id === saved.id ? saved : room) : [...old, saved]); select(saved); setNotice('Room type saved.');
-    } catch (cause) { saveKey.settle(cause); setError(message(cause)); } finally { setBusy(false); } };
+  const submit = async (event: FormEvent, retryEntry?: PropertyOperationEntry) => {
+    event.preventDefault(); setError(''); setNotice('');
+    try {
+      let operation: PropertyOperation;
+      if (retryEntry) operation = retryEntry.operation;
+      else {
+        const facts = validRoom({ ...form, beds: parseBeds(bedsText), amenities: parseAmenities(amenitiesText) }, selected !== null);
+        operation = selected ? {
+          area: 'booking-property', scope: `booking.room-types.${selected}`, kind: 'room-update', idempotencyKey: crypto.randomUUID(),
+          request: { roomTypeId: selected, name: facts.name, description: facts.description,
+            maxOccupancyPerUnit: facts.maxOccupancyPerUnit, beds: facts.beds, amenities: facts.amenities,
+            minimumStayNights: facts.minimumStayNights, maximumStayNights: facts.maximumStayNights,
+            mediaAssetId: facts.mediaAssetId, status: form.status },
+        } : { area: 'booking-property', scope: 'booking.room-types.create', kind: 'room-create', idempotencyKey: crypto.randomUUID(), request: facts };
+      }
+      setBusy(true);
+      const outcome = await executeAdminOperation(operations, operation, runPropertyOperation, saved => {
+        if (!('code' in saved)) return;
+        setRooms(old => old.some(room => room.id === saved.id) ? old.map(room => room.id === saved.id ? saved : room) : [...old, saved]);
+        select(saved); setNotice('Room type saved.');
+      }, retryEntry);
+      if (outcome.state === 'unknown' || outcome.state === 'rejected') setError(message(outcome.error));
+    } catch (cause) { setError(message(cause)); } finally { setBusy(false); }
+  };
   const change = <K extends keyof RoomForm>(key: K, value: RoomForm[K]) => setForm(old => ({ ...old, [key]: value }));
   if (loading) return h('p', null, 'Loading room types…');
   return h('section', null, h('h2', null, 'Room Types'), error && h('p', { role: 'alert' }, error), notice && h('p', { role: 'status' }, notice),
-    h('div', null, h('button', { type: 'button', disabled: busy || saveKey.unknown, onClick: () => select(null) }, 'New Room Type'),
-      ...rooms.map(room => h('button', { type: 'button', key: room.id, disabled: busy || saveKey.unknown, onClick: () => select(room), 'aria-pressed': selected === room.id }, `${room.name} (${room.code})`))),
+    h('div', null, h('button', { type: 'button', disabled: busy || recoveries.length > 0, onClick: () => select(null) }, 'New Room Type'),
+      ...rooms.map(room => h('button', { type: 'button', key: room.id, disabled: busy || recoveries.length > 0, onClick: () => select(room), 'aria-pressed': selected === room.id }, `${room.name} (${room.code})`))),
     h('h3', null, selected ? 'Edit Room Type' : 'Create Room Type'),
-    h('form', { onSubmit: submit }, h('fieldset', { disabled: busy || saveKey.unknown },
+    h('form', { onSubmit: submit }, h('fieldset', { disabled: busy || recoveries.length > 0 },
       field('Code', form.code, value => change('code', value), { required: true, readOnly: selected !== null }),
       field('Name', form.name, value => change('name', value), { required: true }),
       h('label', { style: { display: 'block' } }, 'Description', h('textarea', { 'aria-label': 'Description', value: form.description ?? '', onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => change('description', optional(event.target.value)) })),
@@ -182,7 +207,7 @@ export function RoomTypesAdminPage() {
       selected && h('label', null, 'Status', h('select', { 'aria-label': 'Status', value: form.status, onChange: (event: React.ChangeEvent<HTMLSelectElement>) => change('status', event.target.value as RoomForm['status']) },
         h('option', { value: 'active' }, 'Active'), h('option', { value: 'disabled' }, 'Disabled'))),
       h('button', { type: 'submit' }, busy ? 'Saving…' : 'Save Room Type')),
-      saveKey.unknown && h('button', { type: 'button', disabled: busy, onClick: () => void submit({ preventDefault() {} } as FormEvent) }, 'Retry original save')));
+      ...recoveries.filter(entry => entry.phase === 'unknown').map(entry => h('button', { key: entry.operation.scope, type: 'button', disabled: busy, onClick: () => void submit({ preventDefault() {} } as FormEvent, entry) }, 'Retry original save'))));
 }
 
 type Entry = AdminRouteDefinition<string, string, string, string, undefined, ReactNode>;

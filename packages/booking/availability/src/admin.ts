@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { AdminContribution, AdminRouteDefinition } from '@storeweave/release/admin';
-import { bookingAvailabilityAdminApi, BookingAvailabilityAdminError, type RoomNightRange } from './admin-api';
+import { bookingAvailabilityAdminApi, type RoomNightRange } from './admin-api';
+import { executeAdminOperation, useAdminOperationEntries, useAdminOperations, type AdminOperation, type AdminOperationEntry } from '../../../../apps/admin/src/admin-operations';
 import { getRoomNightRangeInputSchema, setBaseNightlyPriceInputSchema, updateRoomNightRangeInputSchema,
   type AvailabilityAdminContext, type SetBaseNightlyPriceInput, type UpdateRoomNightRangeInput } from './types';
 
@@ -26,19 +27,19 @@ function input(label: string, value: string, change: (value: string) => void, ty
     h('input', { 'aria-label': label, type, value, disabled, onChange: (event: React.ChangeEvent<HTMLInputElement>) => change(event.target.value),
       style: { display: 'block', padding: 8, minWidth: 200 } }));
 }
-function useSaveKey<T>() {
-  const pending = useRef<{ input: T; key: string } | null>(null);
-  const [unknown, setUnknown] = useState(false);
-  return {
-    unknown,
-    prepare(input: () => T) { if (!pending.current) pending.current = { input: input(), key: crypto.randomUUID() }; return pending.current; },
-    settle(error?: unknown) {
-      if (!pending.current) { setUnknown(false); return; }
-      if (!error || (error instanceof BookingAvailabilityAdminError && error.status >= 400 && error.status < 500)) {
-        pending.current = null; setUnknown(false);
-      } else setUnknown(true);
-    },
-  };
+type AvailabilityOperation = AdminOperation & (
+  | { area: 'booking-availability'; kind: 'base'; request: SetBaseNightlyPriceInput }
+  | { area: 'booking-availability'; kind: 'range'; request: UpdateRoomNightRangeInput }
+);
+type AvailabilityOperationEntry = AdminOperationEntry<AvailabilityOperation>;
+function isAvailabilityOperation(entry: AdminOperationEntry): entry is AvailabilityOperationEntry {
+  return entry.operation.area === 'booking-availability'
+    && ['base', 'range'].includes((entry.operation as AvailabilityOperation).kind);
+}
+async function runAvailabilityOperation(operation: AvailabilityOperation) {
+  return operation.kind === 'base'
+    ? bookingAvailabilityAdminApi.setBaseNightlyPrice(operation.request, operation.idempotencyKey)
+    : bookingAvailabilityAdminApi.updateRoomNightRange(operation.request, operation.idempotencyKey);
 }
 
 export function AvailabilityAdminPage() {
@@ -56,8 +57,10 @@ export function AvailabilityAdminPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const viewRequest = useRef(0);
-  const baseSave = useSaveKey<SetBaseNightlyPriceInput>();
-  const rangeSave = useSaveKey<UpdateRoomNightRangeInput>();
+  const operations = useAdminOperations();
+  const recoveries = useAdminOperationEntries().filter(isAvailabilityOperation);
+  const baseRecovery = recoveries.find(entry => entry.operation.kind === 'base');
+  const rangeRecovery = recoveries.find(entry => entry.operation.kind === 'range');
   useEffect(() => { let live = true;
     bookingAvailabilityAdminApi.getAdminContext()
       .then(loadedContext => { if (!live) return;
@@ -74,20 +77,38 @@ export function AvailabilityAdminPage() {
       if (requestId === viewRequest.current) { setRange(result); setBasePrice(result.baseNightlyPriceMinor?.toString() ?? ''); } }
     catch (cause) { if (requestId === viewRequest.current) setError(message(cause)); }
   };
-  const saveBase = async (event: FormEvent) => { event.preventDefault(); setError(''); setNotice('');
-    try { const operation = baseSave.prepare(() => setBaseNightlyPriceInputSchema.parse({ roomTypeId, baseNightlyPriceMinor: wholeNumber(basePrice, 'Base nightly price') }));
-      setBusy(true); await bookingAvailabilityAdminApi.setBaseNightlyPrice(operation.input, operation.key); baseSave.settle();
-      setNotice('Base nightly price saved.'); await view(false);
-    } catch (cause) { baseSave.settle(cause); setError(message(cause)); } finally { setBusy(false); }
+  const saveBase = async (event: FormEvent, retryEntry?: AvailabilityOperationEntry) => {
+    event.preventDefault(); setError(''); setNotice('');
+    try {
+      const operation: AvailabilityOperation = retryEntry?.operation ?? {
+        area: 'booking-availability', scope: `booking.availability.${roomTypeId}`, kind: 'base', idempotencyKey: crypto.randomUUID(),
+        request: setBaseNightlyPriceInputSchema.parse({ roomTypeId, baseNightlyPriceMinor: wholeNumber(basePrice, 'Base nightly price') }),
+      };
+      setBusy(true);
+      const outcome = await executeAdminOperation(operations, operation, runAvailabilityOperation, () => {
+        setNotice('Base nightly price saved.'); void view(false);
+      }, retryEntry);
+      if (outcome.state === 'unknown' || outcome.state === 'rejected') setError(message(outcome.error));
+    } catch (cause) { setError(message(cause)); } finally { setBusy(false); }
   };
-  const saveRange = async (event: FormEvent) => { event.preventDefault(); setError(''); setNotice('');
-    try { const operation = rangeSave.prepare(() => { const facts: Record<string, unknown> = { ...queryInput() };
-      if (sellableUnits !== '') facts.sellableUnits = wholeNumber(sellableUnits, 'Sellable units');
-      if (changeOverride) facts.nightlyPriceOverrideMinor = overridePrice === '' ? null : wholeNumber(overridePrice, 'Nightly price override');
-      return updateRoomNightRangeInputSchema.parse(facts); });
-      setBusy(true); await bookingAvailabilityAdminApi.updateRoomNightRange(operation.input, operation.key); rangeSave.settle();
-      setNotice('Availability range saved.'); await view(false);
-    } catch (cause) { rangeSave.settle(cause); setError(message(cause)); } finally { setBusy(false); }
+  const saveRange = async (event: FormEvent, retryEntry?: AvailabilityOperationEntry) => {
+    event.preventDefault(); setError(''); setNotice('');
+    try {
+      let operation: AvailabilityOperation;
+      if (retryEntry) operation = retryEntry.operation;
+      else {
+        const facts: Record<string, unknown> = { ...queryInput() };
+        if (sellableUnits !== '') facts.sellableUnits = wholeNumber(sellableUnits, 'Sellable units');
+        if (changeOverride) facts.nightlyPriceOverrideMinor = overridePrice === '' ? null : wholeNumber(overridePrice, 'Nightly price override');
+        operation = { area: 'booking-availability', scope: `booking.availability.${roomTypeId}`, kind: 'range',
+          idempotencyKey: crypto.randomUUID(), request: updateRoomNightRangeInputSchema.parse(facts) };
+      }
+      setBusy(true);
+      const outcome = await executeAdminOperation(operations, operation, runAvailabilityOperation, () => {
+        setNotice('Availability range saved.'); void view(false);
+      }, retryEntry);
+      if (outcome.state === 'unknown' || outcome.state === 'rejected') setError(message(outcome.error));
+    } catch (cause) { setError(message(cause)); } finally { setBusy(false); }
   };
   if (loading) return h('p', null, 'Loading availability…');
   return h('section', null, h('h2', null, 'Availability'),
@@ -95,29 +116,31 @@ export function AvailabilityAdminPage() {
     !context && h('p', null, 'Create the Booking Property before managing availability.'),
     context && h(React.Fragment, null,
       h('p', null, `Property local dates: ${context.propertyTimeZone}. Prices use ${context.currency} integer minor units.`),
-      h('label', null, 'Room Type', h('select', { 'aria-label': 'Room Type', value: roomTypeId, disabled: busy || baseSave.unknown || rangeSave.unknown,
+      h('label', null, 'Room Type', h('select', { 'aria-label': 'Room Type', value: roomTypeId, disabled: busy || recoveries.length > 0,
         onChange: (event: React.ChangeEvent<HTMLSelectElement>) => { viewRequest.current++; setRoomTypeId(event.target.value); setRange(null); } },
       ...context.roomTypes.map(room => h('option', { key: room.id, value: room.id }, room.name)))),
       selected && h('p', null, `Maximum occupancy per unit: ${selected.maxOccupancyPerUnit}`),
-      input('Start local date', startLocalDate, value => { viewRequest.current++; setStartLocalDate(value); setRange(null); }, 'date', busy || baseSave.unknown || rangeSave.unknown),
-      input('End local date (exclusive)', endLocalDateExclusive, value => { viewRequest.current++; setEndLocalDateExclusive(value); setRange(null); }, 'date', busy || baseSave.unknown || rangeSave.unknown),
-      h('button', { type: 'button', disabled: !selected || busy || baseSave.unknown || rangeSave.unknown, onClick: () => void view() }, 'View availability'),
+      input('Start local date', startLocalDate, value => { viewRequest.current++; setStartLocalDate(value); setRange(null); }, 'date', busy || recoveries.length > 0),
+      input('End local date (exclusive)', endLocalDateExclusive, value => { viewRequest.current++; setEndLocalDateExclusive(value); setRange(null); }, 'date', busy || recoveries.length > 0),
+      h('button', { type: 'button', disabled: !selected || busy || recoveries.length > 0, onClick: () => void view() }, 'View availability'),
       range && h(React.Fragment, null,
         h('table', null, h('thead', null, h('tr', null,
           ...['Local date', 'Sellable units', 'Reserved units', `Override (${range.currency} minor units)`, `Effective price (${range.currency} minor units)`].map(label => h('th', { key: label }, label)))),
         h('tbody', null, ...range.nights.map(night => h('tr', { key: night.localDate },
           h('td', null, night.localDate), h('td', null, night.sellableUnits), h('td', null, night.reservedUnits),
           h('td', null, night.nightlyPriceOverrideMinor ?? '—'), h('td', null, night.effectiveNightlyPriceMinor ?? '—'))))),
-        h('form', { onSubmit: saveBase }, h('fieldset', { disabled: busy || baseSave.unknown },
+        h('form', { onSubmit: saveBase }, h('fieldset', { disabled: busy || recoveries.length > 0 },
           input(`Base nightly price (${context.currency} minor units)`, basePrice, setBasePrice, 'number'),
-          h('button', { type: 'submit' }, 'Save base price')),
-          baseSave.unknown && h('button', { type: 'button', disabled: busy, onClick: () => void saveBase({ preventDefault() {} } as FormEvent) }, 'Retry original base price save')),
-        h('form', { onSubmit: saveRange }, h('fieldset', { disabled: busy || rangeSave.unknown },
+          h('button', { type: 'submit' }, 'Save base price'))),
+        h('form', { onSubmit: saveRange }, h('fieldset', { disabled: busy || recoveries.length > 0 },
           input('Sellable units', sellableUnits, setSellableUnits, 'number'),
           h('label', null, h('input', { type: 'checkbox', checked: changeOverride, onChange: (event: React.ChangeEvent<HTMLInputElement>) => setChangeOverride(event.target.checked) }), ' Change nightly price override (empty clears it)'),
           input(`Nightly price override (${context.currency} minor units)`, overridePrice, value => { setOverridePrice(value); setChangeOverride(true); }, 'number'),
-          h('button', { type: 'submit' }, 'Save range')),
-          rangeSave.unknown && h('button', { type: 'button', disabled: busy, onClick: () => void saveRange({ preventDefault() {} } as FormEvent) }, 'Retry original range save')))));
+          h('button', { type: 'submit' }, 'Save range')))),
+      baseRecovery?.phase === 'unknown' && h('button', { type: 'button', disabled: busy,
+        onClick: () => void saveBase({ preventDefault() {} } as FormEvent, baseRecovery) }, 'Retry original base price save'),
+      rangeRecovery?.phase === 'unknown' && h('button', { type: 'button', disabled: busy,
+        onClick: () => void saveRange({ preventDefault() {} } as FormEvent, rangeRecovery) }, 'Retry original range save')));
 }
 
 type Entry = AdminRouteDefinition<string, string, string, string, undefined, ReactNode>;
