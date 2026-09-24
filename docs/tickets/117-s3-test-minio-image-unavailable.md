@@ -13,8 +13,8 @@ content and all four S3 behavior assertions.
 
 - [x] Pin the replacement image by the original multi-architecture digest, with
       anonymous registry access on both amd64 and arm64.
-- [ ] `tests/integration/storage-s3.test.ts` passes after pulling from the new source.
-- [ ] `make verify` passes.
+- [x] `tests/integration/storage-s3.test.ts` passes after pulling from the new source.
+- [x] `make verify` passes.
 
 ## Evidence
 
@@ -25,3 +25,6 @@ content and all four S3 behavior assertions.
   returns `no such manifest` without using the locally cached image.
 - `docker manifest inspect ghcr.io/l33tlamer/minio-backup@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e`
   returns the original digest with arm64 and amd64 manifests.
+- An anonymous `docker pull` of that digest succeeded. Focused S3 integration
+  passed 4/4. `make verify` exited 0 on Node 22.17.1: unit 1501/1501, admin
+  351/351, integration 1004/1004.
