@@ -70,3 +70,9 @@ Booking 是獨立 Product Release；Spec 0011 明確禁止 Commerce-to-Booking �
 * Boundary: repository integration test/docs only. The test must not alter production databases or broaden migration contracts.
 * Rollback: discard the ephemeral test database/container; no production or Commerce migration history is changed.
 * Sol/high design analysis and independent Sol/high review are required before implementation because clean-start migration isolation is an architecture boundary.
+
+## Decisions during SW-139
+
+* "Wrong database" is exercised with a nonexistent PostgreSQL database name and an existing disposable Commerce-shaped database containing foreign migration history. A different empty database cannot be identified from the Booking config alone; rejecting every valid Commerce release-transition history would change the current contract and is outside this test-only Story.
+* "Missing Booking migration" is exercised as a missing applied migration ledger row after Booking activation, which the built CLI rejects by owner/id. It does not simulate a missing SQL file in the built artifact.
+* Commerce leakage is exercised with foreign migration history and a Commerce-named table in the disposable wrong database. The fixture checks the table catalog and verifies the built CLI rejects the foreign migration ID.
