@@ -1,0 +1,4 @@
+const PRODUCT_IDS = ['commerce'];
+export function isCommerce(id: string): boolean {
+  return PRODUCT_IDS.includes(id);
+}
