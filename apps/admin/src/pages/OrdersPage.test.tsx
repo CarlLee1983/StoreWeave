@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type {} from '@testing-library/jest-dom/vitest';
-import { render as baseRender, screen, waitFor, within } from '@testing-library/react';
+import { render as baseRender, getDefaultNormalizer, screen, waitFor, within } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import { OrdersPage } from './OrdersPage';
@@ -260,7 +260,10 @@ describe('OrdersPage', () => {
 
     const orderRow = (await screen.findByText('SW-1001')).closest('tr')!;
     expect(within(orderRow).getByText(label)).toBeInTheDocument();
-    expect(within(orderRow).getByText(new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short', timeZone: DISPLAY_TIME_ZONE }).format(new Date(awaitingPaymentOrder.placedAt)))).toBeInTheDocument();
+    const placedAt = new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short', timeZone: DISPLAY_TIME_ZONE }).format(new Date(awaitingPaymentOrder.placedAt));
+    // getByText 只正規化 DOM 文字（\s+ → 空白），不正規化字串比對值；Node 24 內建的 ICU 78 在 zh-TW
+    // 的日期與時段間輸出 U+2009，所以期望值要走同一個正規化器才比得上。
+    expect(within(orderRow).getByText(getDefaultNormalizer()(placedAt))).toBeInTheDocument();
   });
 
   it('顯示等待付款的購物金折抵，將它算進待處理並可篩選', async () => {
