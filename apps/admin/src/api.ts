@@ -503,12 +503,14 @@ function getCsrfToken(): string {
   // 兩張都在時以有前綴的為準：它是子網域蓋不掉的那一張。
   for (const name of ['__Host-commerce_csrf', 'commerce_csrf']) {
     const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
-    if (match) return decodeURIComponent(match[1]);
+    if (match) {
+      try { return decodeURIComponent(match[1]); } catch { return ''; }
+    }
   }
   return '';
 }
 
-async function request<T>(
+export async function request<T>(
   path: string,
   options: {
     method?: string;
@@ -551,6 +553,7 @@ async function request<T>(
   const res = await fetch(path, {
     method,
     headers,
+    credentials: 'same-origin',
     body: formData ?? (body !== undefined ? JSON.stringify(body) : undefined),
     signal,
   });

@@ -2,15 +2,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { AdminOperationProvider, createAdminOperationStore } from '../../../../apps/admin/src/admin-operations';
+import { ApiError, setToken } from '../../../../apps/admin/src/api';
 import { bookingPropertyAdminContribution } from '../src/admin';
-import { bookingPropertyAdminApi, BookingPropertyAdminError, csrfToken } from '../src/admin-api';
+import { bookingPropertyAdminApi } from '../src/admin-api';
 
 const originalFetch = globalThis.fetch;
+function render(node: React.ReactElement, store = createAdminOperationStore()) {
+  return rtlRender(React.createElement(AdminOperationProvider, { value: store }, node));
+}
 const originalDocument = globalThis.document;
 
-afterEach(() => { cleanup(); globalThis.fetch = originalFetch; Object.defineProperty(globalThis, 'document', { configurable: true, value: originalDocument }); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); globalThis.fetch = originalFetch; setToken(''); Object.defineProperty(globalThis, 'document', { configurable: true, value: originalDocument }); vi.restoreAllMocks(); });
 
 function envelope(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(status >= 400 ? { success: false, error: data } : { success: true, data }),
@@ -24,11 +29,12 @@ describe('booking-property Admin contribution', () => {
     for (const route of bookingPropertyAdminContribution.routes) {
       expect(route.module).toBe('booking-property');
       expect(route.permissions).toEqual(['booking-property:read', 'booking-property:manage']);
-      expect(renderToStaticMarkup(route.render(undefined) as React.ReactElement)).toContain('Loading');
+      expect(renderToStaticMarkup(React.createElement(AdminOperationProvider, { value: createAdminOperationStore() }, route.render(undefined) as React.ReactElement))).toContain('Loading');
     }
   });
 
-  it('uses the session endpoint, CSRF header, and stable caller-supplied idempotency key without bearer auth', async () => {
+  it('uses the shared Admin transport with session credentials, CSRF, and a stable key despite an ambient API token', async () => {
+    setToken('static-admin-token');
     Object.defineProperty(globalThis, 'document', { configurable: true, value: { cookie: 'commerce_csrf=bare; __Host-commerce_csrf=host%20token' } });
     const fetchMock = vi.fn().mockImplementation(async () => envelope({ id: 'saved' }));
     globalThis.fetch = fetchMock;
@@ -40,7 +46,7 @@ describe('booking-property Admin contribution', () => {
     expect(url).toBe('/api/v1/booking/operator/property');
     expect(options.method).toBe('POST');
     expect(options.credentials).toBe('same-origin');
-    expect(options.headers).toMatchObject({ 'X-CSRF-Token': 'host token', 'Idempotency-Key': 'same-uuid-key' });
+    expect(options.headers).toMatchObject({ 'x-csrf-token': 'host token', 'Idempotency-Key': 'same-uuid-key' });
     expect(options.headers).not.toHaveProperty('Authorization');
     expect((fetchMock.mock.calls[1] as [string, RequestInit])[1].headers).toEqual(options.headers);
   });
@@ -54,13 +60,9 @@ describe('booking-property Admin contribution', () => {
     expect(await bookingPropertyAdminApi.listRoomTypes()).toEqual([{ id: 'room' }]);
     await expect(bookingPropertyAdminApi.getProperty()).rejects.toMatchObject({ status: 403, message: 'Your session lacks permission to manage this property.' });
     await expect(bookingPropertyAdminApi.getProperty()).rejects.toMatchObject({ status: 409, message: 'This property or room type conflicts with an existing record.' });
-    await expect(bookingPropertyAdminApi.getProperty()).rejects.toEqual(new BookingPropertyAdminError(0, 'NETWORK_ERROR', 'Connection lost. Retry the same save to avoid a duplicate.'));
+    await expect(bookingPropertyAdminApi.getProperty()).rejects.toEqual(new ApiError('NETWORK_ERROR', 'Connection lost. Retry the same save to avoid a duplicate.', 0));
   });
 
-  it('selects secure CSRF cookie and tolerates malformed cookie encoding', () => {
-    expect(csrfToken('commerce_csrf=bare; __Host-commerce_csrf=secure%20value')).toBe('secure value');
-    expect(csrfToken('commerce_csrf=%')).toBe('');
-  });
   it('creates the singleton Property through the contributed mounted form', async () => {
     const calls: Array<[string, RequestInit]> = [];
     globalThis.fetch = vi.fn().mockImplementation(async (url: string, options: RequestInit) => {
@@ -215,6 +217,88 @@ describe('booking-property Admin contribution', () => {
     expect(body).toMatchObject({ roomTypeId: room.id, name: 'Updated Queen Room', maxOccupancyPerUnit: 3, status: 'disabled',
       beds: [{ type: 'queen', count: 1 }], amenities: [{ code: 'wifi', label: 'Wi-Fi' }] });
     expect(body).not.toHaveProperty('code');
+  });
+
+  it('keeps a 409 in-progress Property command across remount and retries its original request', async () => {
+    const store = createAdminOperationStore();
+    const writes: RequestInit[] = [];
+    globalThis.fetch = vi.fn().mockImplementation(async (_url: string, options: RequestInit) => {
+      if (options.method === 'GET') return envelope({ property: null });
+      writes.push(options);
+      return writes.length === 1 ? envelope({ code: 'IDEMPOTENCY_IN_PROGRESS', message: 'Still running' }, 409)
+        : envelope({ id: 'property-1', ...JSON.parse(String(options.body)) });
+    });
+    const first = render(bookingPropertyAdminContribution.routes[0].render(undefined) as React.ReactElement, store);
+    await screen.findByRole('heading', { name: 'Create Property' });
+    for (const [label, value] of Object.entries({
+      'Property name': 'Original House', 'Country code': 'TW', 'Administrative area': 'Taipei',
+      'Locality': 'Zhongshan', 'Address line 1': '1 Harbor Road', 'IANA time zone': 'Asia/Taipei', 'Currency code': 'TWD',
+    })) fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Property' }));
+    await screen.findByRole('button', { name: 'Retry original save' });
+    first.unmount();
+    render(bookingPropertyAdminContribution.routes[0].render(undefined) as React.ReactElement, store);
+    await screen.findByRole('heading', { name: 'Create Property' });
+    expect(screen.getByRole('button', { name: 'Save Property' }).closest('fieldset')).toHaveProperty('disabled', true);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry original save' }));
+    await screen.findByRole('status');
+    expect(writes).toHaveLength(2);
+    expect(writes[1].body).toBe(writes[0].body);
+    expect((writes[1].headers as Record<string, string>)['Idempotency-Key'])
+      .toBe((writes[0].headers as Record<string, string>)['Idempotency-Key']);
+  });
+
+  it('clears an in-flight Property command on identity switch and ignores its late confirmation', async () => {
+    const store = createAdminOperationStore();
+    let finishWrite!: (response: Response) => void;
+    const pending = new Promise<Response>(resolve => { finishWrite = resolve; });
+    const writes: RequestInit[] = [];
+    globalThis.fetch = vi.fn().mockImplementation(async (_url: string, options: RequestInit) => {
+      if (options.method === 'GET') return envelope({ property: null });
+      writes.push(options);
+      return pending;
+    });
+    render(bookingPropertyAdminContribution.routes[0].render(undefined) as React.ReactElement, store);
+    await screen.findByRole('heading', { name: 'Create Property' });
+    for (const [label, value] of Object.entries({
+      'Property name': 'Original House', 'Country code': 'TW', 'Administrative area': 'Taipei',
+      'Locality': 'Zhongshan', 'Address line 1': '1 Harbor Road', 'IANA time zone': 'Asia/Taipei', 'Currency code': 'TWD',
+    })) fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Property' }));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    fireEvent.submit(screen.getByRole('button', { name: /Saving/ }).closest('form')!);
+    expect(writes).toHaveLength(1);
+    store.clearIdentity();
+    finishWrite(envelope({ id: 'property-1', ...JSON.parse(String(writes[0].body)) }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save Property' })).toBeTruthy());
+    expect(store.getSnapshot()).toHaveLength(0);
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('recovers a Room Type create after remount without rebuilding the form payload', async () => {
+    const store = createAdminOperationStore();
+    const writes: RequestInit[] = [];
+    globalThis.fetch = vi.fn().mockImplementation(async (_url: string, options: RequestInit) => {
+      if (options.method === 'GET') return envelope({ items: [] });
+      writes.push(options);
+      return writes.length === 1 ? envelope({ code: 'UNKNOWN_ERROR', message: 'unknown' }, 409)
+        : envelope({ id: 'room-1', status: 'active', ...JSON.parse(String(options.body)) });
+    });
+    const first = render(bookingPropertyAdminContribution.routes[1].render(undefined) as React.ReactElement, store);
+    await screen.findByRole('heading', { name: 'Create Room Type' });
+    fireEvent.change(screen.getByLabelText('Code'), { target: { value: 'queen-room' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Queen Room' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Room Type' }));
+    await screen.findByRole('button', { name: 'Retry original save' });
+    first.unmount();
+    render(bookingPropertyAdminContribution.routes[1].render(undefined) as React.ReactElement, store);
+    await screen.findByRole('heading', { name: 'Create Room Type' });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry original save' }));
+    await screen.findByRole('status');
+    expect(writes).toHaveLength(2);
+    expect(writes[1].body).toBe(writes[0].body);
+    expect((writes[1].headers as Record<string, string>)['Idempotency-Key'])
+      .toBe((writes[0].headers as Record<string, string>)['Idempotency-Key']);
   });
 
 });

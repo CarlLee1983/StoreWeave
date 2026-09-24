@@ -1,13 +1,27 @@
 import React, { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { AdminContribution, AdminRouteDefinition } from '@storeweave/release/admin';
-import { bookingReservationAdminApi, BookingReservationAdminError,
+import { bookingReservationAdminApi,
   type CancellationInput, type NotificationEvidence, type PaymentEvidence, type RefundEvidence,
   type ReservationDetail, type ReservationListItem } from './admin-api';
+import { executeAdminOperation, useAdminOperationEntries, useAdminOperations, type AdminOperation, type AdminOperationEntry } from '../../../../apps/admin/src/admin-operations';
 
 const h = React.createElement;
 const displayError = (cause: unknown) => cause instanceof Error ? cause.message : 'The request failed.';
 const money = (amount: number, currency: string) => `${amount} ${currency} minor units`;
-const uncertain = (cause: unknown) => !(cause instanceof BookingReservationAdminError && cause.status >= 400 && cause.status < 500);
+type ReservationOperation = AdminOperation & (
+  | { area: 'booking-reservation'; kind: 'cancel'; request: CancellationInput }
+  | { area: 'booking-reservation'; kind: 'retry-refund'; refundId: string }
+);
+type ReservationOperationEntry = AdminOperationEntry<ReservationOperation>;
+function isReservationOperation(entry: AdminOperationEntry): entry is ReservationOperationEntry {
+  return entry.operation.area === 'booking-reservation'
+    && ['cancel', 'retry-refund'].includes((entry.operation as ReservationOperation).kind);
+}
+async function runReservationOperation(operation: ReservationOperation) {
+  return operation.kind === 'cancel'
+    ? bookingReservationAdminApi.cancel(operation.request, operation.idempotencyKey)
+    : bookingReservationAdminApi.retryRefund(operation.refundId, operation.idempotencyKey);
+}
 
 export function ReservationAdminPage(): ReactNode {
   const [items, setItems] = useState<ReservationListItem[]>([]);
@@ -32,10 +46,10 @@ export function ReservationAdminPage(): ReactNode {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const pendingCancel = useRef<{ input: CancellationInput; key: string } | null>(null);
-  const pendingRetry = useRef<{ refundId: string; key: string } | null>(null);
-  const [unknownCancel, setUnknownCancel] = useState(false);
-  const [unknownRetry, setUnknownRetry] = useState(false);
+  const operations = useAdminOperations();
+  const recoveries = useAdminOperationEntries().filter(isReservationOperation);
+  const unknownCancel = recoveries.some(entry => entry.operation.kind === 'cancel' && entry.phase === 'unknown');
+  const unknownRetry = recoveries.some(entry => entry.operation.kind === 'retry-refund' && entry.phase === 'unknown');
   const selection = useRef(0);
   const listRequest = useRef(0);
 
@@ -115,49 +129,53 @@ export function ReservationAdminPage(): ReactNode {
 
   const winner = payments.find(payment => payment.id === detail?.winningPaymentAttemptId && payment.successKind === 'winning' && payment.status === 'succeeded');
   const received = winner?.amountMinor ?? 0;
-  const saveCancel = async (event?: FormEvent) => {
+  const saveCancel = async (event?: FormEvent, retryEntry?: ReservationOperationEntry) => {
     event?.preventDefault(); setError(''); setNotice('');
     try {
-      if (!detail || (detail.status === 'confirmed' && !winner)) throw new Error('Winning payment evidence is unavailable. Cancellation is unavailable.');
-      if (!pendingCancel.current) {
+      let operation: ReservationOperation;
+      if (retryEntry) operation = retryEntry.operation;
+      else {
+        if (!detail || (detail.status === 'confirmed' && !winner)) throw new Error('Winning payment evidence is unavailable. Cancellation is unavailable.');
         const amount = Number(refundAmount);
         if (!/^\d+$/.test(refundAmount) || !Number.isSafeInteger(amount) || amount > received) {
           throw new Error(`Refund amount must be a whole number from 0 through ${received}.`);
         }
         const auditReason = reason.trim();
         if (!auditReason || auditReason.length > 1000) throw new Error('Audit reason must contain 1–1000 characters.');
-        pendingCancel.current = { input: { reservationId: detail.id, refundAmountMinor: amount, reason: auditReason }, key: crypto.randomUUID() };
+        operation = { area: 'booking-reservation', scope: `booking.reservation.${detail.id}`, kind: 'cancel',
+          idempotencyKey: crypto.randomUUID(), request: { reservationId: detail.id, refundAmountMinor: amount, reason: auditReason } };
       }
       setBusy(true);
-      const result = await bookingReservationAdminApi.cancel(pendingCancel.current.input, pendingCancel.current.key);
-      pendingCancel.current = null; setUnknownCancel(false);
-      setNotice(result.refund ? `Reservation cancelled. Refund ${result.refund.id} is pending independent processing.` : 'Reservation cancelled with no refund.');
-      await loadList(); await select(detail.id, true);
-    } catch (cause) {
-      if (pendingCancel.current && uncertain(cause)) setUnknownCancel(true);
-      else { pendingCancel.current = null; setUnknownCancel(false); }
-      setError(displayError(cause));
-    } finally { setBusy(false); }
+      const outcome = await executeAdminOperation(operations, operation, runReservationOperation, (result, live) => {
+        if (live.kind !== 'cancel' || !('reservationId' in result)) return;
+        setNotice(result.refund ? `Reservation cancelled. Refund ${result.refund.id} is pending independent processing.` : 'Reservation cancelled with no refund.');
+        void loadList(); void select(live.request.reservationId, true);
+      }, retryEntry);
+      if (outcome.state === 'unknown' || outcome.state === 'rejected') setError(displayError(outcome.error));
+    } catch (cause) { setError(displayError(cause)); } finally { setBusy(false); }
   };
-  const retryRefund = async (refundId: string) => {
+  const retryRefund = async (refundId: string, retryEntry?: ReservationOperationEntry) => {
     setError(''); setNotice('');
-    try {
-      if (!pendingRetry.current) pendingRetry.current = { refundId, key: crypto.randomUUID() };
-      setBusy(true);
-      await bookingReservationAdminApi.retryRefund(pendingRetry.current.refundId, pendingRetry.current.key);
-      pendingRetry.current = null; setUnknownRetry(false);
+    const operation: ReservationOperation = retryEntry?.operation ?? {
+      area: 'booking-reservation', scope: `booking.refund.${refundId}`, kind: 'retry-refund',
+      idempotencyKey: crypto.randomUUID(), refundId,
+    };
+    setBusy(true);
+    const outcome = await executeAdminOperation(operations, operation, runReservationOperation, (_result, live) => {
       setNotice('Refund retry queued. Review its outcome in the evidence below.');
-      if (detail) await select(detail.id, true);
-    } catch (cause) {
-      if (pendingRetry.current && uncertain(cause)) setUnknownRetry(true);
-      else { pendingRetry.current = null; setUnknownRetry(false); }
-      setError(displayError(cause));
-    } finally { setBusy(false); }
+      if (detail) void select(detail.id, true);
+      else if (live.kind === 'retry-refund') void loadList();
+    }, retryEntry);
+    if (outcome.state === 'unknown' || outcome.state === 'rejected') setError(displayError(outcome.error));
+    setBusy(false);
   };
 
   return h('section', null,
     h('h2', null, 'Reservations'),
     error && h('p', { role: 'alert' }, error), notice && h('p', { role: 'status' }, notice),
+    ...recoveries.filter(entry => entry.phase === 'unknown').map(entry => h('button', { key: entry.operation.scope, type: 'button', disabled: busy,
+      onClick: () => entry.operation.kind === 'cancel' ? void saveCancel(undefined, entry) : void retryRefund(entry.operation.refundId, entry) },
+    entry.operation.kind === 'cancel' ? 'Retry original cancellation' : 'Retry original refund action')),
     h('form', { onSubmit: (event: FormEvent) => { event.preventDefault(); if (!unknownCancel && !unknownRetry) void loadList(0); } },
       h('label', null, 'Status', h('select', { 'aria-label': 'Status', value: status, onChange: (event: React.ChangeEvent<HTMLSelectElement>) => setStatus(event.target.value) },
         ...['', 'pending_payment', 'confirmed', 'expired', 'cancelled'].map(value => h('option', { key: value, value }, value || 'All')))),
@@ -186,7 +204,6 @@ export function ReservationAdminPage(): ReactNode {
           onClick: () => void retryRefund(refund.id) }, 'Retry failed refund')))),
       refunds.length < refundTotal && h('button', { type: 'button', disabled: !!evidenceBusy || refunds.length > 10_000,
         onClick: () => void loadMore('refund') }, `Load older refund evidence (${refunds.length}/${refundTotal})`),
-      unknownRetry && h('button', { type: 'button', disabled: busy, onClick: () => void retryRefund(pendingRetry.current!.refundId) }, 'Retry original refund action'),
       h('h4', null, 'Notifications'),
       notifications.length === 0 ? h('p', null, 'No notification evidence.') : h('ul', null, ...notifications.map(notification => h('li', { key: notification.id },
         `${notification.reference} · event ${notification.eventId} · ${notification.kind} · ${notification.mappingStatus} · failure ${notification.mappingFailureCode ?? '—'}`,
@@ -205,7 +222,7 @@ export function ReservationAdminPage(): ReactNode {
           h('label', null, 'Audit reason', h('textarea', { 'aria-label': 'Audit reason', value: reason, maxLength: 1000,
             onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => setReason(event.target.value) })),
           h('button', { type: 'submit' }, 'Cancel Reservation')),
-        unknownCancel && h('button', { type: 'button', disabled: busy, onClick: () => void saveCancel() }, 'Retry original cancellation'))));
+)));
 }
 
 type Entry = AdminRouteDefinition<string, string, string, string, undefined, ReactNode>;

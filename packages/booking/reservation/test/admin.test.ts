@@ -1,14 +1,19 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
+import { AdminOperationProvider, createAdminOperationStore } from '../../../../apps/admin/src/admin-operations';
+import { ApiError, setToken } from '../../../../apps/admin/src/api';
 import { bookingReservationAdminContribution } from '../src/admin';
 import { bookingReservationAdminApi } from '../src/admin-api';
 
 const reservationId = 'a72f7770-1228-4522-8e8e-b89bb47fc532';
 const attemptId = 'b72f7770-1228-4522-8e8e-b89bb47fc532';
 const originalFetch = globalThis.fetch;
-afterEach(() => { cleanup(); globalThis.fetch = originalFetch; vi.restoreAllMocks(); });
+function render(node: React.ReactElement, store = createAdminOperationStore()) {
+  return rtlRender(React.createElement(AdminOperationProvider, { value: store }, node));
+}
+afterEach(() => { cleanup(); globalThis.fetch = originalFetch; setToken(''); vi.restoreAllMocks(); });
 const envelope = (data: unknown, status = 200) => new Response(JSON.stringify(status >= 400 ? { success: false, error: data } : { success: true, data }), { status });
 const listItem = { id: reservationId, status: 'confirmed', roomTypeId: 'room', checkInLocalDate: '2026-10-01', checkOutLocalDate: '2026-10-03', roomCount: 1, adults: 2, children: 0, currency: 'TWD', totalMinor: 5000, paymentExpiresAt: '2026-09-30T00:00:00Z', createdAt: '2026-09-01T00:00:00Z' };
 const detail = { ...listItem, booker: { name: 'Private Booker', email: 'secret@example.com', phone: '0912345678' }, primaryGuestName: 'Private Guest', accommodationNotes: 'Private medical note', winningPaymentAttemptId: attemptId, nights: [], cancellationPolicy: {} };
@@ -39,12 +44,13 @@ it('declares the Reservation route and shows correlated evidence without unneces
 });
 
 it('validates the whole-Reservation decision against winning received money and retries an uncertain original request', async () => {
+  const store = createAdminOperationStore();
   const writes: RequestInit[] = [];
   globalThis.fetch = vi.fn().mockImplementation(async (url: string, options: RequestInit) => {
     if (url.endsWith('/reservations/cancel')) { writes.push(options); if (writes.length === 1) throw new Error('lost response'); }
     return fixtures(url, options);
   });
-  render(bookingReservationAdminContribution.routes[0].render(undefined) as React.ReactElement);
+  const first = render(bookingReservationAdminContribution.routes[0].render(undefined) as React.ReactElement, store);
   fireEvent.click(await screen.findByRole('button', { name: /2026-10-01/ }));
   await screen.findByText(/pay-win/);
   fireEvent.change(screen.getByLabelText('Refund amount (TWD minor units)'), { target: { value: '6000' } });
@@ -54,6 +60,9 @@ it('validates the whole-Reservation decision against winning received money and 
   expect(writes).toHaveLength(0);
   fireEvent.change(screen.getByLabelText('Refund amount (TWD minor units)'), { target: { value: '5000' } });
   fireEvent.click(screen.getByRole('button', { name: 'Cancel Reservation' }));
+  await screen.findByRole('button', { name: 'Retry original cancellation' });
+  first.unmount();
+  render(bookingReservationAdminContribution.routes[0].render(undefined) as React.ReactElement, store);
   fireEvent.click(await screen.findByRole('button', { name: 'Retry original cancellation' }));
   await waitFor(() => expect(writes).toHaveLength(2));
   expect(writes[1].body).toBe(writes[0].body);
@@ -62,6 +71,7 @@ it('validates the whole-Reservation decision against winning received money and 
 });
 
 it('maps backend failures to distinct safe feedback and sends session, CSRF, and idempotency headers', async () => {
+  setToken('static-admin-token');
   Object.defineProperty(document, 'cookie', { configurable: true, value: '__Host-commerce_csrf=secure%20token' });
   const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 'FORBIDDEN', message: 'secret' }, 403))
     .mockResolvedValueOnce(envelope({ code: 'NOT_FOUND', message: 'secret' }, 404))
@@ -71,7 +81,7 @@ it('maps backend failures to distinct safe feedback and sends session, CSRF, and
   await expect(bookingReservationAdminApi.getReservation(reservationId)).rejects.toThrow(/not found/i);
   await expect(bookingReservationAdminApi.cancel({ reservationId, reason: 'reason', refundAmountMinor: 0 }, 'fixed-key')).rejects.toThrow(/conflict/i);
   const [, options] = fetchMock.mock.calls[2] as [string, RequestInit];
-  expect(options).toMatchObject({ method: 'POST', credentials: 'same-origin', headers: { 'X-CSRF-Token': 'secure token', 'Idempotency-Key': 'fixed-key' } });
+  expect(options).toMatchObject({ method: 'POST', credentials: 'same-origin', headers: { 'x-csrf-token': 'secure token', 'Idempotency-Key': 'fixed-key' } });
   expect(options.headers).not.toHaveProperty('Authorization');
 });
 
@@ -94,17 +104,20 @@ it('allows a pending-payment Reservation to be cancelled only with zero refund',
 });
 
 it('retries a failed refund using the original refund ID and idempotency key after an unknown result', async () => {
+  const store = createAdminOperationStore();
   const writes: RequestInit[] = [];
   globalThis.fetch = vi.fn().mockImplementation(async (url: string, options: RequestInit) => {
     if (url.endsWith('/refunds/retry')) { writes.push(options); if (writes.length === 1) throw new Error('response lost'); }
     return fixtures(url, options);
   });
-  render(bookingReservationAdminContribution.routes[0].render(undefined) as React.ReactElement);
+  const first = render(bookingReservationAdminContribution.routes[0].render(undefined) as React.ReactElement, store);
   fireEvent.click(await screen.findByRole('button', { name: /2026-10-01/ }));
   fireEvent.click(await screen.findByRole('button', { name: 'Retry failed refund' }));
   expect((await screen.findByRole('button', { name: 'Retry original refund action' })).hasAttribute('disabled')).toBe(false);
   expect(screen.getByRole('button', { name: 'Retry failed refund' }).hasAttribute('disabled')).toBe(true);
-  fireEvent.click(screen.getByRole('button', { name: 'Retry original refund action' }));
+  first.unmount();
+  render(bookingReservationAdminContribution.routes[0].render(undefined) as React.ReactElement, store);
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry original refund action' }));
   await waitFor(() => expect(writes).toHaveLength(2));
   expect(writes[1].body).toBe(writes[0].body);
   expect((writes[1].headers as Record<string, string>)['Idempotency-Key']).toBe((writes[0].headers as Record<string, string>)['Idempotency-Key']);

@@ -87,6 +87,7 @@
       "@storeweave/catalog": ["packages/commerce/catalog/src/index.ts"],
       "@storeweave/inventory": ["packages/commerce/inventory/src/index.ts"],
       "@storeweave/order": ["packages/commerce/order/src/index.ts"],
+      "@storeweave/order/http": ["packages/commerce/order/src/http.ts"],
       "@storeweave/invoice": ["packages/commerce/invoice/src/index.ts"],
       "@storeweave/refund": ["packages/commerce/refund/src/index.ts"],
       "@storeweave/content": ["packages/platform/content/src/index.ts"],
