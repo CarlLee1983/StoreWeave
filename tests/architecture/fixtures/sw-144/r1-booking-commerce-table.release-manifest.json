@@ -1,0 +1,16 @@
+{
+  "booking": {
+    "modules": [
+      { "id": "booking-reservation", "migrationOwner": "booking-reservation", "dataRelations": ["booking_reservation_reservations"], "migrations": [{ "id": "0001_init" }] },
+      { "id": "booking-property", "migrationOwner": "order", "dataRelations": ["order_orders"], "migrations": [{ "id": "0001_init" }] }
+    ]
+  },
+  "commerce": {
+    "modules": [
+      { "id": "order", "migrationOwner": "order", "dataRelations": ["order_orders"], "migrations": [{ "id": "0001_init" }] }
+    ]
+  },
+  "base": {
+    "modules": []
+  }
+}

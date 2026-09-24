@@ -1,0 +1,10 @@
+{
+  "releaseId": "commerce",
+  "target": "server",
+  "artifact": "packages/releases/commerce/src/server.ts",
+  "inputs": [
+    "packages/releases/commerce/src/server.ts",
+    "apps/api/src/main.ts",
+    "node_modules/react/index.js"
+  ]
+}

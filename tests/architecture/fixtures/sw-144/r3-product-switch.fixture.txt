@@ -1,0 +1,4 @@
+export function selectReleaseName(id: string): string {
+  if (id === 'commerce') return 'commerce';
+  return 'storeweave';
+}
