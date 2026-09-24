@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "story_ref": "specs/stories/SW-139-booking-clean-start",
-  "story_md_digest": "sha256:13cc08f161c1103c4b914df0cacc1a2b8272bdda5ea47bff98bf7097a7b5b8f7",
-  "acceptance_md_digest": "sha256:6cc9206110f2080f797d068fc2eef803a50670f43a37c7bfa9b58ce4dca70daf",
+  "story_md_digest": "sha256:0fdb0eca34baf8522c9ce90e64be199e12913f7e6449d1aa7024ffc06cacee6b",
+  "acceptance_md_digest": "sha256:89dee52816e615cb146f1ac75f022766ea536a95b48dfd19a29706ef05013c46",
   "criteria": [
     { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
     { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
