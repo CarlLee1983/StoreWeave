@@ -452,15 +452,13 @@ async function holdReservationLifecycleLock(reservationId: string): Promise<() =
   };
 }
 
-async function waitForDatabaseLockWait(): Promise<void> {
+async function waitForDatabaseLockWait(expected = 1): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const waiting = await runtime.database.pool.query<{ waiting: boolean }>(`
-      SELECT EXISTS (
-        SELECT 1 FROM pg_catalog.pg_stat_activity
-        WHERE datname = current_database() AND wait_event_type = 'Lock'
-      ) AS waiting
+    const waiting = await runtime.database.pool.query<{ count: string }>(`
+      SELECT count(*)::text AS count FROM pg_catalog.pg_stat_activity
+      WHERE datname = current_database() AND wait_event_type = 'Lock'
     `);
-    if (waiting.rows[0]?.waiting) return;
+    if (Number(waiting.rows[0]?.count) >= expected) return;
     await new Promise<void>(resolve => setTimeout(resolve, 10));
   }
   throw new Error('Expected a competing Reservation transaction to wait on a PostgreSQL lock');
@@ -790,6 +788,73 @@ describe('Booking Reservation PostgreSQL integration', () => {
     await clearPaymentAttemptJobs(reservation.id);
     paymentResult = defaultPaymentResult;
     paymentMethods = [{ code: 'deferred', label: 'Deferred test payment', timing: 'deferred' }];
+  }, 120_000);
+
+  it('lets a verified deadline extension beat the queued original expiry command', async () => {
+    const { roomType, reservation } = await createReservation('expiry-extension-race');
+    const started = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', {
+        reservationId: reservation.id, method: 'deferred', checkoutCredential: await checkoutCredentialFor(reservation.id),
+      }, { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(reservation.id);
+    const clock = await runtime.database.pool.query<{ now: Date }>('SELECT pg_catalog.clock_timestamp() AS now');
+    const originalDeadline = new Date(clock.rows[0]!.now.getTime() - 1_000).toISOString();
+    const extendedDeadline = new Date(clock.rows[0]!.now.getTime() + 60_000).toISOString();
+    const dedupeKey = `booking-reservation:expire:${reservation.id}`;
+    await runtime.database.pool.query(
+      'UPDATE booking_reservation_reservations SET payment_expires_at = $2 WHERE id = $1',
+      [reservation.id, originalDeadline],
+    );
+    await runtime.database.transaction(tx => runtime.jobs.enqueue(tx, {
+      type: 'booking.reservation.expire',
+      payload: { reservationId: reservation.id, expectedPaymentExpiresAt: originalDeadline },
+      dedupeKey, runAt: new Date(originalDeadline), replaceExisting: true,
+    }));
+    const originalJob = await runtime.database.pool.query<{ id: string; payload: unknown; run_at: Date }>(
+      'SELECT id, payload, run_at FROM platform_jobs WHERE dedupe_key = $1', [dedupeKey],
+    );
+    expect(originalJob.rows).toMatchObject([{
+      payload: { reservationId: reservation.id, expectedPaymentExpiresAt: originalDeadline },
+      run_at: new Date(originalDeadline),
+    }]);
+
+    const unlock = await holdReservationLifecycleLock(reservation.id);
+    let extension: ReturnType<typeof recordVerifiedPaymentOutcome> | undefined;
+    let expiry: ReturnType<typeof expireReservation> | undefined;
+    try {
+      extension = recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+        type: 'payment_info_issued', reference: started.attempt.reference,
+        providerRef: `callback:extension:${started.attempt.id}`,
+        instructions: [{ label: 'Account', value: 'extended' }], expiresAt: extendedDeadline,
+      });
+      await waitForDatabaseLockWait();
+      expiry = expireReservation(reservation.id, originalDeadline);
+      await waitForDatabaseLockWait(2);
+    } finally {
+      await unlock();
+    }
+    await expect(extension).resolves.toMatchObject({ attempt: { id: started.attempt.id, status: 'awaiting_payment' } });
+    await expect(expiry).resolves.toEqual({ kind: 'noop' });
+    const [state, attempts, replacementJob, expiryAudit] = await Promise.all([
+      runtime.database.pool.query<{ status: string; payment_expires_at: Date }>(
+        'SELECT status, payment_expires_at FROM booking_reservation_reservations WHERE id = $1', [reservation.id]),
+      paymentAttemptsFor(reservation.id),
+      runtime.database.pool.query<{ id: string; status: string; payload: unknown; run_at: Date }>(
+        'SELECT id, status, payload, run_at FROM platform_jobs WHERE dedupe_key = $1', [dedupeKey]),
+      runtime.database.pool.query<{ count: string }>(`
+        SELECT count(*)::text AS count FROM platform_audit_log
+        WHERE action = 'booking.reservation.expired' AND resource_id = $1`, [reservation.id]),
+    ]);
+    expect(state.rows).toEqual([{ status: 'pending_payment', payment_expires_at: new Date(extendedDeadline) }]);
+    expect(attempts).toMatchObject([{ id: started.attempt.id, status: 'awaiting_payment', expires_at: new Date(extendedDeadline) }]);
+    expect(await reservedCounts(roomType.id)).toEqual([1, 1]);
+    expect(replacementJob.rows).toEqual([{
+      id: originalJob.rows[0]!.id, status: 'pending',
+      payload: { reservationId: reservation.id, expectedPaymentExpiresAt: extendedDeadline },
+      run_at: new Date(extendedDeadline),
+    }]);
+    expect(expiryAudit.rows).toEqual([{ count: '0' }]);
   }, 120_000);
 
   it('maps verified callback outcomes by neutral reference with replay, extension, and excess evidence', async () => {

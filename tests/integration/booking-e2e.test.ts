@@ -301,6 +301,28 @@ describe('SW-145 clean Booking E2E', () => {
     const refundEvidence = await runtime.database.pool.query<{ status: string; provider_refund_ref: string }>(
       'SELECT status, provider_refund_ref FROM booking_reservation_refunds WHERE reservation_id = $1', [reservation.id]);
     expect(refundEvidence.rows).toMatchObject([{ status: 'succeeded', provider_refund_ref: expect.stringMatching(/^local-refund:/) }]);
+    const durableEvidence = async () => {
+      const [attempts, refundRows, invocations, audits] = await Promise.all([
+        runtime.database.pool.query(`SELECT id, reference, status, provider_ref, success_kind, succeeded_at
+          FROM booking_reservation_payment_attempts WHERE reservation_id = $1 ORDER BY id`, [reservation.id]),
+        runtime.database.pool.query(`SELECT id, payment_attempt_id, status, reason, provider_request_ref, provider_refund_ref
+          FROM booking_reservation_refunds WHERE reservation_id = $1 ORDER BY id`, [reservation.id]),
+        runtime.database.pool.query(`SELECT i.id, i.refund_id, i.generation, i.worker_attempt, i.outcome, i.provider_refund_ref
+          FROM booking_reservation_refund_invocations i
+          JOIN booking_reservation_refunds f ON f.id = i.refund_id
+          WHERE f.reservation_id = $1 ORDER BY i.id`, [reservation.id]),
+        runtime.database.pool.query(`SELECT id, action, resource_id, payload FROM platform_audit_log
+          WHERE resource_id = $1::text OR resource_id IN (
+            SELECT id::text FROM booking_reservation_refunds WHERE reservation_id = $1::uuid
+          ) ORDER BY id`, [reservation.id]),
+      ]);
+      return { attempts: attempts.rows, refunds: refundRows.rows, invocations: invocations.rows, audits: audits.rows };
+    };
+    const evidenceBeforeRetention = await durableEvidence();
+    expect(evidenceBeforeRetention.attempts).toHaveLength(1);
+    expect(evidenceBeforeRetention.refunds).toHaveLength(1);
+    expect(evidenceBeforeRetention.invocations).toHaveLength(1);
+    expect(evidenceBeforeRetention.audits.length).toBeGreaterThan(0);
 
     // Advance only the frozen stay dates. The retention command reads the real
     // PostgreSQL clock, so the configured one-day deadline has elapsed.
@@ -336,13 +358,11 @@ describe('SW-145 clean Booking E2E', () => {
       total_minor: priced.totalMinor, winning_payment_attempt_id: winner.winning_payment_attempt_id,
       management_token_hash: null,
     }]);
-    const evidence = await runtime.database.pool.query<{ attempts: string; refunds: string; audits: string }>(`
-      SELECT (SELECT count(*)::text FROM booking_reservation_payment_attempts WHERE reservation_id = $1) AS attempts,
-        (SELECT count(*)::text FROM booking_reservation_refunds WHERE reservation_id = $1) AS refunds,
-        (SELECT count(*)::text FROM platform_audit_log WHERE resource_id = $1::text) AS audits
-    `, [reservation.id]);
-    expect(evidence.rows[0]).toMatchObject({ attempts: '1', refunds: '1' });
-    expect(Number(evidence.rows[0]!.audits)).toBeGreaterThan(0);
+    const evidenceAfterRetention = await durableEvidence();
+    expect(evidenceAfterRetention.attempts).toEqual(evidenceBeforeRetention.attempts);
+    expect(evidenceAfterRetention.refunds).toEqual(evidenceBeforeRetention.refunds);
+    expect(evidenceAfterRetention.invocations).toEqual(evidenceBeforeRetention.invocations);
+    expect(evidenceAfterRetention.audits).toEqual(expect.arrayContaining(evidenceBeforeRetention.audits));
     expect((await app.inject({ method: 'GET', url: redeemed.headers.location!, cookies,
       remoteAddress: '198.51.100.31' })).statusCode).toBe(401);
   }, 180_000);
