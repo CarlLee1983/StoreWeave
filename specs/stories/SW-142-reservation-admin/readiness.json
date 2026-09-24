@@ -2,7 +2,7 @@
   "schema_version": 1,
   "story_ref": "specs/stories/SW-142-reservation-admin",
   "story_md_digest": "sha256:3e56b639b478af7ce56eb0a3114da42485e2bd4020fef8961728fae270e99c9e",
-  "acceptance_md_digest": "sha256:581dc4f5f3f16d92f6a9591b5861b36e7df923b1458449709f3448cb8055356a",
+  "acceptance_md_digest": "sha256:ab8ec305097dd4571cbd1582b6f5dc70dc9411b611a1bd8088c50ffd9a7985c9",
   "criteria": [
     { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
     { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
