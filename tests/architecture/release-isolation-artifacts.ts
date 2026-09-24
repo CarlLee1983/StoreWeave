@@ -6,9 +6,10 @@ import { noopLogger } from '@storeweave/contracts';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
 // @ts-expect-error no TypeScript declaration for the build-only selector
 import { releases } from '../../scripts/releases.mjs';
+import { ROOT } from './source-graph';
 import type { ModulePin, ReleaseId, SourceText, Target, TargetGraph } from './release-isolation-rules';
 
-export const ROOT = resolve(__dirname, '..', '..');
+export { ROOT };
 
 const NODE_TARGETS = ['server', 'worker', 'cli'] as const;
 const NODE_ENTRY: Record<(typeof NODE_TARGETS)[number], string> = {
@@ -21,9 +22,14 @@ const NODE_ALIAS: Record<(typeof NODE_TARGETS)[number], string> = {
   worker: '@storeweave/selected-worker',
   cli: '@storeweave/selected-cli',
 };
+const HOST_EXTERNALS = ['pg-native', 'class-transformer', 'class-transformer/storage', 'class-validator', 'cache-manager',
+  '@nestjs/websockets', '@nestjs/websockets/socket-module', '@nestjs/microservices', '@nestjs/microservices/microservices-module',
+  '@nestjs/platform-express', '@fastify/view', '@fastify/middie', 'sharp'];
 
 /** In-process esbuild bundle graph — same pattern as cli-projection-imports.test.ts. */
-async function bundleGraph(releaseId: ReleaseId, target: Target, entry: string, alias: Record<string, string>): Promise<TargetGraph> {
+async function bundleGraph(
+  releaseId: ReleaseId, target: Target, entry: string, alias: Record<string, string>, external: readonly string[] = HOST_EXTERNALS,
+): Promise<TargetGraph> {
   const result = await esbuild({
     entryPoints: [resolve(ROOT, entry)],
     bundle: true,
@@ -33,9 +39,7 @@ async function bundleGraph(releaseId: ReleaseId, target: Target, entry: string, 
     target: 'node22',
     format: 'cjs',
     tsconfig: resolve(ROOT, 'tsconfig.json'),
-    external: ['pg-native', 'class-transformer', 'class-transformer/storage', 'class-validator', 'cache-manager',
-      '@nestjs/websockets', '@nestjs/websockets/socket-module', '@nestjs/microservices', '@nestjs/microservices/microservices-module',
-      '@nestjs/platform-express', '@fastify/view', '@fastify/middie', 'sharp'],
+    external: [...external],
     alias,
     logLevel: 'silent',
   });
@@ -88,22 +92,9 @@ export async function buildAdminGraph(releaseId: ReleaseId): Promise<TargetGraph
   }
 }
 
-/** R4 — the release root's own import graph (`packages/releases/<id>/src/index.ts`). */
+/** R4 — the release root's own import graph (`packages/releases/<id>/src/index.ts`), via the same `bundleGraph` helper. */
 export async function buildRootEntryGraph(releaseId: ReleaseId): Promise<TargetGraph> {
-  const entry = `packages/releases/${releaseId}/src/index.ts`;
-  const result = await esbuild({
-    entryPoints: [resolve(ROOT, entry)],
-    bundle: true,
-    write: false,
-    metafile: true,
-    platform: 'node',
-    target: 'node22',
-    format: 'cjs',
-    tsconfig: resolve(ROOT, 'tsconfig.json'),
-    external: ['pg-native'],
-    logLevel: 'silent',
-  });
-  return { releaseId, target: 'root', artifact: entry, inputs: Object.keys(result.metafile!.inputs) };
+  return bundleGraph(releaseId, 'root', `packages/releases/${releaseId}/src/index.ts`, {}, ['pg-native']);
 }
 
 interface RawModule {
@@ -112,24 +103,41 @@ interface RawModule {
   readonly data?: { readonly owns?: readonly string[] };
 }
 
+const releaseRuntimeByReleaseId = new Map<ReleaseId, Promise<{ release: { config: { schema: { parse: (value: unknown) => unknown } };
+  manifestConfig: unknown; createModules: (input: { config: unknown; providers: ProviderRegistry }) => readonly RawModule[] } }>>();
+
+/** One dynamic import of a release's runtime module, shared by every reader below. */
+function loadReleaseRuntime(releaseId: ReleaseId) {
+  const cached = releaseRuntimeByReleaseId.get(releaseId);
+  if (cached) return cached;
+  const loading = import(`../../packages/releases/${releaseId}/src/runtime`) as Promise<{ release: {
+    config: { schema: { parse: (value: unknown) => unknown } }; manifestConfig: unknown;
+    createModules: (input: { config: unknown; providers: ProviderRegistry }) => readonly RawModule[];
+  } }>;
+  releaseRuntimeByReleaseId.set(releaseId, loading);
+  return loading;
+}
+
 /** Runs a release's `createModules` the same way `buildReleaseManifest` does — declarations only, no DB. */
 async function createRawModules(releaseId: ReleaseId): Promise<readonly RawModule[]> {
-  const { release } = await import(`../../packages/releases/${releaseId}/src/runtime`);
+  const { release } = await loadReleaseRuntime(releaseId);
   const config = release.config.schema.parse(release.manifestConfig);
   return release.createModules({ config, providers: new ProviderRegistry(noopLogger) });
 }
 
 /** R1 schema — `buildReleaseManifest` projection (`modules[].{migrationOwner,dataRelations,migrations}`), no DB. */
 export async function collectReleaseManifest(releaseId: ReleaseId): Promise<{ modules: readonly ModulePin[] }> {
-  const { release } = await import(`../../packages/releases/${releaseId}/src/runtime`);
+  const { release } = await loadReleaseRuntime(releaseId);
   const { buildReleaseManifest } = await import('../../packages/platform/release/src/runtime');
-  const manifest = buildReleaseManifest(release);
+  const manifest = buildReleaseManifest(release as never);
   return { modules: manifest.modules.map((module: { id: string; migrationOwner: string | null; dataRelations: readonly string[]; migrations: readonly { id: string }[] }) => ({
     id: module.id, migrationOwner: module.migrationOwner, dataRelations: module.dataRelations, migrations: module.migrations,
   })) };
 }
 
-const CREATE_RELATION = /CREATE\s+(?:UNLOGGED\s+)?(?:TABLE|SEQUENCE)\s+(?:IF NOT EXISTS\s+)?(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gi;
+// Postgres object kinds a Booking migration might create; extend here (not TRIGGER/INDEX/etc.,
+// which do not themselves own rows) if a future migration needs one of the others too.
+const CREATE_RELATION = /CREATE\s+(?:OR REPLACE\s+)?(?:UNLOGGED\s+)?(?:MATERIALIZED\s+VIEW|TABLE|SEQUENCE|VIEW|TYPE)\s+(?:IF NOT EXISTS\s+)?(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gi;
 
 /** SQL cross-check for R1: every relation a Booking migration's `up` SQL actually creates. */
 export async function collectSqlRelations(releaseId: ReleaseId): Promise<{ module: string; migration: string; relation: string }[]> {
@@ -150,19 +158,22 @@ export async function collectSqlRelations(releaseId: ReleaseId): Promise<{ modul
 // R3 — common assembly source scan
 // ---------------------------------------------------------------------------
 
+// `sourceFiles()` in ./source-graph only walks a single directory for `.ts` (no `.tsx`/`.mjs`/
+// `.js`/exclusions), which R3's scope needs across several directories — kept local, but ROOT
+// above is reused from it rather than redefined.
 function walk(dir: string, out: string[]) {
   for (const entry of readdirSync(dir)) {
     if (entry === 'node_modules' || entry === 'dist') continue;
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) walk(full, out);
-    else if (/\.(?:ts|tsx|mjs)$/.test(entry) && !entry.endsWith('.d.ts') && !/\.test\.[jt]sx?$/.test(entry) && !full.replaceAll('\\', '/').includes('/test/')) out.push(full);
+    else if (/\.(?:ts|tsx|mjs|js|cjs|mts|cts)$/.test(entry) && !entry.endsWith('.d.ts') && !/\.test\.[jt]sx?$/.test(entry) && !full.replaceAll('\\', '/').includes('/test/')) out.push(full);
   }
 }
 
 /**
  * R3 scope: Platform/Base common assembly, host apps' non-release-specific source, build
- * scripts, and `tools/cli` (SW-144 decision: R3 scan includes tools/cli; its 5 pinned
- * product-id branches are a known-exception list citing GitHub issue #97, not a skip).
+ * scripts, and `tools/cli` (SW-144 decision: R3 scan includes tools/cli; its pinned
+ * product-id literals are a known-exception list citing GitHub issue #97, not a skip).
  */
 export function commonAssemblyFiles(): SourceText[] {
   const dirs = [

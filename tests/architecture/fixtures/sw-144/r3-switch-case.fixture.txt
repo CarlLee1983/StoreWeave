@@ -1,0 +1,8 @@
+export function pick(id: string): number {
+  switch (id) {
+    case 'booking':
+      return 1;
+    default:
+      return 0;
+  }
+}

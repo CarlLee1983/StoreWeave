@@ -10,7 +10,7 @@ import {
   collectSqlRelations, commonAssemblyFiles,
 } from './release-isolation-artifacts';
 import {
-  assertNoViolations, checkBookingSchema, checkProductBranches, checkProductIsolation, checkRootEntryGraph,
+  checkBookingSchema, checkProductBranches, checkProductIsolation, checkRootEntryGraph,
   checkRootManifestValue, checkTargetIsolation, formatViolation, normalizePath,
   type ReleaseId, type TargetGraph, type Violation,
 } from './release-isolation-rules';
