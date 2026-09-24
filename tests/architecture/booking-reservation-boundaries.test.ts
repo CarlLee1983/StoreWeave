@@ -116,6 +116,8 @@ describe('Booking Reservation package boundary', () => {
       'booking.reservation.materializeNotification', 'booking.reservation.recordNotificationMappingFailure',
     ]);
     expect(module.queries?.map(query => query.descriptor.name)).toEqual([
+      'booking.reservation.listOperator', 'booking.reservation.getOperator',
+      'booking.reservation.listOperatorPaymentAttempts',
       'booking.reservation.getPaymentAttemptForProcessing',
       'booking.reservation.getRefundForProcessing', 'booking.reservation.listRefunds',
       'booking.reservation.getOwned', 'booking.reservation.getManaged',
@@ -131,6 +133,7 @@ describe('Booking Reservation package boundary', () => {
     expect(bookingReservationMigrations.module).toBe('booking-reservation');
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.booking_reservation_reservations');
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.booking_reservation_payment_attempts');
+    expect(migration).toContain('booking_reservation_operator_created_idx');
     expect(migration).toMatch(/booking_reservation_payment_attempt_active_reservation_key[\s\S]*?status IN \('created', 'submitted', 'awaiting_payment'\)/i);
     expect(migration).toContain('winning_payment_attempt_id uuid');
     expect(migration).toContain('success_kind text');

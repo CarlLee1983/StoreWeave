@@ -38479,20 +38479,20 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src + packages/commerce + packages/extensions + packages/platform + packages/releases/commerce/src + packages/themes/default/src",
-      "fingerprint": "ae8f978623e2db97f7e323a7907278793028cc30e3fe5170d750f7cc24879e9c",
+      "fingerprint": "1bd399f55ab454391ca6e5bf2281344fa33797e8f980a3eb8f9acfc2fd9f2d55",
       "id": "zod:commerce-production-source-inventory",
       "limitations": [
         "A source fingerprint detects drift but does not prove behavior.",
         "Called predicate bodies and the complete input domain are not inferred from this AST inventory."
       ],
-      "occurrences": 1075,
+      "occurrences": 1094,
       "operator": "zod-semantic-operations"
     }
   ],
   "source": {
     "assurance": "provenance-only",
     "dependencyLock": "pnpm-lock.yaml",
-    "dependencyLockSha256": "72cfa3f6f88325d4a6ae8d7afb861cc08223aaea231dc98b33f5a25302d149f3",
+    "dependencyLockSha256": "41fb5e9231fa3298d0d300ab47102ae68f95abdbffdeb362c1468b62f440c86f",
     "http": "docs/base/b17/commerce-http-contract.v1.json",
     "httpSha256": "1f9c5563cd8cada3c51a797a121bd3a21c17ced22329eb9e6091da8f66c7066a",
     "limitations": [
@@ -38530,8 +38530,18 @@
     },
     {
       "assurance": "provenance-only",
+      "file": "apps/api/src/controllers/booking-callback.controller.ts",
+      "fingerprint": "cadd81d72f8de5a61bf983d6f602c95610e5c33480cd863ec8cca002187c9916"
+    },
+    {
+      "assurance": "provenance-only",
       "file": "apps/api/src/controllers/booking-management.controller.ts",
       "fingerprint": "1ae0e65d3635ee4bceedb296334798952d68aff8e6ae82165a468174d376dfae"
+    },
+    {
+      "assurance": "provenance-only",
+      "file": "apps/api/src/controllers/booking-operator.controller.ts",
+      "fingerprint": "9c2ee54b7878b8cd4ec5803e8fde61f096b38cc895fb955042b9fd060f5ab889"
     },
     {
       "assurance": "provenance-only",
@@ -38681,7 +38691,7 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src/http/contract.ts",
-      "fingerprint": "e28ed3676fd7ce4756112ad5df3befd1b34570d6a678b71246ea72f55419578a"
+      "fingerprint": "6001aec46b8829787d133ca97270e532a288d8f783ec3afb413a17b94a419c4d"
     },
     {
       "assurance": "provenance-only",
@@ -38766,7 +38776,7 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src/releases/booking.ts",
-      "fingerprint": "06c46f9d86f63cdb48c78c40827baf06be6d93fe3a8bbec3a151f868e771bc10"
+      "fingerprint": "cc7bd7f7334b07f32d74bde802e1ee74717e2c4bfb62c9347c6b01e3fb4c682d"
     },
     {
       "assurance": "provenance-only",

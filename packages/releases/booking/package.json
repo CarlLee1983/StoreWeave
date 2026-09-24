@@ -1,0 +1,17 @@
+{
+  "name": "@storeweave/release-booking",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "exports": {
+    ".": { "types": "./src/index.ts" },
+    "./runtime": { "types": "./src/runtime.ts" },
+    "./server": { "types": "./src/server.ts" },
+    "./worker": { "types": "./src/worker.ts" },
+    "./admin": { "types": "./src/admin.ts" },
+    "./cli": { "types": "./src/cli.ts" },
+    "./config": { "types": "./src/config.ts" },
+    "./storefront": { "types": "./src/storefront.ts" }
+  }
+}

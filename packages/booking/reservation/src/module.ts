@@ -97,6 +97,14 @@ import {
   recordBookingReservationNotificationMappingFailureCommand,
   PermanentBookingReservationNotificationMappingError,
 } from './notifications';
+import {
+  getOperatorBookingReservationHandler,
+  getOperatorBookingReservationQuery,
+  listOperatorBookingPaymentAttemptsHandler,
+  listOperatorBookingPaymentAttemptsQuery,
+  listOperatorBookingReservationsHandler,
+  listOperatorBookingReservationsQuery,
+} from './operator-read';
 
 function queueNotification(input: unknown, eventId: string, template: string) {
   return async (_event: unknown, context: { executeCommand?: (name: string, input: unknown, idempotencyKey: string) => Promise<unknown> }) => {
@@ -170,6 +178,7 @@ export function createBookingReservationModule(
       { key: 'booking-reservation:claim', description: 'Claim a Reservation for the authenticated Account', owner: 'booking-reservation' },
       { key: 'booking-reservation:read-self', description: 'Read an owned Reservation', owner: 'booking-reservation' },
       { key: 'booking-reservation:read-managed', description: 'Read a Reservation with valid management access', owner: 'booking-reservation' },
+      { key: 'booking-reservation:operator-read', description: 'Read operator-safe Reservation and payment evidence', owner: 'booking-reservation' },
       { key: 'booking-reservation:manage-self', description: 'Update authorized Booker details', owner: 'booking-reservation' },
       { key: 'booking-reservation:cancel', description: 'Cancel a Reservation as an operator', owner: 'booking-reservation' },
       { key: 'booking-reservation:retention-write', description: 'Anonymize expired Reservation personal data', owner: 'booking-reservation' },
@@ -197,6 +206,9 @@ export function createBookingReservationModule(
       { descriptor: recordBookingReservationNotificationMappingFailureCommand, handler: createRecordBookingReservationNotificationMappingFailureHandler() },
     ],
     queries: [
+      { descriptor: listOperatorBookingReservationsQuery, handler: listOperatorBookingReservationsHandler },
+      { descriptor: getOperatorBookingReservationQuery, handler: getOperatorBookingReservationHandler },
+      { descriptor: listOperatorBookingPaymentAttemptsQuery, handler: listOperatorBookingPaymentAttemptsHandler },
       { descriptor: getBookingReservationPaymentAttemptForProcessingQuery, handler: getBookingReservationPaymentAttemptForProcessingHandler },
       { descriptor: getBookingReservationRefundForProcessingQuery, handler: getBookingReservationRefundForProcessingHandler },
       { descriptor: listBookingReservationRefundsQuery, handler: listBookingReservationRefundsHandler },

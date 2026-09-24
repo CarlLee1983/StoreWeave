@@ -40,5 +40,9 @@
 - 後續 Node 22 的診斷版 `make verify` 通過；移除探針後 ForgePilot
   `VR-011`／`EV-012` 在固定 snapshot 完整通過，integration 112 檔、
   989 個測試全綠；WI-015 驗證通過，WI-013／014 也取得共享 fresh PASS。
+- ForgePilot `VR-025`／`EV-040` 在 WI-017 快照的 integration 112 檔中
+  111 檔通過，`cli-legacy-upgrade.test.ts` 的 raw snapshot 案例原本預期
+  `SIGKILL`，實際先被 cutover 的殘留 session 安全檢查拒絕；同一檔在主工作樹
+  聚焦重跑 2/2 通過。此結果仍不能替代完整 gate PASS。
 - 本票不修改 Booking HTTP、Quote signer、Reservation 權限或 ForgePilot
   goal/DAG；相關工單的驗證狀態不得由本票提前解除。

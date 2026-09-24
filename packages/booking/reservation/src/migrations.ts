@@ -415,5 +415,10 @@ ALTER TABLE public.booking_reservation_reservations
       AND checkout_credential_hash IS NULL AND checkout_credential_expires_at IS NULL
     )
   );
+`), sqlMigration('0014_operator_reservation_list_index', 'expand', `
+-- The bounded operator list orders by both columns in descending order;
+-- PostgreSQL scans this B-tree backward without another unfiltered sort.
+CREATE INDEX IF NOT EXISTS booking_reservation_operator_created_idx
+  ON public.booking_reservation_reservations (created_at, id);
 `)],
 };

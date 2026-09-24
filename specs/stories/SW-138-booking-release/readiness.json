@@ -2,7 +2,7 @@
   "schema_version": 1,
   "story_ref": "specs/stories/SW-138-booking-release",
   "story_md_digest": "sha256:427dfa02d5241bd8c7c5fc4430117e33f800849e9a13ae0d73f1ba0d3be63cdb",
-  "acceptance_md_digest": "sha256:ab8fc640024ff3036cf04ab0417d58c11c89c1774ef9c792de35bd670402eef2",
+  "acceptance_md_digest": "sha256:a801c709db628e4d740e1985c03e71ae1f5c3b7af54917b3b95438ed5790a1f4",
   "criteria": [
     { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
     { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },

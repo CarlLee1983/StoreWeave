@@ -42,13 +42,15 @@ export interface ComposedHttpContract extends Omit<BusHttpContract, 'kind'> {
   readonly output: JsonSchema7Type | 'target';
 }
 
-/** A JSON handler that is not backed by a Command/Query descriptor. */
+/** A JSON handler that owns its HTTP input and output, optionally invoking one declared capability. */
 export interface DirectHttpContract {
   readonly kind: 'direct';
   readonly request: 'body' | 'none' | 'multipart';
   readonly rateLimit?: RateLimitBucket;
   /** A handler-level requirement stricter than the Nest guard's accepted credentials. */
   readonly auth?: 'session';
+  /** Declared capability invoked by a handler that owns its HTTP input and envelope. */
+  readonly target?: BusTarget;
   readonly input: JsonSchema7Type;
   /** The complete successful JSON response, including any REST envelope. */
   readonly output: JsonSchema7Type | 'binary';
@@ -98,7 +100,7 @@ export interface McpHttpContract {
 export interface ProviderCallbackHttpContract {
   readonly kind: 'provider-callback';
   readonly request: 'raw';
-  readonly providerKinds: readonly ['payment', 'shipping'];
+  readonly providerKinds: readonly ['payment'] | readonly ['payment', 'shipping'];
   readonly rateLimit: 'callback';
 }
 
@@ -133,9 +135,10 @@ type DescribedRawRoute = {
   readonly guardError: JsonTransportError | null;
 };
 type DescribedDirectRoute = {
-  readonly method: string; readonly path: string; readonly status: number; readonly auth: string; readonly owner: null;
+  readonly method: string; readonly path: string; readonly status: number; readonly auth: string; readonly owner: string | null;
   readonly rateLimit: RateLimitBucket | null;
-  readonly kind: 'direct'; readonly request: DirectHttpContract['request']; readonly permission: null; readonly idempotency: 'none';
+  readonly kind: 'direct'; readonly request: DirectHttpContract['request']; readonly target?: BusTarget;
+  readonly permission: unknown; readonly idempotency: unknown; readonly idempotencyKey?: 'request-header' | 'none';
   readonly input: JsonSchema7Type; readonly error: JsonSchema7Type; readonly output: JsonSchema7Type;
 };
 type DescribedStorageRoute = {
@@ -177,7 +180,7 @@ type ProviderAcknowledgement = {
 };
 type DescribedProviderCallbackRoute = {
   readonly method: string; readonly path: string; readonly status: null; readonly auth: string;
-  readonly kind: 'provider-callback'; readonly request: 'raw'; readonly providerKinds: readonly ['payment', 'shipping'];
+  readonly kind: 'provider-callback'; readonly request: 'raw'; readonly providerKinds: ProviderCallbackHttpContract['providerKinds'];
   readonly rateLimit: 'callback'; readonly targets: readonly DescribedProviderCallbackTarget[];
   readonly acknowledgements: { readonly accepted: ProviderAcknowledgement; readonly rejected: ProviderAcknowledgement };
   readonly notFound: { readonly status: 404; readonly contentType: 'text/plain; charset=utf-8'; readonly body: 'Not found' };
@@ -311,14 +314,14 @@ function mcpTools(runtime: Runtime): DescribedMcpTool[] {
   });
 }
 
-function providerCallbackTargets(runtime: Runtime): DescribedProviderCallbackTarget[] {
+function providerCallbackTargets(runtime: Runtime, kinds: ProviderCallbackHttpContract['providerKinds']): DescribedProviderCallbackTarget[] {
   const targets: DescribedProviderCallbackTarget[] = [];
   for (const provider of runtime.providers.list()) {
-    if (provider.kind === 'payment') {
+    if (provider.kind === 'payment' && kinds.includes('payment')) {
       targets.push({ kind: provider.kind, providerId: provider.id, owner: provider.owner });
       continue;
     }
-    if (provider.kind !== 'shipping') continue;
+    if (provider.kind !== 'shipping' || kinds.length !== 2) continue;
     const shipping = runtime.providers.get<ShippingProvider>('shipping', provider.id);
     if (shipping.parseCallback && shipping.acknowledgeCallback) {
       targets.push({ kind: provider.kind, providerId: provider.id, owner: provider.owner });
@@ -440,7 +443,7 @@ export function describeHttpRoutes(runtime: Runtime, controllers: readonly Type[
     }
     if (contract.kind === 'provider-callback') return [{
       method: verb, path, status: null, auth, kind: contract.kind, request: contract.request, providerKinds: contract.providerKinds,
-      rateLimit: contract.rateLimit, targets: providerCallbackTargets(runtime),
+      rateLimit: contract.rateLimit, targets: providerCallbackTargets(runtime, contract.providerKinds),
       acknowledgements: {
         accepted: { status: 'provider-defined', defaultStatus: 200, headers: 'provider-defined', contentType: 'provider-defined', body: 'provider-defined' },
         rejected: { status: 'provider-defined', defaultStatus: 500, headers: 'provider-defined', contentType: 'provider-defined', body: 'provider-defined' },
@@ -448,11 +451,20 @@ export function describeHttpRoutes(runtime: Runtime, controllers: readonly Type[
       notFound: { status: 404, contentType: 'text/plain; charset=utf-8', body: 'Not found' },
       rateLimited: { status: 429, retryAfter: true, contentType: 'application/json', error: errorSchema() },
     }];
-    if (contract.kind === 'direct') return [{
+    if (contract.kind === 'direct') {
+      const registration = contract.target && (contract.target.kind === 'command'
+        ? runtime.commands.get(contract.target.name) : runtime.queries.get(contract.target.name));
+      const descriptor = registration?.descriptor;
+      return [{
       method: verb, path, status: Reflect.getMetadata(HTTP_CODE_METADATA, handler) ?? (method === RequestMethod.POST ? 201 : 200),
-      auth, owner: null, kind: contract.kind, request: contract.request, permission: null, idempotency: 'none', rateLimit: contract.rateLimit ?? null,
+      auth, owner: registration?.owner ?? null, kind: contract.kind, request: contract.request,
+      permission: descriptor?.permission ?? null,
+      idempotency: descriptor && 'idempotency' in descriptor ? descriptor.idempotency : 'none',
+      ...(contract.target ? { target: contract.target, idempotencyKey: contract.target.kind === 'command' ? 'request-header' : 'none' } : {}),
+      rateLimit: contract.rateLimit ?? null,
       input: contract.input, error: errorSchema(), output: contract.output === 'binary' ? { type: 'string', format: 'binary' } : contract.output,
-    }];
+      }];
+    }
     if (contract.kind === 'mcp') return [{
       method: verb, path, status: Reflect.getMetadata(HTTP_CODE_METADATA, handler) ?? (method === RequestMethod.POST ? 201 : 200),
       auth, kind: contract.kind, transport: contract.transport, request: contract.request, rateLimit: contract.rateLimit ?? null,

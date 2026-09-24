@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { BASE_ROLES } from '@storeweave/authorization';
@@ -7,7 +7,7 @@ import { SYSTEM_ACTOR, type Actor } from '@storeweave/contracts';
 import { signValue, type Keyring } from '@storeweave/crypto';
 import { csrfTokenFor } from '@storeweave/identity';
 import { resolveKeyring, bindModuleCapability, createMemoryLogger, createRuntime, type CapturedLine, type Runtime } from '@storeweave/kernel';
-import type { PaymentProviderV2 } from '@storeweave/extension-sdk';
+import type { PaymentCallbackEvent, PaymentProviderV2 } from '@storeweave/extension-sdk';
 import {
   bindBookingAvailabilityQuoteReservation, BOOKING_PROPERTY_READ_CAPABILITY,
   createBookingAvailabilityModule, BOOKING_AVAILABILITY_ROOM_NIGHT_OPERATIONS_CAPABILITY,
@@ -20,6 +20,7 @@ import { bookingHttpAdapter } from '../../apps/api/src/releases/booking';
 import { SESSION_COOKIE, cookieName } from '../../apps/api/src/http/cookie-names';
 
 const signingSecret = Buffer.alloc(32, 4).toString('base64url');
+const callbackSecret = 'booking-http-test-provider-signature';
 const manager: Actor = {
   id: 'test:booking-public-http-manager', type: 'user', displayName: 'Booking HTTP manager',
   permissions: ['booking-property:manage', 'booking-availability:manage'],
@@ -30,9 +31,20 @@ const testProvider: PaymentProviderV2 = {
   initiate: async input => ({ status: 'redirect', providerRef: `private-provider:${input.reference}`,
     action: { type: 'redirect', url: 'https://payments.example.test/continue' } }),
   refund: async () => ({ status: 'succeeded', providerRefundRef: 'unused' }),
-  parseCallback: async () => { throw new Error('Not used by booking public HTTP'); },
-  acknowledgeCallback: () => ({ body: 'ok' }),
+  parseCallback: async request => {
+    const raw = Buffer.from(request.body);
+    const signature = request.headers['x-booking-signature'];
+    if (signature !== createHmac('sha256', callbackSecret).update(raw).digest('hex')) throw new Error('Invalid callback signature');
+    return JSON.parse(raw.toString('utf8')) as PaymentCallbackEvent;
+  },
+  acknowledgeCallback: result => ({ body: result.accepted ? 'accepted' : 'retry', statusCode: result.accepted ? 200 : 503 }),
 };
+
+function signedCallback(event: PaymentCallbackEvent) {
+  const payload = JSON.stringify(event);
+  return { method: 'POST' as const, url: `/callbacks/payment/${testProvider.id}`,
+    headers: { 'content-type': 'application/json', 'x-booking-signature': createHmac('sha256', callbackSecret).update(payload).digest('hex') }, payload };
+}
 
 let container: StartedPostgreSqlContainer;
 let runtime: Runtime;
@@ -121,6 +133,28 @@ async function registerAccount(email: string) {
   return { session, csrf: csrfTokenFor(session) };
 }
 
+async function operatorSession(role: 'admin' | 'readonly') {
+  const email = `${role}-${randomUUID()}@example.test`;
+  const password = 'booking-operator-passphrase';
+  await runtime.commands.execute('platform.identity.createUser', { email, password, displayName: role, role },
+    { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() });
+  const login = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { email, password } });
+  expect(login.statusCode, login.body).toBe(200);
+  const session = login.cookies.find(cookie => cookie.name === cookieName(SESSION_COOKIE, 'https://booking.example.test'))!.value;
+  return { cookies: { [cookieName(SESSION_COOKIE, 'https://booking.example.test')]: session },
+    headers: { 'x-csrf-token': csrfTokenFor(session), 'idempotency-key': randomUUID() } };
+}
+
+async function startHttpPayment(reservationId: string, checkoutCredential: string) {
+  const payment = await app.inject({ method: 'POST', url: `/api/v1/booking/reservations/${reservationId}/payments`,
+    headers: { 'x-booking-checkout-credential': checkoutCredential, 'idempotency-key': randomUUID() },
+    payload: { method: 'deferred' } });
+  expect(payment.statusCode, payment.body).toBe(202);
+  const attemptId = payment.json().data.attemptId as string;
+  const attempts = await runtime.database.pool.query<{ reference: string }>('SELECT reference FROM booking_reservation_payment_attempts WHERE id = $1', [attemptId]);
+  return { attemptId, reference: attempts.rows[0]!.reference };
+}
+
 beforeAll(async () => {
   container = await new PostgreSqlContainer('postgres:17-alpine').withDatabase('booking_public_http').withUsername('booking').withPassword('booking').start();
   const config = baseConfigSchema.parse({
@@ -143,6 +177,7 @@ beforeAll(async () => {
       createBookingAvailabilityModule(property, { maxRoomsPerRequest: 4 }, keyring), createBookingPropertyModule(),
       createBookingReservationModule(quoteReservation, roomNights, reservationAccess, { reservationPiiRetentionDays: 1 }, testProvider),
     ] });
+  runtime.providers.register({ provider: testProvider, owner: 'booking-http-test' });
   await runtime.migrate();
   await runtime.commands.execute('booking.property.create', { name: 'HTTP Test Hotel', address: { countryCode: 'US', postalCode: '90210', administrativeArea: 'California', locality: 'Los Angeles', addressLine1: 'Ocean 1', addressLine2: null }, timezone: 'America/Los_Angeles', currency: 'USD', checkInTime: '15:00', checkOutTime: '11:00', defaultPolicy: { freeCancellationHoursBeforeCheckIn: 48 } }, { actor: manager, idempotencyKey: randomUUID() });
   const room = await runtime.commands.execute<{ id: string }>('booking.property.createRoomType', { code: 'http', name: 'HTTP room', description: null, maxOccupancyPerUnit: 4, beds: [{ type: 'queen', count: 1 }], amenities: [], minimumStayNights: 1, maximumStayNights: null, mediaAssetId: null }, { actor: manager, idempotencyKey: randomUUID() });
@@ -176,11 +211,37 @@ describe('Booking public HTTP checkout credential boundary', () => {
     expect([quote.statusCode, invalidQuote.statusCode, soldOutQuote.statusCode, search.statusCode]).toEqual([201, 400, 201, 201]);
     const catalog = (app.getHttpAdapter().getInstance() as { storeweaveHttpCatalog?: Array<{ path: string; output: unknown }> }).storeweaveHttpCatalog!;
     const bookingRoutes = catalog.filter(route => route.path.startsWith('/api/v1/booking'));
-    expect(bookingRoutes).toHaveLength(13);
+    const callbackRoutes = catalog.filter(route => route.path.startsWith('/callbacks/'));
+    expect(callbackRoutes).toHaveLength(1);
+    expect(callbackRoutes[0]?.path).toBe('/callbacks/:kind/:providerId');
+    expect(bookingRoutes).toHaveLength(30);
+    const operatorRoutes = bookingRoutes.filter(route => route.path.startsWith('/api/v1/booking/operator/')) as unknown as Array<{
+      auth: string; owner: string | null; permission: unknown; target: { kind: string; name: string } | null;
+      idempotencyKey: string;
+    }>;
+    expect(operatorRoutes).toHaveLength(17);
+    for (const route of operatorRoutes) {
+      expect(route.auth).toBe('session');
+      expect(route.owner).toEqual(expect.any(String));
+      expect(route.permission).not.toBeNull();
+      expect(route.target?.name).toMatch(/^booking\./);
+      expect(route.idempotencyKey).toBe(route.target?.kind === 'command' ? 'request-header' : 'none');
+    }
     expect(bookingRoutes.map(route => route.path).sort()).toEqual([
       '/api/v1/booking/management/:reservationId', '/api/v1/booking/management/:reservationId',
       '/api/v1/booking/management/:reservationId/cancel', '/api/v1/booking/management/:reservationId/claim',
       '/api/v1/booking/management/:reservationId/grants', '/api/v1/booking/management/:reservationId/resend-access-grant',
+      '/api/v1/booking/operator/availability/base-price', '/api/v1/booking/operator/availability/room-night-range',
+      '/api/v1/booking/operator/availability/room-night-range', '/api/v1/booking/operator/property',
+      '/api/v1/booking/operator/property', '/api/v1/booking/operator/property',
+      '/api/v1/booking/operator/refunds/retry', '/api/v1/booking/operator/reservations',
+      '/api/v1/booking/operator/reservations/:reservationId',
+      '/api/v1/booking/operator/reservations/:reservationId/notifications',
+      '/api/v1/booking/operator/reservations/:reservationId/payment-attempts',
+      '/api/v1/booking/operator/reservations/:reservationId/refunds',
+      '/api/v1/booking/operator/reservations/cancel',
+      '/api/v1/booking/operator/room-types', '/api/v1/booking/operator/room-types',
+      '/api/v1/booking/operator/room-types', '/api/v1/booking/operator/room-types/:roomTypeId',
       '/api/v1/booking/property', '/api/v1/booking/quotes', '/api/v1/booking/quotes/search',
       '/api/v1/booking/reservations', '/api/v1/booking/reservations/:reservationId/payments',
       '/api/v1/booking/room-types', '/api/v1/booking/room-types/:roomTypeId',
@@ -287,6 +348,150 @@ describe('Booking public HTTP checkout credential boundary', () => {
     expect(revokedReplay.statusCode, revokedReplay.body).toBe(401);
     const badPaymentIdempotency = await app.inject({ method: 'POST', url: `/api/v1/booking/reservations/${firstData.reservation.id}/payments`, headers: { 'x-booking-checkout-credential': firstData.checkoutCredential, 'idempotency-key': 'predictable' }, payload: { method: 'deferred' } });
     expect(badPaymentIdempotency.statusCode).toBe(400);
+  });
+});
+
+describe('Booking operator HTTP boundary', () => {
+  it('authorizes human Reservation reads and evidence without exposing the list PII to a reader or service token', async () => {
+    const { create } = await quoteThenCreate(randomUUID(), 5);
+    const reservationId = create.json().data.reservation.id as string;
+    const admin = await operatorSession('admin');
+    const list = await app.inject({ url: '/api/v1/booking/operator/reservations?limit=2&offset=0', cookies: admin.cookies });
+    expect(list.statusCode, list.body).toBe(200);
+    expect(list.headers['cache-control']).toBe('no-store');
+    expect(list.json().data.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: reservationId })]));
+    expect(JSON.stringify(list.json())).not.toContain('private.booker@example.test');
+    const detail = await app.inject({ url: `/api/v1/booking/operator/reservations/${reservationId}`, cookies: admin.cookies });
+    expect(detail.statusCode, detail.body).toBe(200);
+    expect(detail.json().data.reservation).toMatchObject({ id: reservationId, booker: { email: 'private.booker@example.test' } });
+    for (const suffix of ['payment-attempts', 'refunds', 'notifications']) {
+      const evidence = await app.inject({ url: `/api/v1/booking/operator/reservations/${reservationId}/${suffix}`, cookies: admin.cookies });
+      expect(evidence.statusCode, evidence.body).toBe(200);
+      expect(evidence.json().data).toEqual({ items: [], total: 0 });
+      const unknown = await app.inject({ url: `/api/v1/booking/operator/reservations/${randomUUID()}/${suffix}`, cookies: admin.cookies });
+      expect(unknown.statusCode, unknown.body).toBe(404);
+    }
+    expect((await app.inject({ url: '/api/v1/booking/operator/reservations?limit=101', cookies: admin.cookies })).statusCode).toBe(400);
+    const reader = await operatorSession('readonly');
+    expect((await app.inject({ url: '/api/v1/booking/operator/reservations', cookies: reader.cookies })).statusCode).toBe(403);
+    const token = await runtime.database.transaction(tx => runtime.apiTokens.issue(tx, { name: `booking-http-${randomUUID()}`, role: 'admin', ttlMs: 60_000 }));
+    expect((await app.inject({ url: '/api/v1/booking/operator/reservations', headers: { authorization: `Bearer ${token.secret}` } })).statusCode).toBe(403);
+    expect((await app.inject({ url: `/api/v1/booking/operator/reservations/${randomUUID()}`, cookies: admin.cookies })).statusCode).toBe(404);
+  });
+
+  it('routes Property and Availability writes through operator authorization and validates refund input', async () => {
+    const admin = await operatorSession('admin');
+    const property = await app.inject({ url: '/api/v1/booking/operator/property', cookies: admin.cookies });
+    expect(property.statusCode, property.body).toBe(200);
+    expect(property.json().data.property.name).toBe('HTTP Test Hotel');
+    const range = await app.inject({ url: `/api/v1/booking/operator/availability/room-night-range?roomTypeId=${roomTypeId}&startLocalDate=${quoteInput.checkInLocalDate}&endLocalDateExclusive=${quoteInput.checkOutLocalDate}`, cookies: admin.cookies });
+    expect(range.statusCode, range.body).toBe(200);
+    expect(range.json().data.nights).toHaveLength(2);
+    const price = await app.inject({ method: 'PUT', url: '/api/v1/booking/operator/availability/base-price', cookies: admin.cookies, headers: admin.headers,
+      payload: { roomTypeId, baseNightlyPriceMinor: 13_000 } });
+    expect(price.statusCode, price.body).toBe(200);
+    const invalidRefund = await app.inject({ method: 'POST', url: '/api/v1/booking/operator/refunds/retry', cookies: admin.cookies, headers: admin.headers,
+      payload: { refundId: 'not-a-uuid' } });
+    expect(invalidRefund.statusCode).toBe(400);
+    const reader = await operatorSession('readonly');
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/booking/operator/availability/base-price', cookies: reader.cookies, headers: reader.headers,
+      payload: { roomTypeId, baseNightlyPriceMinor: 14_000 } })).statusCode).toBe(403);
+  });
+});
+
+describe('Booking payment callback HTTP boundary', () => {
+  it('rejects unverified and unknown results, then acknowledges a verified duplicate without repeating confirmation', async () => {
+    const { create } = await quoteThenCreate(randomUUID(), 6);
+    const { reservation, checkoutCredential } = create.json().data as { reservation: { id: string }; checkoutCredential: string };
+    const payment = await app.inject({ method: 'POST', url: `/api/v1/booking/reservations/${reservation.id}/payments`,
+      headers: { 'x-booking-checkout-credential': checkoutCredential, 'idempotency-key': randomUUID() },
+      payload: { method: 'deferred' } });
+    expect(payment.statusCode, payment.body).toBe(202);
+    const attemptId = payment.json().data.attemptId as string;
+    const attempts = await runtime.database.pool.query<{ reference: string }>('SELECT reference FROM booking_reservation_payment_attempts WHERE id = $1', [attemptId]);
+    const event: PaymentCallbackEvent = { type: 'payment_confirmed', reference: attempts.rows[0]!.reference, providerRef: `confirmed:${attemptId}` };
+    const signed = signedCallback(event);
+    const injectedCredential = 'v1.1.private-management-credential';
+    const tampered = await app.inject({ ...signed, headers: { ...signed.headers, 'x-booking-signature': 'bad', 'x-correlation-id': injectedCredential } });
+    expect(tampered.statusCode, tampered.body).toBe(503);
+    expect(tampered.body).toBe('retry');
+    const unknown = await app.inject(signedCallback({ ...event, reference: 'unknown-provider-reference' }));
+    expect(unknown.statusCode, unknown.body).toBe(503);
+    const malformedPayload = '{"type":';
+    const malformed = await app.inject({ method: 'POST', url: `/callbacks/payment/${testProvider.id}`,
+      headers: { 'content-type': 'application/json', 'x-booking-signature': createHmac('sha256', callbackSecret).update(malformedPayload).digest('hex') },
+      payload: malformedPayload });
+    expect(malformed.statusCode, malformed.body).toBe(400);
+    expect((await app.inject({ method: 'POST', url: `/callbacks/shipping/${testProvider.id}`, payload: '' })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: `/callbacks/payment/${testProvider.id}` })).statusCode).toBe(404);
+    const before = await runtime.database.pool.query<{ status: string }>('SELECT status FROM booking_reservation_reservations WHERE id = $1', [reservation.id]);
+    expect(before.rows[0]?.status).toBe('pending_payment');
+    const first = await app.inject(signed);
+    const replay = await app.inject(signed);
+    expect([first.statusCode, replay.statusCode]).toEqual([200, 200]);
+    expect([first.body, replay.body]).toEqual(['accepted', 'accepted']);
+    const admin = await operatorSession('admin');
+    const detail = await app.inject({ url: `/api/v1/booking/operator/reservations/${reservation.id}`, cookies: admin.cookies });
+    const evidence = await app.inject({ url: `/api/v1/booking/operator/reservations/${reservation.id}/payment-attempts`, cookies: admin.cookies });
+    expect(detail.json().data.reservation.status).toBe('confirmed');
+    expect(evidence.json().data.items).toEqual([expect.objectContaining({ id: attemptId, successKind: 'winning' })]);
+    const logs = JSON.stringify(diagnosticLines);
+    expect(logs).not.toContain(checkoutCredential);
+    expect(logs).not.toContain(injectedCredential);
+    expect(logs).not.toContain('private.booker@example.test');
+    expect(logs).not.toContain(signed.payload);
+  });
+
+  it('keeps a cancelled Reservation free when a verified payment arrives late', async () => {
+    const { create } = await quoteThenCreate(randomUUID(), 10);
+    const { reservation, checkoutCredential } = create.json().data as { reservation: { id: string }; checkoutCredential: string };
+    const attempt = await startHttpPayment(reservation.id, checkoutCredential);
+    const admin = await operatorSession('admin');
+    const cancellation = await app.inject({ method: 'POST', url: '/api/v1/booking/operator/reservations/cancel', cookies: admin.cookies,
+      headers: admin.headers, payload: { reservationId: reservation.id, refundAmountMinor: 0, reason: 'operator cancellation' } });
+    expect(cancellation.statusCode, cancellation.body).toBe(201);
+    const before = await runtime.database.pool.query<{ reserved_units: number }>(
+      'SELECT reserved_units FROM booking_availability_room_nights WHERE room_type_id = $1 AND local_date = $2',
+      [roomTypeId, addDays(quoteInput.checkInLocalDate as string, 10)]);
+    const callback = await app.inject(signedCallback({ type: 'payment_confirmed', reference: attempt.reference, providerRef: `late:${attempt.attemptId}` }));
+    expect(callback.statusCode, callback.body).toBe(200);
+    const detail = await app.inject({ url: `/api/v1/booking/operator/reservations/${reservation.id}`, cookies: admin.cookies });
+    const payments = await app.inject({ url: `/api/v1/booking/operator/reservations/${reservation.id}/payment-attempts`, cookies: admin.cookies });
+    const refunds = await app.inject({ url: `/api/v1/booking/operator/reservations/${reservation.id}/refunds`, cookies: admin.cookies });
+    expect(detail.json().data.reservation.status).toBe('cancelled');
+    expect(payments.json().data.items).toEqual([expect.objectContaining({ id: attempt.attemptId, successKind: 'late' })]);
+    expect(refunds.json().data.items).toEqual([expect.objectContaining({ reason: 'late_payment' })]);
+    const after = await runtime.database.pool.query<{ reserved_units: number }>(
+      'SELECT reserved_units FROM booking_availability_room_nights WHERE room_type_id = $1 AND local_date = $2',
+      [roomTypeId, addDays(quoteInput.checkInLocalDate as string, 10)]);
+    expect(after.rows).toEqual(before.rows);
+  });
+
+  it('keeps one winning Reservation allocation when an earlier attempt succeeds in excess', async () => {
+    const { create } = await quoteThenCreate(randomUUID(), 12);
+    const { reservation, checkoutCredential } = create.json().data as { reservation: { id: string }; checkoutCredential: string };
+    const first = await startHttpPayment(reservation.id, checkoutCredential);
+    expect((await app.inject(signedCallback({ type: 'payment_failed', reference: first.reference, providerRef: `failed:${first.attemptId}`, message: 'declined' }))).statusCode).toBe(200);
+    const second = await startHttpPayment(reservation.id, checkoutCredential);
+    expect((await app.inject(signedCallback({ type: 'payment_confirmed', reference: second.reference, providerRef: `winning:${second.attemptId}` }))).statusCode).toBe(200);
+    const before = await runtime.database.pool.query<{ reserved_units: number }>(
+      'SELECT reserved_units FROM booking_availability_room_nights WHERE room_type_id = $1 AND local_date = $2',
+      [roomTypeId, addDays(quoteInput.checkInLocalDate as string, 12)]);
+    expect((await app.inject(signedCallback({ type: 'payment_confirmed', reference: first.reference, providerRef: `excess:${first.attemptId}` }))).statusCode).toBe(200);
+    const admin = await operatorSession('admin');
+    const detail = await app.inject({ url: `/api/v1/booking/operator/reservations/${reservation.id}`, cookies: admin.cookies });
+    const payments = await app.inject({ url: `/api/v1/booking/operator/reservations/${reservation.id}/payment-attempts`, cookies: admin.cookies });
+    const refunds = await app.inject({ url: `/api/v1/booking/operator/reservations/${reservation.id}/refunds`, cookies: admin.cookies });
+    expect(detail.json().data.reservation.status).toBe('confirmed');
+    expect(payments.json().data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: first.attemptId, successKind: 'excess' }),
+      expect.objectContaining({ id: second.attemptId, successKind: 'winning' }),
+    ]));
+    expect(refunds.json().data.items).toEqual([expect.objectContaining({ reason: 'excess_payment' })]);
+    const after = await runtime.database.pool.query<{ reserved_units: number }>(
+      'SELECT reserved_units FROM booking_availability_room_nights WHERE room_type_id = $1 AND local_date = $2',
+      [roomTypeId, addDays(quoteInput.checkInLocalDate as string, 12)]);
+    expect(after.rows).toEqual(before.rows);
   });
 });
 

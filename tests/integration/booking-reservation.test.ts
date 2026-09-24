@@ -33,6 +33,155 @@ import { createRequiredBookingReservationRefund } from '../../packages/booking/r
 const actor = (permissions: string[]): Actor => ({
   id: 'test:booking-reservation', type: 'user', displayName: 'Booking Reservation Test', permissions,
 });
+
+describe('SW-154 operator Reservation read', () => {
+  const operator = actor([
+    'booking-reservation:operator-read', 'booking-reservation:refund-read',
+    'booking-reservation:notification-read',
+  ]);
+
+  it('pages equal-timestamp Reservations deterministically and keeps list PII-free after retention', async () => {
+    const { roomType, reservation } = await createReservation('sw154-list');
+    const cloneIds = await cloneReservations(reservation.id, 3);
+    await runtime.database.pool.query(`UPDATE booking_reservation_reservations
+      SET created_at = '2026-01-01T00:00:00Z' WHERE id = ANY($1::uuid[])`, [cloneIds]);
+    const detail = await runtime.queries.execute<any>('booking.reservation.getOperator',
+      { reservationId: reservation.id }, { actor: operator });
+    expect(detail.reservation).toMatchObject({
+      id: reservation.id,
+      booker: { name: 'Private Booker Name', email: 'private.booker@example.test' },
+      primaryGuestName: 'Private Guest Name', accommodationNotes: 'Private arrival note',
+    });
+    expect(JSON.stringify(detail)).not.toMatch(/managementTokenHash|checkoutCredentialHash|quoteFingerprint|accessGrantNonce/);
+
+    const filter = {
+      roomTypeId: roomType.id, status: 'confirmed',
+      checkInFrom: detail.reservation.checkInLocalDate, checkInTo: detail.reservation.checkInLocalDate,
+    };
+    const first = await runtime.queries.execute<any>('booking.reservation.listOperator',
+      { ...filter, limit: 2, offset: 0 }, { actor: operator });
+    const second = await runtime.queries.execute<any>('booking.reservation.listOperator',
+      { ...filter, limit: 2, offset: 2 }, { actor: operator });
+    expect(first.total).toBe(3);
+    expect(second.total).toBe(3);
+    expect([...first.items, ...second.items].map(item => item.id)).toEqual([...cloneIds].sort().reverse());
+    expect(JSON.stringify(first.items)).not.toMatch(/Private Booker|private\.booker|Private Guest|Private arrival|Token|fingerprint|notes/i);
+
+    await runtime.database.pool.query(`UPDATE booking_reservation_reservations SET
+      booker_name = NULL, booker_email = NULL, booker_phone = NULL,
+      primary_guest_name = NULL, accommodation_notes = NULL,
+      pii_anonymized_at = pg_catalog.clock_timestamp() WHERE id = $1`, [cloneIds[0]]);
+    const anonymized = await runtime.queries.execute<any>('booking.reservation.getOperator',
+      { reservationId: cloneIds[0] }, { actor: operator });
+    expect(anonymized.reservation.booker).toEqual({ name: null, email: null, phone: null });
+    expect(anonymized.reservation.primaryGuestName).toBeNull();
+    expect(anonymized.reservation.accommodationNotes).toBeNull();
+
+    const index = await runtime.database.pool.query<{ indexdef: string }>(`
+      SELECT indexdef FROM pg_indexes WHERE schemaname = 'public'
+        AND indexname = 'booking_reservation_operator_created_idx'`);
+    expect(index.rows[0]?.indexdef).toContain('(created_at, id)');
+  });
+
+  it('returns bounded Late/Excess payment and failed refund evidence without provider free text', async () => {
+    const { reservation } = await createReservation('sw154-evidence');
+    const other = await createReservation('sw154-evidence-other');
+    const lateId = randomUUID();
+    const excessId = randomUUID();
+    const lateReference = `sw154-late:${randomUUID()}`;
+    const excessReference = `sw154-excess:${randomUUID()}`;
+    await runtime.database.pool.query(`INSERT INTO booking_reservation_payment_attempts (
+      id, reservation_id, reference, provider, method, amount_minor, currency,
+      status, provider_ref, action, instructions, expires_at, failure_message,
+      success_kind, succeeded_at, created_at, updated_at
+    ) VALUES
+      ($1, $3, $4, 'booking-test-payment', 'deferred', 24690, 'USD', 'succeeded', $6,
+       '{"type":"redirect","url":"https://private.example.test/?token=canary"}'::jsonb,
+       '{"code":"private-code"}'::jsonb, now() + interval '1 day', 'provider-message-canary',
+       'late', now(), '2026-01-02T00:00:00Z', now()),
+      ($2, $3, $5, 'booking-test-payment', 'deferred', 24690, 'USD', 'succeeded', $7,
+       NULL, NULL, now() + interval '1 day', 'provider-message-canary',
+       'excess', now(), '2026-01-02T00:00:00Z', now())`, [
+      lateId, excessId, reservation.id, lateReference, excessReference,
+      `sw154-provider-late:${lateId}`, `sw154-provider-excess:${excessId}`,
+    ]);
+    await runtime.database.pool.query(`INSERT INTO booking_reservation_refunds (
+      id, reservation_id, payment_attempt_id, reason, provider, payment_provider_ref,
+      amount_minor, currency, provider_request_ref, status, failure_kind, failure_message,
+      completed_at
+    ) VALUES ($1, $2, $3, 'late_payment', 'booking-test-payment', $4,
+      24690, 'USD', $5, 'failed', 'rejected', 'refund-message-canary', now())`, [
+      randomUUID(), reservation.id, lateId, `sw154-provider-late:${lateId}`, `sw154-refund:${randomUUID()}`,
+    ]);
+
+    const attempts = await runtime.queries.execute<any>('booking.reservation.listOperatorPaymentAttempts',
+      { reservationId: reservation.id, limit: 1, offset: 0 }, { actor: operator });
+    const later = await runtime.queries.execute<any>('booking.reservation.listOperatorPaymentAttempts',
+      { reservationId: reservation.id, limit: 1, offset: 1 }, { actor: operator });
+    expect(attempts.total).toBe(2);
+    expect([...attempts.items, ...later.items].map(item => item.successKind).sort()).toEqual(['excess', 'late']);
+    expect([...attempts.items, ...later.items].map(item => item.id)).toEqual([lateId, excessId].sort().reverse());
+    expect(JSON.stringify([attempts, later])).not.toMatch(/provider-message-canary|private-code|private\.example|action|instructions|failureMessage/);
+
+    const refunds = await runtime.queries.execute<any>('booking.reservation.listRefunds',
+      { reservationId: reservation.id, limit: 1, offset: 0 }, { actor: operator });
+    expect(refunds).toMatchObject({ total: 1, items: [{ reason: 'late_payment', status: 'failed', failureKind: 'rejected' }] });
+    expect(JSON.stringify(refunds)).not.toMatch(/refund-message-canary|failureMessage/);
+    const foreign = await runtime.queries.execute<any>('booking.reservation.listOperatorPaymentAttempts',
+      { reservationId: other.reservation.id }, { actor: operator });
+    expect(foreign).toEqual({ items: [], total: 0 });
+  });
+
+  it('rejects forbidden actors and malformed reads, and distinguishes unknown parents from empty evidence', async () => {
+    const { reservation } = await createReservation('sw154-auth');
+    const unknownId = randomUUID();
+    const scoped = [
+      ['booking.reservation.getOperator', { reservationId: reservation.id }],
+      ['booking.reservation.listOperatorPaymentAttempts', { reservationId: reservation.id }],
+      ['booking.reservation.listRefunds', { reservationId: reservation.id }],
+      ['booking.reservation.listNotifications', { reservationId: reservation.id }],
+    ] as const;
+    await expect(runtime.queries.execute('booking.reservation.listOperator', {}, { actor: actor([]) }))
+      .rejects.toMatchObject({ code: 'FORBIDDEN' });
+    for (const type of ['service', 'customer', 'extension', 'system'] as const) {
+      await expect(runtime.queries.execute('booking.reservation.listOperator', {}, {
+        actor: { ...operator, type, permissions: ['*'] },
+      })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    }
+    for (const [name, input] of scoped) {
+      await expect(runtime.queries.execute(name, input, { actor: actor([]) }))
+        .rejects.toMatchObject({ code: 'FORBIDDEN' });
+      for (const type of ['service', 'customer', 'extension', 'system'] as const) {
+        await expect(runtime.queries.execute(name, input, {
+          actor: { ...operator, type, permissions: ['*'] },
+        })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      }
+      await expect(runtime.queries.execute(name, { reservationId: unknownId }, { actor: operator }))
+        .rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(runtime.queries.execute(name, { reservationId: 'not-a-uuid' }, { actor: operator }))
+        .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    }
+    for (const name of ['booking.reservation.listOperatorPaymentAttempts',
+      'booking.reservation.listRefunds', 'booking.reservation.listNotifications']) {
+      await expect(runtime.queries.execute(name, { reservationId: reservation.id }, { actor: operator }))
+        .resolves.toEqual({ items: [], total: 0 });
+      for (const page of [{ limit: 0 }, { limit: 101 }, { offset: -1 }, { offset: 10_001 }]) {
+        await expect(runtime.queries.execute(name, { reservationId: reservation.id, ...page }, { actor: operator }))
+          .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+      }
+    }
+    for (const invalid of [
+      { limit: 0 }, { limit: 101 }, { offset: -1 }, { offset: 10_001 },
+      { status: 'invalid' }, { roomTypeId: 'invalid' },
+      { checkInFrom: '2026-02-31' },
+      { checkInFrom: '2026-10-02', checkInTo: '2026-10-01' },
+      { checkInFrom: '2026-01-01', checkInTo: '2027-02-01' },
+    ]) {
+      await expect(runtime.queries.execute('booking.reservation.listOperator', invalid, { actor: operator }))
+        .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    }
+  });
+});
 const PROPERTY_MANAGER = actor(['booking-property:manage', 'booking-availability:manage']);
 const RESERVATION_ACTOR = actor([
   'booking-property:manage', 'booking-availability:manage', 'booking-availability:quote',
@@ -3273,9 +3422,11 @@ describe('Booking Reservation PostgreSQL integration', () => {
     }, { actor: actor(['booking-reservation:notification-read']) });
     expect(evidence.items).toEqual([expect.objectContaining({
       reference: expiringLink.reference,
-      deliveries: [expect.objectContaining({ status: 'failed', recipientMasked: 'p***@example.test', lastError: 'mail rejected p***@example.test' })],
+      deliveries: [expect.objectContaining({ status: 'failed', recipientMasked: 'p***@example.test' })],
     })]);
     expect(JSON.stringify(evidence)).not.toContain('private.booker@example.test');
+    expect(JSON.stringify(evidence)).not.toContain('lastError');
+    expect(JSON.stringify(evidence)).not.toContain('mail rejected');
     const unchanged = await runtime.database.pool.query<{ status: string; reserved: string }>(`
       SELECT r.status, count(*)::text AS reserved
       FROM booking_reservation_reservations r

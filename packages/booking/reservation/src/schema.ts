@@ -70,6 +70,7 @@ export const bookingReservationReservations = pgTable('booking_reservation_reser
   )`),
   check('booking_reservation_winning_payment_attempt_check', sql`${table.winningPaymentAttemptId} IS NULL OR ${table.status} IN ('confirmed', 'cancelled')`),
   index('booking_reservation_owner_account_idx').on(table.ownerAccountId),
+  index('booking_reservation_operator_created_idx').on(table.createdAt, table.id),
   index('booking_reservation_retention_candidate_idx').on(table.id)
     .where(sql`${table.piiAnonymizedAt} IS NULL`),
 ]);

@@ -2,20 +2,20 @@
 
 ## Happy Path
 
-* [ ] AC-001: `packages/releases/booking` builds Booking backend/server, worker, storefront, Theme, Extension, CLI, and `booking.yaml` from one ReleaseDefinition.
+* [x] AC-001: `packages/releases/booking` builds Booking backend/server, worker, storefront, Theme, Extension, CLI, and `booking.yaml` from one ReleaseDefinition.
 
 ## Business Rules
 
-* [ ] AC-002: Root manifest is serializable metadata only; executable contributions are target-specific and build-time selected.
-* [ ] AC-003: Missing in-scope backend/server, worker, storefront, CLI, Theme, or Extension contribution and an unqualified refund provider fail build/start with named diagnostics.
+* [x] AC-002: Root manifest is serializable metadata only; executable contributions are target-specific and build-time selected.
+* [x] AC-003: Missing in-scope backend/server, worker, storefront, CLI, Theme, or Extension contribution and an unqualified refund provider fail build/start with named diagnostics.
 
 ## Failure Cases
 
-* [ ] AC-004: Invalid config, duplicate contribution, and target-incompatible import fail deterministically.
+* [x] AC-004: Invalid config, duplicate contribution, and target-incompatible import fail deterministically.
 
 ## Regression Requirements
 
-* [ ] AC-005: No common product-id branch or Commerce implementation dependency is introduced by Booking assembly.
+* [x] AC-005: No common product-id branch or Commerce implementation dependency is introduced by Booking assembly.
 
 ## Acceptance Evidence
 

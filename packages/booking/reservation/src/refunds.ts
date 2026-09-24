@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { PlatformError, defineCommand, defineQuery, type CommandContext, type QueryContext } from '@storeweave/contracts';
 import { BookingReservationRepository } from './repository';
 import { PROCESS_BOOKING_RESERVATION_REFUND_JOB } from './jobs';
+import { requireBookingReservation, requireBookingReservationOperator } from './operator-read';
 import {
   bookingReservationRefundReasonSchema,
   bookingReservationRefundStatusSchema,
@@ -197,7 +198,23 @@ export const listBookingReservationRefundsQuery = defineQuery({
   input: listBookingReservationRefundsInputSchema, output: listBookingReservationRefundsOutputSchema, permission: 'booking-reservation:refund-read',
 });
 export async function listBookingReservationRefundsHandler(input: ListBookingReservationRefundsInput, context: QueryContext) {
-  return { items: (await repository.listRefunds(context.db, input.reservationId)).map(toRefund) };
+  requireBookingReservationOperator(context.actor);
+  await requireBookingReservation(context.db, input.reservationId);
+  const result = await repository.listRefunds(context.db, input);
+  return {
+    items: result.items.map(row => {
+      const refund = toRefund(row);
+      return {
+        id: refund.id, reservationId: refund.reservationId, paymentAttemptId: refund.paymentAttemptId,
+        reason: refund.reason, provider: refund.provider, paymentProviderRef: refund.paymentProviderRef,
+        amountMinor: refund.amountMinor, currency: refund.currency, providerRequestRef: refund.providerRequestRef,
+        status: refund.status, generation: refund.generation, providerRefundRef: refund.providerRefundRef,
+        failureKind: refund.failureKind, requestedAt: refund.requestedAt,
+        completedAt: refund.completedAt, updatedAt: refund.updatedAt,
+      };
+    }),
+    total: result.total,
+  };
 }
 
 export const reconcileBookingReservationRefundsCommand = defineCommand({

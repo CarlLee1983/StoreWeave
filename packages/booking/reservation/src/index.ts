@@ -11,6 +11,7 @@ export * from './migrations';
 export * from './payment-attempts';
 export * from './module';
 export * from './notifications';
+export * from './operator-read';
 export * from './notification-templates';
 export * from './retention';
 export * from './refunds';

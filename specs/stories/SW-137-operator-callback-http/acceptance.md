@@ -2,20 +2,20 @@
 
 ## Happy Path
 
-* [ ] AC-001: Explicit backend-authorized operator Property, Availability, Reservation, refund, and evidence routes invoke only their declared capabilities; a provider-verified callback is resolved by unique reference and handed exactly once through the Reservation payment-result capability.
+* [x] AC-001: Explicit backend-authorized operator Property, Availability, Reservation, refund, and evidence routes invoke only their declared capabilities; a provider-verified callback is resolved by unique reference and handed exactly once through the Reservation payment-result capability.
 
 ## Business Rules
 
-* [ ] AC-002: Operator routes enforce backend permission and no generic REST-to-Command route exists; repeated valid callback acknowledgement is idempotent and HTTP itself performs no Reservation transition.
-* [ ] AC-003: Late/Excess success remains a traceable domain/refund outcome and never revives/reoccupies a Reservation.
+* [x] AC-002: Operator routes enforce backend permission and no generic REST-to-Command route exists; repeated valid callback acknowledgement is idempotent and HTTP itself performs no Reservation transition.
+* [x] AC-003: Late/Excess success remains a traceable domain/refund outcome and never revives/reoccupies a Reservation.
 
 ## Failure Cases
 
-* [ ] AC-004: Invalid signature, malformed payload, unknown reference, unsupported method, replay, unauthorized operator, and invalid operator refund/evidence input receive safe handling.
+* [x] AC-004: Invalid signature, malformed payload, unknown reference, unsupported method, replay, unauthorized operator, and invalid operator refund/evidence input receive safe handling.
 
 ## Regression Requirements
 
-* [ ] AC-005: Callback diagnostics retain correlation evidence but omit raw management tokens and unnecessary PII.
+* [x] AC-005: Callback diagnostics retain correlation evidence but omit raw management tokens and unnecessary PII; untrusted correlation headers are accepted only as UUIDs.
 
 ## Acceptance Evidence
 

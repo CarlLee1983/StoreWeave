@@ -2,21 +2,21 @@
 
 ## Happy Path
 
-* [ ] AC-001: Authorized human operator can list and detail Reservations and read bounded payment-attempt evidence through declared Booking Reservation Queries; HTTP/Admin consumers need no direct table access.
+* [x] AC-001: Authorized human operator can list and detail Reservations and read bounded payment-attempt evidence through declared Booking Reservation Queries; HTTP/Admin consumers need no direct table access.
 
 ## Business Rules
 
-* [ ] AC-002: List paging and filters are bounded, validated and stable across equal creation timestamps; list rows contain no Booker/Guest contact data, notes, credential material or provider payload.
-* [ ] AC-003: Detail and payment/refund/notification evidence expose only necessary fields and safe correlation; retention-anonymized PII stays absent, while Late/Excess Payment and refund failure remain traceable.
+* [x] AC-002: List paging and filters are bounded, validated and stable across equal creation timestamps; list rows contain no Booker/Guest contact data, notes, credential material or provider payload.
+* [x] AC-003: Detail and payment/refund/notification evidence expose only necessary fields and safe correlation; retention-anonymized PII stays absent, while Late/Excess Payment and refund failure remain traceable.
 
 ## Failure Cases
 
-* [ ] AC-004: Missing permission, service/anonymous actor, unknown Reservation (including refund/notification evidence reads), invalid filter/range/page, and cross-Reservation evidence request fail safely without disclosing PII; an existing Reservation with no evidence returns an empty page.
+* [x] AC-004: Missing permission, service/anonymous actor, unknown Reservation (including refund/notification evidence reads), invalid filter/range/page, and cross-Reservation evidence request fail safely without disclosing PII; an existing Reservation with no evidence returns an empty page.
 
 ## Regression Requirements
 
-* [ ] AC-005: Existing Account/management self-read, refund processing and Reservation state behavior remain unchanged; any additive Booking index migration matches schema and does not touch Commerce.
-* [ ] AC-006: Focused real-database Query tests and the required repository `make verify` gate pass at the integration checkpoint.
+* [x] AC-005: Existing Account/management self-read, refund processing and Reservation state behavior remain unchanged; any additive Booking index migration matches schema and does not touch Commerce.
+* [x] AC-006: Focused real-database Query tests and the required repository `make verify` gate pass at the integration checkpoint.
 
 ## Acceptance Evidence
 

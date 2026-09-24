@@ -68,7 +68,7 @@
 
 ## Dependencies
 
-* SW-136, SW-119, SW-121, SW-128, SW-129, SW-134.
+* SW-136, SW-119, SW-121, SW-128, SW-129, SW-134, SW-154.
 
 ## Constraints
 

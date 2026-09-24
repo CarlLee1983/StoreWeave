@@ -4,6 +4,7 @@ import type { NotificationsPort } from '@storeweave/notifications';
 import type { BookingReservationAccess } from './access';
 import { BOOKING_RESERVATION_NOTIFICATION_TEMPLATES } from './notification-templates';
 import { BookingReservationRepository } from './repository';
+import { requireBookingReservation, requireBookingReservationOperator } from './operator-read';
 import {
   bookingReservationNotificationLinkSchema,
   listBookingReservationNotificationsInputSchema,
@@ -196,11 +197,21 @@ export function createRecordBookingReservationNotificationMappingFailureHandler(
 
 export function createListBookingReservationNotificationsHandler(notifications: () => NotificationsPort) {
   return async (input: { reservationId: string; limit: number; offset: number }, context: QueryContext) => {
-    if (context.actor.type !== 'user') throw PlatformError.forbidden('Only an operator may read Reservation notification evidence');
+    requireBookingReservationOperator(context.actor);
+    await requireBookingReservation(context.db, input.reservationId);
     const result = await repository.listNotificationLinks(context.db, input);
     const evidence = await notifications().evidenceByReference(result.items.map(item => item.reference));
     return {
-      items: result.items.map(item => ({ ...toLink(item), deliveries: evidence.get(item.reference) ?? [] })),
+      items: result.items.map(item => ({
+        ...toLink(item),
+        deliveries: (evidence.get(item.reference) ?? []).map(delivery => ({
+          id: delivery.id, notificationId: delivery.notificationId,
+          templateId: delivery.templateId, templateVersion: delivery.templateVersion,
+          channel: delivery.channel, status: delivery.status, attempts: delivery.attempts,
+          recipientMasked: delivery.recipientMasked, sentAt: delivery.sentAt,
+          createdAt: delivery.createdAt, updatedAt: delivery.updatedAt,
+        })),
+      })),
       total: result.total,
     };
   };

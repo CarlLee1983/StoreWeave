@@ -374,6 +374,8 @@ importers:
 
   packages/releases/base: {}
 
+  packages/releases/booking: {}
+
   packages/releases/commerce: {}
 
   packages/themes/base: {}

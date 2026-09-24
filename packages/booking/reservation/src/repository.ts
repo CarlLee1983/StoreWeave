@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import type { DrizzleDb, Tx } from '@storeweave/contracts';
 import { BOOKING_RESERVATION_ACTIVE_PAYMENT_ATTEMPT_STATUSES } from './types';
 import {
@@ -75,6 +75,19 @@ export class BookingReservationRepository {
     const [row] = await tx.select().from(bookingReservationPaymentAttempts)
       .where(eq(bookingReservationPaymentAttempts.reference, reference));
     return row;
+  }
+
+  async listOperatorPaymentAttempts(
+    db: DrizzleDb | Tx,
+    input: { reservationId: string; limit: number; offset: number },
+  ): Promise<{ items: BookingReservationPaymentAttemptRow[]; total: number }> {
+    const where = eq(bookingReservationPaymentAttempts.reservationId, input.reservationId);
+    const items = await db.select().from(bookingReservationPaymentAttempts).where(where)
+      .orderBy(desc(bookingReservationPaymentAttempts.createdAt), desc(bookingReservationPaymentAttempts.id))
+      .limit(input.limit).offset(input.offset);
+    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(bookingReservationPaymentAttempts).where(where);
+    return { items, total: Number(count) };
   }
 
   async lockPaymentAttemptsForReservation(tx: Tx, reservationId: string): Promise<BookingReservationPaymentAttemptRow[]> {
@@ -184,6 +197,40 @@ export class BookingReservationRepository {
     const [row] = await tx.select().from(bookingReservationReservations)
       .where(eq(bookingReservationReservations.id, reservationId));
     return row;
+  }
+
+  async listOperatorReservations(
+    db: DrizzleDb | Tx,
+    input: {
+      limit: number; offset: number; status?: 'pending_payment' | 'confirmed' | 'expired' | 'cancelled';
+      roomTypeId?: string; checkInFrom?: string; checkInTo?: string;
+    },
+  ) {
+    const where = and(
+      input.status === undefined ? undefined : eq(bookingReservationReservations.status, input.status),
+      input.roomTypeId === undefined ? undefined : eq(bookingReservationReservations.roomTypeId, input.roomTypeId),
+      input.checkInFrom === undefined ? undefined : gte(bookingReservationReservations.checkInLocalDate, input.checkInFrom),
+      input.checkInTo === undefined ? undefined : lte(bookingReservationReservations.checkInLocalDate, input.checkInTo),
+    );
+    const items = await db.select({
+      id: bookingReservationReservations.id,
+      status: bookingReservationReservations.status,
+      roomTypeId: bookingReservationReservations.roomTypeId,
+      checkInLocalDate: bookingReservationReservations.checkInLocalDate,
+      checkOutLocalDate: bookingReservationReservations.checkOutLocalDate,
+      roomCount: bookingReservationReservations.roomCount,
+      adults: bookingReservationReservations.adults,
+      children: bookingReservationReservations.children,
+      currency: bookingReservationReservations.currency,
+      totalMinor: bookingReservationReservations.totalMinor,
+      paymentExpiresAt: bookingReservationReservations.paymentExpiresAt,
+      createdAt: bookingReservationReservations.createdAt,
+    }).from(bookingReservationReservations).where(where)
+      .orderBy(desc(bookingReservationReservations.createdAt), desc(bookingReservationReservations.id))
+      .limit(input.limit).offset(input.offset);
+    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(bookingReservationReservations).where(where);
+    return { items, total: Number(count) };
   }
 
   async updateOwnedDetails(tx: Tx, reservationId: string, accountId: string, values: ManagedReservationDetails): Promise<boolean> {
@@ -360,9 +407,16 @@ export class BookingReservationRepository {
     return row;
   }
 
-  async listRefunds(tx: Tx, reservationId: string): Promise<BookingReservationRefundRow[]> {
-    return tx.select().from(bookingReservationRefunds).where(eq(bookingReservationRefunds.reservationId, reservationId))
-      .orderBy(desc(bookingReservationRefunds.requestedAt), desc(bookingReservationRefunds.id));
+  async listRefunds(
+    db: DrizzleDb | Tx,
+    input: { reservationId: string; limit: number; offset: number },
+  ): Promise<{ items: BookingReservationRefundRow[]; total: number }> {
+    const where = eq(bookingReservationRefunds.reservationId, input.reservationId);
+    const items = await db.select().from(bookingReservationRefunds).where(where)
+      .orderBy(desc(bookingReservationRefunds.requestedAt), desc(bookingReservationRefunds.id))
+      .limit(input.limit).offset(input.offset);
+    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(bookingReservationRefunds).where(where);
+    return { items, total: Number(count) };
   }
 
   async listPendingRefunds(tx: Tx): Promise<BookingReservationRefundRow[]> {

@@ -176,8 +176,19 @@ export const recordBookingReservationRefundInvocationInputSchema = z.object({
 export const recordBookingReservationRefundInvocationOutputSchema = z.object({ refund: bookingReservationRefundSchema }).strict();
 export const retryBookingReservationRefundInputSchema = z.object({ refundId: z.string().uuid() }).strict();
 export const retryBookingReservationRefundOutputSchema = requestRequiredBookingReservationRefundOutputSchema;
-export const listBookingReservationRefundsInputSchema = z.object({ reservationId: z.string().uuid() }).strict();
-export const listBookingReservationRefundsOutputSchema = z.object({ items: z.array(bookingReservationRefundSchema) }).strict();
+export const listBookingReservationRefundsInputSchema = z.object({
+  reservationId: z.string().uuid(), limit: z.number().int().min(1).max(100).default(50),
+  offset: z.number().int().min(0).max(10_000).default(0),
+}).strict();
+export const operatorBookingReservationRefundSchema = bookingReservationRefundSchema.pick({
+  id: true, reservationId: true, paymentAttemptId: true, reason: true, provider: true,
+  paymentProviderRef: true, amountMinor: true, currency: true, providerRequestRef: true,
+  status: true, generation: true, providerRefundRef: true, failureKind: true,
+  requestedAt: true, completedAt: true, updatedAt: true,
+});
+export const listBookingReservationRefundsOutputSchema = z.object({
+  items: z.array(operatorBookingReservationRefundSchema), total: z.number().int().nonnegative(),
+}).strict();
 
 export const claimBookingReservationInputSchema = z.object({
   reservationId: z.string().uuid(),
@@ -306,10 +317,15 @@ export const recordBookingReservationNotificationMappingFailureInputSchema = z.o
 export const recordBookingReservationNotificationMappingFailureOutputSchema = bookingReservationNotificationLinkSchema;
 
 export const listBookingReservationNotificationsInputSchema = z.object({
-  reservationId: z.string().uuid(), limit: z.number().int().min(1).max(100).default(50), offset: z.number().int().min(0).default(0),
+  reservationId: z.string().uuid(), limit: z.number().int().min(1).max(100).default(50), offset: z.number().int().min(0).max(10_000).default(0),
 }).strict();
+export const operatorBookingNotificationDeliverySchema = deliveryEvidenceDto.pick({
+  id: true, notificationId: true, templateId: true, templateVersion: true,
+  channel: true, status: true, attempts: true, recipientMasked: true,
+  sentAt: true, createdAt: true, updatedAt: true,
+});
 export const bookingReservationNotificationEvidenceSchema = bookingReservationNotificationLinkBaseSchema.extend({
-  deliveries: z.array(deliveryEvidenceDto),
+  deliveries: z.array(operatorBookingNotificationDeliverySchema),
 }).strict().superRefine((value, context) => {
   const expectedCode = value.mappingStatus === 'mapping_failed' ? 'booker_unavailable'
     : value.mappingStatus === 'mapping_retryable' ? 'materialization_retryable' : null;
