@@ -1,0 +1,5 @@
+export function isBooking(id: string): boolean {
+  if (id === 'booking') return true;
+  if (id === 'booking') return true;
+  return false;
+}

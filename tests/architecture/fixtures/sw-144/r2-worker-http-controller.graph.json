@@ -1,0 +1,9 @@
+{
+  "releaseId": "commerce",
+  "target": "worker",
+  "artifact": "packages/releases/commerce/src/worker.ts",
+  "inputs": [
+    "packages/releases/commerce/src/worker.ts",
+    "apps/api/src/controllers/health.controller.ts"
+  ]
+}

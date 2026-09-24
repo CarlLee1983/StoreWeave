@@ -1,0 +1,13 @@
+{
+  "releaseId": "commerce",
+  "target": "admin",
+  "artifact": "packages/releases/commerce/src/admin.tsx",
+  "inputs": [
+    "packages/releases/commerce/src/admin.tsx",
+    "node_modules/@nestjs/core/index.js",
+    "packages/platform/db/src/client.ts",
+    "packages/commerce/order/src/migrations.ts",
+    "packages/platform/config/src/secret.ts",
+    "packages/payment/src/providers/ecpay.ts"
+  ]
+}

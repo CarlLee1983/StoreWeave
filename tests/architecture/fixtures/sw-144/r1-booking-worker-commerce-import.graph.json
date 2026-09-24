@@ -1,0 +1,10 @@
+{
+  "releaseId": "booking",
+  "target": "worker",
+  "artifact": "packages/releases/booking/src/worker.ts",
+  "inputs": [
+    "packages/releases/booking/src/worker.ts",
+    "packages/booking/reservation/src/module.ts",
+    "packages/commerce/order/src/module.ts"
+  ]
+}
