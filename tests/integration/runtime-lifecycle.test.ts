@@ -4,8 +4,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as kernel from '@storeweave/kernel';
-import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
-import { release as baseRelease } from '../../packages/platform/bundle/src/releases/base';
+import { bootstrapRelease } from '../../packages/platform/release/src/bootstrap';
+import { release as baseRelease } from '../../packages/releases/base/src/runtime';
 import { FastifyAdapter } from '@nestjs/platform-fastify';
 import { createReleaseServer } from '../../apps/api/src/release-server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -301,6 +301,35 @@ describe('runtime cleanup', () => {
       subscriptions: runtime.events.listSubscriptions(),
       providers: runtime.providers.list(),
     }).toEqual(before);
+  });
+
+  it('rejects a legacy payment provider before publishing earlier providers from the same extension', async () => {
+    const runtime = await createRuntime(await options([]));
+    runtimes.push(runtime);
+    const before = runtime.providers.list();
+    const shippingId = 'preflight-shipping';
+    const paymentId = 'preflight-payment';
+    const definition = defineExtension({
+      manifest: {
+        id: 'provider-preflight', name: 'provider-preflight', version: '1.0.0', platformVersion: '^1.0.0',
+        permissions: [], configuration: z.object({}), subscribedEvents: [], registeredCommands: [], registeredQueries: [],
+        registeredProviders: [
+          { kind: 'shipping', id: shippingId },
+          { kind: 'payment', id: paymentId },
+        ],
+      },
+      setup: () => ({
+        providers: [
+          { kind: 'shipping', id: shippingId, createShipment: async () => ({ accepted: true, trackingNumber: 'test' }) },
+          { kind: 'payment', id: paymentId } as any,
+        ],
+      }),
+    });
+
+    await expect(runtime.extensions.mount(definition, {})).rejects.toThrow(/neutral initiate contract/);
+    expect(runtime.providers.list()).toEqual(before);
+    expect(runtime.providers.has('shipping', shippingId)).toBe(false);
+    expect(runtime.providers.has('payment', paymentId)).toBe(false);
   });
 
   it('authorizes extension mail and namespaces its local references', async () => {

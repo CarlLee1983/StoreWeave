@@ -6,8 +6,8 @@ import { RequestMethod, type Type } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { Runtime } from '@storeweave/kernel';
-import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
-import { release } from '../../packages/platform/bundle/src/releases/base';
+import { bootstrapRelease } from '../../packages/platform/release/src/bootstrap';
+import { release } from '../../packages/releases/base/src/runtime';
 import { createReleaseServer } from '../../apps/api/src/release-server';
 import { httpAdapter } from '../../apps/api/src/releases/base';
 import { SESSION_COOKIE } from '../../apps/api/src/http/cookie-names';
@@ -15,13 +15,14 @@ import { csrfTokenFor } from '@storeweave/identity';
 import { ADMIN_ACTOR, createTestDatabase } from './helpers';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import {
-  describeHttpRoutes, HTTP_CONTRACT, validateMountedHttpRoutes,
+  describeHttpRoutes, HttpContract, HTTP_CONTRACT, validateMountedHttpRoutes,
   type DirectHttpContract, type HttpRouteCatalogCarrier, type HttpRouteCatalogEntry, type HttpRouteContract,
 } from '../../apps/api/src/http/contract';
 import { AuthController } from '../../apps/api/src/controllers/auth.controller';
 import { MetaController } from '../../apps/api/src/controllers/meta.controller';
 import { SystemController } from '../../apps/api/src/controllers/system.controller';
 import { InventoryController } from '../../apps/api/src/controllers/inventory.controller';
+import { HealthController } from '../../apps/api/src/controllers/health.controller';
 import { PlatformError } from '@storeweave/contracts';
 import { httpErrorSchema } from '../../apps/api/src/http/envelope';
 import { ExtensionsController } from '../../apps/api/src/controllers/extensions.controller';
@@ -44,6 +45,29 @@ function syntheticRouteController(path: string, method: RequestMethod, contract?
   if (contract) Reflect.defineMetadata(HTTP_CONTRACT, contract, handler);
   Object.defineProperty(SyntheticController.prototype, 'handle', { value: handler });
   return SyntheticController;
+}
+
+function rateLimitTestController(): Type {
+  class RateLimitTestController {}
+  Reflect.defineMetadata(PATH_METADATA, 'test/rate-limit', RateLimitTestController);
+  const input = { type: 'object', properties: {}, additionalProperties: false } as const;
+  const output = { type: 'object', required: ['ok'], additionalProperties: false, properties: { ok: { type: 'boolean' } } } as const;
+  const register = (name: string, method: RequestMethod, path: string, rateLimit?: 'auth') => {
+    const handler = () => ({ ok: true });
+    Reflect.defineMetadata(METHOD_METADATA, method, handler);
+    Reflect.defineMetadata(PATH_METADATA, path, handler);
+    Reflect.defineMetadata(IS_PUBLIC, true, handler);
+    const contract = {
+      kind: 'direct', request: 'none', ...(rateLimit ? { rateLimit } : {}), input, output,
+    } satisfies DirectHttpContract;
+    Object.defineProperty(RateLimitTestController.prototype, name, { value: handler });
+    HttpContract(contract)(RateLimitTestController.prototype, name, Object.getOwnPropertyDescriptor(RateLimitTestController.prototype, name)!);
+  };
+  register('declaredGet', RequestMethod.GET, 'declared-get', 'auth');
+  register('declaredPatch', RequestMethod.PATCH, 'declared-patch', 'auth');
+  register('declaredPost', RequestMethod.POST, 'declared-post', 'auth');
+  register('undeclaredGet', RequestMethod.GET, 'undeclared-get');
+  return RateLimitTestController;
 }
 
 beforeAll(async () => {
@@ -122,6 +146,15 @@ describe('Base HTTP input boundary', () => {
       expect(factory).toHaveBeenCalledTimes(1);
     }
   });
+
+  it('identifies the owning release when duplicate controller routes fail startup', async () => {
+    const controllers = vi.fn(() => [HealthController, HealthController]);
+
+    await expect(createReleaseServer({ runtime,
+      httpAdapter: { ...httpAdapter, controllers }, release: { version: 'test', configPath: '<test>' },
+    })).rejects.toThrow('Release "base" server projection has a duplicate route contribution');
+  });
+
   it('catalogs direct auth and meta JSON routes without inventing Bus targets', async () => {
     const routes = describeHttpRoutes(runtime, [AuthController, MetaController]);
     expect(routes.map(route => [route.method, route.path, route.status, route.auth])).toEqual([
@@ -304,6 +337,34 @@ describe('Base HTTP input boundary', () => {
     } finally {
       runtime.config.http.trustProxy = trustProxy;
       await trusted.close();
+    }
+  });
+
+  it('enforces declared rate limits across methods without limiting undeclared routes', async () => {
+    const limited = await createReleaseServer({ runtime,
+      httpAdapter: { ...httpAdapter, controllers: () => [rateLimitTestController()] },
+      release: { version: 'test', configPath: '<test>' },
+    });
+    try {
+      const exhaust = async (method: 'GET' | 'PATCH' | 'POST', path: string, remoteAddress: string, expectedStatus: number) => {
+        for (let attempt = 0; attempt < 11; attempt += 1) {
+          const response = await limited.inject({ method, url: `/test/rate-limit/${path}`, remoteAddress });
+          expect(response.statusCode).toBe(attempt < 10 ? expectedStatus : 429);
+          if (attempt === 10) {
+            expect(response.json()).toMatchObject({ success: false, error: { code: 'RATE_LIMITED' } });
+            expect(Number(response.headers['retry-after'])).toBeGreaterThan(0);
+          }
+        }
+      };
+
+      await exhaust('GET', 'declared-get', '192.0.2.101', 200);
+      await exhaust('PATCH', 'declared-patch', '192.0.2.102', 200);
+      await exhaust('POST', 'declared-post', '192.0.2.103', 201);
+      for (let attempt = 0; attempt < 11; attempt += 1) {
+        expect((await limited.inject({ method: 'GET', url: '/test/rate-limit/undeclared-get', remoteAddress: '192.0.2.104' })).statusCode).toBe(200);
+      }
+    } finally {
+      await limited.close();
     }
   });
 

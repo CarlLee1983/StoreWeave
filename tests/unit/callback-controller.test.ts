@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SYSTEM_ACTOR } from '@storeweave/contracts';
-import { createTestExtensionContext, type PaymentProvider, type ShippingProvider } from '@storeweave/extension-sdk';
+import { createTestExtensionContext, type PaymentProviderV2, type ShippingProvider } from '@storeweave/extension-sdk';
 import { createCheckMacValue, createEcpayPaymentProvider, ecpayPaymentConfig } from '@storeweave/ext-ecpay';
 import type { Runtime } from '@storeweave/kernel';
 import { CallbackController } from '../../apps/api/src/controllers/callback.controller';
@@ -32,21 +32,20 @@ function replyStub(): { reply: any; state: ReplyState } {
   return { reply, state };
 }
 
-function paymentProvider(overrides: Partial<PaymentProvider> = {}): PaymentProvider {
+type PaymentCallbackProvider = Pick<PaymentProviderV2, 'id' | 'kind' | 'parseCallback' | 'acknowledgeCallback'>;
+
+function paymentProvider(overrides: Partial<PaymentCallbackProvider> = {}): PaymentCallbackProvider {
   return {
     id: 'gateway-a',
     kind: 'payment',
-    paymentMethods: () => [],
-    start: vi.fn(),
     parseCallback: vi.fn(),
     acknowledgeCallback: vi.fn(() => ({
       statusCode: 202,
       headers: { 'x-provider-ack': 'accepted' },
       body: 'provider accepted',
     })),
-    refund: vi.fn(),
     ...overrides,
-  } as PaymentProvider;
+  };
 }
 
 function shippingProvider(overrides: Partial<ShippingProvider> = {}): ShippingProvider {
@@ -58,7 +57,7 @@ function shippingProvider(overrides: Partial<ShippingProvider> = {}): ShippingPr
   } as ShippingProvider;
 }
 
-function controllerFor(provider: PaymentProvider, options: { get?: () => PaymentProvider; list?: () => Array<{ kind: string; id: string; owner: string; isDefault: boolean }>; execute?: ReturnType<typeof vi.fn> } = {}) {
+function controllerFor(provider: PaymentCallbackProvider, options: { get?: () => PaymentCallbackProvider; list?: () => Array<{ kind: string; id: string; owner: string; isDefault: boolean }>; execute?: ReturnType<typeof vi.fn> } = {}) {
   const runtime = {
     providers: { get: vi.fn(options.get ?? (() => provider)), list: vi.fn(options.list ?? (() => [])) },
     commands: { execute: options.execute ?? vi.fn(async () => ({})) },
@@ -72,6 +71,7 @@ const ecpaySecrets = {
   ECPAY_HASH_KEY: 'test-hash-key',
   ECPAY_HASH_IV: 'test-hash-iv',
 };
+const declaredEcpaySecrets = [...Object.keys(ecpaySecrets), 'ECPAY_CREDIT_CHECK_CODE'];
 
 async function startedEcpayProvider() {
   const context = createTestExtensionContext({
@@ -81,19 +81,19 @@ async function startedEcpayProvider() {
       paymentInfoUrl: 'https://store.example.test/callbacks/payment/ecpay',
     }),
     secrets: ecpaySecrets,
+    declaredSecrets: declaredEcpaySecrets,
     now: () => new Date('2026-08-24T12:34:56.000Z'),
   });
   const provider = createEcpayPaymentProvider(context);
-  const start = await provider.start({
-    orderId: '11111111-1111-4111-8111-111111111111',
-    orderNumber: 'SW-1000',
-    amountCents: 10_000,
+  const started = await provider.initiate({
+    reference: 'attempt:11111111-1111-4111-8111-111111111111',
+    displayReference: 'SW-1000',
+    amount: 10_000,
     currency: 'TWD',
     method: 'card',
-    reference: 'attempt:11111111-1111-4111-8111-111111111111',
   });
-  if (start.status !== 'redirect') throw new Error('expected ECPay redirect');
-  return { provider, merchantTradeNo: start.providerRef };
+  if (started.status !== 'redirect') throw new Error('expected ECPay redirect');
+  return { provider, merchantTradeNo: started.providerRef };
 }
 
 function signedEcpayCallback(fields: Record<string, string>): Uint8Array {
@@ -107,7 +107,7 @@ describe('CallbackController', () => {
     const payment = paymentProvider();
     const shipping = shippingProvider();
     const noAcknowledgement = shippingProvider({ id: 'carrier-without-ack', acknowledgeCallback: undefined });
-    const byId = new Map<string, PaymentProvider | ShippingProvider>([
+    const byId = new Map<string, PaymentCallbackProvider | ShippingProvider>([
       [payment.id, payment], [shipping.id, shipping], [noAcknowledgement.id, noAcknowledgement],
     ]);
     const { controller, runtime } = controllerFor(payment, {
@@ -121,7 +121,7 @@ describe('CallbackController', () => {
         const provider = byId.get(id);
         if (!provider || provider.kind !== kind) throw new Error('not found');
         return provider;
-      }) as () => PaymentProvider,
+      }) as () => PaymentCallbackProvider,
     });
 
     const routes = describeHttpRoutes(runtime as unknown as Runtime, [CallbackController]);

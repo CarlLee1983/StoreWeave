@@ -7,6 +7,34 @@ import { DEFAULT_ROUTE, NAV_SECTIONS, ROUTE_TABLE, firstVisibleRoute, isRoute, r
  */
 
 describe('路由表', () => {
+  it('保留 Commerce 遷移前的路由順序、分組與權限宣告', () => {
+    expect(ROUTE_TABLE.map(({ path, section, permissions }) => [path, section, permissions])).toEqual([
+      ['orders', 'commerce', ['order:read']],
+      ['products', 'commerce', ['catalog:read']],
+      ['shipping', 'commerce', ['shipping:read']],
+      ['rmas', 'commerce', ['rma:read']],
+      ['invoices', 'commerce', ['invoice:read']],
+      ['promotions', 'commerce', ['promotion:read']],
+      ['coupons', 'commerce', ['coupon:read']],
+      ['loyalty', 'commerce', ['loyalty:write']],
+      ['customers', 'commerce', ['customers:manage']],
+      ['brand-content', 'commerce', ['content:read']],
+      ['contact-inbox', 'commerce', ['contact:read']],
+      ['analytics', 'commerce', ['analytics:read']],
+      ['notifications', 'integrations', ['notification:read']],
+      ['erp', 'integrations', ['erp:read']],
+      ['dlq', 'integrations', ['jobs:read']],
+      ['system', 'integrations', ['jobs:read']],
+      ['media', 'platform', ['media:read']],
+      ['operators', 'platform', ['users:read']],
+      ['api-tokens', 'platform', ['tokens:read']],
+      ['inbox', 'platform', ['notifications:inbox']],
+      ['account', 'platform', []],
+    ]);
+    expect(NAV_SECTIONS).toEqual(['commerce', 'integrations', 'platform']);
+    expect(DEFAULT_ROUTE).toBe('products');
+  });
+
   it('每一列的 path 都是唯一的', () => {
     const paths = ROUTE_TABLE.map((entry) => entry.path);
     expect(new Set(paths).size).toBe(paths.length);

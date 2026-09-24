@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
+import { z } from 'zod';
+import { defineExtension } from '@storeweave/extension-sdk';
 import { ADMIN_ACTOR, runJobsUntilProcessed, settleWorker, createHarness, createProduct, payOrder, placeOrder, stockUp, type TestHarness } from './helpers';
 
 let h: TestHarness;
@@ -20,6 +22,20 @@ async function paidOrder(harness: TestHarness) {
   await payOrder(harness.runtime, order.id);
   await runJobsUntilProcessed(harness.worker);
   return order;
+}
+
+function optionalSecretProbe(secretName: string, observed: { value?: string }) {
+  return defineExtension({
+    manifest: {
+      id: 'optional-secret-probe', name: 'Optional secret probe', version: '1.0.0', platformVersion: '^1.0.0',
+      configuration: z.object({}).strict(), permissions: [], optionalSecrets: [secretName],
+      subscribedEvents: [], registeredCommands: [], registeredQueries: [], registeredProviders: [],
+    },
+    setup(ctx) {
+      observed.value = ctx.secret(secretName);
+      return {};
+    },
+  });
 }
 
 describe('流程三：Outbox → Worker → Demo ERP Extension', () => {
@@ -149,5 +165,35 @@ describe('流程三：Outbox → Worker → Demo ERP Extension', () => {
     const erp = h.runtime.extensions.find('demo-erp')!;
     expect(erp.context.secret('DEMO_ERP_API_KEY')).toBe('test-key');
     expect(() => erp.context.secret('COMMERCE_ADMIN_TOKEN')).toThrow(/must declare secret/);
+  });
+
+  it('可選 secret 不阻止掛載、存在時可讀取，且仍拒絕未宣告的名稱', async () => {
+    const absent: { value?: string } = {};
+    const mounted = await h.runtime.extensions.mount(optionalSecretProbe('OPTIONAL_PROBE', absent), {});
+    expect(absent.value).toBeUndefined();
+    expect(() => mounted.context.secret('COMMERCE_ADMIN_TOKEN')).toThrow(/must declare secret/);
+
+    const withSecret = await createHarness({ secrets: { OPTIONAL_PROBE: 'available' } });
+    try {
+      const present: { value?: string } = {};
+      await withSecret.runtime.extensions.mount(optionalSecretProbe('OPTIONAL_PROBE', present), {});
+      expect(present.value).toBe('available');
+    } finally {
+      await withSecret.close();
+    }
+  }, 180_000);
+
+  it('缺少 required secret 仍在 setup 前拒絕掛載', async () => {
+    let setupRan = false;
+    const required = defineExtension({
+      manifest: {
+        id: 'required-secret-probe', name: 'Required secret probe', version: '1.0.0', platformVersion: '^1.0.0',
+        configuration: z.object({}).strict(), permissions: [], requiredSecrets: ['REQUIRED_PROBE'],
+        subscribedEvents: [], registeredCommands: [], registeredQueries: [], registeredProviders: [],
+      },
+      setup() { setupRan = true; return {}; },
+    });
+    await expect(h.runtime.extensions.mount(required, {})).rejects.toThrow(/requires secret/);
+    expect(setupRan).toBe(false);
   });
 });

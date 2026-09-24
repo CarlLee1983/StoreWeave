@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "story_ref": "specs/stories/SW-145-booking-e2e",
+  "story_md_digest": "sha256:230d25fa2aa2e3cad991f1dfb3cde140615ae36fd35677fb9b43eefde1491bbf",
+  "acceptance_md_digest": "sha256:0c1262b102749fd7da31bbeacabd65f213b558b8716ae2a92b844ca0424bdd41",
+  "criteria": [
+    { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-003", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-004", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-005", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-006", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-007", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] }
+  ],
+  "inputs": [
+    { "id": "booking-release-isolation", "source": { "prerequisite_output": { "output_id": "sw-144" } } },
+    { "id": "booking-release", "source": { "prerequisite_output": { "output_id": "sw-138" } } },
+    { "id": "booking-operator-and-callback-http", "source": { "prerequisite_output": { "output_id": "sw-137" } } },
+    { "id": "booking-management-http", "source": { "prerequisite_output": { "output_id": "sw-136" } } },
+    { "id": "booking-admin-projection", "source": { "prerequisite_output": { "output_id": "sw-143" } } },
+    { "id": "refund-capable-test-provider", "source": { "preexisting_artifact": { "path": "packages/extensions/mock-payment/src/provider.ts" } } },
+    { "id": "reservation-retention-capability", "source": { "preexisting_artifact": { "path": "packages/booking/reservation/src/retention.ts" } } },
+    { "id": "testcontainers-harness", "source": { "preexisting_artifact": { "path": "tests/integration/booking-reservation.test.ts" } } }
+  ],
+  "outputs": [{ "id": "sw-145" }],
+  "decision_follow_ups": []
+}

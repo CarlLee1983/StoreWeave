@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
 import { inputObjectOf, noopLogger } from '@storeweave/contracts';
-import { coreModules } from '@storeweave/bundle';
+import { coreModules } from '@storeweave/release-commerce/modules';
 import { identityModule } from '@storeweave/identity';
 import { createOpsModule } from '@storeweave/kernel';
 import { addressDto } from '@storeweave/customer';

@@ -3,6 +3,7 @@ import { readLegacyPairedSnapshot } from './legacy-paired-snapshot';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { assertJournalLocation, readPairedSnapshot, readPrivateJson, writePrivateJson } from './read-release-snapshot';
+import type { LegacyMigrationBaseline } from '@storeweave/db';
 
 const oid = z.string().regex(/^[1-9]\d*$/);
 const databaseName = z.string().min(1).refine(value => !value.includes('\0') && Buffer.byteLength(value) <= 63);
@@ -14,7 +15,7 @@ const schema = z.object({ schemaVersion: z.literal(1), kind: z.enum(['restore', 
 }).strict();
 
 /** Phase is progress evidence only; recovery must inspect actual database OIDs before any write. */
-export async function readRestoreJournal(file: string, operationRoot: string) {
+export async function readRestoreJournal(file: string, operationRoot: string, baseline?: LegacyMigrationBaseline) {
   file = resolve(file);
   assertJournalLocation(file, operationRoot);
   const journal = schema.parse(readPrivateJson(file));
@@ -25,8 +26,15 @@ export async function readRestoreJournal(file: string, operationRoot: string) {
     || journal.live.oid === journal.scratch.oid
     || (journal.phase === 'planned' && journal.scratch.oid !== null)
     || (['created', 'restored', 'cutover-intent', 'cutover-committed'].includes(journal.phase) && journal.scratch.oid === null)) throw new Error('Restore journal identity mismatch');
-  const readSnapshot = journal.kind === 'legacy-b01-safety-restore' ? readLegacySafetySnapshot : journal.kind === 'legacy-b01-restore' ? readLegacyPairedSnapshot : readPairedSnapshot;
-  const snapshot = await readSnapshot(journal.snapshot.directory, journal.snapshot.checksum);
+  let snapshot;
+  if (journal.kind === 'legacy-b01-safety-restore') {
+    snapshot = await readLegacySafetySnapshot(journal.snapshot.directory, journal.snapshot.checksum);
+  } else if (journal.kind === 'legacy-b01-restore') {
+    if (!baseline) throw new Error('Restore journal requires its matching explicit legacy mode and selected release baseline');
+    snapshot = await readLegacyPairedSnapshot(journal.snapshot.directory, journal.snapshot.checksum, baseline);
+  } else {
+    snapshot = await readPairedSnapshot(journal.snapshot.directory, journal.snapshot.checksum);
+  }
   const database = snapshot.manifest.evidence.database;
   if (journal.systemIdentifier !== database.systemIdentifier || journal.live.name !== database.name || journal.live.oid !== database.oid) {
     throw new Error('Restore journal does not match its source snapshot');

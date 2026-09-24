@@ -1,0 +1,249 @@
+{
+  "format": "storeweave.release-baseline.v1",
+  "deterministicInputs": {
+    "releaseVersion": "0.1.0-sw102",
+    "releaseCatalog": "scripts/releases.mjs",
+    "targets": {
+      "server": "apps/api/src/main.ts",
+      "worker": "apps/worker/src/main.ts",
+      "cli": "tools/cli/src/main.ts",
+      "admin": "apps/admin/index.html"
+    }
+  },
+  "releases": {
+    "base": {
+      "identity": {
+        "id": "base",
+        "version": "0.1.0-sw102",
+        "manifestChecksum": "sha256:61e62730ec5b9208a04b682aae9e93770ff79da3459376f34d25789c05b5f1cf"
+      },
+      "selected": {
+        "runtime": "packages/releases/base/src/runtime.ts",
+        "server": "packages/releases/base/src/server.ts",
+        "worker": "packages/releases/base/src/worker.ts",
+        "adminProjection": "packages/releases/base/src/admin.ts",
+        "cli": "packages/releases/base/src/cli.ts",
+        "configProjection": "packages/releases/base/src/config.ts",
+        "storefrontProjection": "packages/releases/base/src/storefront.ts",
+        "seed": "scripts/seeds/base.ts",
+        "admin": false
+      },
+      "targets": {
+        "server": {
+          "status": "present",
+          "inputCount": 195,
+          "inputsChecksum": "sha256:c5f11feac273916109427a8e89b59ee3c33e5923ecc1f44eab1fc2d135c01929"
+        },
+        "worker": {
+          "status": "present",
+          "inputCount": 161,
+          "inputsChecksum": "sha256:d644b584699091dbd31c39241bbd2bf9027bdec14870fd62b9a51c2e356f3e45"
+        },
+        "cli": {
+          "status": "present",
+          "inputCount": 186,
+          "inputsChecksum": "sha256:61064a8586cfa02275fdfe011448a722d4b8edaafac7eed0ea3d0781c8536502"
+        },
+        "admin": {
+          "status": "absent"
+        }
+      },
+      "projections": {
+        "server": {
+          "releaseId": "base",
+          "target": "server",
+          "source": "packages/releases/base/src/server.ts",
+          "artifact": "app/api.js",
+          "status": "built",
+          "inputCount": 195,
+          "inputsChecksum": "sha256:c5f11feac273916109427a8e89b59ee3c33e5923ecc1f44eab1fc2d135c01929"
+        },
+        "worker": {
+          "releaseId": "base",
+          "target": "worker",
+          "source": "packages/releases/base/src/worker.ts",
+          "artifact": "app/worker.js",
+          "status": "built",
+          "inputCount": 161,
+          "inputsChecksum": "sha256:d644b584699091dbd31c39241bbd2bf9027bdec14870fd62b9a51c2e356f3e45"
+        },
+        "admin": {
+          "releaseId": "base",
+          "target": "admin",
+          "source": "packages/releases/base/src/admin.ts",
+          "artifact": null,
+          "status": "disabled",
+          "inputCount": 0,
+          "inputsChecksum": null
+        },
+        "cli": {
+          "releaseId": "base",
+          "target": "cli",
+          "source": "packages/releases/base/src/cli.ts",
+          "artifact": "app/cli.js",
+          "status": "built",
+          "inputCount": 186,
+          "inputsChecksum": "sha256:61064a8586cfa02275fdfe011448a722d4b8edaafac7eed0ea3d0781c8536502"
+        }
+      },
+      "runtimeProjections": {
+        "config": {
+          "releaseId": "base",
+          "target": "config",
+          "source": "packages/releases/base/src/config.ts",
+          "key": "base.config.v1",
+          "artifact": null,
+          "status": "resolved",
+          "value": {
+            "defaultFilename": "storeweave.yaml"
+          }
+        },
+        "storefront": {
+          "releaseId": "base",
+          "target": "storefront",
+          "source": "packages/releases/base/src/storefront.ts",
+          "key": "base.storefront.v1",
+          "artifact": null,
+          "status": "resolved",
+          "value": {
+            "themeKeys": [
+              "base",
+              "editorial"
+            ],
+            "themeAssets": null
+          }
+        }
+      },
+      "publicContract": {
+        "status": "absent"
+      }
+    },
+    "commerce": {
+      "identity": {
+        "id": "commerce",
+        "version": "0.1.0-sw102",
+        "manifestChecksum": "sha256:571ad8fb0685d0d7d0b26fec6b9b8a2fbddbd5e0015ed899721cfaa4ff440f27"
+      },
+      "selected": {
+        "runtime": "packages/releases/commerce/src/runtime.ts",
+        "server": "packages/releases/commerce/src/server.ts",
+        "worker": "packages/releases/commerce/src/worker.ts",
+        "adminProjection": "packages/releases/commerce/src/admin.tsx",
+        "cli": "packages/releases/commerce/src/cli.ts",
+        "configProjection": "packages/releases/commerce/src/config.ts",
+        "storefrontProjection": "packages/releases/commerce/src/storefront.ts",
+        "seed": "scripts/seeds/commerce.ts",
+        "admin": true
+      },
+      "targets": {
+        "server": {
+          "status": "present",
+          "inputCount": 403,
+          "inputsChecksum": "sha256:12875db3e18ee6e4ff2c3f746c1b77640b1039206beddcae09c9f2d8dba918f9"
+        },
+        "worker": {
+          "status": "present",
+          "inputCount": 350,
+          "inputsChecksum": "sha256:cd7331a3082d90317e671934aa719f507cf8a60a0f9bb35e75fd1cea745679ff"
+        },
+        "cli": {
+          "status": "present",
+          "inputCount": 375,
+          "inputsChecksum": "sha256:2e7364b155f93ea8375de4542d254c47a24c2fbedebc6235dee8359130ac0dcd"
+        },
+        "admin": {
+          "status": "present",
+          "inputCount": 63,
+          "inputsChecksum": "sha256:1f46f79e13b074556348ace24a124da216dc50fa59f8f694130dc7be8f4f1158"
+        }
+      },
+      "projections": {
+        "server": {
+          "releaseId": "commerce",
+          "target": "server",
+          "source": "packages/releases/commerce/src/server.ts",
+          "artifact": "app/api.js",
+          "status": "built",
+          "inputCount": 403,
+          "inputsChecksum": "sha256:12875db3e18ee6e4ff2c3f746c1b77640b1039206beddcae09c9f2d8dba918f9"
+        },
+        "worker": {
+          "releaseId": "commerce",
+          "target": "worker",
+          "source": "packages/releases/commerce/src/worker.ts",
+          "artifact": "app/worker.js",
+          "status": "built",
+          "inputCount": 350,
+          "inputsChecksum": "sha256:cd7331a3082d90317e671934aa719f507cf8a60a0f9bb35e75fd1cea745679ff"
+        },
+        "admin": {
+          "releaseId": "commerce",
+          "target": "admin",
+          "source": "packages/releases/commerce/src/admin.tsx",
+          "artifact": "admin/index.html",
+          "status": "built",
+          "inputCount": 63,
+          "inputsChecksum": "sha256:1f46f79e13b074556348ace24a124da216dc50fa59f8f694130dc7be8f4f1158"
+        },
+        "cli": {
+          "releaseId": "commerce",
+          "target": "cli",
+          "source": "packages/releases/commerce/src/cli.ts",
+          "artifact": "app/cli.js",
+          "status": "built",
+          "inputCount": 375,
+          "inputsChecksum": "sha256:2e7364b155f93ea8375de4542d254c47a24c2fbedebc6235dee8359130ac0dcd"
+        }
+      },
+      "runtimeProjections": {
+        "config": {
+          "releaseId": "commerce",
+          "target": "config",
+          "source": "packages/releases/commerce/src/config.ts",
+          "key": "commerce.config.v1",
+          "artifact": null,
+          "status": "resolved",
+          "value": {
+            "defaultFilename": "commerce.yaml"
+          }
+        },
+        "storefront": {
+          "releaseId": "commerce",
+          "target": "storefront",
+          "source": "packages/releases/commerce/src/storefront.ts",
+          "key": "commerce.storefront.v1",
+          "artifact": null,
+          "status": "resolved",
+          "value": {
+            "themeKeys": [
+              "default",
+              "editorial"
+            ],
+            "themeAssets": "packages/themes/default/assets"
+          }
+        }
+      },
+      "publicContract": {
+        "status": "present",
+        "inputs": [
+          {
+            "path": "docs/base/b17/b00-catalog.json",
+            "sha256": "7a6c392a4ab3bf752b5bd764d2904ac06f35832342e9c095a6406b08950d3a5e"
+          },
+          {
+            "path": "docs/base/b17/commerce-http-contract.v1.json",
+            "sha256": "1f9c5563cd8cada3c51a797a121bd3a21c17ced22329eb9e6091da8f66c7066a"
+          },
+          {
+            "path": "docs/base/b17/commerce-public-contract.structural.v1.json",
+            "sha256": "8181bc2aca70013d5215e2e95a15cbf9f7547de5bb9eaf3bd403df241bd927e7"
+          },
+          {
+            "path": "docs/base/b17/commerce-public-contract.semantic.v2.json",
+            "sha256": "f2c355a5aadd4349f8d040952a58d75928c52fc2c86b7da3bd611f79d3687d0c"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -48,6 +48,7 @@ async function setup(
     extensionId: 'ecpay-logistics',
     config: ecpayLogisticsConfig.parse({ mode: 'fake', ...config }),
     secrets,
+    declaredSecrets: Object.keys(secrets),
     queries: {
       'commerce.shipping.getProviderShipmentRequest': async () => options.request ?? request,
       'commerce.shipping.getProviderShipmentStatusRequest': async () => ({
@@ -97,7 +98,7 @@ describe('ECPay logistics carrier adapter', () => {
     await expect(provider.parseCallback!({ body: new TextEncoder().encode('providerRef=x'), headers: {}, query: {} })).rejects.toThrow(/signature/);
 
     const gated = createEcpayLogisticsProvider(createTestExtensionContext({
-      extensionId: 'ecpay-logistics', config: ecpayLogisticsConfig.parse({ mode: 'external_gate' }), secrets,
+      extensionId: 'ecpay-logistics', config: ecpayLogisticsConfig.parse({ mode: 'external_gate' }), secrets, declaredSecrets: Object.keys(secrets),
     }));
     await expect(gated.parseCallback!({ body, headers: {}, query: {} })).rejects.toThrow(/UAT/);
   });
@@ -106,12 +107,13 @@ describe('ECPay logistics carrier adapter', () => {
     const config = ecpayLogisticsConfig.parse({});
     expect(() => createEcpayLogisticsProvider(createTestExtensionContext({
       extensionId: 'ecpay-logistics', config,
+      declaredSecrets: Object.keys(secrets),
     }))).toThrow(/required secrets/);
     expect(() => ecpayLogisticsConfig.parse({ merchantId: 'must-not-be-in-yaml' })).toThrow(/unrecognized/i);
     expect((await setup({ mode: 'external_gate' })).registration).toBeDefined();
 
     const gated = createEcpayLogisticsProvider(createTestExtensionContext({
-      extensionId: 'ecpay-logistics', config, secrets,
+      extensionId: 'ecpay-logistics', config, secrets, declaredSecrets: Object.keys(secrets),
     }));
     await expect(gated.healthCheck!()).resolves.toMatchObject({ ok: false, message: expect.stringMatching(/gated/i) });
   });

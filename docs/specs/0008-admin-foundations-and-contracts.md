@@ -193,4 +193,4 @@ PR 合併、部署與 ForgeFlowv2 實作不由本輪建票自動授權。
 
 ## Completion evidence（2026-09-07）
 
-[Ticket90](../tickets/90-admin-migration-closure.md) 收錄逐票 rollback、最終 source hashes、完整 CI 與瀏覽器驗收。Admin314／root561／integration505、兩者typecheck／Adminbuild、Docker62／native61全通過；16routes＋Login204layout、shell12、Productdialogs36及三語phase3通過。Sol/high Standards／Spec零發現。基底Spec0009仍依B00–B17另行完成；本規格結案不代表Base已實作。
+[Ticket90](../tickets/90-admin-migration-closure.md) 收錄逐票 rollback、最終 source hashes、完整 CI 與瀏覽器驗收。Admin314／root561／integration505、兩者typecheck／Adminbuild、Docker62／native61全通過；16routes＋Login204layout、shell12、Productdialogs36及三語phase3通過。Sol/high Standards／Spec零發現。**截至本規格結案（2026-09-07）**，Spec0009 的 B00–B17 尚待完成；後續已於 2026-09-19 完成 Base 工程驗收，現況見 [B17 驗收矩陣](../base/b17/acceptance.md)。

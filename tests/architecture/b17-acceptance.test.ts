@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildReleaseManifest } from '../../packages/platform/bundle/src/release-manifest';
+import { buildReleaseManifest } from '../../packages/platform/release/src/runtime';
 import { assertThemeCoversPages, composeRuntimeModules } from '@storeweave/kernel';
 import { noopLogger } from '@storeweave/contracts';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
@@ -9,12 +9,12 @@ import { EventBus } from '@storeweave/event-bus';
 import { JobQueue } from '@storeweave/jobs';
 import { OutboxStore } from '@storeweave/outbox';
 import { baseTheme } from '@storeweave/theme-base';
-import { release as baseRelease } from '../../packages/platform/bundle/src/releases/base';
-import { release as commerceRelease } from '../../packages/platform/bundle/src/releases/commerce';
-import { release as fileRequestsRelease } from '../../packages/platform/bundle/src/releases/file-requests';
+import { release as baseRelease } from '../../packages/releases/base/src/runtime';
+import { release as commerceRelease } from '../../packages/releases/commerce/src/runtime';
+import { release as fileRequestsRelease } from '../../packages/examples/file-requests/src/runtime';
 import { ROOT } from './source-graph';
 
-const legacyBaselinePath = join(ROOT, 'packages/platform/bundle/src/legacy/commerce-pre-b02.json');
+const legacyBaselinePath = join(ROOT, 'packages/releases/commerce/src/legacy-commerce-pre-b02.json');
 const legacyBaseline = JSON.parse(readFileSync(legacyBaselinePath, 'utf8')) as unknown;
 const b00Catalog = JSON.parse(readFileSync(join(ROOT, 'docs/base/b17/b00-catalog.json'), 'utf8')) as {
   baseline: Record<'commands' | 'queries' | 'events' | 'jobs', string[]>;
@@ -108,7 +108,7 @@ describe('B17 release acceptance contracts', () => {
     expect(manifest.availableExtensions).toEqual([]);
     // Keep this source check scoped to the actual Base release boundary; the
     // Commerce release and its tests are allowed to import the default theme.
-    const baseSource = readFileSync(join(ROOT, 'packages/platform/bundle/src/releases/base.ts'), 'utf8');
+    const baseSource = readFileSync(join(ROOT, 'packages/releases/base/src/runtime.ts'), 'utf8');
     expect(baseSource).not.toContain('commerce.ts');
   });
 

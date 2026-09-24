@@ -2,11 +2,12 @@
 
 狀態：2026-09-08 `done`。B03 的 transport、catalog artifact、CORS 與 Vitest serial test configuration
 已完成 final5 full integration、Base／Commerce native 與 Docker packaged-runtime smoke、enabled-CORS packaged probe、
-protected-release preservation check 與 independent source review。B04 尚未啟動。
+protected-release preservation check 與 independent source review。**截至 B03 結案當時**，B04 尚未啟動。
 
 範圍以 [B03 派工卡](../b00/next-work-cards.md#b03--模組-http-與安全-transport)及
 [Spec 0009 F02](../../specs/0009-complete-modular-base.md) 為準；逐項現況見
-[acceptance matrix](acceptance.md)。Tickets 81–90 與 B00–B02 已完成，B04–B17 尚未實作。
+[acceptance matrix](acceptance.md)。截至 B03 結案，Tickets 81–90 與 B00–B02 已完成，B04–B17 尚未實作；
+目前整體 Base 工程結論見 [B17](../b17/README.md)。
 
 ## 現況與 ownership
 

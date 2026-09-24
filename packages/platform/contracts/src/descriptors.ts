@@ -31,6 +31,8 @@ export interface CommandDescriptor<I = any, O = any> {
   readonly output: Schema<O>;
   readonly permission: string;
   readonly idempotency: IdempotencyMode;
+  /** Require the caller to recheck revocable authority before a cached response may be returned. */
+  readonly requiresBeforeIdempotency?: true;
   readonly audit?: AuditSpec<I, O>;
   readonly summary?: string;
   readonly resource?: ResourceResolver<I>;
@@ -106,10 +108,14 @@ export function defineCommand<I, O>(d: {
   output: Schema<O>;
   permission: string;
   idempotency?: IdempotencyMode;
+  requiresBeforeIdempotency?: true;
   audit?: AuditSpec<I, O>;
   summary?: string;
   resource?: ResourceResolver<I>;
 }): CommandDescriptor<I, O> {
+  if (d.requiresBeforeIdempotency && d.idempotency !== 'required') {
+    throw new Error(`Command "${d.name}" requires required idempotency for a pre-idempotency guard`);
+  }
   return {
     name: d.name,
     version: d.version ?? 1,
@@ -117,6 +123,7 @@ export function defineCommand<I, O>(d: {
     output: d.output,
     permission: d.permission,
     idempotency: d.idempotency ?? 'optional',
+    requiresBeforeIdempotency: d.requiresBeforeIdempotency,
     audit: d.audit,
     summary: d.summary,
     resource: d.resource,

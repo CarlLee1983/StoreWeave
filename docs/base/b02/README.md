@@ -2,7 +2,7 @@
 
 狀態：done，2026-09-08。前置 [B01 已完成](../b01/README.md)；依 [B02 派工卡](../b00/next-work-cards.md#b02--同一份-release-選取模組設定與資料) 與 [Spec 0009](../../specs/0009-complete-modular-base.md) 執行。
 
-最終驗收見 [需求與證據對照](acceptance.md)。以下依時間保留過程；早期 pending／finding 以最終對照及末段 closure 為準。
+最終驗收見 [需求與證據對照](acceptance.md)。以下依時間保留過程；早期 pending／finding 以最終對照及末段 closure 為準。本文中的 B02 與後續工作包待辦是當時的執行紀錄，不代表目前狀態；整體 Base 工程現況見 [B17](../b17/README.md)。
 
 ## 出口與邊界
 
@@ -125,7 +125,7 @@ pnpm commerce migrate
 ### 舊 binary 回復與包裝接線（進行中）
 
 - 使用保留的 B01 bundle（`/tmp/storeweave-b01-build-path`）在獨立 PG 容器由舊 CLI 建立 49 筆 migration，插入商品，再依序啟動舊 API、新版 baseline／migrate／API、舊版 migrate／API。全部 PASS，原 id／phase／applied_at 與商品內容不變：`/tmp/storeweave-b02-old-binary-probe.log`；可重跑探針：`/tmp/storeweave-b02-old-binary-probe.cjs`。這只證明目前 checksum／baseline metadata 的 additive 變更可回復；module history／manifest 尚未實作，完成後必須再驗，不能外推至任意 data version 降版。
-- Commerce 完整 Vite build 現在直接寫入選定輸出的 admin/，不再先覆蓋 apps/admin/dist。明確 `--skip-admin` 仍沿用既有已建 Admin 的行為。完整 Base／Commerce 四程序＋assets＋啟停測試 2 PASS：`/tmp/storeweave-b02-full-artifact-smoke.log`；Admin 26 files／314 PASS：`/tmp/storeweave-b02-admin.log`。
+- Commerce 完整 Vite build 現在直接寫入選定輸出的 admin/，不再先覆蓋 apps/admin/dist。明確 `--skip-admin` 仍可重用既有 Admin；重用前驗證 release、projection 輸入圖與輸出檔案摘要。沒有 provenance 的舊 cache 須先用 `pnpm build:admin` 重建。完整 Base／Commerce 四程序＋assets＋啟停測試 2 PASS：`/tmp/storeweave-b02-full-artifact-smoke.log`；Admin 26 files／314 PASS：`/tmp/storeweave-b02-admin.log`。
 - Terra/high 包裝盤點：`/tmp/storeweave-b02-packaging-inventory.txt`。同 pane 完成 `scripts/smoke-base.sh`，只讀健康／授權平台端點與實際 Commerce URL 的 404，curl 有期限且失敗退出，無共用暫存檔。syntax／成功與錯誤 mock 證据：`/tmp/storeweave-b02-base-smoke-check.txt`；真 Base bundle 接線驗證進行中。
 - Native build 接受 `STOREWEAVE_RELEASE`、`STOREWEAVE_BUILD_DIR`、`STOREWEAVE_RELEASE_DIR`，Base 使用 storeweave 名稱與獨立 config／systemd assets，Commerce 路徑保留。兩種 tarball 已成功產出：`/tmp/storeweave-b02-native-path`；build logs `/tmp/storeweave-b02-native-base-build.log`、`/tmp/storeweave-b02-native-commerce-build.log`。本機無 dpkg-deb，尚未驗證 .deb。
 - 新版 native installer 驗證 release marker／build-info／四程序存在，拒絕覆寫既有版本，設定範本完成後才原子切換 current。新建 env 檔 root:release-group／0640，讓 service account 能讀 file secrets；不改既有 env 權限。Native smoke 改用唯一容器／network 與全新輸出路徑，只清理由該次建立的物件，實測相同版本重裝拒絕並以服務帳號執行 install／start。

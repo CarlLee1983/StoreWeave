@@ -4,6 +4,7 @@ export * from './contract-test';
 export * from './http';
 export * from './manifest';
 export * from './mcp';
+export * from './payment-contract';
 export * from './providers';
 export * from './registration';
 export * from './security';

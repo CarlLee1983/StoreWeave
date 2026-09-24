@@ -7,11 +7,27 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { build as viteBuild } from 'vite';
+import {
+  BUILD_TARGETS,
+  ADMIN_PROJECTION_PROVENANCE,
+  projectionAliases,
+  projectionMetadata,
+  resolveBuildProjections,
+  resolveRuntimeProjectionSources,
+  validateAdminProjectionProvenance,
+  validateBuildGraph,
+  validateProjectionGraph,
+} from './build-projections.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+process.chdir(root);
 const releaseId = process.env.STOREWEAVE_RELEASE ?? 'commerce';
 if (!Object.hasOwn(releases, releaseId)) throw new Error(`Unknown release: ${releaseId}`);
 const selected = releases[releaseId];
+const skipAdmin = process.argv.includes('--skip-admin');
+const projections = resolveBuildProjections({ root, releaseId, release: selected, skipAdmin });
+const projectionByTarget = new Map(projections.map(projection => [projection.target, projection]));
 const outDir = process.env.STOREWEAVE_BUILD_DIR ? resolve(process.env.STOREWEAVE_BUILD_DIR) : join(root, 'dist');
 if (process.env.STOREWEAVE_BUILD_DIR && existsSync(outDir)) throw new Error('STOREWEAVE_BUILD_DIR must be a new directory');
 const appDir = join(outDir, 'app');
@@ -23,7 +39,33 @@ if (sourceRevision && !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(sourceRevision)) {
   throw new Error('STOREWEAVE_SOURCE_REVISION must be a 40- or 64-character lowercase hexadecimal object id');
 }
 
-const skipAdmin = !selected.admin || process.argv.includes('--skip-admin');
+const resolvedRuntime = JSON.parse(execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '--eval',
+  `const loaded = await import('./${selected.runtime}'); const release = loaded.release ?? loaded.default?.release; process.stdout.write(JSON.stringify({
+    id: release.id,
+    configKey: release.manifest.targets.config.key,
+    storefrontKey: release.manifest.targets.storefront.key,
+    configSource: release.configProjectionSource,
+    storefrontSource: release.storefrontProjectionSource,
+    configFilename: release.configProjection.defaultFilename,
+    themeKeys: Object.keys(release.storefrontProjection.themes),
+    themeAssets: release.storefrontProjection.themeAssets ?? null,
+  }));`], { cwd: root, encoding: 'utf8' }));
+if (resolvedRuntime.id !== releaseId) throw new Error(`Release "${releaseId}" target projections resolved runtime "${resolvedRuntime.id}"`);
+const runtimeProjectionSources = resolveRuntimeProjectionSources({
+  root,
+  releaseId,
+  release: selected,
+  runtimeProjectionSources: { config: resolvedRuntime.configSource, storefront: resolvedRuntime.storefrontSource },
+});
+const runtimeProjectionMetadata = runtimeProjectionSources.map(projection => ({
+  ...projection,
+  key: projection.target === 'config' ? resolvedRuntime.configKey : resolvedRuntime.storefrontKey,
+  artifact: null,
+  status: 'resolved',
+  value: projection.target === 'config'
+    ? { defaultFilename: resolvedRuntime.configFilename }
+    : { themeKeys: resolvedRuntime.themeKeys, themeAssets: resolvedRuntime.themeAssets },
+}));
 
 // NestJS 對這些套件都是「有裝才用」的 lazy require；我們沒有用到，因此標成 external。
 // pg-native 是 pg 的選用原生加速套件，沒有它會自動走純 JS 路徑。
@@ -49,48 +91,67 @@ rmSync(outDir, { recursive: true, force: true });
 mkdirSync(appDir, { recursive: true });
 
 const entries = [
-  { in: join(root, 'apps/api/src/main.ts'), out: join(appDir, 'api.js') },
-  { in: join(root, 'apps/worker/src/main.ts'), out: join(appDir, 'worker.js') },
-  { in: join(root, 'tools/cli/src/main.ts'), out: join(appDir, 'cli.js') },
-  { in: join(root, 'scripts/seed.ts'), out: join(appDir, 'seed.js') },
+  ...BUILD_TARGETS.filter(target => target.target !== 'admin').map(target => ({
+    target: target.target,
+    in: join(root, target.entry),
+    out: join(outDir, target.artifact),
+  })),
+  { in: join(root, 'scripts/seed.ts'), out: join(appDir, 'seed.js'), target: 'seed' },
 ];
 const manifestEntry = { in: join(root, 'scripts/release-manifest.ts'), out: join(outDir, 'release-manifest.js') };
 const validatorEntry = { in: join(root, 'scripts/validate-release.ts'), out: join(outDir, 'scripts/validate-release.js') };
 let manifestChecksum;
+const projectionMetadataByTarget = new Map();
 
 for (const entry of [manifestEntry, ...entries, validatorEntry]) {
-  const result = await build({
-    entryPoints: [entry.in],
-    outfile: entry.out,
-    bundle: true,
-    metafile: true,
-    define: {
-      'process.env.STOREWEAVE_RELEASE_VERSION': JSON.stringify(version),
-      ...(manifestChecksum ? { 'process.env.STOREWEAVE_BUILD_MANIFEST_SHA': JSON.stringify(manifestChecksum) } : {}),
-    },
-    alias: {
-      '@storeweave/selected-release': join(root, selected.runtime),
-      '@storeweave/selected-http': join(root, selected.http),
-      '@storeweave/selected-seed': join(root, selected.seed),
-    },
-    platform: 'node',
-    target: 'node22',
-    format: 'cjs',
-    sourcemap: true,
-    minify: false,
-    tsconfig: join(root, 'tsconfig.json'),
-    // pg-native 是 pg 的選用原生加速套件；沒有它 pg 會自動走純 JS 路徑
-    external: EXTERNALS,
-    banner: { js: `// StoreWeave ${version} — generated by scripts/build.mjs, do not edit` },
-    logLevel: 'info',
-  });
-  if (releaseId === 'base') {
-    const forbidden = Object.keys(result.metafile.inputs).filter(file =>
-      /(^|\/)packages\/(commerce|extensions)\//.test(file)
-      || file.includes('packages/themes/default/')
-      || file.endsWith('apps/api/src/releases/commerce.ts')
-      || file.endsWith('scripts/seeds/commerce.ts'));
-    if (forbidden.length) throw new Error(`Base bundle imports Commerce: ${forbidden.join(', ')}`);
+  const projection = projectionByTarget.get(entry.target);
+  const aliases = projection
+    ? projectionAliases(root, releaseId, selected, projection.target)
+    : { '@storeweave/selected-runtime': join(root, selected.runtime) };
+  if (entry.target === 'seed') aliases['@storeweave/selected-seed'] = join(root, selected.seed);
+  let result;
+  try {
+    result = await build({
+      entryPoints: [entry.in],
+      outfile: entry.out,
+      bundle: true,
+      metafile: true,
+      define: {
+        'process.env.STOREWEAVE_RELEASE_VERSION': JSON.stringify(version),
+        ...(manifestChecksum ? { 'process.env.STOREWEAVE_BUILD_MANIFEST_SHA': JSON.stringify(manifestChecksum) } : {}),
+      },
+      alias: aliases,
+      platform: 'node',
+      target: 'node22',
+      format: 'cjs',
+      sourcemap: true,
+      minify: false,
+      tsconfig: join(root, 'tsconfig.json'),
+      // pg-native 是 pg 的選用原生加速套件；沒有它 pg 會自動走純 JS 路徑
+      external: EXTERNALS,
+      banner: { js: `// StoreWeave ${version} — generated by scripts/build.mjs, do not edit` },
+      logLevel: 'info',
+    });
+  } catch (error) {
+    if (!entry.target) throw error;
+    const target = projection?.target ?? entry.target;
+    const source = projection?.source ?? entry.in.replace(`${root}/`, '');
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Release "${releaseId}" target "${target}" could not resolve source "${source}": ${detail}`, { cause: error });
+  }
+  const inputs = Object.keys(result.metafile.inputs);
+  if (projection) {
+    projectionMetadataByTarget.set(projection.target, validateProjectionGraph({
+      root,
+      releaseId,
+      target: projection.target,
+      source: projection.source,
+      artifact: projection.artifact,
+      inputs,
+      forbiddenSources: selected.forbiddenInputs ?? [],
+    }));
+  } else {
+    validateBuildGraph({ root, releaseId, target: entry.target ?? 'manifest', inputs, forbiddenSources: selected.forbiddenInputs ?? [] });
   }
   writeFileSync(`${entry.out}.meta.json`, `${JSON.stringify(result.metafile, null, 2)}\n`);
   if (entry === manifestEntry) {
@@ -107,21 +168,93 @@ for (const entry of [manifestEntry, ...entries, validatorEntry]) {
 }
 
 const adminEntry = join(root, 'apps/admin/index.html');
-if (!skipAdmin && existsSync(adminEntry)) {
-  execFileSync('npx', ['vite', 'build', '--config', 'apps/admin/vite.config.ts', '--outDir', join(outDir, 'admin')], { cwd: root, stdio: 'inherit' });
-} else if (!skipAdmin) {
-  console.warn('warning: apps/admin/index.html not found; skipping admin build');
-}
-const adminDist = join(root, 'apps/admin/dist');
-if (selected.admin && skipAdmin && existsSync(adminDist)) {
-  cpSync(adminDist, join(outDir, 'admin'), { recursive: true });
+const adminProjection = projectionByTarget.get('admin');
+if (adminProjection.status === 'built') {
+  if (!existsSync(adminEntry)) throw new Error(`Release "${releaseId}" target "admin" entry is missing: "apps/admin/index.html"`);
+  let result;
+  try {
+    result = await viteBuild({
+      configFile: join(root, 'apps/admin/vite.config.ts'),
+      logLevel: 'info',
+      build: { outDir: join(outDir, 'admin'), emptyOutDir: true },
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Release "${releaseId}" target "admin" could not resolve projection source "${adminProjection.source}": ${detail}`, { cause: error });
+  }
+  const outputs = Array.isArray(result) ? result : [result];
+  const inputs = new Set();
+  for (const output of outputs) {
+    if (!('output' in output)) throw new Error(`Release "${releaseId}" target "admin" unexpectedly entered watch mode`);
+    for (const chunk of output.output) {
+      if (chunk.type !== 'chunk') continue;
+      for (const input of Object.keys(chunk.modules)) inputs.add(input);
+    }
+  }
+  projectionMetadataByTarget.set('admin', validateProjectionGraph({
+    root,
+    releaseId,
+    target: 'admin',
+    source: adminProjection.source,
+    artifact: adminProjection.artifact,
+    inputs: [...inputs],
+    forbiddenSources: selected.forbiddenInputs ?? [],
+  }));
+  rmSync(join(outDir, 'admin', ADMIN_PROJECTION_PROVENANCE), { force: true });
+} else if (adminProjection.enabled && skipAdmin) {
+  const explicitReuseDir = Boolean(process.env.STOREWEAVE_ADMIN_CACHE_DIR);
+  const reuseDir = explicitReuseDir
+    ? resolve(process.env.STOREWEAVE_ADMIN_CACHE_DIR)
+    : join(root, 'apps/admin/dist');
+  if (explicitReuseDir && !existsSync(reuseDir)) {
+    throw new Error(`Release "${releaseId}" target "admin" reuse directory does not exist: "${reuseDir}"`);
+  }
+  if (existsSync(reuseDir)) {
+    validateAdminProjectionProvenance({
+      root,
+      releaseId,
+      source: adminProjection.source,
+      directory: reuseDir,
+      forbiddenSources: selected.forbiddenInputs ?? [],
+    });
+    cpSync(reuseDir, join(outDir, 'admin'), { recursive: true });
+    const reusedProjection = validateAdminProjectionProvenance({
+      root,
+      releaseId,
+      source: adminProjection.source,
+      directory: join(outDir, 'admin'),
+      forbiddenSources: selected.forbiddenInputs ?? [],
+    });
+    rmSync(join(outDir, 'admin', ADMIN_PROJECTION_PROVENANCE), { force: true });
+    projectionMetadataByTarget.set('admin', reusedProjection);
+  } else {
+    projectionMetadataByTarget.set('admin', projectionMetadata({
+      releaseId,
+      target: 'admin',
+      source: adminProjection.source,
+      artifact: adminProjection.artifact,
+      status: 'skipped',
+    }));
+  }
+} else {
+  projectionMetadataByTarget.set('admin', projectionMetadata({
+    releaseId,
+    target: 'admin',
+    source: adminProjection.source,
+    artifact: adminProjection.artifact,
+    status: adminProjection.status,
+  }));
 }
 
 // Default Theme editorial media is a release-owned asset set. It is copied
 // separately from the bundled JS so the storefront can serve it with ordinary
 // HTTP caching rather than encoding image bytes into each SSR response.
-const defaultThemeAssets = selected.themeAssets && join(root, selected.themeAssets);
-if (defaultThemeAssets && existsSync(defaultThemeAssets)) {
+const defaultThemeAssets = resolvedRuntime.themeAssets && resolve(root, resolvedRuntime.themeAssets);
+if (defaultThemeAssets && !defaultThemeAssets.startsWith(`${root}/`)) {
+  throw new Error(`Release "${releaseId}" storefront projection theme assets escape the repository: "${resolvedRuntime.themeAssets}"`);
+}
+if (defaultThemeAssets) {
+  if (!existsSync(defaultThemeAssets)) throw new Error(`Release "${releaseId}" storefront projection theme assets are missing: "${resolvedRuntime.themeAssets}"`);
   cpSync(defaultThemeAssets, join(outDir, 'theme-assets'), { recursive: true });
 }
 
@@ -135,6 +268,9 @@ writeFileSync(
     ...(sourceRevision ? { sourceRevision } : {}),
     builtOnNode: process.version,
     entries: entries.map((e) => e.out.replace(root, '')),
+    projections: BUILD_TARGETS.map(({ target }) => projectionMetadataByTarget.get(target)),
+    runtimeProjections: runtimeProjectionMetadata,
+    storefront: { themeKeys: resolvedRuntime.themeKeys, themeAssets: resolvedRuntime.themeAssets },
   }, null, 2)}\n`,
   'utf8',
 );

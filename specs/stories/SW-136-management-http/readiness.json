@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "story_ref": "specs/stories/SW-136-management-http",
+  "story_md_digest": "sha256:c8629018a18f7f5215b32dbc0322c04e48ae59fda22c6d158658f385b4b66cd4",
+  "acceptance_md_digest": "sha256:186a00b2a7534d2d18547b4a79650619711b85a5aa9d13fe786ce2c71affc978",
+  "criteria": [
+    { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-003", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-004", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-005", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] }
+  ],
+  "inputs": [
+    {
+      "id": "access-grant-resend-command",
+      "source": { "prerequisite_output": { "output_id": "sw-152" } }
+    },
+    {
+      "id": "declared-management-rate-limit-methods",
+      "source": { "prerequisite_output": { "output_id": "sw-153" } }
+    },
+    {
+      "id": "reservation-management-capability",
+      "source": { "preexisting_artifact": { "path": "packages/booking/reservation/src/management.ts" } }
+    },
+    {
+      "id": "management-cookie-contract",
+      "source": { "preexisting_artifact": { "path": "apps/api/src/http/cookie-names.ts" } }
+    },
+    {
+      "id": "authenticated-actor-and-session-guard",
+      "source": { "preexisting_artifact": { "path": "apps/api/src/http/auth.ts" } }
+    }
+  ],
+  "outputs": [
+    { "id": "sw-136" }
+  ],
+  "decision_follow_ups": []
+}

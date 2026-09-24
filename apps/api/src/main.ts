@@ -2,21 +2,49 @@ import { closeInReverse, installShutdown, withCleanupDeadline } from '@storeweav
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import 'reflect-metadata';
 import { join } from 'node:path';
-import { bootstrapRelease } from '@storeweave/bootstrap-release';
-import { release } from '@storeweave/selected-release';
+import { bootstrapRelease } from '@storeweave/release/bootstrap';
+import { serverProjection as selectedServerProjection } from '@storeweave/selected-server';
 import { createReleaseServer } from './release-server';
-import { httpAdapter } from '@storeweave/selected-http';
+import type { ReleaseHttpAdapter } from './release-adapter';
 import { resolveThemeAssetsDir } from './theme-assets';
 import { writeStartupHttpCatalog } from './http/catalog-artifact';
 import type { HttpRouteCatalogCarrier } from './http/contract';
 
-const RELEASE_VERSION = process.env.STOREWEAVE_RELEASE_VERSION ?? process.env.COMMERCE_RELEASE_VERSION ?? release.version;
+type ServerProjection = {
+  readonly release: Parameters<typeof bootstrapRelease>[0];
+  readonly httpAdapter: ReleaseHttpAdapter;
+};
 
-const RELEASE_NAME = release.id === 'commerce' ? 'commerce' : 'storeweave';
+function assertServerProjection(value: unknown): asserts value is ServerProjection {
+  if (value === null || typeof value !== 'object') {
+    throw new Error('Selected API server projection is missing');
+  }
+
+  const projection = value as Partial<ServerProjection>;
+  const release = projection.release;
+  if (!release || typeof release.id !== 'string' || release.id.trim() === '' || typeof release.version !== 'string') {
+    throw new Error('Selected API server projection is missing release identity');
+  }
+
+  const httpAdapter = projection.httpAdapter;
+  if (!httpAdapter || typeof httpAdapter !== 'object') {
+    throw new Error(`Server projection "${release.id}" is missing required HTTP adapter contribution`);
+  }
+  if (httpAdapter.releaseId !== release.id) {
+    throw new Error(`Server projection "${release.id}" contains HTTP adapter owned by "${String(httpAdapter.releaseId)}"`);
+  }
+  if (typeof httpAdapter.controllers !== 'function' || typeof httpAdapter.startSession !== 'function') {
+    throw new Error(`Server projection "${release.id}" has an incomplete HTTP adapter contribution`);
+  }
+}
 
 export async function main(): Promise<void> {
-  if (httpAdapter.releaseId !== release.id) throw new Error('HTTP adapter does not match the selected release');
-  const { runtime, loaded, theme } = await bootstrapRelease(release, { loggerName: `${RELEASE_NAME}-api` });
+  const projection: unknown = selectedServerProjection;
+  assertServerProjection(projection);
+  const { release, httpAdapter } = projection;
+  const releaseName = release.id;
+  const releaseVersion = process.env.STOREWEAVE_RELEASE_VERSION ?? process.env.COMMERCE_RELEASE_VERSION ?? release.version;
+  const { runtime, loaded, theme } = await bootstrapRelease(release, { loggerName: `${releaseName}-api` });
   const logger = runtime.logger;
 
   let app: NestFastifyApplication | undefined;
@@ -36,7 +64,7 @@ export async function main(): Promise<void> {
       httpAdapter,
       runtime,
       theme,
-      release: { version: RELEASE_VERSION, configPath: loaded.sourcePath, adminDir, themeAssetsDir },
+      release: { version: releaseVersion, configPath: loaded.sourcePath, adminDir, themeAssetsDir },
     });
     const catalogOutput = process.env.STOREWEAVE_HTTP_CATALOG_OUTPUT;
     if (catalogOutput) writeStartupHttpCatalog({ output: catalogOutput, runtime,
@@ -50,7 +78,7 @@ export async function main(): Promise<void> {
         extensions: runtime.extensions.list().map((e) => `${e.id}@${e.version}`),
         mcpTools: runtime.mcpTools.size,
       },
-      `${RELEASE_NAME} api listening`,
+      `${releaseName} api listening`,
     );
 
     installShutdown(runtime.config.shutdown.timeoutMs, close, logger);
@@ -63,6 +91,6 @@ export async function main(): Promise<void> {
 }
 
 if (require.main === module) main().catch((err) => {
-  console.error(`[${RELEASE_NAME}-api] failed to start: ${(err as Error).message}`);
+  console.error(`[api] failed to start: ${(err as Error).message}`);
   process.exit(1);
 });

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "story_ref": "specs/stories/SW-153-declared-rate-limit-methods",
+  "story_md_digest": "sha256:2bf3424d0fb1aa0e6c9f617c757d81bd7b32b86d8e088ecb8cd1577c2cd48c8c",
+  "acceptance_md_digest": "sha256:cd2f2ff5af2516fcce5b658e79fa45a0fb8f0cd8a03fba01dda55b59d930ea42",
+  "criteria": [
+    { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-003", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-004", "operations": [], "owner": "canonical_verification", "future_identities": [] }
+  ],
+  "inputs": [
+    {
+      "id": "declared-server-rate-limit-contract",
+      "source": { "preexisting_artifact": { "path": "apps/api/src/release-server.ts" } }
+    }
+  ],
+  "outputs": [
+    { "id": "sw-153" }
+  ],
+  "decision_follow_ups": []
+}

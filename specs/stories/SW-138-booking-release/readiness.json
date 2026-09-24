@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "story_ref": "specs/stories/SW-138-booking-release",
+  "story_md_digest": "sha256:427dfa02d5241bd8c7c5fc4430117e33f800849e9a13ae0d73f1ba0d3be63cdb",
+  "acceptance_md_digest": "sha256:a801c709db628e4d740e1985c03e71ae1f5c3b7af54917b3b95438ed5790a1f4",
+  "criteria": [
+    { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-003", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-004", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-005", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] }
+  ],
+  "inputs": [
+    {
+      "id": "operator-callback-http-contribution",
+      "source": { "prerequisite_output": { "output_id": "sw-137" } }
+    },
+    {
+      "id": "booking-quote-signer-runtime-seam",
+      "source": { "prerequisite_output": { "output_id": "sw-151" } }
+    },
+    {
+      "id": "platform-release-contract",
+      "source": { "preexisting_artifact": { "path": "packages/platform/release/src/runtime.ts" } }
+    },
+    {
+      "id": "booking-availability-contribution",
+      "source": { "preexisting_artifact": { "path": "packages/booking/availability/src/module.ts" } }
+    },
+    {
+      "id": "booking-reservation-contribution",
+      "source": { "preexisting_artifact": { "path": "packages/booking/reservation/src/module.ts" } }
+    },
+    {
+      "id": "payment-provider-abi",
+      "source": { "preexisting_artifact": { "path": "packages/platform/extension-sdk/src/providers.ts" } }
+    },
+    {
+      "id": "booking-default-theme",
+      "source": { "preexisting_artifact": { "path": "packages/themes/booking-default/src/index.ts" } }
+    },
+    {
+      "id": "booking-search-and-quote-pages",
+      "source": { "preexisting_artifact": { "path": "packages/booking/availability/src/pages.ts" } }
+    },
+    {
+      "id": "booking-release-specification",
+      "source": { "preexisting_artifact": { "path": "docs/specs/0011-booking-product-release.md" } }
+    }
+  ],
+  "outputs": [
+    { "id": "sw-138" }
+  ],
+  "decision_follow_ups": []
+}

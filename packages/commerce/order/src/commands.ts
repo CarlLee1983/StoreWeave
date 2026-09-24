@@ -3,7 +3,13 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext } from '@storeweave/contracts';
 import { PermanentJobError } from '@storeweave/jobs';
-import type { PaymentProvider, PaymentStartResult, ProviderRegistry } from '@storeweave/extension-sdk';
+import type {
+  AnyProvider,
+  PaymentInitiationResult,
+  PaymentInitiationInput,
+  PaymentMethod,
+  ProviderRegistry,
+} from '@storeweave/extension-sdk';
 import { catalogService } from '@storeweave/catalog';
 import { inventoryService } from '@storeweave/inventory';
 import { customerService } from '@storeweave/customer';
@@ -42,6 +48,29 @@ export interface OrderModuleDeps {
   providers: ProviderRegistry;
   defaultCurrency: string;
   orderNumberPrefix: string;
+}
+
+/** Order owns this narrow provider port; provider calls carry only neutral payment facts. */
+interface OrderPaymentProvider {
+  readonly id: string;
+  readonly kind: 'payment';
+  paymentMethods(): readonly PaymentMethod[];
+  initiate(input: PaymentInitiationInput): Promise<PaymentInitiationResult>;
+}
+
+function isOrderPaymentProvider(provider: AnyProvider): provider is AnyProvider & OrderPaymentProvider {
+  return provider.kind === 'payment'
+    && typeof provider.paymentMethods === 'function'
+    && 'initiate' in provider
+    && typeof provider.initiate === 'function';
+}
+
+function getOrderPaymentProvider(providers: ProviderRegistry, id?: string): OrderPaymentProvider {
+  const provider = providers.get('payment', id);
+  if (!isOrderPaymentProvider(provider)) {
+    throw PlatformError.validation(`Payment provider "${id ?? provider.id}" does not support neutral initiation`);
+  }
+  return provider;
 }
 
 export const PROCESS_PAYMENT_JOB = 'commerce.order.process-payment';
@@ -435,7 +464,7 @@ export function createPayOrderHandler(deps: OrderModuleDeps) {
       return orderOutputForActor(ctx, await markOrderPaid(ctx, processing, attempt, { provider: 'internal', providerRef: attempt.providerRef! }));
     }
 
-    const provider = deps.providers.get<PaymentProvider>('payment', input.provider);
+    const provider = getOrderPaymentProvider(deps.providers, input.provider);
     const method = resolvePaymentMethod(provider, input.method);
     const attemptRef = `payment:${randomUUID()}`;
     const [attempt] = await ctx.tx.insert(orderPayments).values({
@@ -460,7 +489,7 @@ export function createPayOrderHandler(deps: OrderModuleDeps) {
   };
 }
 
-function resolvePaymentMethod(provider: PaymentProvider, requested: string | undefined): string {
+function resolvePaymentMethod(provider: Pick<OrderPaymentProvider, 'id' | 'paymentMethods'>, requested: string | undefined): string {
   const methods = provider.paymentMethods();
   // 單一方式沒有選擇歧義，可由店家設定直接選定；多方式一律要求結帳頁明示。
   const method = requested ?? (methods.length === 1 ? methods[0].code : undefined);
@@ -726,10 +755,16 @@ export function createProcessPaymentJob(deps: OrderModuleDeps) {
       await ctx.executeCommand('commerce.order.expireOrder', { orderId }, `expire-order:${orderId}:${new Date(current.expiresAt).getTime()}`);
       return;
     }
-    const provider = deps.providers.get<PaymentProvider>('payment', providerId);
+    const provider = getOrderPaymentProvider(deps.providers, providerId);
     // Job 在交易外呼叫 provider；同一 attemptRef 重試時 provider 會回放同一筆外部交易。
-    const result = await provider.start({ orderId, orderNumber, amountCents, currency, method, reference: attemptRef });
-    const input = paymentResultFromStart(provider.id, attemptRef, result);
+    const result = await provider.initiate({
+      reference: attemptRef,
+      displayReference: orderNumber,
+      amount: amountCents,
+      currency,
+      method,
+    });
+    const input = paymentResultFromInitiation(provider.id, attemptRef, result);
     const providerRef = 'providerRef' in input && input.providerRef ? input.providerRef : 'none';
     await ctx.executeCommand(
       'commerce.order.recordPaymentResult',
@@ -739,7 +774,7 @@ export function createProcessPaymentJob(deps: OrderModuleDeps) {
   };
 }
 
-function paymentResultFromStart(provider: string, attemptRef: string, result: PaymentStartResult): z.input<typeof recordPaymentResultInput> {
+function paymentResultFromInitiation(provider: string, attemptRef: string, result: PaymentInitiationResult): z.input<typeof recordPaymentResultInput> {
   switch (result.status) {
     case 'confirmed':
       return { attemptRef, provider, status: 'confirmed', providerRef: result.providerRef };

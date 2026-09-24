@@ -11,10 +11,10 @@ import { mediaMigrations } from '@storeweave/media';
 import { notificationsMigrations } from '@storeweave/notifications';
 import { siteMigrations } from '@storeweave/site';
 import { contentMigrations } from '@storeweave/content';
-import { buildReleaseManifest } from '../../packages/platform/bundle/src/release-manifest';
-import { release as base } from '../../packages/platform/bundle/src/releases/base';
-import { release as commerce } from '../../packages/platform/bundle/src/releases/commerce';
-import legacyCommerce from '../../packages/platform/bundle/src/legacy/commerce-pre-b02.json';
+import { buildReleaseManifest } from '../../packages/platform/release/src/runtime';
+import { release as base } from '../../packages/releases/base/src/runtime';
+import { release as commerce } from '../../packages/releases/commerce/src/runtime';
+import legacyCommerce from '../../packages/releases/commerce/src/legacy-commerce-pre-b02.json';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
 import { createTestDatabase } from './helpers';
 
@@ -26,7 +26,7 @@ async function database() {
   return pool;
 }
 const foundations: ModulePin[] = buildReleaseManifest(base).modules.map(({ baseVersionRange: _range,
-  requiredDependencies: _required, optionalDependencies: _optional, ...pin }) => pin);
+  requiredDependencies: _required, optionalDependencies: _optional, signingKeyPurposes: _purposes, ...pin }) => pin);
 const baseSets = [platformMigrations, cacheMigrations, identityMigrations, storageMigrations, mailMigrations, mediaMigrations, notificationsMigrations, siteMigrations, contentMigrations];
 const featureSet: MigrationSet = { module: 'feature', migrations: [
   sqlMigration('0001', 'expand', 'CREATE TABLE feature_rows(id integer PRIMARY KEY); INSERT INTO feature_rows VALUES (1)'),

@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PlatformError } from '@storeweave/contracts';
 import { definePage, formValue, type PageResolveContext, type StorefrontHttpContract } from '@storeweave/kernel';
-import type { PaymentProvider, ShippingProvider } from '@storeweave/extension-sdk';
+import type { PaymentProviderV2, ShippingProvider } from '@storeweave/extension-sdk';
+
+type PaymentMethodProvider = Pick<PaymentProviderV2, 'id' | 'paymentMethods'>;
 import type { JsonSchema7Type } from 'zod-to-json-schema';
 
 /** 一行購物車明細在前台看得到的樣子。 */
@@ -367,7 +369,7 @@ export const cartPages = {
         },
         { actor: ctx.actor },
       );
-      const provider = ctx.providers.get<PaymentProvider>('payment');
+      const provider: PaymentMethodProvider = ctx.providers.get<PaymentProviderV2>('payment');
       const paymentMethods = provider.paymentMethods();
       if (paymentMethods.length === 0) {
         throw PlatformError.validation(`Payment provider ${provider.id} has no enabled payment methods`);
@@ -485,7 +487,7 @@ export const cartPages = {
     },
     resolve: async (ctx, body) => {
       const cartId = body.cartId;
-      const paymentProvider = ctx.providers.get<PaymentProvider>('payment', body.paymentProvider || undefined);
+      const paymentProvider: PaymentMethodProvider = ctx.providers.get<PaymentProviderV2>('payment', body.paymentProvider || undefined);
       const paymentMethod = paymentProvider.paymentMethods().find((method) => method.code === body.paymentMethod);
       if (!paymentMethod) {
         throw PlatformError.validation('請先選擇可用的付款方式');

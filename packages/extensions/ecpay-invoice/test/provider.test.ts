@@ -8,7 +8,7 @@ const issueInput = { invoiceId: '11111111-1111-4111-8111-111111111111', referenc
 
 function provider(fetchStub?: typeof fetch) {
   return createEcpayInvoiceProvider(createTestExtensionContext({
-    extensionId: 'ecpay-invoice', config: ecpayInvoiceConfig.parse({ environment: 'stage' }), secrets,
+    extensionId: 'ecpay-invoice', config: ecpayInvoiceConfig.parse({ environment: 'stage' }), secrets, declaredSecrets: Object.keys(secrets),
     now: () => new Date('2026-08-25T10:00:00.000Z'),
     // 測試情境不再回退到全域 fetch：替身必須明確傳進來，忘了給就會失敗而不是打真網路。
     ...(fetchStub ? { fetch: fetchStub } : {}),
@@ -50,6 +50,6 @@ describe('ECPay B2C invoice provider', () => {
 
   it('keeps credentials out of configuration and rejects non-AES credential lengths', () => {
     expect(() => ecpayInvoiceConfig.parse({ merchantId: 'never-in-config' })).toThrow(/unrecognized/i);
-    expect(() => createEcpayInvoiceProvider(createTestExtensionContext({ extensionId: 'ecpay-invoice', config: ecpayInvoiceConfig.parse({}), secrets: { ...secrets, ECPAY_INVOICE_HASH_KEY: 'short' } }))).toThrow(/16 bytes/);
+    expect(() => createEcpayInvoiceProvider(createTestExtensionContext({ extensionId: 'ecpay-invoice', config: ecpayInvoiceConfig.parse({}), secrets: { ...secrets, ECPAY_INVOICE_HASH_KEY: 'short' }, declaredSecrets: Object.keys(secrets) }))).toThrow(/16 bytes/);
   });
 });

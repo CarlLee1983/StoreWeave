@@ -8,12 +8,11 @@
 
 `packages/platform` 是領域中立的應用平台。它只認得 Command、Query、Event、Job、Permission、Extension、Theme，不認識商品、庫存或訂單。
 
-`packages/commerce` 是這個平台上的第一個產品。`packages/platform/bundle` 把那些模組編成「這個 Release」。換產品 = 換 Bundle 組裝的模組清單，不是重寫 kernel。
+`packages/commerce` 是這個平台上的第一個產品。`packages/platform/release` 定義領域中立的 Release manifest、target projection、bootstrap 與 contract checks；Base、Commerce 等產品組裝由 `packages/releases/<release>` 擁有。換產品只換 ReleaseDefinition 選取與 target contributions，不重寫 kernel。
 
 `commerce.order.placeOrder` 這類名稱屬於 commerce 模組的公開契約，不是 kernel 的限制。事件格式只要求 `<context>.<aggregate>.<action>.vN`，`cms.post.published.v1` 與 `booking.slot.reserved.v1` 都能掛上同一套 Bus。
 
-設定檔、CLI、Admin、Storefront 目前仍混有商店產品的責任（見 ADR 0010 的歷史範圍）。
-後續須區分共用機制與產品組裝；共用介面與工具有各自的責任，不全部放進 kernel。
+設定檔、CLI、Admin 與 Storefront 以 Release target projections 在建置時選取產品 contributions；共用機制與產品組裝分開，且不全部放進 kernel。
 
 ## 目錄結構
 
@@ -39,19 +38,27 @@ packages/platform/
                         以及平台自身的維運模組（platform.jobs.* 死信佇列，見 ADR 0011）
   identity/             帳號、session、簽發式身分連結（重設／驗證／換信箱）、API token
                         與後台第二因素（見 ADR 0012、0014、0041–0044）
+  auth/                 Release 可選取的登入、註冊、登出與密碼重設頁面
   crypto/               簽章、封裝與金鑰環：sw1. / swe1. 與依用途推導的子金鑰（ADR 0038）
   cache/                PostgreSQL 快取與跨程序互斥鎖
   storage/              物件儲存：本機與 S3 相容 adapter（見 docs/base/b09）
   mail/                 SMTP 寄送、模板快照與佇列（見 docs/base/b06）
-  bundle/               這個 Commerce Release 編進了哪些模組、Extension 與 Theme
+  notifications/        領域中立的通知、投遞、重試與站內收件匣能力
+  media/                使用者媒體、preview、處理狀態與引用紀錄
+  site/                 網站設定、導覽與首頁 page declaration
+  content/              品牌內容與聯絡訊息；Base 與 Commerce release 都可選用
 
-packages/commerce/      第一個產品（Commerce Core）：cart / catalog / content / coupon /
-                        customer / inventory / invoice / loyalty / notification /
+packages/releases/
+  base/                  Base runtime 與 server / worker / Admin / CLI / config projections
+  commerce/              Commerce runtime、module / extension catalog 與 target projections
+
+packages/commerce/      第一個產品的 Product Modules：cart / catalog / coupon / customer /
+                        inventory / invoice / loyalty / notification /
                         order / promotion / refund / rma / shipping
 packages/extensions/    金流（mock-payment / ecpay）、物流（ecpay-logistics）、
                         發票（mock-invoice / ecpay-invoice）、
                         ERP（demo-erp）與 mcp。哪些真的編進這份 release，
-                        以 packages/platform/bundle/src/modules.ts 為準（ADR 0002）。
+                        以 packages/releases/commerce/src/modules.ts 為準（ADR 0002）。
                         通知不是 Extension——是 base capability
                         `@storeweave/notifications`（module `platform-notifications`），
                         見 `packages/platform/notifications`
@@ -72,6 +79,7 @@ deployments/            example-store、example-store-two、systemd unit、設�
    - `authorization.assert()` 檢查 `order:write`，並讓已註冊的 Policy 有機會否決。
    - 用 descriptor 的 Zod schema 驗證輸入（失敗 → `VALIDATION_ERROR`，不是 500）。
    - `idempotency: 'required'` 的 Command 沒帶 key 直接拒絕。
+   - 宣告 `requiresBeforeIdempotency` 的 Command 若呼叫端未提供交易內的授權 guard，也直接拒絕；撤銷式憑證必須在讀取冪等快取前重新驗權。
    - 開啟資料庫交易。
 4. **交易內**
    - 以 `INSERT ... ON CONFLICT DO NOTHING` 宣告 Idempotency Key。併發的第二個請求會卡在
@@ -137,6 +145,10 @@ Core subscriber 預設只能執行自身 command，外部 command 必須精確�
 - 模組之間**只能**呼叫對方匯出的 service：`order` 扣庫存呼叫 `inventoryService.adjust(ctx, ...)`，
   取得商品呼叫 `catalogService.requireActiveProduct(tx, id)`。這兩個函式接受呼叫端的交易，
   因此跨模組操作仍在同一個交易內。
+- Booking Reservation 的匿名管理授權由 transaction-bound `BookingReservationAccess` 處理：Access Grant
+  只能兌換成管理憑證，管理憑證授權檢查只回傳 Reservation ID。兌換走直接 service seam，不能走
+  CommandBus，因為 CommandBus 會把帶 idempotency key 的回應存進 `platform_idempotency`；Reservation
+  僅保存 Grant generation／nonce／期限與 management credential hash。
 - Extension 只拿得到 `ExtensionContext`：Command API、Query API、Job API、
   以 extension id 隔離的 Store、宣告過的 Provider 與 Secret。沒有 `tx`、沒有 `db`。
 

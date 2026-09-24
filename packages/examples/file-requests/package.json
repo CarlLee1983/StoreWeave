@@ -3,5 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "main": "dist/index.js",
-  "types": "src/index.ts"
+  "types": "src/index.ts",
+  "exports": {
+    ".": { "types": "./src/index.ts" },
+    "./definition": { "types": "./src/definition.ts" },
+    "./runtime": { "types": "./src/runtime.ts" },
+    "./server": { "types": "./src/server.ts" },
+    "./worker": { "types": "./src/worker.ts" },
+    "./cli": { "types": "./src/cli.ts" },
+    "./config": { "types": "./src/config.ts" },
+    "./storefront": { "types": "./src/storefront.ts" },
+    "./admin": { "types": "./src/admin.ts" }
+  }
 }

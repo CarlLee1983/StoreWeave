@@ -10,9 +10,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
-import { release as baseRelease } from '../../packages/platform/bundle/src/releases/base';
-import { release as commerceRelease } from '../../packages/platform/bundle/src/releases/commerce';
+import { bootstrapRelease } from '../../packages/platform/release/src/bootstrap';
+import { release as baseRelease } from '../../packages/releases/base/src/runtime';
+import { release as commerceRelease } from '../../packages/releases/commerce/src/runtime';
 import type { Runtime } from '@storeweave/kernel';
 import { createTestDatabase } from './helpers';
 

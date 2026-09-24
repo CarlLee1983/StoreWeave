@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "story_ref": "specs/stories/SW-154-operator-reservation-read",
+  "story_md_digest": "sha256:7847b112ce5b04c50c6dbee251b4cb5edfbf847e7f4a2e9c776d2d99bf665792",
+  "acceptance_md_digest": "sha256:4c85d99e818f659964a769b559ac4424d03b69a0ae469c95ef1a0c851991a006",
+  "criteria": [
+    { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-003", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-004", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-005", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-006", "operations": [], "owner": "canonical_verification", "future_identities": [] }
+  ],
+  "inputs": [
+    {
+      "id": "reservation-existing-operator-capabilities",
+      "source": { "preexisting_artifact": { "path": "packages/booking/reservation/src/module.ts" } }
+    },
+    {
+      "id": "reservation-existing-evidence-queries",
+      "source": { "preexisting_artifact": { "path": "packages/booking/reservation/src/refunds.ts" } }
+    }
+  ],
+  "outputs": [
+    { "id": "sw-154" }
+  ],
+  "decision_follow_ups": []
+}

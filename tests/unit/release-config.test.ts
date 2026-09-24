@@ -1,10 +1,16 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   baseConfigDefinition, baseConfigSchema, commerceConfigSchema, loadConfig, loadReleaseConfig,
+  loadReleaseConfigProjection, resolveReleaseConfigProjection,
 } from '@storeweave/config';
+import { baseReleaseDefinition } from '../../packages/releases/base/src/definition';
+import { baseConfigProjectionFactory } from '../../packages/releases/base/src/config';
+import { commerceReleaseDefinition } from '../../packages/releases/commerce/src/definition';
+import { commerceConfigProjectionFactory } from '../../packages/releases/commerce/src/config';
+import type { BaseConfig, ReleaseConfigProjectionFactory } from '@storeweave/config';
 
 const directories: string[] = [];
 afterEach(() => {
@@ -89,6 +95,56 @@ describe('release configuration', () => {
     expect(loadConfig(file).config.store.currency).toBe('TWD');
     vi.stubEnv('B02_TEST_DATABASE', '');
     expect(() => loadReleaseConfig(baseConfigDefinition, file)).toThrow('B02_TEST_DATABASE');
+  });
+
+  it('selects the schema and default filename declared by each release config target', () => {
+    const baseConfig = resolveReleaseConfigProjection(baseReleaseDefinition, [baseConfigProjectionFactory]);
+    const commerceConfig = resolveReleaseConfigProjection(commerceReleaseDefinition, [commerceConfigProjectionFactory]);
+
+    expect(baseConfig).toMatchObject({ releaseId: 'base', schemaId: 'base.config.v1', definition: baseConfigDefinition, defaultFilename: 'storeweave.yaml' });
+    expect(commerceConfig).toMatchObject({ releaseId: 'commerce', schemaId: 'commerce.config.v1', definition: expect.objectContaining({ schema: commerceConfigSchema }), defaultFilename: 'commerce.yaml' });
+  });
+
+  it('fails closed for no selected release, a missing contribution, or duplicate contributions before resolving', () => {
+    const factory: ReleaseConfigProjectionFactory<typeof baseReleaseDefinition.manifest, BaseConfig> = {
+      target: 'config', key: 'base.config.v1',
+      resolve: vi.fn(() => ({ definition: baseConfigDefinition, defaultFilename: 'storeweave.yaml' })),
+    };
+
+    expect(() => resolveReleaseConfigProjection<BaseConfig, typeof baseReleaseDefinition.manifest>(undefined, [factory]))
+      .toThrow('No selected ReleaseDefinition');
+    expect(() => resolveReleaseConfigProjection(baseReleaseDefinition, []))
+      .toThrow('Release "base" is missing config schema "base.config.v1" contribution');
+    expect(() => resolveReleaseConfigProjection(baseReleaseDefinition, [factory, factory]))
+      .toThrow('Release "base" has duplicate config schema "base.config.v1" contributions');
+    expect(factory.resolve).not.toHaveBeenCalled();
+  });
+
+  it('uses the selected projection filename with its default search directories', () => {
+    const file = fixture(yaml);
+    const directory = dirname(file);
+    const projectedPath = join(directory, 'selected-release.yaml');
+    writeFileSync(projectedPath, yaml);
+    vi.stubEnv('B02_TEST_DATABASE', 'postgres://localhost/test');
+    vi.stubEnv('STOREWEAVE_CONFIG', '');
+    vi.stubEnv('COMMERCE_CONFIG', '');
+    const selected = resolveReleaseConfigProjection(commerceReleaseDefinition, [commerceConfigProjectionFactory]);
+    const projected = {
+      ...selected,
+      defaultFilename: 'selected-release.yaml',
+      definition: { ...selected.definition, defaultPaths: [join(directory, 'legacy-name.yaml')] },
+    };
+
+    expect(loadReleaseConfigProjection(projected).sourcePath).toBe(projectedPath);
+  });
+
+  it('identifies the selected release and schema when projected config is invalid', () => {
+    const file = fixture('version: 1\nstore: { id: invalid-config, name: Invalid }\ndatabase: {}\n');
+    const selected = resolveReleaseConfigProjection(commerceReleaseDefinition, [commerceConfigProjectionFactory]);
+
+    expect(() => loadReleaseConfigProjection(selected, file)).toThrow(
+      `Release "commerce" config schema "${selected.schemaId}": Invalid configuration (${file})`,
+    );
   });
 
   it('prefers the generic env alias and never silently replaces an explicit missing path', () => {

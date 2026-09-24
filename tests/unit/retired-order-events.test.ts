@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
 import { noopLogger } from '@storeweave/contracts';
-import { AVAILABLE_EXTENSIONS, coreModules, knownEventNames } from '@storeweave/bundle';
+import { AVAILABLE_EXTENSIONS, coreModules, knownEventNames } from '@storeweave/release-commerce/modules';
 
 /**
  * 舊版訂單事件已經下線（工單 24）。

@@ -2,6 +2,8 @@
 
 狀態：五片全部實作完成，5b 取得三份獨立 review 且最高等級 finding（`listFailures` 生產規模查詢、第二條免授權 redrive 入口）皆已修並補回歸，全 B04 gates 實跑通過。依賴只以[計畫 §3](../../base-implementation-plan.md#3-依賴圖與階段出口)為準。
 
+本文保留各實作片段的時間線與中途 review 狀態；下方較早的 `pending`／`in_progress` 記錄只描述當時進度，最終 B04 狀態以本頁結論及 [驗收對照](acceptance.md) 為準。整體 Base 現況見 [B17](../b17/README.md)。
+
 ## 五片
 
 1. identity／fencing／expand migration（本片）：persisted job id 不變；claim 回傳 job、occurrence、token；active replacement latest-wins deferred；cancel primitive。

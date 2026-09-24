@@ -33,6 +33,7 @@ async function setup(config: Record<string, unknown> = {}) {
   const ctx = createTestExtensionContext({
     extensionId: 'demo-erp',
     config: demoErpConfig.parse(config),
+    declaredSecrets: ['DEMO_ERP_API_KEY'],
     secrets: { DEMO_ERP_API_KEY: 'k' },
   });
   const registration = await demoErpExtension.setup(ctx);

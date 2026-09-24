@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
+import { z } from 'zod';
+import { defineCommand } from '@storeweave/contracts';
 import { defaultCustomer, ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
 
 let h: TestHarness;
@@ -14,6 +16,41 @@ async function adjust(productId: string, delta: number, key: string) {
 }
 
 describe('Idempotency', () => {
+  it('requires a declared pre-idempotency guard on first execution and replay', async () => {
+    const name = `probe.idempotency.guarded_${randomUUID().replaceAll('-', '')}`;
+    const descriptor = defineCommand({
+      name,
+      input: z.object({}).strict(),
+      output: z.object({ count: z.number() }),
+      permission: 'inventory:write',
+      idempotency: 'required',
+      requiresBeforeIdempotency: true,
+    });
+    let handled = 0;
+    let guarded = 0;
+    h.runtime.commands.register(descriptor, async () => ({ count: ++handled }), 'probe');
+    const key = randomUUID();
+    const options = { actor: ADMIN_ACTOR, idempotencyKey: key };
+
+    await expect(h.runtime.commands.execute(name, {}, options)).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+    expect(handled).toBe(0);
+    const absent = await h.runtime.database.db.execute<{ count: string }>(sql`
+      SELECT count(*)::text AS count FROM platform_idempotency WHERE command_name = ${name} AND key = ${key}
+    `);
+    expect(Number(absent.rows[0]?.count)).toBe(0);
+
+    const guardedOptions = { ...options, beforeIdempotency: async () => { guarded++; } };
+    await expect(h.runtime.commands.execute(name, {}, guardedOptions)).resolves.toEqual({ count: 1 });
+    await expect(h.runtime.commands.execute(name, {}, guardedOptions)).resolves.toEqual({ count: 1 });
+    expect(handled).toBe(1);
+    expect(guarded).toBe(2);
+
+    await expect(h.runtime.commands.execute(name, {}, {
+      ...options, beforeIdempotency: async () => { throw new Error('revoked'); },
+    })).rejects.toThrow('revoked');
+    expect(handled).toBe(1);
+  });
+
   it('同一個 key 重放會回傳第一次的結果，且不重複執行', async () => {
     const product = await createProduct(h.runtime);
     const key = randomUUID();

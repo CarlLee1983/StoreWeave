@@ -55,6 +55,8 @@ export interface TestContextOptions<TConfig> {
   queries?: Record<string, (input: unknown) => Promise<unknown>>;
   providers?: Partial<Record<ProviderKind, AnyProvider>>;
   secrets?: Record<string, string>;
+  /** Mirrors the host's declared-secret access restriction. */
+  declaredSecrets: readonly string[];
   now?: () => Date;
   /** 測試用的 fetch 替身。未給時對外 HTTP 一律失敗，測試不會打到真實端點。 */
   fetch?: typeof fetch;
@@ -146,6 +148,9 @@ export function createTestExtensionContext<TConfig>(
       return p as T;
     },
     secret(name) {
+      if (!options.declaredSecrets.includes(name)) {
+        throw new Error(`Extension "${options.extensionId}" must declare secret "${name}" in requiredSecrets or optionalSecrets`);
+      }
       return options.secrets?.[name];
     },
     now: options.now ?? (() => new Date()),

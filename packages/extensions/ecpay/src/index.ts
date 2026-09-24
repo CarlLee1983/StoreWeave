@@ -1,5 +1,12 @@
 import { defineExtension } from '@storeweave/extension-sdk';
-import { ecpayPaymentConfig, type EcpayPaymentConfig, ECPAY_HASH_IV_SECRET, ECPAY_HASH_KEY_SECRET, ECPAY_MERCHANT_ID_SECRET } from './config';
+import {
+  ecpayPaymentConfig,
+  type EcpayPaymentConfig,
+  ECPAY_CREDIT_CHECK_CODE_SECRET,
+  ECPAY_HASH_IV_SECRET,
+  ECPAY_HASH_KEY_SECRET,
+  ECPAY_MERCHANT_ID_SECRET,
+} from './config';
 import { createEcpayPaymentProvider, ECPAY_PAYMENT_PROVIDER_ID } from './provider';
 
 export const ecpayPaymentExtension = defineExtension<EcpayPaymentConfig>({
@@ -16,6 +23,7 @@ export const ecpayPaymentExtension = defineExtension<EcpayPaymentConfig>({
     registeredQueries: [],
     registeredProviders: [{ kind: 'payment', id: ECPAY_PAYMENT_PROVIDER_ID, isDefault: true }],
     requiredSecrets: [ECPAY_MERCHANT_ID_SECRET, ECPAY_HASH_KEY_SECRET, ECPAY_HASH_IV_SECRET],
+    optionalSecrets: [ECPAY_CREDIT_CHECK_CODE_SECRET],
   },
   setup(ctx) {
     return { providers: [createEcpayPaymentProvider(ctx)] };

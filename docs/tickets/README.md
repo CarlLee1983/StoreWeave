@@ -154,7 +154,7 @@ ForgeFlowV2 是開發協定，不是 workflow engine，所以「整合」是這�
 | [61](61-admin-shipping-and-fulfillment.md) | 後台配送方式與出貨管理 | 59 |
 | [62](62-shipment-tracking-and-order-notifications.md) | 物流追蹤與訂單生命週期通知 | 59, 61 |
 | [63](63-refund-domain-and-operations.md) | 已付款訂單退款模型與後台作業 | 58 |
-| [64](64-ecpay-refund-and-reconciliation.md) | ECPay 退款 Adapter 與付款對帳 | 58, 63 |
+| [64](64-ecpay-refund-and-reconciliation.md) | ECPay 退款 Adapter 與付款對帳（**closed under accepted risk; merchant UAT unverified**） | 58, 63 |
 | [65](65-returns-and-exchanges.md) | 退貨與換貨案件（RMA） | 62, 63, 64 |
 | [66](66-electronic-invoice-provider.md) | 台灣電子發票 Provider 與帳務流程 | 63 |
 | [67](67-storefront-product-discovery.md) | 前台商品搜尋、篩選與分頁 | 56 |
@@ -184,6 +184,22 @@ ForgeFlowV2 是開發協定，不是 workflow engine，所以「整合」是這�
 | [91](91-forgeflowv2-integration-discovery.md) | 釐清 ForgeFlowv2 整合責任與契約（discovery）（**done**） | — |
 | [99](99-make-verify-and-agents-guide.md) | 一個指令代表「做完了」：`make verify` 與 `AGENTS.md` | 91 |
 | [100](100-story-format-pilot.md) | 用一張真工作試 Story 格式（**blocked**） | 99 |
+| [101](101-cache-mutex-independent-key-timeout.md) | Advisory mutex 的獨立 key 整合測試逾時（**completed locally**） | — |
+| [102](102-paired-upgrade-crash-injection-suite-flake.md) | Paired upgrade crash-injection 測試偶發未收到 SIGKILL | — |
+| [103](103-payment-abi-consumer-migration.md) | Payment ABI contract cleanup 前遷移剩餘消費端 | SW-114, SW-115, SW-117 |
+| [104](104-booking-quote-signer-runtime-seam.md) | Booking Quote 簽章金鑰 runtime seam | SW-122，SW-138 前 |
+| [105](105-atomic-quote-revalidation-and-room-night-reservation.md) | Quote 驗證與房晚預留原子化 | SW-122、SW-123，SW-125 前 |
+| [106](106-release-artifact-worker-storage-root-eacces.md) | Commerce release artifact worker 測試 storage root 權限錯誤 | — |
+| [107](107-worker-recovery-readiness-exit.md) | Worker recovery 子程序在 ready marker 前退出 | — |
+| [108](108-booking-access-grant-resend-command.md) | Booking Access Grant 安全重發命令 | SW-130、SW-131、SW-134，SW-136 前 |
+| [109](109-management-get-rate-limit.md) | 讓宣告的管理端 GET rate limit 生效 | SW-136 前 |
+| [110](110-session-start-release-adapter-discovery.md) | Session-start 守衛辨識 Booking release adapter | SW-135 後 |
+| [111](111-forgepilot-node-runtime-locale-verification.md) | ForgePilot Node 選版與 Admin 日期測試相容性 | — |
+| [112](112-booking-operator-reservation-read-capability.md) | Booking operator Reservation 安全讀取能力 | 已實作並通過 ForgePilot WI-027 驗證；WI-017 依賴它 |
+| [113](113-snapshot-verification-database-session-flakes.md) | Snapshot 驗證的 PostgreSQL session／cutover 時序不穩定 | 完整 gate 偶發阻礙 |
+| [114](114-scheduler-dst-budgeted-tick-test.md) | DST 整合測試等待有界排程輪替（**completed locally**） | 完整 gate 穩定性 |
+| [115](115-admin-projection-snapshot-path-false-positive.md) | Admin projection 對含 `db` 的快照路徑誤判 | 待實作；SW-137 範圍外 |
+| [116](116-booking-room-media-public-preview.md) | Booking 房型圖片缺少公開預覽端點 | SW-135 漏項；SW-138 組裝後可見 |
 
 **76–80 是 Spec 0007 的回填紀錄**（2026-08-26）：這一批不是先開工單再做，而是照
 [Spec 0007](../specs/0007-brand-content-and-contact.md) 直接實作完再補上工單。

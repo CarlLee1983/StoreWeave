@@ -4,6 +4,7 @@ import { Client } from 'pg';
 import { catalogDigest, readLegacySafetyHistory, readSnapshotDatabase, readSnapshotHistory } from '@storeweave/db';
 import { readLegacyPairedSnapshot } from './legacy-paired-snapshot';
 import { readPairedSnapshot } from './read-release-snapshot';
+import type { LegacyMigrationBaseline } from '@storeweave/db';
 
 /** Point-in-time database verification; caller must keep writers stopped and run the retained source runtime check. */
 export async function verifyRestoredDatabase(directory: string, checksum: string, databaseUrl: string, expectedOid: string) {
@@ -11,8 +12,8 @@ export async function verifyRestoredDatabase(directory: string, checksum: string
 }
 
 /** Legacy rollback also binds the complete adoption record retained in the source dump. */
-export async function verifyLegacyRestoredDatabase(directory: string, checksum: string, databaseUrl: string, expectedOid: string) {
-  return verifySnapshotDatabase(await readLegacyPairedSnapshot(directory, checksum), databaseUrl, expectedOid);
+export async function verifyLegacyRestoredDatabase(directory: string, checksum: string, databaseUrl: string, expectedOid: string, baseline: LegacyMigrationBaseline) {
+  return verifySnapshotDatabase(await readLegacyPairedSnapshot(directory, checksum, baseline), databaseUrl, expectedOid);
 }
 
 /** Raw recovery restores the pre-adoption ledger without synthesizing release history. */

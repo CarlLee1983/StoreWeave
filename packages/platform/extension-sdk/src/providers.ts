@@ -23,18 +23,6 @@ export interface PaymentMethod {
   readonly timing: 'immediate' | 'deferred';
 }
 
-/** Input for one idempotent attempt to start a payment. */
-export interface PaymentStartInput {
-  readonly orderId: string;
-  readonly orderNumber: string;
-  readonly amountCents: number;
-  readonly currency: string;
-  /** Must be one of the provider's configured `paymentMethods()` codes. */
-  readonly method: string;
-  /** 由呼叫端提供的唯一參考；Provider 必須用它做去重。 */
-  readonly reference: string;
-}
-
 /** A browser action needed to continue an off-site payment flow. */
 export type PaymentRedirectAction =
   | { readonly type: 'redirect'; readonly url: string }
@@ -66,22 +54,34 @@ export interface PaymentAwaitingPaymentResult {
   readonly expiresAt: string;
 }
 
-export interface PaymentFailedResult {
-  readonly status: 'failed';
-  /** Some gateways reject before allocating their own payment identifier. */
-  readonly providerRef?: string;
-  readonly message?: string;
+/** Domain-neutral payment initiation input. `amount` is in currency minor units. */
+export interface PaymentInitiationInput {
+  /** Unique, stable platform reference used for idempotency and callback correlation. */
+  readonly reference: string;
+  /** Human-readable product reference shown to the customer. */
+  readonly displayReference: string;
+  /** Positive integer in the currency's minor unit (for example, cents for TWD). */
+  readonly amount: number;
+  readonly currency: string;
+  /** Must be one of the provider's configured `paymentMethods()` codes for a new reference. */
+  readonly method: string;
 }
 
-/**
- * A normalized outcome for payment initiation. The platform owns the order
- * state transition; providers only describe how the customer continues.
- */
-export type PaymentStartResult =
+export interface PaymentInitiationFailureResult {
+  readonly status: 'failed';
+  readonly reason: 'provider_rejected' | 'reference_conflict';
+  readonly providerRef?: string;
+  readonly message: string;
+}
+
+/** A reused reference with different payment facts must not create another charge. */
+export type PaymentReferenceConflictResult = PaymentInitiationFailureResult & { readonly reason: 'reference_conflict' };
+
+export type PaymentInitiationResult =
   | PaymentConfirmedResult
   | PaymentRedirectResult
   | PaymentAwaitingPaymentResult
-  | PaymentFailedResult;
+  | PaymentInitiationFailureResult;
 
 /** The unmodified HTTP material supplied to a provider for callback verification. */
 export interface PaymentCallbackRequest {
@@ -92,7 +92,7 @@ export interface PaymentCallbackRequest {
 
 export interface PaymentConfirmedCallback {
   readonly type: 'payment_confirmed';
-  /** The platform reference originally passed to `start`. */
+  /** The platform reference originally passed to `initiate`. */
   readonly reference: string;
   readonly providerRef: string;
 }
@@ -132,11 +132,11 @@ export interface PaymentCallbackAcknowledgement {
   readonly body: string;
 }
 
-/** A platform-owned, replay-safe request to reverse one confirmed payment. */
-export interface PaymentRefundInput {
+/** Domain-neutral refund input; amount uses currency minor units. */
+export interface PaymentRefundInputV2 {
   /** The gateway payment reference captured when the original payment settled. */
   readonly providerRef: string;
-  readonly amountCents: number;
+  readonly amount: number;
   readonly currency: string;
   /** A stable platform reference; adapters must use it to make retries safe. */
   readonly reference: string;
@@ -148,18 +148,22 @@ export type PaymentRefundResult =
   | { readonly status: 'rejected'; readonly message: string }
   | { readonly status: 'unsupported'; readonly message: string };
 
-export interface PaymentProvider extends ProviderBase {
+interface PaymentProviderContract extends ProviderBase {
   readonly kind: 'payment';
   /** Store-selectable payment methods; callers choose one before any redirect. */
   paymentMethods(): readonly PaymentMethod[];
-  start(input: PaymentStartInput): Promise<PaymentStartResult>;
   /**
    * Verification and parsing are deliberately atomic: providers that decrypt
    * callback payloads cannot implement them as independent operations safely.
-   */
+  */
   parseCallback(request: PaymentCallbackRequest): Promise<PaymentCallbackEvent>;
   acknowledgeCallback(result: PaymentCallbackHandlingResult): PaymentCallbackAcknowledgement;
-  refund(input: PaymentRefundInput): Promise<PaymentRefundResult>;
+}
+
+/** Domain-neutral provider surface. */
+export interface PaymentProviderV2 extends PaymentProviderContract {
+  initiate(input: PaymentInitiationInput): Promise<PaymentInitiationResult>;
+  refund(input: PaymentRefundInputV2): Promise<PaymentRefundResult>;
 }
 
 /** Provider-neutral destination captured by checkout; merchant pricing never calls a provider. */
@@ -374,7 +378,15 @@ export interface InvoiceProvider extends ProviderBase {
   validateLoveCode(loveCode: string): Promise<boolean>;
 }
 
-export type AnyProvider = PaymentProvider | ShippingProvider | ErpProvider | InvoiceProvider;
+/** Only providers with the neutral ABI are registrable. */
+export type AnyProvider = PaymentProviderV2 | ShippingProvider | ErpProvider | InvoiceProvider;
+
+/** Validate the runtime contract before publishing a provider into shared registries. */
+export function assertProviderRegistrationContract(provider: AnyProvider): void {
+  if (provider.kind === 'payment' && typeof (provider as { initiate?: unknown }).initiate !== 'function') {
+    throw PlatformError.validation(`Payment provider "${provider.id}" must implement the neutral initiate contract`);
+  }
+}
 
 export interface ProviderRegistration {
   readonly provider: AnyProvider;
@@ -390,6 +402,7 @@ export class ProviderRegistry {
 
   register(reg: ProviderRegistration): void {
     const kind = reg.provider.kind;
+    assertProviderRegistrationContract(reg.provider);
     const bucket = this.byKind.get(kind) ?? new Map();
     if (bucket.has(reg.provider.id)) {
       throw PlatformError.conflict(`Provider "${kind}:${reg.provider.id}" already registered`);

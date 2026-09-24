@@ -10,6 +10,7 @@ import type { MediaReferencesPort } from '@storeweave/media';
 import type { CacheScope, MutexScope } from '@storeweave/cache';
 import type { StorageScope } from '@storeweave/storage';
 import type { PageMap } from './page';
+import type { Keyring } from '@storeweave/crypto';
 import type { ScheduleDeclaration } from './schedule-spec';
 import type { JobPayloadContract } from './job-registry';
 
@@ -159,12 +160,31 @@ export interface PlatformModule {
    * it up: there is still no registry to ask, and the edge stays visible.
    */
   readonly bindPorts?: (ports: PlatformPorts) => void;
+  /**
+   * One-shot runtime-only security injection. Release module composition must
+   * remain secret-free; the Kernel invokes this synchronously after resolving
+   * configured secrets and before it constructs any database or handlers.
+   */
+  readonly bindRuntimeSecurity?: (security: RuntimeSecurity) => void;
+  /**
+   * Signing purposes this module may derive through `bindRuntimeSecurity`.
+   * The declaration and hook are paired: a module cannot receive a Keyring
+   * facade without declaring every purpose it needs.
+   */
+  readonly runtimeSecurity?: {
+    readonly signingKeyPurposes: readonly string[];
+  };
   /** Declared resources; the runtime rejects a declaration without `bindResources` and vice versa. */
   readonly resources?: readonly ModuleResourceKind[];
   /** One-shot, like `bindPorts`: called once before any handler runs, with only the declared scopes. */
   readonly bindResources?: (resources: ModuleResources) => void;
   /** File intakes served by the generic module upload endpoint; requires the `storage` resource. */
   readonly uploads?: readonly ModuleUploadIntake[];
+}
+
+/** Deliberately narrow runtime security surface; `keyring` rejects undeclared purposes. */
+export interface RuntimeSecurity {
+  readonly keyring?: Keyring;
 }
 
 export function defineModule(mod: PlatformModule): PlatformModule {

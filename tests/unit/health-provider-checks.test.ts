@@ -53,4 +53,21 @@ describe('commerce doctor provider health', () => {
       detail: 'configuration incomplete',
     });
   });
+
+  it('reports an absent optional Extension secret without failing readiness', async () => {
+    const runtime = runtimeForProvider({ id: 'ecpay', kind: 'payment' });
+    (runtime.extensions as unknown as { list(): unknown[] }).list = () => [{
+      id: 'secret-probe',
+      version: '1.0.0',
+      platformVersion: '^1.0.0',
+      definition: { manifest: { id: 'secret-probe', platformVersion: '^1.0.0', optionalSecrets: ['OPTIONAL_PROBE'] } },
+    }];
+
+    const checks = await doctor(runtime, { releaseVersion: 'test', configPath: '<test>' });
+    expect(checks).toContainEqual({
+      name: 'optional secret present: OPTIONAL_PROBE',
+      status: 'pass',
+      detail: 'not set (optional)',
+    });
+  });
 });

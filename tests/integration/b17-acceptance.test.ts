@@ -8,11 +8,11 @@ import type { Runtime } from '@storeweave/kernel';
 import { createReleaseServer } from '../../apps/api/src/release-server';
 import { httpAdapter } from '../../apps/api/src/releases/base';
 import { httpAdapter as commerceHttpAdapter } from '../../apps/api/src/releases/commerce';
-import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
-import { release as baseRelease } from '../../packages/platform/bundle/src/releases/base';
-import { release as commerceRelease } from '../../packages/platform/bundle/src/releases/commerce';
+import { bootstrapRelease } from '../../packages/platform/release/src/bootstrap';
+import { release as baseRelease } from '../../packages/releases/base/src/runtime';
+import { release as commerceRelease } from '../../packages/releases/commerce/src/runtime';
 import type { BaseConfig, CommerceConfig } from '@storeweave/config';
-import type { ReleaseDefinition } from '../../packages/platform/bundle/src/release';
+import type { RuntimeReleaseDefinition } from '../../packages/platform/release/src/runtime';
 import type { ReleaseHttpAdapter } from '../../apps/api/src/release-adapter';
 import { ADMIN_ACTOR, createTestDatabase } from './helpers';
 
@@ -29,7 +29,7 @@ afterEach(async () => {
 });
 
 async function startRelease(
-  release: ReleaseDefinition<BaseConfig> | ReleaseDefinition<CommerceConfig>,
+  release: RuntimeReleaseDefinition<BaseConfig> | RuntimeReleaseDefinition<CommerceConfig>,
   httpAdapter: ReleaseHttpAdapter,
   databaseUrl: string,
   themeId: string,
@@ -53,7 +53,7 @@ async function startRelease(
   // Base and Commerce intentionally have contravariant config types. The
   // selected release has already been fixed by the profile table above; the
   // cast only lets this shared test harness call the generic bootstrap helper.
-  const result = await bootstrapRelease(release as unknown as ReleaseDefinition<BaseConfig>, {
+  const result = await bootstrapRelease(release as unknown as RuntimeReleaseDefinition<BaseConfig>, {
     configPath, loggerName: `b17-${themeId}`,
   });
   runtimes.push(result.runtime);

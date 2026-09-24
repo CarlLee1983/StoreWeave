@@ -19,7 +19,6 @@ COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
 COPY packages/platform/audit/package.json packages/platform/audit/
 COPY packages/platform/authorization/package.json packages/platform/authorization/
-COPY packages/platform/bundle/package.json packages/platform/bundle/
 COPY packages/platform/cache/package.json packages/platform/cache/
 COPY packages/platform/command-bus/package.json packages/platform/command-bus/
 COPY packages/platform/config/package.json packages/platform/config/
@@ -41,6 +40,13 @@ COPY packages/platform/site/package.json packages/platform/site/
 COPY packages/platform/content/package.json packages/platform/content/
 COPY packages/platform/outbox/package.json packages/platform/outbox/
 COPY packages/platform/query-bus/package.json packages/platform/query-bus/
+COPY packages/platform/release/package.json packages/platform/release/
+COPY packages/releases/base/package.json packages/releases/base/
+COPY packages/releases/booking/package.json packages/releases/booking/
+COPY packages/releases/commerce/package.json packages/releases/commerce/
+COPY packages/booking/property/package.json packages/booking/property/
+COPY packages/booking/availability/package.json packages/booking/availability/
+COPY packages/booking/reservation/package.json packages/booking/reservation/
 COPY packages/platform/storage/package.json packages/platform/storage/
 COPY packages/commerce/cart/package.json packages/commerce/cart/
 COPY packages/commerce/catalog/package.json packages/commerce/catalog/
@@ -64,6 +70,7 @@ COPY packages/extensions/mock-invoice/package.json packages/extensions/mock-invo
 COPY packages/extensions/mock-payment/package.json packages/extensions/mock-payment/
 COPY packages/themes/default/package.json packages/themes/default/
 COPY packages/themes/base/package.json packages/themes/base/
+COPY packages/themes/booking-default/package.json packages/themes/booking-default/
 COPY packages/examples/file-requests/package.json packages/examples/file-requests/
 COPY tools/cli/package.json tools/cli/
 

@@ -20628,6 +20628,30 @@
               "maxLength": 200,
               "type": "string"
             },
+            "creditRefund": {
+              "additionalProperties": false,
+              "default": {
+                "mode": "disabled",
+                "timeoutMs": 10000
+              },
+              "properties": {
+                "mode": {
+                  "default": "disabled",
+                  "enum": [
+                    "disabled",
+                    "aio-production"
+                  ],
+                  "type": "string"
+                },
+                "timeoutMs": {
+                  "default": 10000,
+                  "maximum": 60000,
+                  "minimum": 100,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
             "enabledMethods": {
               "default": [
                 "card"

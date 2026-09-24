@@ -7,11 +7,11 @@
 新增一個模組只動兩處，不改 base：
 
 1. **模組套件**：`packages/<產品目錄>/<模組>/`。
-2. **站點組裝**：這個網站的 release 檔（`packages/platform/bundle/src/releases/<id>.ts`、`apps/api/src/releases/<id>.ts`），
+2. **站點組裝**：這個網站的 release package（`packages/releases/<id>/src/` 的 runtime 與 target projections），
    以及把 release 登記進建置的 `scripts/releases.mjs`、`scripts/build-release.sh`、`scripts/seeds/<id>.ts`。
 
 整份文件以可執行的範例對照：模組 [`packages/examples/file-requests`](../packages/examples/file-requests/src/module.ts)（檔案處理申請），
-release [`file-requests`](../packages/platform/bundle/src/releases/file-requests.ts)。它跑通「授權上傳 → 排 job → 背景處理 →
+release [`file-requests`](../packages/examples/file-requests/src/runtime.ts)。它跑通「授權上傳 → 排 job → 背景處理 →
 狀態查詢 → 審核 → 寄信與站內通知 → 排程清理」，端到端測試在 `tests/integration/file-requests-example.test.ts`。
 設計決策見 [ADR 0050](adr/0050-modules-declare-resources-and-upload-intakes.md)。完成的定義沿用 `AGENTS.md`：`make verify` 通過。
 
@@ -171,7 +171,7 @@ const fileRequestsTheme: StorefrontTheme = {
 
 ## 11. 組進 release
 
-`packages/platform/bundle/src/releases/file-requests.ts`：角色、Theme、導覽與模組選項都在這裡。
+`packages/examples/file-requests/src/runtime.ts`：角色、Theme、導覽與模組選項都在這裡。
 
 ```ts
 createModules: ({ config }) => [
@@ -205,8 +205,8 @@ export const httpAdapter: ReleaseHttpAdapter = { ...baseHttpAdapter, releaseId: 
 - 必需頁面在 release 的每個 Theme 都有 renderer。
 
 ```ts
-import { runModuleContractChecks } from '@storeweave/bundle';
-import { release } from '../../../platform/bundle/src/releases/file-requests';
+import { runModuleContractChecks } from '@storeweave/release/module-contract';
+import { release } from '../src/runtime';
 
 it('符合模組契約', () => {
   expect(runModuleContractChecks(release, 'file-requests').filter(check => !check.ok)).toEqual([]);

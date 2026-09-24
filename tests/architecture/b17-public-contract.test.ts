@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { catalogDigest } from '@storeweave/db';
-import { release as commerceRelease } from '../../packages/platform/bundle/src/releases/commerce';
+import { release as commerceRelease } from '../../packages/releases/commerce/src/runtime';
 import {
   B00_CATALOG_PATH, DEFAULT_ARTIFACT_PATH, HTTP_ARTIFACT_PATH, categoryNames, projectCommercePublicContract, run, serializeCommercePublicContract,
   type CommercePublicContract,

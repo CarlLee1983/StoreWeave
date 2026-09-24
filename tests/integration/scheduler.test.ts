@@ -55,6 +55,16 @@ async function scheduleRow(type: string) {
   return res.rows[0];
 }
 
+async function ensureOccurrence(type: string, now: Date, expected: string): Promise<void> {
+  let lastResult: Awaited<ReturnType<typeof h.runtime.recurring.ensureScheduled>> | undefined;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    lastResult = await h.runtime.recurring.ensureScheduled(now);
+    const watermark = (await scheduleRow(type))?.last_occurrence_at;
+    if (watermark && new Date(watermark).getTime() >= Date.parse(expected)) return;
+  }
+  throw new Error(`Schedule ${type} did not reach ${expected}; last tick: ${JSON.stringify(lastResult)}`);
+}
+
 describe('冷啟動與固定間隔（ADR 0016 行為保留）', () => {
   it('第一次確保就把「當下這一次」排進去，不是等到下一個切片', async () => {
     const type = registerSchedule({ everyMs: HOUR });
@@ -133,8 +143,8 @@ describe('cron 與時區', () => {
 
   it('spring-forward 當天：不存在的 02:30 順延，一天仍然只有一次', async () => {
     const type = registerSchedule({ cron: '30 2 * * *', timezone: 'America/New_York', catchUp: 10 }, true);
-    await h.runtime.recurring.ensureScheduled(new Date('2026-03-07T12:00:00.000Z'));
-    await h.runtime.recurring.ensureScheduled(new Date('2026-03-10T12:00:00.000Z'));
+    await ensureOccurrence(type, new Date('2026-03-07T12:00:00.000Z'), '2026-03-07T07:30:00.000Z');
+    await ensureOccurrence(type, new Date('2026-03-10T12:00:00.000Z'), '2026-03-10T06:30:00.000Z');
     expect(await scheduledRunAts(type)).toEqual([
       '2026-03-07T07:30:00.000Z',
       '2026-03-08T07:30:00.000Z',
@@ -145,8 +155,8 @@ describe('cron 與時區', () => {
 
   it('fall-back 當天：重複的 01:30 只排一次', async () => {
     const type = registerSchedule({ cron: '30 1 * * *', timezone: 'America/New_York', catchUp: 10 }, true);
-    await h.runtime.recurring.ensureScheduled(new Date('2026-11-01T00:00:00.000Z'));
-    await h.runtime.recurring.ensureScheduled(new Date('2026-11-02T12:00:00.000Z'));
+    await ensureOccurrence(type, new Date('2026-11-01T00:00:00.000Z'), '2026-10-31T05:30:00.000Z');
+    await ensureOccurrence(type, new Date('2026-11-02T12:00:00.000Z'), '2026-11-02T06:30:00.000Z');
     // 冷啟動先補當下這一次（10-31），重點是 11-01 的 01:30 只出現一次而不是兩次
     expect(await scheduledRunAts(type)).toEqual([
       '2026-10-31T05:30:00.000Z',

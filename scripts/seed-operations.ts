@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { sql } from 'drizzle-orm';
-import { bootstrap } from '@storeweave/bundle';
+import { bootstrapRelease } from '@storeweave/release/bootstrap';
+import { release } from '../packages/releases/commerce/src/runtime';
 import type { Actor, Runtime } from '@storeweave/kernel';
 
 /**
@@ -360,7 +361,7 @@ async function main() {
       ? resolve('deployments/example-store/commerce.yaml')
       : undefined
   );
-  const { runtime } = await bootstrap({ configPath, loggerName: 'storeweave-seed-ops', logDestination: 'stderr' });
+  const { runtime } = await bootstrapRelease(release, { configPath, loggerName: 'storeweave-seed-ops', logDestination: 'stderr' });
   try {
     await seedOperations(runtime);
   } finally {

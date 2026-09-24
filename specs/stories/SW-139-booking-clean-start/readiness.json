@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "story_ref": "specs/stories/SW-139-booking-clean-start",
+  "story_md_digest": "sha256:13cc08f161c1103c4b914df0cacc1a2b8272bdda5ea47bff98bf7097a7b5b8f7",
+  "acceptance_md_digest": "sha256:6cc9206110f2080f797d068fc2eef803a50670f43a37c7bfa9b58ce4dca70daf",
+  "criteria": [
+    { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-003", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-004", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] }
+  ],
+  "inputs": [
+    {
+      "id": "booking-release-and-migration-selection",
+      "source": { "prerequisite_output": { "output_id": "sw-138" } }
+    },
+    {
+      "id": "booking-property-migration-manifest",
+      "source": { "preexisting_artifact": { "path": "packages/booking/property/src/migrations.ts" } }
+    },
+    {
+      "id": "booking-availability-migration-manifest",
+      "source": { "preexisting_artifact": { "path": "packages/booking/availability/src/migrations.ts" } }
+    },
+    {
+      "id": "booking-reservation-migration-manifest",
+      "source": { "preexisting_artifact": { "path": "packages/booking/reservation/src/migrations.ts" } }
+    },
+    {
+      "id": "testcontainers-integration-harness",
+      "source": { "preexisting_artifact": { "path": "tests/integration/helpers.ts" } }
+    }
+  ],
+  "outputs": [
+    { "id": "sw-139" }
+  ],
+  "decision_follow_ups": []
+}

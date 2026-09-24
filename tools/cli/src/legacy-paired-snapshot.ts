@@ -3,8 +3,7 @@ import { closeSync, createReadStream, fsyncSync, lstatSync, mkdirSync, mkdtempSy
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { Pool } from 'pg';
 import { z } from 'zod';
-import { catalogDigest, legacyBaselineSelection, withReleaseSnapshot, type MigrationSet } from '@storeweave/db';
-import baseline from '../../../packages/platform/bundle/src/legacy/commerce-pre-b02.json';
+import { catalogDigest, legacyBaselineSelection, withReleaseSnapshot, type LegacyMigrationBaseline, type MigrationSet } from '@storeweave/db';
 import { legacySafetySnapshotSchema, readLegacySafetySnapshot } from './legacy-safety-snapshot';
 import { pairedSnapshotSchema, readPrivateJson, verifyPrivateDump, writePrivateJson } from './read-release-snapshot';
 import { parsePgUrl, writePgBackup } from './pg-tool';
@@ -19,6 +18,7 @@ const schema = pairedSnapshotSchema.extend({ kind: z.literal('legacy-b01-paired'
 
 /** Caller has adopted the fixed baseline and holds the operation lock with all writers stopped. */
 export async function createLegacyPairedSnapshot(pool: Pool, sets: readonly MigrationSet[], options: {
+  baseline: LegacyMigrationBaseline;
   databaseUrl: string; safetyDirectory: string; safetyChecksum: string; operationRoot: string;
   evidence: string; enabledExtensions?: readonly string[]; lockFd?: number;
 }) {
@@ -29,8 +29,8 @@ export async function createLegacyPairedSnapshot(pool: Pool, sets: readonly Migr
   url.port = url.port || process.env.PGPORT || '5432';
   const expected = safety.manifest.evidence.database;
   if (catalogDigest({ host: url.hostname, port: url.port, database: decodeURIComponent(url.pathname.slice(1)) }) !== safety.manifest.endpointChecksum) throw new Error('Legacy pair endpoint mismatch');
-  const source = legacyBaselineSelection(baseline, sets, options.enabledExtensions);
-  const catalogChecksum = catalogDigest({ id: baseline.id, sourceRelease: baseline.sourceRelease, manifest: source.manifest });
+  const source = legacyBaselineSelection(options.baseline, sets, options.enabledExtensions);
+  const catalogChecksum = catalogDigest({ id: options.baseline.id, sourceRelease: options.baseline.sourceRelease, manifest: source.manifest });
   const staging = mkdtempSync(join(root, '.legacy-pair-')), id = randomUUID(), destination = join(root, id);
   try {
     const manifest = await withReleaseSnapshot(pool, source.selection, source.migrations, async (captured, client) => {
@@ -40,7 +40,7 @@ export async function createLegacyPairedSnapshot(pool: Pool, sets: readonly Migr
         FROM public.platform_release_history r JOIN public.platform_migration_baselines b ON b.id = r.legacy_baseline_id
         WHERE r.sequence = $1 AND b.catalog_id = $2 AND b.catalog_checksum = $3 AND b.source_release = $4
           AND b.historical_sql_verified = false AND b.historical_runtime_verified = false`,
-      [captured.release.sequence, baseline.id, catalogChecksum, baseline.sourceRelease]);
+      [captured.release.sequence, options.baseline.id, catalogChecksum, options.baseline.sourceRelease]);
       if (provenance.rows.length !== 1) throw new Error('Legacy pair requires exact unverified baseline provenance');
       const baselineEntry = provenance.rows[0]!.entry;
       if (typeof baselineEntry.evidence !== 'string' || !baselineEntry.evidence.trim()
@@ -68,7 +68,7 @@ export async function createLegacyPairedSnapshot(pool: Pool, sets: readonly Migr
       const value = schema.parse({ schemaVersion: 1, kind: 'legacy-b01-paired', id, createdAt: new Date().toISOString(),
         source: safety.manifest.source, candidate: safety.manifest.candidate, endpointChecksum: safety.manifest.endpointChecksum,
         safety: { directory: safety.directory, checksum: options.safetyChecksum }, evidence,
-        baseline: { id: provenance.rows[0]!.id, catalogId: baseline.id, evidence: baselineEntry.evidence, catalogChecksum, checksum: catalogDigest(provenance.rows[0]!.entry), historicalSqlVerified: false, historicalRuntimeVerified: false },
+        baseline: { id: provenance.rows[0]!.id, catalogId: options.baseline.id, evidence: baselineEntry.evidence, catalogChecksum, checksum: catalogDigest(provenance.rows[0]!.entry), historicalSqlVerified: false, historicalRuntimeVerified: false },
         dump: { file: 'database.dump', bytes: statSync(dump).size, checksum: hash.digest('hex') } });
       writePrivateJson(join(staging, 'snapshot.json'), value);
       return value;
@@ -83,7 +83,7 @@ export async function createLegacyPairedSnapshot(pool: Pool, sets: readonly Migr
 }
 
 /** Both immutable dumps and both release trees remain required recovery inputs. */
-export async function readLegacyPairedSnapshot(directory: string, expectedChecksum: string) {
+export async function readLegacyPairedSnapshot(directory: string, expectedChecksum: string, baseline: LegacyMigrationBaseline) {
   directory = resolve(directory);
   const raw = readPrivateJson(join(directory, 'snapshot.json'));
   if (catalogDigest(raw) !== expectedChecksum) throw new Error('Legacy pair descriptor checksum mismatch');
@@ -94,7 +94,8 @@ export async function readLegacyPairedSnapshot(directory: string, expectedChecks
     || manifest.endpointChecksum !== safety.manifest.endpointChecksum
     || catalogDigest(manifest.evidence.database) !== catalogDigest(safety.manifest.evidence.database)
     || manifest.evidence.release.releaseId !== 'commerce' || manifest.evidence.release.releaseVersion !== '0.1.0'
-    || manifest.evidence.release.buildManifestChecksum !== baseline.manifest.buildManifestChecksum) throw new Error('Legacy pair identity mismatch');
+    || manifest.evidence.release.buildManifestChecksum !== (baseline.manifest as { buildManifestChecksum?: unknown }).buildManifestChecksum
+    || baseline.id !== 'legacy-commerce-0.1.0-pre-b02') throw new Error('Legacy pair identity mismatch');
   const dump = join(directory, manifest.dump.file);
   await verifyPrivateDump(dump, manifest.dump);
   return { directory, manifest, manifestChecksum: expectedChecksum, dump, safety };

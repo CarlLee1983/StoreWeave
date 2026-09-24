@@ -1,4 +1,4 @@
-import { release } from '@storeweave/selected-release';
+import { cliProjection as selectedCli } from '@storeweave/selected-cli';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { resolvePaths } from './paths';
 
-const servicePrefix = release.id === 'commerce' ? 'commerce' : 'storeweave';
+const servicePrefix = selectedCli.identity.servicePrefix;
 export const SERVICES = [`${servicePrefix}-api`, `${servicePrefix}-worker`] as const;
 export type ServiceName = (typeof SERVICES)[number];
 
@@ -40,7 +40,7 @@ export function serviceManager(): 'systemd' | 'pidfile' {
 }
 
 function pidFile(name: ServiceName): string {
-  return join(resolvePaths(release.id).runDir, `${name}.pid`);
+  return join(resolvePaths(selectedCli.identity).runDir, `${name}.pid`);
 }
 
 function readPid(name: ServiceName): number | null {
@@ -63,10 +63,13 @@ function isRunning(pid: number): boolean {
 }
 
 function entrypoint(name: ServiceName): string {
-  const paths = resolvePaths(release.id);
+  const paths = resolvePaths(selectedCli.identity);
+  const legacyAppDirectory = selectedCli.identity.legacyEnvironmentPrefix
+    ? process.env[`${selectedCli.identity.legacyEnvironmentPrefix}_APP_DIR`]
+    : undefined;
   const base = existsSync(paths.currentLink)
     ? paths.currentLink
-    : process.env.STOREWEAVE_APP_DIR ?? (release.id === 'commerce' ? process.env.COMMERCE_APP_DIR : undefined) ?? process.cwd();
+    : process.env.STOREWEAVE_APP_DIR ?? legacyAppDirectory ?? process.cwd();
   return join(base, 'app', name === SERVICES[0] ? 'api.js' : 'worker.js');
 }
 
@@ -89,7 +92,7 @@ export async function startServices(): Promise<ServiceStatus[]> {
   }
   const started: { name: ServiceName; pid: number }[] = [];
   try {
-    const paths = resolvePaths(release.id);
+    const paths = resolvePaths(selectedCli.identity);
     mkdirSync(paths.runDir, { recursive: true });
     mkdirSync(paths.logDir, { recursive: true });
     for (const name of SERVICES) {

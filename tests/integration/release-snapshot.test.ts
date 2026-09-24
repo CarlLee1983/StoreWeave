@@ -6,8 +6,8 @@ import { Client } from 'pg';
 import { catalogDigest, type ReleaseSnapshot } from '@storeweave/db';
 import type { Runtime } from '@storeweave/kernel';
 import { expect, it, vi } from 'vitest';
-import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
-import { release } from '../../packages/platform/bundle/src/releases/base';
+import { bootstrapRelease } from '../../packages/platform/release/src/bootstrap';
+import { release } from '../../packages/releases/base/src/runtime';
 
 process.env.SW_SIGNING_KEY_TEST = Buffer.alloc(32, 3).toString('base64url');
 

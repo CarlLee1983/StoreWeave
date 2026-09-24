@@ -5,12 +5,12 @@ import { Pool } from 'pg';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { expect, it, vi } from 'vitest';
 import { baselineMigrations, runMigrations, catalogDigest, legacyBaselineSelection } from '@storeweave/db';
-import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
-import { release } from '../../packages/platform/bundle/src/releases/commerce';
+import { bootstrapRelease } from '../../packages/platform/release/src/bootstrap';
+import { release } from '../../packages/releases/commerce/src/runtime';
 import { verifyLegacySafetyDatabase, verifyLegacyRestoredDatabase } from '../../tools/cli/src/verify-restored-database';
 import { createLegacyBridgeJournal, readLegacyBridgeJournal, advanceLegacyBridgeJournal } from '../../tools/cli/src/legacy-bridge-journal';
 import { createLegacyPairedSnapshot, readLegacyPairedSnapshot } from '../../tools/cli/src/legacy-paired-snapshot';
-import baseline from '../../packages/platform/bundle/src/legacy/commerce-pre-b02.json';
+import baseline from '../../packages/releases/commerce/src/legacy-commerce-pre-b02.json';
 import { createLegacySafetySnapshot, readLegacySafetySnapshot } from '../../tools/cli/src/legacy-safety-snapshot';
 import { runPgTool } from '../../tools/cli/src/pg-tool';
 import { writeNativeRelease } from '../unit/fixtures/native-release';
@@ -109,14 +109,14 @@ it('publishes a native B01 safety dump without baseline DDL and preserves raw hi
     writeFileSync(join(source, 'app/cli.js'), originalCli);
     rmSync(join(root, 'fail-dump'));
     const bridgeFile = await createLegacyBridgeJournal(operations, safety.directory, safety.manifestChecksum, 'owned fixture baseline');
-    expect((await readLegacyBridgeJournal(bridgeFile, operations)).journal.phase).toBe('safety');
+    expect((await readLegacyBridgeJournal(bridgeFile, operations, baseline)).journal.phase).toBe('safety');
     expect(statSync(bridgeFile).mode & 0o777).toBe(0o600);
-    await expect(advanceLegacyBridgeJournal(bridgeFile, operations, 'migrating')).rejects.toThrow('Invalid bridge journal phase');
+    await expect(advanceLegacyBridgeJournal(bridgeFile, operations, 'migrating', baseline)).rejects.toThrow('Invalid bridge journal phase');
     const otherCandidate = join(root, 'other-candidate');
     writeNativeRelease(otherCandidate, 'commerce', '0.2.1');
     const otherSafety = await createLegacySafetySnapshot(pool, { ...options, candidateDirectory: otherCandidate });
     const adopted = await baselineMigrations(pool, runtime.migrations, baseline, 'owned fixture baseline');
-    const pairOptions = { databaseUrl: container.getConnectionUri(), safetyDirectory: safety.directory,
+    const pairOptions = { baseline, databaseUrl: container.getConnectionUri(), safetyDirectory: safety.directory,
       safetyChecksum: safety.manifestChecksum, operationRoot: operations, evidence: 'owned fixture baseline' };
     await expect(createLegacyPairedSnapshot(pool, runtime.migrations, { ...pairOptions, evidence: 'different operator evidence' })).rejects.toThrow('baseline evidence is incomplete');
     const beforeRecapture = readdirSync(operations).sort();
@@ -137,24 +137,24 @@ it('publishes a native B01 safety dump without baseline DDL and preserves raw hi
     const pair = await createLegacyPairedSnapshot(pool, runtime.migrations, pairOptions);
     const otherPair = await createLegacyPairedSnapshot(pool, runtime.migrations, { ...pairOptions,
       safetyDirectory: otherSafety.directory, safetyChecksum: otherSafety.manifestChecksum });
-    await expect(advanceLegacyBridgeJournal(bridgeFile, operations, 'paired', {
+    await expect(advanceLegacyBridgeJournal(bridgeFile, operations, 'paired', baseline, {
       directory: otherPair.directory, checksum: otherPair.manifestChecksum,
     })).rejects.toThrow('Bridge pair differs from its original safety snapshot');
-    expect((await readLegacyBridgeJournal(bridgeFile, operations)).journal.phase).toBe('safety');
+    expect((await readLegacyBridgeJournal(bridgeFile, operations, baseline)).journal.phase).toBe('safety');
     expect(pair.manifest.baseline.id).toBe(adopted.baselineId);
-    await advanceLegacyBridgeJournal(bridgeFile, operations, 'paired', { directory: pair.directory, checksum: pair.manifestChecksum });
-    const recordedBridge = await readLegacyBridgeJournal(bridgeFile, operations);
+    await advanceLegacyBridgeJournal(bridgeFile, operations, 'paired', baseline, { directory: pair.directory, checksum: pair.manifestChecksum });
+    const recordedBridge = await readLegacyBridgeJournal(bridgeFile, operations, baseline);
     expect(recordedBridge.snapshot?.manifest.baseline.id).toBe(adopted.baselineId);
     for (const phase of ['migrating', 'migrated', 'activated'] as const) {
-      await advanceLegacyBridgeJournal(bridgeFile, operations, phase);
+      await advanceLegacyBridgeJournal(bridgeFile, operations, phase, baseline);
     }
-    await expect(advanceLegacyBridgeJournal(bridgeFile, operations, 'safety')).rejects.toThrow('Invalid bridge journal phase');
+    await expect(advanceLegacyBridgeJournal(bridgeFile, operations, 'safety', baseline)).rejects.toThrow('Invalid bridge journal phase');
     const outside = join(root, 'outside', recordedBridge.journal.id);
     mkdirSync(outside, { recursive: true, mode: 0o700 });
     const outsideFile = join(outside, 'bridge.json');
     writeFileSync(outsideFile, readFileSync(bridgeFile), { mode: 0o600 });
-    await expect(readLegacyBridgeJournal(outsideFile, operations)).rejects.toThrow('outside the locked transition root');
-    expect((await readLegacyPairedSnapshot(pair.directory, pair.manifestChecksum)).manifest).toEqual(pair.manifest);
+    await expect(readLegacyBridgeJournal(outsideFile, operations, baseline)).rejects.toThrow('outside the locked transition root');
+    expect((await readLegacyPairedSnapshot(pair.directory, pair.manifestChecksum, baseline)).manifest).toEqual(pair.manifest);
     expect(pair.manifest.source).not.toHaveProperty('manifestChecksum');
     await pool.query('CREATE DATABASE paired_restored TEMPLATE template0');
     restored.pathname = '/paired_restored';
@@ -166,32 +166,32 @@ it('publishes a native B01 safety dump without baseline DDL and preserves raw hi
     const restoredPool = new Pool({ connectionString: restored.toString(), max: 1 });
     try {
       const restoredOid = (await restoredPool.query("SELECT oid::text FROM pg_catalog.pg_database WHERE datname = current_database()")).rows[0].oid;
-      await expect(verifyLegacyRestoredDatabase(pair.directory, pair.manifestChecksum, restored.toString(), restoredOid)).resolves.toMatchObject({ oid: restoredOid });
-      await expect(verifyLegacyRestoredDatabase(pair.directory, pair.manifestChecksum, restored.toString(), '0')).rejects.toThrow('identity or properties mismatch');
+      await expect(verifyLegacyRestoredDatabase(pair.directory, pair.manifestChecksum, restored.toString(), restoredOid, baseline)).resolves.toMatchObject({ oid: restoredOid });
+      await expect(verifyLegacyRestoredDatabase(pair.directory, pair.manifestChecksum, restored.toString(), '0', baseline)).rejects.toThrow('identity or properties mismatch');
       const originalBaseline = (await restoredPool.query('SELECT to_jsonb(b) AS entry FROM public.platform_migration_baselines b')).rows[0].entry;
       for (const [field, changed] of Object.entries({ historical_sql_verified: true, historical_runtime_verified: true,
         source_release: 'wrong source', catalog_checksum: 'wrong checksum', evidence: 'changed evidence' })) {
         await restoredPool.query(`UPDATE public.platform_migration_baselines SET ${field} = $1`, [changed]);
-        await expect(verifyLegacyRestoredDatabase(pair.directory, pair.manifestChecksum, restored.toString(), restoredOid))
+        await expect(verifyLegacyRestoredDatabase(pair.directory, pair.manifestChecksum, restored.toString(), restoredOid, baseline))
           .rejects.toThrow('baseline provenance mismatch');
         await restoredPool.query(`UPDATE public.platform_migration_baselines SET ${field} = $1`, [originalBaseline[field]]);
       }
       await restoredPool.query("UPDATE public.platform_migration_baselines SET accepted_at = accepted_at + interval '1 microsecond'");
-      await expect(verifyLegacyRestoredDatabase(pair.directory, pair.manifestChecksum, restored.toString(), restoredOid)).rejects.toThrow('baseline provenance mismatch');
+      await expect(verifyLegacyRestoredDatabase(pair.directory, pair.manifestChecksum, restored.toString(), restoredOid, baseline)).rejects.toThrow('baseline provenance mismatch');
       await restoredPool.query('UPDATE public.platform_migration_baselines SET accepted_at = $1', [originalBaseline.accepted_at]);
       await restoredPool.query('UPDATE public.platform_migrations SET legacy_baseline_id = NULL');
-      await expect(verifyLegacyRestoredDatabase(pair.directory, pair.manifestChecksum, restored.toString(), restoredOid)).rejects.toThrow('history mismatch');
+      await expect(verifyLegacyRestoredDatabase(pair.directory, pair.manifestChecksum, restored.toString(), restoredOid, baseline)).rejects.toThrow('history mismatch');
       await restoredPool.query('UPDATE public.platform_migrations SET legacy_baseline_id = $1', [pair.manifest.baseline.id]);
-      await expect(verifyLegacyRestoredDatabase(pair.directory, pair.manifestChecksum, restored.toString(), restoredOid)).resolves.toMatchObject({ oid: restoredOid });
+      await expect(verifyLegacyRestoredDatabase(pair.directory, pair.manifestChecksum, restored.toString(), restoredOid, baseline)).resolves.toMatchObject({ oid: restoredOid });
     } finally { await restoredPool.end(); }
 
     writeFileSync(dumpFile, 'raw changed');
-    await expect(readLegacyBridgeJournal(bridgeFile, operations)).rejects.toThrow('dump size mismatch');
-    await expect(readLegacyPairedSnapshot(pair.directory, pair.manifestChecksum)).rejects.toThrow('dump size mismatch');
+    await expect(readLegacyBridgeJournal(bridgeFile, operations, baseline)).rejects.toThrow('dump size mismatch');
+    await expect(readLegacyPairedSnapshot(pair.directory, pair.manifestChecksum, baseline)).rejects.toThrow('dump size mismatch');
     writeFileSync(dumpFile, originalDump);
     const pairDump = join(pair.directory, 'database.dump'), originalPairDump = readFileSync(pairDump);
     writeFileSync(pairDump, 'pair changed');
-    await expect(readLegacyPairedSnapshot(pair.directory, pair.manifestChecksum)).rejects.toThrow('dump size mismatch');
+    await expect(readLegacyPairedSnapshot(pair.directory, pair.manifestChecksum, baseline)).rejects.toThrow('dump size mismatch');
     writeFileSync(pairDump, originalPairDump);
     writeFileSync(join(root, 'fail-dump'), '');
     const beforeFailedDump = readdirSync(operations).sort();

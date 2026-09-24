@@ -24,20 +24,29 @@ import {
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { Command } from 'commander';
-import { bootstrapRelease } from '@storeweave/bootstrap-release';
-import { release } from '@storeweave/selected-release';
+import { bootstrapRelease } from '@storeweave/release/bootstrap';
+import { cliProjection as selectedCli } from '@storeweave/selected-cli';
 import { doctor as runDoctorChecks, type Runtime } from '@storeweave/kernel';
 import { loadReleaseConfig } from '@storeweave/config';
+import { assertCliProjectionRelease, validateCliCommandContributions } from '@storeweave/release/cli';
 import { bold, dim, fail, heading, line, red, statusIcon, yellow } from './output';
 import { resolvePaths } from './paths';
 import { installReleaseArchive, validateLegacyB01Directory, validateReleaseDirectory } from './release-validation';
 import { runPgTool, writePgBackup } from './pg-tool';
 import { SERVICES, serviceManager, startServices, statusServices, stopServices } from './service';
-import { LegacyContentMediaBackfill } from '@storeweave/content';
 import { captureStorageBackup, fullBackupSchema, writeStorageBackupCatalog, writeStorageBackupManifest } from './storage-backup';
 import { runFullRestore } from './full-restore';
 import { discardFullRecovery, listFullRecoveries } from './full-recovery-discard';
 import { rewrapMfaSecrets } from './mfa-rewrap';
+
+const release = selectedCli.release;
+
+function requireLegacyB01Baseline() {
+  const declaration = selectedCli.legacyB01;
+  const baseline = declaration && release.legacyBaselines.find(entry => entry.id === declaration.baselineId);
+  if (!baseline) fail(`B01 recovery is unavailable for release "${release.id}"`);
+  return baseline;
+}
 
 interface ScheduleListItem {
   type: string;
@@ -57,10 +66,10 @@ interface ScheduleListItem {
 
 const RELEASE_VERSION = process.env.STOREWEAVE_RELEASE_VERSION ?? process.env.COMMERCE_RELEASE_VERSION ?? release.version;
 
-const RELEASE_NAME = release.id === 'commerce' ? 'commerce' : 'storeweave';
+const RELEASE_NAME = selectedCli.identity.commandName;
 
 async function withRuntime<T>(fn: (runtime: Runtime, configPath: string) => Promise<T>): Promise<T> {
-  const paths = resolvePaths(release.id);
+  const paths = resolvePaths(selectedCli.identity);
   return withRuntimeConfig(paths.configFile, fn);
 }
 
@@ -90,7 +99,7 @@ program
   .option('--env <path>', `要複製的 ${RELEASE_NAME}.env 範本`)
   .option('--skip-migrate', '只做檔案準備，不連資料庫')
   .action(async (options: { config?: string; env?: string; skipMigrate?: boolean }) => {
-    const paths = resolvePaths(release.id);
+    const paths = resolvePaths(selectedCli.identity);
     heading('建立目錄');
     for (const dir of [paths.configDir, paths.dataDir, paths.logDir, paths.runDir, join(paths.dataDir, 'backups'), paths.releasesDir]) {
       mkdirSync(dir, { recursive: true });
@@ -143,7 +152,7 @@ program
   .description('檢查安裝、設定、資料庫、Worker、佇列與 Extension 狀態')
   .option('--json', '以 JSON 輸出')
   .action(async (options: { json?: boolean }) => {
-    const paths = resolvePaths(release.id);
+    const paths = resolvePaths(selectedCli.identity);
     const checks = await withRuntime(async (runtime, configPath) => {
       try { await runtime.activateRelease('require-current'); }
       catch (error) { return [{ name: 'release activation', status: 'fail' as const, detail: (error as Error).message }]; }
@@ -206,38 +215,13 @@ migrateCommand.command('baseline')
   });
 
 program
-  .command('content:backfill-legacy-media')
-  .description('匯入預設 Theme 的舊文章圖片；可安全重跑，待 Worker 完成後再執行一次以附掛文章')
-  .requiredOption('--assets-dir <path>', '含 woven-day-*.png 的已驗證 Theme assets 目錄')
-  .action(async (options: { assetsDir: string }) => {
-    const manifest = release.legacyContentMediaManifest;
-    if (release.id !== 'commerce' || !manifest) fail('此 manifest 只屬於舊 Commerce Default Theme；Base 沒有可回填的 Theme 圖片');
-    const assetsDir = resolve(options.assetsDir);
-    for (const entry of manifest) {
-      const asset = resolve(assetsDir, entry.file);
-      if (!asset.startsWith(`${assetsDir}/`)) fail(`不安全的 Theme asset path：${entry.file}`);
-    }
-    await withRuntime(async runtime => {
-      await runtime.activateRelease('require-current');
-      const operation = new LegacyContentMediaBackfill(runtime.database, runtime.media, runtime.media.references, {
-        open: async entry => ({ stream: createReadStream(resolve(assetsDir, entry.file)), contentType: 'image/png' }),
-      });
-      const report = await operation.run(manifest);
-      const reconciliation = await operation.reconcile(manifest);
-      line(JSON.stringify({ report, reconciliation }, null, 2));
-      if (report.failed.length || report.waiting || reconciliation.unmappedKeys.length || reconciliation.incompleteKeys.length) process.exitCode = 2;
-    });
-  });
-
-
-program
   .command('backup')
   .description('以 pg_dump 備份資料庫；--include-media 建立可驗證的完整 bundle')
   .option('--out <path>', '輸出檔案（完整 bundle 時為目錄）')
   .option('--include-media', '連同所有已就緒的 storage 物件建立完整 bundle')
   .option('--external-writers-stopped', '完整 bundle：確認 API、Worker 與外部寫入者均已停止')
   .action(async (options: { out?: string; includeMedia?: boolean; externalWritersStopped?: boolean }) => {
-    const paths = resolvePaths(release.id);
+    const paths = resolvePaths(selectedCli.identity);
     await withRuntime(async (runtime) => {
       const dir = runtime.config.paths.backupDir;
       mkdirSync(dir, { recursive: true });
@@ -314,7 +298,7 @@ program
     if (options.listRecoveries || options.discard) {
       if (options.listRecoveries && options.discard) fail('--list-recoveries 與 --discard 請分開執行');
       if (file || options.bundle || options.resume) fail('--list-recoveries 與 --discard 不接受備份檔或 --bundle');
-      const paths = resolvePaths(release.id);
+      const paths = resolvePaths(selectedCli.identity);
       const loaded = loadReleaseConfig(release.config, paths.configFile);
       const maintenance = parsePgUrl(loaded.config.database.url);
       if (!options.maintenanceDatabase || Buffer.byteLength(options.maintenanceDatabase) > 63 || options.maintenanceDatabase.includes('\0')) fail('Invalid maintenance database name');
@@ -348,7 +332,7 @@ program
     if (options.bundle) {
       if (!options.externalWritersStopped) fail('完整還原需要 --external-writers-stopped，且 API、Worker 與外部寫入者必須已停止');
       const bundle = resolve(options.bundle);
-      const paths = resolvePaths(release.id);
+      const paths = resolvePaths(selectedCli.identity);
       // Docker's immutable /opt release is intentionally not writable by the
       // service user. Full recovery owns its durable state under dataDir;
       // native deployment gives this directory to the same service identity.
@@ -398,14 +382,14 @@ program
   .action(async (options: { release?: string; resume?: string; snapshot?: string; checksum?: string; externalWritersStopped?: boolean; restart: boolean; fromLegacyB01?: boolean; catalog?: string; evidence?: string; safety?: string }) => {
     if (!options.externalWritersStopped) fail('upgrade requires --external-writers-stopped');
     if (options.fromLegacyB01) {
-      const paths = resolvePaths(release.id);
+      const paths = resolvePaths(selectedCli.identity);
       return withTransitionLock(paths.home, (directory, lockFd) => upgradeLegacyB01(options, directory, lockFd));
     }
     if (options.catalog || options.evidence || options.safety) fail('Legacy options require --from-legacy-b01');
     if ([options.release, options.resume, options.snapshot].filter(Boolean).length !== 1 || Boolean(options.snapshot) !== Boolean(options.checksum)) {
       fail('Use --release, --resume, or --snapshot with --checksum');
     }
-    const paths = resolvePaths(release.id);
+    const paths = resolvePaths(selectedCli.identity);
     return withTransitionLock(paths.home, async (directory, lockFd) => {
       let recorded = options.resume ? await readUpgradeJournal(options.resume, directory) : undefined;
       const loaded = loadReleaseConfig(release.config, paths.configFile);
@@ -475,16 +459,22 @@ program
     if (options.resume ? Boolean(options.snapshot || options.safety || options.checksum) : [options.snapshot, options.safety].filter(Boolean).length !== 1 || !options.checksum) {
       fail('Use --snapshot or --safety with --checksum, or --resume with an existing journal');
     }
-    const paths = resolvePaths(release.id);
+    const paths = resolvePaths(selectedCli.identity);
     return withTransitionLock(paths.home, async (directory, lockFd) => {
-      const resumed = options.resume ? await readRestoreJournal(options.resume, directory) : undefined;
+      const baseline = options.toLegacyB01 ? requireLegacyB01Baseline() : undefined;
+      const resumed = options.resume ? await readRestoreJournal(options.resume, directory, baseline) : undefined;
       if (resumed && (resumed.journal.kind !== 'restore') !== Boolean(options.toLegacyB01)) fail('Restore journal requires its matching explicit legacy mode');
-      const readSnapshot = options.safety ? readLegacySafetySnapshot : options.toLegacyB01 ? readLegacyPairedSnapshot : readPairedSnapshot;
-      const pair = resumed?.snapshot ?? await readSnapshot((options.safety ?? options.snapshot)!, options.checksum!);
+      const pair = resumed?.snapshot ?? (options.safety
+        ? await readLegacySafetySnapshot(options.safety, options.checksum!)
+        : options.toLegacyB01
+          ? await readLegacyPairedSnapshot(options.snapshot!, options.checksum!, baseline!)
+          : await readPairedSnapshot(options.snapshot!, options.checksum!));
       if (options.toLegacyB01) {
-        const executing = validateReleaseDirectory(dirname(dirname(realpathSync(process.argv[1]!))), 'commerce');
+        const legacyB01 = selectedCli.legacyB01;
+        if (!legacyB01) fail(`B01 rollback is unavailable for release "${release.id}"`);
+        const executing = validateReleaseDirectory(dirname(dirname(realpathSync(process.argv[1]!))), legacyB01.releaseId);
         const releases = realpathSync(paths.releasesDir);
-        if (release.id !== 'commerce' || executing.version !== release.version || executing.treeChecksum !== pair.manifest.candidate.treeChecksum
+        if (executing.version !== release.version || executing.treeChecksum !== pair.manifest.candidate.treeChecksum
           || dirname(realpathSync(pair.manifest.source.directory)) !== releases
           || dirname(realpathSync(pair.manifest.candidate.directory)) !== releases) fail('B01 rollback requires its exact installation-local candidate CLI and source');
       }
@@ -502,9 +492,9 @@ program
       heading('停止並等待目前 API／Worker 結束');
       await stopServices();
       const journalFile = resumed?.file ?? (await restoreSnapshotToScratch(pair.directory, options.checksum!,
-        maintenance.toString(), directory, lockFd, options.safety ? 'legacy-b01-safety' : options.toLegacyB01 ? 'legacy-b01' : 'modern')).journalFile;
+        maintenance.toString(), directory, lockFd, options.safety ? 'legacy-b01-safety' : options.toLegacyB01 ? 'legacy-b01' : 'modern', baseline)).journalFile;
       line(`  restore journal：${journalFile}`);
-      const restored = await resumeRestoreCutover(resumed ?? await readRestoreJournal(journalFile, directory), maintenance.toString(), paths.configFile, lockFd);
+      const restored = await resumeRestoreCutover(resumed ?? await readRestoreJournal(journalFile, directory, baseline), maintenance.toString(), paths.configFile, lockFd, baseline);
       switchSymlink(paths.currentLink, restored.sourceDirectory);
       heading(`current -> ${restored.sourceDirectory}`);
       line(`  保留原資料庫：${restored.quarantineName}`);
@@ -771,22 +761,23 @@ program
 
 async function upgradeLegacyB01(options: { release?: string; resume?: string; safety?: string; snapshot?: string;
   checksum?: string; catalog?: string; evidence?: string; restart: boolean }, directory: string, lockFd: number) {
-  if (release.id !== 'commerce' || options.snapshot || [options.release, options.resume, options.safety].filter(Boolean).length !== 1
+  const legacyB01 = selectedCli.legacyB01;
+  if (!legacyB01 || options.snapshot || [options.release, options.resume, options.safety].filter(Boolean).length !== 1
     || Boolean(options.safety) !== Boolean(options.checksum)) fail('B01 bridge requires Commerce and --release, --resume, or --safety with --checksum');
-  const baseline = release.legacyBaselines.find(entry => entry.id === 'legacy-commerce-0.1.0-pre-b02');
+  const baseline = release.legacyBaselines.find(entry => entry.id === legacyB01.baselineId);
   if (!baseline || (options.resume ? Boolean(options.catalog || options.evidence)
     : options.catalog !== baseline.id || !options.evidence?.trim())) fail('B01 bridge requires its fixed --catalog and --evidence; resume uses recorded evidence');
-  const paths = resolvePaths(release.id);
-  const executing = validateReleaseDirectory(dirname(dirname(realpathSync(process.argv[1]!))), 'commerce');
+  const paths = resolvePaths(selectedCli.identity);
+  const executing = validateReleaseDirectory(dirname(dirname(realpathSync(process.argv[1]!))), legacyB01.releaseId);
   if (executing.version !== release.version) fail('Execute the exact B02 candidate CLI directly');
-  let recorded = options.resume ? await readLegacyBridgeJournal(options.resume, directory) : undefined;
+  let recorded = options.resume ? await readLegacyBridgeJournal(options.resume, directory, baseline) : undefined;
   let safety = recorded?.safety ?? (options.safety ? await readLegacySafetySnapshot(options.safety, options.checksum!) : undefined);
   if (!isSymlink(paths.currentLink)) fail('B01 current must be a source symlink');
   const current = realpathSync(paths.currentLink), releases = realpathSync(paths.releasesDir);
   if (dirname(current) !== releases) fail('B01 current must be inside this installation releases directory');
   if (!safety) {
     const source = validateLegacyB01Directory(current);
-    const candidate = installReleaseArchive(resolve(options.release!), paths.releasesDir, 'commerce', true);
+    const candidate = installReleaseArchive(resolve(options.release!), paths.releasesDir, legacyB01.releaseId, true);
     if (candidate.version === source.version || candidate.treeChecksum !== executing.treeChecksum) fail('B01 bridge must run the exact distinct candidate release');
     requireBinary('pg_dump'); requireBinary('pg_restore');
     await stopServices();
@@ -803,7 +794,7 @@ async function upgradeLegacyB01(options: { release?: string; resume?: string; sa
     || ![safety.manifest.source.directory, safety.manifest.candidate.directory].map(path => realpathSync(path)).includes(current)) fail('B01 bridge source or candidate differs from this installation');
   await stopServices();
   if (!recorded) recorded = await readLegacyBridgeJournal(await createLegacyBridgeJournal(directory, safety.directory,
-    safety.manifestChecksum, options.evidence!), directory);
+    safety.manifestChecksum, options.evidence!), directory, baseline);
   line(`  bridge journal：${recorded.file}`);
   const file = recorded.file;
   await withRuntime(async runtime => {
@@ -827,21 +818,22 @@ async function upgradeLegacyB01(options: { release?: string; resume?: string; sa
       await baselineMigrations(runtime.database.pool, runtime.migrations, baseline!, recorded!.journal.evidence,
         runtime.config.extensions.filter(entry => entry.enabled).map(entry => entry.id));
       const pair = await createLegacyPairedSnapshot(runtime.database.pool, runtime.migrations, {
+        baseline,
         databaseUrl: runtime.config.database.url, safetyDirectory: safety!.directory, safetyChecksum: safety!.manifestChecksum, evidence: recorded!.journal.evidence,
         operationRoot: directory, enabledExtensions: runtime.config.extensions.filter(entry => entry.enabled).map(entry => entry.id), lockFd });
-      recorded = await advanceLegacyBridgeJournal(file, directory, 'paired', { directory: pair.directory, checksum: pair.manifestChecksum });
+      recorded = await advanceLegacyBridgeJournal(file, directory, 'paired', baseline, { directory: pair.directory, checksum: pair.manifestChecksum });
     }
-    if (recorded!.journal.phase === 'paired') recorded = await advanceLegacyBridgeJournal(file, directory, 'migrating');
+    if (recorded!.journal.phase === 'paired') recorded = await advanceLegacyBridgeJournal(file, directory, 'migrating', baseline);
     if (recorded!.journal.phase === 'migrating') {
       runReleaseCli(safety!.manifest.candidate, paths.configFile, runtime.config.database.url, 'migrate', lockFd);
-      recorded = await advanceLegacyBridgeJournal(file, directory, 'migrated');
+      recorded = await advanceLegacyBridgeJournal(file, directory, 'migrated', baseline);
     }
     const status = JSON.parse(runReleaseCli(safety!.manifest.candidate, paths.configFile, runtime.config.database.url, 'status', lockFd));
     if (status.releaseCurrent !== true || !Array.isArray(status.pending) || status.pending.length) fail('B01 candidate is not current after migration');
-    recorded = await readLegacyBridgeJournal(file, directory);
+    recorded = await readLegacyBridgeJournal(file, directory, baseline);
     await requireUpgradeDatabase(recorded.snapshot!, runtime.config.database.url);
     switchSymlink(paths.currentLink, safety!.manifest.candidate.directory);
-    if (recorded.journal.phase === 'migrated') await advanceLegacyBridgeJournal(file, directory, 'activated');
+    if (recorded.journal.phase === 'migrated') await advanceLegacyBridgeJournal(file, directory, 'activated', baseline);
   });
   heading(`current -> ${safety.manifest.candidate.directory}`);
   if (options.restart !== false) printServices(await startServices());
@@ -896,6 +888,16 @@ function requireBinary(name: string): void {
   } catch {
     fail(`找不到 ${name}，請先安裝 PostgreSQL client 工具。`);
   }
+}
+
+assertCliProjectionRelease(release.id, selectedCli.identity);
+const productCommands = validateCliCommandContributions(
+  release.id,
+  selectedCli.commands,
+  [...program.commands.map(command => command.name()), 'help'],
+);
+for (const contribution of productCommands) {
+  contribution.configure(program.command(contribution.name), { withRuntime, line, fail });
 }
 
 program.parseAsync(process.argv).catch((err) => {

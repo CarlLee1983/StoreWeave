@@ -42,6 +42,20 @@ describe('record smoke evidence CLI', () => {
     expect(source).toContain('Reused native artifact evidence requires explicit STOREWEAVE_SOURCE_REVISION');
   });
 
+  it('waits for the recreated database from the native release container before restore', () => {
+    const source = readFileSync(nativeSmokeScript, 'utf8');
+    const replacement = source.indexOf('docker rm -f "$PG" >/dev/null');
+    const boundedProbe = source.indexOf('for i in $(seq 1 60);', replacement);
+    const reachableFromRelease = source.indexOf('docker exec --user "$NAME" "$APP" pg_isready -h "$PG" -U "$DB_USER" -d "$DB_NAME"');
+    const restore = source.indexOf('docker exec --user "$NAME" "$APP" "$NAME" restore --bundle');
+
+    expect(replacement).toBeGreaterThan(-1);
+    expect(boundedProbe).toBeGreaterThan(replacement);
+    expect(reachableFromRelease).toBeGreaterThan(replacement);
+    expect(restore).toBeGreaterThan(reachableFromRelease);
+    expect(source).toContain('Fresh Postgres is not reachable from the release container');
+  });
+
   it('writes native evidence with the artifact sha256', () => {
     const { paths, buildInfo } = fixture();
     run(['--kind', 'native', ...common(paths), '--artifact', paths.artifact]);

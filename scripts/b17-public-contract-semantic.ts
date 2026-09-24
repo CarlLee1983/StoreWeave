@@ -32,7 +32,8 @@ const SOURCE_ROOTS = [
   "packages/commerce",
   "packages/extensions",
   "packages/platform",
-  "packages/themes",
+  "packages/releases/commerce/src",
+  "packages/themes/default/src",
 ];
 
 type Kind = "command" | "query" | "event" | "job";

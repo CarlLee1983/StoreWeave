@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "story_ref": "specs/stories/SW-144-release-isolation",
+  "story_md_digest": "sha256:207be8bace030ca5ed27bcea322f9d25acf53e0bf32afc5a1f4f4eff183e9254",
+  "acceptance_md_digest": "sha256:2d53b66236763c68b2f8f958c93b124f3641990e86b57acc3b93a2932bf33834",
+  "criteria": [
+    { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-003", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-004", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
+    { "id": "AC-005", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] }
+  ],
+  "inputs": [
+    { "id": "booking-clean-start-evidence", "source": { "prerequisite_output": { "output_id": "sw-139" } } },
+    { "id": "booking-admin-projection", "source": { "prerequisite_output": { "output_id": "sw-143" } } },
+    { "id": "booking-release-definition", "source": { "prerequisite_output": { "output_id": "sw-138" } } },
+    { "id": "architecture-test-harness", "source": { "preexisting_artifact": { "path": "tests/architecture/release-baseline.ts" } } }
+  ],
+  "outputs": [{ "id": "sw-144" }],
+  "decision_follow_ups": []
+}

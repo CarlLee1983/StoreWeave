@@ -44,7 +44,8 @@ it('real CLI upgrades with a paired snapshot, retries the same candidate, and re
         // but their second migration differs. No production build hook is needed.
         const selected = join(root, `selected-${version}.ts`);
         writeFileSync(selected, `
-          import { release as base } from ${JSON.stringify(resolve('packages/platform/bundle/src/releases/base.ts'))};
+          import { release as base } from ${JSON.stringify(resolve('packages/releases/base/src/runtime.ts'))};
+          import { cliProjection as baseCli } from ${JSON.stringify(resolve('packages/releases/base/src/cli.ts'))};
           export const release = { ...base, createModules: () => [{
             name: 'upgrade-probe', version: '0.1.0', baseVersionRange: '^1.0.0',
             data: { owns: ['upgrade_probe'] },
@@ -53,10 +54,14 @@ it('real CLI upgrades with a paired snapshot, retries the same candidate, and re
               { id: '0002_second', phase: 'expand', up: ${JSON.stringify(`DO $$ BEGIN IF NOT (SELECT ready FROM public.upgrade_probe WHERE id = 1) THEN RAISE EXCEPTION 'fixture second migration fails'; END IF; END $$; INSERT INTO public.upgrade_probe VALUES (${version === '0.2.1' ? 2 : 3}, true)`)} }
             ] }
           }] };
+          export const cliProjection = { ...baseCli, release };
         `);
         const options = { bundle: true, platform: 'node' as const, target: 'node22', format: 'cjs' as const,
           tsconfig: resolve('tsconfig.json'), external: ['pg-native'],
-          alias: { '@storeweave/selected-release': selected },
+          alias: {
+            '@storeweave/selected-runtime': selected,
+            '@storeweave/selected-cli': selected,
+          },
           define: { 'process.env.STOREWEAVE_RELEASE_VERSION': JSON.stringify(version) } };
         const emitter = join(root, `manifest-${version}.cjs`);
         await bundle({ ...options, entryPoints: ['scripts/release-manifest.ts'], outfile: emitter });

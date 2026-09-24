@@ -1,6 +1,6 @@
 node_modules/
 dist/
-release/
+/release/
 *.log
 .env
 .env.*
@@ -16,3 +16,4 @@ graft/
 
 # Claude Code 本地 worktree（非專案內容）
 .claude/worktrees/
+.forgepilot/

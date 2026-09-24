@@ -4,7 +4,9 @@
 - 日期／盤點基準：2026-09-07，`1f4470d`；Spec 0008 Ticket 81–90 已完成，保留已驗證的未提交工作樹。
 - 工作包 B00–B17 是本機規劃識別，不是 GitHub Issue，也不佔用既有 Ticket 92 之後的編號。
 - 執行狀態：B00–B16 已依各自的完成、accepted 或 verified 紀錄交付，見 [B00 驗證紀錄](base/b00/README.md) 至 [B16 紀錄](base/b16/README.md)；各包保留原始 implementation、審查與驗證證據。
-- [B17](base/b17/README.md) `done`：雙 Theme、兩個 Base site profile、內容／媒體保留與 commerce-free 組裝已驗證；本機 catalog／gates／獨立 review 已補齊，且遠端 clean release matrix 已於 [`685b732` run](https://github.com/CarlLee1983/StoreWeave/actions/runs/34685750936)（2026-09-12）10 job 全綠並上傳四份 artifact。semantic v2 ledger 尚有 560／703 facet 在 `remaining`，屬明確的品質工作；private media／S3 staging、商家 UAT、正式部署設定與產品驗證分別保留為 release readiness 或產品工作，不阻擋 Base 工程完成。
+- [B17](base/b17/README.md) `done`：雙 Theme、兩個 Base site profile、內容／媒體保留與 commerce-free 組裝已驗證；本機 catalog／gates／獨立 review 已補齊，且遠端 clean release matrix 已於 [`685b732` run](https://github.com/CarlLee1983/StoreWeave/actions/runs/34685750936)（2026-09-12）10 job 全綠並上傳四份 artifact。最新完整遠端 CI 對最後已推送版本 [`ada8c6b` run](https://github.com/CarlLee1983/StoreWeave/actions/runs/35414076611)（2026-09-19）10/10 jobs 通過。semantic v2 ledger 尚有 560／703 facet 在 `remaining`，屬明確的品質工作；private media／S3 staging、商家 UAT、正式部署設定與產品驗證分別保留為 release readiness 或產品工作，不阻擋 Base 工程完成。
+
+> **狀態同步（2026-09-19）：** 本文件記錄的 B00–B17 執行計畫已完成。以下派工方法、模型分工與依賴圖保留作為設計及交付歷史，不表示仍有未執行工作或有效的跨 session 授權。後續工作以根目錄 `AGENTS.md`、相關規格／驗收文件及使用者當次指派為準。
 
 ## 1. 接手與派工方式
 
@@ -14,7 +16,7 @@
 4. 每片先交付可運作的能力與呼叫端，再交接下一片；套件安裝、接口空殼或只有成功路徑不能單獨關閉工作包。
 5. 獨立審查、必要驗證完成後，才記錄完成狀態與下一個可執行前沿。待驗證環境必須明列，不能宣稱相應 release gate 已完成或系統已 production-ready。
 
-歷史接手指示曾授權原工作流程依序完成 B00–B17；目前各 session 的執行範圍以使用者對該 session 的任務指派為準，不能引用本段將本次文件工作擴大為實作。既有 B03 session 的授權與 Spec 0008 進度保留。commit、push、GitHub 建單／留言、merge、publish、部署與對外寄信仍按使用者授權執行。
+當時的接手指示曾授權原工作流程依序完成 B00–B17；該計畫已結束，不延續至任何新 session。commit、push、GitHub 建單／留言、merge、publish、部署與對外寄信仍按使用者授權執行。
 
 ## 2. 模型與單一 writer
 

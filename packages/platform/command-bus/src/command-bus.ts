@@ -29,6 +29,12 @@ export interface CommandRegistration {
 export interface ExecuteOptions {
   actor: Actor;
   idempotencyKey?: string;
+  /**
+   * A capability check in the same transaction, before an idempotency replay
+   * can return its cached response. Descriptors with
+   * `requiresBeforeIdempotency` make this callback mandatory for every caller.
+   */
+  beforeIdempotency?: (tx: Tx) => Promise<void>;
   correlationId?: string;
   /** 由呼叫者宣告的介面來源，只寫進 log/audit，不影響授權。 */
   channel?: 'rest' | 'mcp' | 'cli' | 'admin' | 'internal' | 'worker';
@@ -54,6 +60,9 @@ export class CommandBus {
   constructor(private readonly deps: CommandBusDeps) {}
 
   register(descriptor: CommandDescriptor, handler: CommandHandler, owner: string): void {
+    if (descriptor.requiresBeforeIdempotency && descriptor.idempotency !== 'required') {
+      throw PlatformError.internal(`Command "${descriptor.name}" requires required idempotency for a pre-idempotency guard`);
+    }
     if (this.registry.has(descriptor.name)) {
       throw PlatformError.conflict(`Command "${descriptor.name}" already registered by "${this.registry.get(descriptor.name)!.owner}"`);
     }
@@ -143,10 +152,17 @@ export class CommandBus {
     if (descriptor.idempotency === 'required' && !options.idempotencyKey) {
       throw PlatformError.validation(`Command "${name}" requires an idempotency key`);
     }
+    if (descriptor.requiresBeforeIdempotency && !options.beforeIdempotency) {
+      throw PlatformError.internal(`Command "${name}" requires a pre-idempotency guard`);
+    }
 
     const hash = requestHash(input);
 
     return this.deps.database.transaction(async (tx) => {
+      // A completed idempotency row normally returns before the handler. For a
+      // revocable capability, authenticate while holding the aggregate lock so
+      // terminal lifecycle work cannot race a cached response.
+      await options.beforeIdempotency?.(tx);
       if (options.idempotencyKey) {
         const replay = await this.claimIdempotency(tx, name, options.idempotencyKey, hash, options.actor.id);
         if (replay.kind === 'replay') {

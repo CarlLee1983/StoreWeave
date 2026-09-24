@@ -8,11 +8,12 @@ import { promisify } from 'node:util';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { expect, it } from 'vitest';
 import { catalogDigest, legacyBaselineSelection, runMigrations } from '@storeweave/db';
-import { bootstrapRelease } from '../../packages/platform/bundle/src/bootstrap-release';
-import { release } from '../../packages/platform/bundle/src/releases/commerce';
-import legacyCommerce from '../../packages/platform/bundle/src/legacy/commerce-pre-b02.json';
+import { bootstrapRelease } from '../../packages/platform/release/src/bootstrap';
+import { release } from '../../packages/releases/commerce/src/runtime';
+import legacyCommerce from '../../packages/releases/commerce/src/legacy-commerce-pre-b02.json';
 import { readLegacyBridgeJournal } from '../../tools/cli/src/legacy-bridge-journal';
 import { writeNativeRelease } from '../unit/fixtures/native-release';
+import { ADMIN_PROJECTION_PROVENANCE, createAdminProjectionProvenance } from '../../scripts/build-projections.mjs';
 
 it.each(['paired', 'raw'] as const)('real B02 CLI recovers B01 through %s snapshots and durable journals', async recovery => {
   const container = await new PostgreSqlContainer('postgres:17-alpine').withDatabase('legacy_cli').withUsername('fixture').withPassword('fixture').start();
@@ -59,7 +60,24 @@ it.each(['paired', 'raw'] as const)('real B02 CLI recovers B01 through %s snapsh
     const shadowed = await container.exec(['psql', '-U', 'fixture', '-d', 'legacy_cli', '-c', 'SELECT to_jsonb(1)']);
     expect(shadowed.exitCode).not.toBe(0);
     const build = join(root, 'build');
-    execFileSync(process.execPath, ['scripts/build.mjs', '--skip-admin'], { env: { ...process.env, STOREWEAVE_RELEASE: 'commerce', STOREWEAVE_RELEASE_VERSION: '0.2.0', STOREWEAVE_BUILD_DIR: build }, timeout: 60000, stdio: 'pipe' });
+    const adminCache = join(root, 'commerce-admin-cache');
+    mkdirSync(adminCache);
+    const adminSource = 'packages/releases/commerce/src/admin.tsx';
+    const adminBundle = {
+      'index.html': { type: 'asset' as const, source: '<main id="root"></main>' },
+      'admin.js': { type: 'chunk' as const, code: 'fixture admin bundle', modules: { [adminSource]: {} } },
+    };
+    const adminProvenance = createAdminProjectionProvenance({
+      root: process.cwd(),
+      releaseId: 'commerce',
+      source: adminSource,
+      inputs: [adminSource],
+      bundle: adminBundle,
+    });
+    writeFileSync(join(adminCache, 'index.html'), adminBundle['index.html'].source);
+    writeFileSync(join(adminCache, 'admin.js'), adminBundle['admin.js'].code);
+    writeFileSync(join(adminCache, ADMIN_PROJECTION_PROVENANCE), JSON.stringify(adminProvenance));
+    execFileSync(process.execPath, ['scripts/build.mjs', '--skip-admin'], { env: { ...process.env, STOREWEAVE_RELEASE: 'commerce', STOREWEAVE_RELEASE_VERSION: '0.2.0', STOREWEAVE_BUILD_DIR: build, STOREWEAVE_ADMIN_CACHE_DIR: adminCache }, timeout: 60000, stdio: 'pipe' });
     writeNativeRelease(media, 'commerce', '0.2.0');
     for (const file of ['build-info.json', 'release-manifest.json', 'app/cli.js']) copyFileSync(join(build, file), join(media, file));
     copyFileSync(process.execPath, join(media, 'runtime/bin/node'));
@@ -152,7 +170,7 @@ it.each(['paired', 'raw'] as const)('real B02 CLI recovers B01 through %s snapsh
     const journalFile = readdirSync(operations).map(id => join(operations, id, 'bridge.json')).find(path => {
       try { const journal = JSON.parse(readFileSync(path, 'utf8')); return journal.kind === 'legacy-b01-bridge' && journal.phase === 'migrating'; } catch { return false; }
     })!;
-    expect((await readLegacyBridgeJournal(journalFile, operations)).journal.phase).toBe('migrating');
+    expect((await readLegacyBridgeJournal(journalFile, operations, legacyCommerce)).journal.phase).toBe('migrating');
     expect(realpathSync(join(home, 'current'))).toBe(realpathSync(source));
     await expect(run('--safety', safety, '--checksum', checksum, '--from-legacy-b01', '--catalog',
       'legacy-commerce-0.1.0-pre-b02', '--evidence', 'different evidence', ...common))
@@ -161,7 +179,7 @@ it.each(['paired', 'raw'] as const)('real B02 CLI recovers B01 through %s snapsh
     const replacement = readdirSync(operations).map(id => join(operations, id, 'bridge.json')).find(path => {
       try { return JSON.parse(readFileSync(path, 'utf8')).evidence === 'different evidence'; } catch { return false; }
     })!;
-    const rejected = await readLegacyBridgeJournal(replacement, operations);
+    const rejected = await readLegacyBridgeJournal(replacement, operations, legacyCommerce);
     expect(rejected.journal.phase).toBe('safety');
     expect(rejected.snapshot).toBeNull();
     await expect(run('--safety', safety, '--checksum', checksum, ...catalog, ...common))
@@ -170,17 +188,17 @@ it.each(['paired', 'raw'] as const)('real B02 CLI recovers B01 through %s snapsh
     for (const point of ['before', 'after']) {
       writeFileSync(join(root, 'current-crash'), point);
       await expectSigkill(run('--from-legacy-b01', '--resume', journalFile, ...common));
-      expect((await readLegacyBridgeJournal(journalFile, operations)).journal.phase).toBe('migrated');
+      expect((await readLegacyBridgeJournal(journalFile, operations, legacyCommerce)).journal.phase).toBe('migrated');
       expect(realpathSync(join(home, 'current'))).toBe(realpathSync(point === 'before' ? source : join(home, 'releases', '0.2.0')));
     }
     rmSync(join(root, 'current-crash'));
     await run('--from-legacy-b01', '--resume', journalFile, ...common);
-    expect((await readLegacyBridgeJournal(journalFile, operations)).journal.phase).toBe('activated');
+    expect((await readLegacyBridgeJournal(journalFile, operations, legacyCommerce)).journal.phase).toBe('activated');
     expect(realpathSync(join(home, 'current'))).toBe(realpathSync(join(home, 'releases', '0.2.0')));
     await run('--from-legacy-b01', '--resume', journalFile, ...common);
     const history = await container.exec(['psql', '-U', 'fixture', '-d', 'legacy_cli', '-At', '-c', 'SELECT release_version FROM public.platform_release_history ORDER BY sequence']);
     expect(history.stdout.trim()).toBe('0.1.0\n0.2.0');
-    const bridge = await readLegacyBridgeJournal(journalFile, operations);
+    const bridge = await readLegacyBridgeJournal(journalFile, operations, legacyCommerce);
     const pair = bridge.snapshot!;
     const rollback = ['--snapshot', pair.directory, '--checksum', pair.manifestChecksum, '--yes', ...common];
     await expect(invoke('rollback', ...rollback)).rejects.toMatchObject({ code: 1 });

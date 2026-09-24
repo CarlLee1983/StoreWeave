@@ -14,5 +14,5 @@
     "scripts/seed.ts",
     "scripts/seeds/**/*.ts"
   ],
-  "exclude": ["node_modules", "dist", "release", "apps/admin"]
+  "exclude": ["node_modules", "dist", "release", "apps/admin", "packages/releases/commerce/src/admin.tsx", "packages/releases/commerce/test/commerce-release.test.ts"]
 }

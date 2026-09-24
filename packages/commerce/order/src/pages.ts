@@ -8,8 +8,13 @@ import {
   type StorefrontHttpContract,
   type StorefrontResponse,
 } from '@storeweave/kernel';
-import type { PaymentProvider } from '@storeweave/extension-sdk';
+import type { PaymentMethod } from '@storeweave/extension-sdk';
 import type { JsonSchema7Type } from 'zod-to-json-schema';
+
+type OrderPaymentMethodsProvider = {
+  readonly id: string;
+  paymentMethods(): readonly PaymentMethod[];
+};
 
 /** 訂單明細在前台看得到的樣子。 */
 export interface ThemeOrderView {
@@ -161,7 +166,7 @@ export const orderPages = {
         || (order.status === 'awaiting_payment' && latestAttempt?.status === 'awaiting_payment');
       const canShowInstructions = order.status === 'awaiting_payment' && latestAttempt?.status === 'awaiting_payment';
       const retryProvider = order.status === 'pending'
-        ? ctx.providers.get<PaymentProvider>('payment')
+        ? ctx.providers.get<OrderPaymentMethodsProvider>('payment')
         : null;
       return {
         kind: 'view',
@@ -234,7 +239,7 @@ export const orderPages = {
       // Fetch through the scoped query before issuing a write: another
       // customer's number stays indistinguishable from a missing order.
       const order = await scopedOrder(ctx, number);
-      const provider = ctx.providers.get<PaymentProvider>('payment', paymentProvider || undefined);
+      const provider = ctx.providers.get<OrderPaymentMethodsProvider>('payment', paymentProvider || undefined);
       const method = provider.paymentMethods().find((candidate) => candidate.code === paymentMethod);
       if (!method) throw PlatformError.validation('請先選擇可用的付款方式');
       await ctx.commands.execute('commerce.order.payOrder', {

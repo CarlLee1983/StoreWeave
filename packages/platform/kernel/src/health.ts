@@ -330,6 +330,18 @@ export async function doctor(runtime: Runtime, options: { releaseVersion: string
     });
   }
 
+  const optionalSecrets = new Set<string>();
+  for (const ext of runtime.extensions.list()) {
+    for (const s of ext.definition.manifest.optionalSecrets ?? []) optionalSecrets.add(s);
+  }
+  for (const name of [...optionalSecrets].sort()) {
+    checks.push({
+      name: `optional secret present: ${name}`,
+      status: 'pass',
+      detail: runtime.secrets.has(name) ? 'set' : 'not set (optional)',
+    });
+  }
+
   // `commerce doctor` is a release gate rather than a dashboard. A provider
   // that reports itself unhealthy therefore fails the command, while the HTTP
   // dependency view remains degraded so operators can inspect it during an

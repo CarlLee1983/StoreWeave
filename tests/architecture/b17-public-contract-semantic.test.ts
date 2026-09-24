@@ -39,6 +39,15 @@ describe("B17 Commerce public-contract semantic ledger", () => {
         .includes(artifact.surfaces.find(surface => surface.id === facet.surfaceId)!.category),
     )).toEqual([]);
   });
+  it("keeps Commerce provenance scoped to its selected Theme source", () => {
+    const source = artifact.semanticSources.find(item => item.id === "zod:commerce-production-source-inventory");
+    const themeSources = artifact.sourceFiles.filter(item => item.file.startsWith("packages/themes/"));
+
+    expect(source?.file.split(" + ")).toContain("packages/themes/default/src");
+    expect(source?.file).not.toContain("packages/themes +");
+    expect(themeSources.length).toBeGreaterThan(0);
+    expect(themeSources.every(item => item.file.startsWith("packages/themes/default/src/"))).toBe(true);
+  });
   it("binds every case and executes every declared runner", () => {
     const facets = new Set(artifact.runtimeFacets.map(facet => facet.id));
     const surfaces = new Set(artifact.surfaces.map(surface => surface.id));
@@ -84,6 +93,10 @@ describe("B17 Commerce public-contract semantic ledger", () => {
       "Only executable cases may remove runtime obligations from remaining.",
     );
     expect(artifact.sourceFiles.every(source => source.assurance === "provenance-only")).toBe(true);
+    expect(artifact.sourceFiles.map(source => source.file)).toEqual(expect.arrayContaining([
+      "packages/releases/commerce/src/runtime.ts",
+      "packages/releases/commerce/src/modules.ts",
+    ]));
     expect(artifact.semanticSources).not.toHaveLength(0);
     for (const source of artifact.semanticSources) {
       expect(source.assurance).toBe("provenance-only");
