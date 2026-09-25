@@ -14,13 +14,18 @@ import { ROOT, importsOf, sourceFiles } from './source-graph';
  */
 const API_SRC = 'apps/api/src';
 const IMPLEMENTATION = 'http/session-start.ts';
+
+function discoverReleaseAdapters(file: string, body: string) {
+  return [...body.matchAll(/\bexport const (\w+): ReleaseHttpAdapter\b/g)]
+    .map(match => ({ file, exportName: match[1]! }));
+}
+
 const releaseAdapters = readdirSync(join(ROOT, API_SRC, 'releases'))
   .filter(file => file.endsWith('.ts'))
-  .flatMap(file => {
-    const body = readFileSync(join(ROOT, API_SRC, 'releases', file), 'utf8');
-    const declaration = /\bexport const (\w+): ReleaseHttpAdapter\b/.exec(body);
-    return declaration ? [{ file: `releases/${file}`, exportName: declaration[1]! }] : [];
-  });
+  .flatMap(file => discoverReleaseAdapters(
+    `releases/${file}`,
+    readFileSync(join(ROOT, API_SRC, 'releases', file), 'utf8'),
+  ));
 const releaseFiles = releaseAdapters.map(adapter => adapter.file);
 const files = sourceFiles(API_SRC).map(file => relative(join(ROOT, API_SRC), file));
 
@@ -28,6 +33,16 @@ describe('簽發 session 的唯一入口', () => {
   it('掃描到 apps/api 的原始碼', () => {
     expect(files.length).toBeGreaterThan(20);
     expect(files).toContain(IMPLEMENTATION);
+  });
+
+  it('同一個 release 檔案裡的每個型別化 adapter 都會被發現', () => {
+    expect(discoverReleaseAdapters('releases/booking.ts', [
+      'export const bookingHttpAdapter: ReleaseHttpAdapter = ...;',
+      'export const secondBookingAdapter: ReleaseHttpAdapter = ...;',
+    ].join('\n'))).toEqual([
+      { file: 'releases/booking.ts', exportName: 'bookingHttpAdapter' },
+      { file: 'releases/booking.ts', exportName: 'secondBookingAdapter' },
+    ]);
   });
 
   it('只有 release adapter 可以引用實作，其他人走注入的 adapter', () => {
