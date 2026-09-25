@@ -179,7 +179,8 @@ beforeAll(async () => {
     release: { id: 'booking-e2e', version: '1.0.0', buildManifestChecksum: `sha256:${'e'.repeat(64)}` },
     roles: BASE_ROLES, config, secrets, logger: noopLogger, availableExtensions: {}, modules: [
       createBookingAvailabilityModule(property, { maxRoomsPerRequest: 4 }, keyring), createBookingPropertyModule(),
-      createBookingReservationModule(quoteReservation, roomNights, access, { reservationPiiRetentionDays: 1 }, provider),
+      createBookingReservationModule(quoteReservation, roomNights, access, { reservationPiiRetentionDays: 1 }, provider,
+        'booking-alerts@example.test'),
     ],
   });
   runtime.providers.register({ provider, owner: 'booking-e2e-test' });
@@ -447,14 +448,29 @@ describe('SW-145 clean Booking E2E', () => {
     expect(evidence.rows[0]).toMatchObject({ success_kind: 'late', refunds: '1' });
     await runWorkerUntil(async () => {
       const result = await runtime.database.pool.query<{ count: string }>(
-        'SELECT count(*)::text AS count FROM booking_reservation_notification_links WHERE reservation_id = $1',
+        `SELECT count(*)::text AS count FROM booking_reservation_notification_links
+         WHERE reservation_id = $1 AND kind = 'late-payment' AND mapping_status = 'requested'`,
         [reservation.id]);
-      return Number(result.rows[0]?.count) > 0;
+      return result.rows[0]?.count === '1';
     });
-    const linked = await runtime.database.pool.query<{ count: string }>(
-      'SELECT count(*)::text AS count FROM booking_reservation_notification_links WHERE reservation_id = $1',
-      [reservation.id]);
-    expect(Number(linked.rows[0]!.count)).toBeGreaterThan(0);
+    const linked = await runtime.database.pool.query<{
+      kind: string; template_id: string; payment_attempt_id: string; refund_id: string;
+      recipient_email: string; variables: Record<string, unknown>; refund_reason: string;
+    }>(`SELECT l.kind, l.template_id, l.payment_attempt_id, l.refund_id,
+        n.recipient_email, n.variables, f.reason AS refund_reason
+      FROM booking_reservation_notification_links l
+      JOIN booking_reservation_refunds f ON f.id = l.refund_id
+      JOIN platform_notifications n ON n.reference = l.reference
+      WHERE l.reservation_id = $1 AND l.kind = 'late-payment'`, [reservation.id]);
+    expect(linked.rows).toEqual([expect.objectContaining({
+      kind: 'late-payment', template_id: 'booking.reservation.late-payment',
+      payment_attempt_id: attemptId, refund_id: expect.any(String),
+      refund_reason: 'late_payment', recipient_email: 'booking-alerts@example.test',
+    })]);
+    expect(linked.rows[0]!.variables).toEqual({
+      reservationId: reservation.id, paymentAttemptId: attemptId, refundId: linked.rows[0]!.refund_id,
+    });
+    expect(JSON.stringify(linked.rows[0])).not.toMatch(/accessGrant|managementToken|private\.booker|provider_ref/i);
   }, 180_000);
 
   it('serializes two confirmed callbacks into one winner and one refunded Excess Payment', async () => {

@@ -420,5 +420,34 @@ ALTER TABLE public.booking_reservation_reservations
 -- PostgreSQL scans this B-tree backward without another unfiltered sort.
 CREATE INDEX IF NOT EXISTS booking_reservation_operator_created_idx
   ON public.booking_reservation_reservations (created_at, id);
+`), sqlMigration('0015_late_payment_operator_notification', 'expand', `
+ALTER TABLE public.booking_reservation_notification_links
+  ADD COLUMN IF NOT EXISTS payment_attempt_id uuid,
+  ADD COLUMN IF NOT EXISTS refund_id uuid;
+
+CREATE UNIQUE INDEX IF NOT EXISTS booking_reservation_notification_late_attempt_key
+  ON public.booking_reservation_notification_links (payment_attempt_id)
+  WHERE kind = 'late-payment' AND mapping_status <> 'mapping_failed';
+
+ALTER TABLE public.booking_reservation_notification_links
+  DROP CONSTRAINT IF EXISTS booking_reservation_notification_links_kind_check,
+  DROP CONSTRAINT IF EXISTS booking_reservation_notification_links_template_id_check,
+  DROP CONSTRAINT IF EXISTS booking_reservation_notification_links_mapping_failure_code_check,
+  DROP CONSTRAINT IF EXISTS booking_reservation_notification_failure_code_check;
+ALTER TABLE public.booking_reservation_notification_links
+  ADD CONSTRAINT booking_reservation_notification_kind_check
+    CHECK (kind IN ('confirmed', 'cancelled', 'payment-expiring', 'late-payment')),
+  ADD CONSTRAINT booking_reservation_notification_template_check
+    CHECK (template_id IN ('booking.reservation.confirmed', 'booking.reservation.cancelled', 'booking.reservation.payment-expiring', 'booking.reservation.late-payment')),
+  ADD CONSTRAINT booking_reservation_notification_late_correlation_check
+    CHECK ((kind = 'late-payment' AND payment_attempt_id IS NOT NULL AND refund_id IS NOT NULL)
+      OR (kind <> 'late-payment' AND payment_attempt_id IS NULL AND refund_id IS NULL)),
+  ADD CONSTRAINT booking_reservation_notification_links_mapping_failure_code_check
+    CHECK (mapping_failure_code IS NULL OR mapping_failure_code IN ('booker_unavailable', 'late_evidence_invalid', 'materialization_retryable')),
+  ADD CONSTRAINT booking_reservation_notification_failure_code_check
+    CHECK ((mapping_status = 'mapping_failed' AND mapping_failure_code IN ('booker_unavailable', 'late_evidence_invalid'))
+      OR (mapping_status = 'mapping_retryable' AND mapping_failure_code = 'materialization_retryable')
+      OR (mapping_status IN ('pending', 'requested', 'superseded') AND mapping_failure_code IS NULL));
+
 `)],
 };

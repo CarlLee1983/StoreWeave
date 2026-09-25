@@ -10,7 +10,7 @@ export const release = defineRuntimeRelease<BookingConfig>(bookingReleaseDefinit
   storefront: bookingStorefrontProjectionFactory,
   roles: BOOKING_ROLES,
   legacyBaselines: [],
-  manifestConfig: { version: 1, store: { id: 'build-only', name: 'Build only' }, database: { url: 'postgres://manifest.invalid/unused' }, booking: { reservationPiiRetentionDays: 365 }, extensions: [{ id: 'mock-payment' }] },
+  manifestConfig: { version: 1, store: { id: 'build-only', name: 'Build only' }, database: { url: 'postgres://manifest.invalid/unused' }, booking: { reservationPiiRetentionDays: 365, operatorAlertEmail: 'operator@example.test' }, extensions: [{ id: 'mock-payment' }] },
   createModules: ({ config, providers }) => bookingModules(config, providers),
   availableExtensions: BOOKING_EXTENSIONS,
 });

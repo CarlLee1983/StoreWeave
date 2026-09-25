@@ -1,4 +1,5 @@
 import packageJson from '../package.json';
+import { z } from 'zod';
 import { bindModuleCapability, defineModule, type BoundModuleCapability } from '@storeweave/kernel';
 import type { Keyring } from '@storeweave/crypto';
 import type { NotificationsPort } from '@storeweave/notifications';
@@ -45,6 +46,7 @@ import {
   createProcessBookingReservationPaymentJob,
   createProcessBookingReservationRefundJob,
   createReconcileBookingReservationRefundsJob,
+  createReconcileLatePaymentNotificationsJob,
   ANONYMIZE_EXPIRED_BOOKING_RESERVATION_PII_JOB,
   anonymizeExpiredBookingReservationPiiJobPayload,
   EXPIRE_BOOKING_RESERVATION_JOB,
@@ -55,6 +57,8 @@ import {
   processBookingReservationRefundJobPayload,
   RECONCILE_BOOKING_RESERVATION_REFUNDS_JOB,
   reconcileBookingReservationRefundsJobPayload,
+  RECONCILE_BOOKING_RESERVATION_LATE_NOTIFICATIONS_JOB,
+  reconcileLatePaymentNotificationsJobPayload,
 } from './jobs';
 import {
   createRecordBookingReservationRefundInvocationHandler,
@@ -85,6 +89,7 @@ import {
 import {
   bookingReservationCancelledV1,
   bookingReservationConfirmedV1,
+  bookingReservationLatePaymentV1,
   bookingReservationEvents,
   bookingReservationPaymentExpiringV1,
 } from './events';
@@ -92,9 +97,11 @@ import {
   createListBookingReservationNotificationsHandler,
   createMaterializeBookingReservationNotificationHandler,
   createRecordBookingReservationNotificationMappingFailureHandler,
+  createReconcileLatePaymentNotificationsHandler,
   listBookingReservationNotificationsQuery,
   materializeBookingReservationNotificationCommand,
   recordBookingReservationNotificationMappingFailureCommand,
+  reconcileLatePaymentNotificationsCommand,
   PermanentBookingReservationNotificationMappingError,
 } from './notifications';
 import {
@@ -107,7 +114,7 @@ import {
 } from './operator-read';
 
 function queueNotification(input: unknown, eventId: string, template: string) {
-  return async (_event: unknown, context: { executeCommand?: (name: string, input: unknown, idempotencyKey: string) => Promise<unknown> }) => {
+  return async (event: { id: string }, context: { executeCommand?: (name: string, input: unknown, idempotencyKey: string) => Promise<unknown> }) => {
     if (!context.executeCommand) throw new Error('Reservation notification subscriber lacks core command access');
     try {
       await context.executeCommand('booking.reservation.materializeNotification', input,
@@ -116,12 +123,20 @@ function queueNotification(input: unknown, eventId: string, template: string) {
       // A mapping error must be observable without coupling it to the state
       // transition which emitted this event. Keep the failure code fixed and safe.
       const failure = error instanceof PermanentBookingReservationNotificationMappingError ? 'permanent' : 'retryable';
+      // A malformed Late envelope has its own terminal identity. It must not
+      // occupy the Attempt-derived identity reserved for a valid alert.
+      const failureEventId = failure === 'permanent' && (input as { kind: string }).kind === 'late-payment'
+        ? event.id : eventId;
       await context.executeCommand('booking.reservation.recordNotificationMappingFailure', {
-        eventId, reservationId: (input as { reservationId: string }).reservationId,
+        eventId: failureEventId, reservationId: (input as { reservationId: string }).reservationId,
         kind: (input as { kind: string }).kind,
+        ...((input as { kind: string }).kind === 'late-payment' ? {
+          paymentAttemptId: (input as { paymentAttemptId: string }).paymentAttemptId,
+          refundId: (input as { refundId: string }).refundId,
+        } : {}),
         failure,
       },
-        `booking-reservation:notification-failure:${eventId}:${template}:${failure}`);
+        `booking-reservation:notification-failure:${failureEventId}:${template}:${failure}`);
       throw error;
     }
   };
@@ -141,8 +156,10 @@ export function createBookingReservationModule(
   access: BookingReservationAccess,
   retentionPolicy: BookingReservationRetentionPolicy,
   paymentProvider: BookingReservationPaymentProvider,
+  operatorAlertEmail?: string,
 ) {
   const validatedRetentionPolicy = bookingReservationRetentionPolicySchema.parse(retentionPolicy);
+  const validatedOperatorAlertEmail = z.string().trim().email().max(320).optional().parse(operatorAlertEmail);
   let notificationPort: NotificationsPort | undefined;
   const notifications = () => {
     if (!notificationPort) throw new Error('Booking Reservation module was composed without the base notification capability');
@@ -202,8 +219,9 @@ export function createBookingReservationModule(
       { descriptor: updateBookingReservationDetailsCommand, handler: createUpdateBookingReservationDetailsHandler(access) },
       { descriptor: resendBookingReservationAccessGrantCommand, handler: createResendBookingReservationAccessGrantHandler(access, notifications) },
       { descriptor: anonymizeExpiredBookingReservationPiiCommand, handler: createAnonymizeExpiredBookingReservationPiiHandler(validatedRetentionPolicy) },
-      { descriptor: materializeBookingReservationNotificationCommand, handler: createMaterializeBookingReservationNotificationHandler({ access, notifications, locale: 'en' }) },
+      { descriptor: materializeBookingReservationNotificationCommand, handler: createMaterializeBookingReservationNotificationHandler({ access, notifications, locale: 'en', operatorAlertEmail: validatedOperatorAlertEmail }) },
       { descriptor: recordBookingReservationNotificationMappingFailureCommand, handler: createRecordBookingReservationNotificationMappingFailureHandler() },
+      { descriptor: reconcileLatePaymentNotificationsCommand, handler: createReconcileLatePaymentNotificationsHandler() },
     ],
     queries: [
       { descriptor: listOperatorBookingReservationsQuery, handler: listOperatorBookingReservationsHandler },
@@ -225,6 +243,11 @@ export function createBookingReservationModule(
       type: RECONCILE_BOOKING_RESERVATION_REFUNDS_JOB,
       handler: createReconcileBookingReservationRefundsJob(),
       jobContractV1: { currentVersion: 1, versions: { 1: reconcileBookingReservationRefundsJobPayload } },
+      schedule: { everyMs: 60 * 60 * 1000 },
+    }, {
+      type: RECONCILE_BOOKING_RESERVATION_LATE_NOTIFICATIONS_JOB,
+      handler: createReconcileLatePaymentNotificationsJob(),
+      jobContractV1: { currentVersion: 1, versions: { 1: reconcileLatePaymentNotificationsJobPayload } },
       schedule: { everyMs: 60 * 60 * 1000 },
     }, {
       type: PROCESS_BOOKING_RESERVATION_REFUND_JOB,
@@ -253,6 +276,11 @@ export function createBookingReservationModule(
         eventId: event.id, kind: 'payment-expiring', reservationId: event.payload.reservationId,
         paymentAttemptId: event.payload.paymentAttemptId, expiresAt: event.payload.expiresAt.toISOString(),
       }, event.id, 'booking.reservation.payment-expiring')(event, context) },
+      { eventName: bookingReservationLatePaymentV1.name, handler: (event, context) => queueNotification({
+        // The outbox envelope ID is random. The Attempt is the durable logical alert ID.
+        eventId: event.payload.paymentAttemptId, kind: 'late-payment', reservationId: event.payload.reservationId,
+        paymentAttemptId: event.payload.paymentAttemptId, refundId: event.payload.refundId,
+      }, event.payload.paymentAttemptId, 'booking.reservation.late-payment')(event, context) },
     ],
   });
 }

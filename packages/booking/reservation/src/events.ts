@@ -32,8 +32,20 @@ export const bookingReservationPaymentExpiringV1 = defineEvent({
   }).strict(),
 });
 
+/** The Attempt ID is the stable logical alert identity across live delivery and reconciliation. */
+export const bookingReservationLatePaymentV1 = defineEvent({
+  name: 'booking.reservation.latePayment.v1',
+  summary: 'A received payment was classified late and has a required full refund',
+  payload: z.object({
+    reservationId: z.string().uuid(),
+    paymentAttemptId: z.string().uuid(),
+    refundId: z.string().uuid(),
+  }).strict(),
+});
+
 export const bookingReservationEvents = [
   bookingReservationConfirmedV1,
   bookingReservationCancelledV1,
   bookingReservationPaymentExpiringV1,
+  bookingReservationLatePaymentV1,
 ] as const;

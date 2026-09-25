@@ -117,6 +117,7 @@ describe('Booking Reservation package boundary', () => {
       'booking.reservation.claim', 'booking.reservation.updateManagedDetails', 'booking.reservation.resendAccessGrant',
       'booking.reservation.anonymizeExpiredPii',
       'booking.reservation.materializeNotification', 'booking.reservation.recordNotificationMappingFailure',
+      'booking.reservation.reconcileLatePaymentNotifications',
     ]);
     expect(module.queries?.map(query => query.descriptor.name)).toEqual([
       'booking.reservation.listOperator', 'booking.reservation.getOperator',
@@ -133,6 +134,7 @@ describe('Booking Reservation package boundary', () => {
     expect(module.jobs?.map(job => job.type)).toContain('booking.reservation.process-payment');
     expect(module.jobs?.map(job => job.type)).toContain('booking.reservation.process-refund');
     expect(module.jobs?.map(job => job.type)).toContain('booking.reservation.reconcile-refunds');
+    expect(module.jobs?.map(job => job.type)).toContain('booking.reservation.reconcile-late-notifications');
     expect(bookingReservationMigrations.module).toBe('booking-reservation');
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.booking_reservation_reservations');
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.booking_reservation_payment_attempts');
@@ -169,6 +171,7 @@ describe('Booking Reservation package boundary', () => {
     expect(migration).not.toMatch(/booking_reservation_notification_links[\s\S]*?INSERT INTO/i);
     expect(module.events?.map(event => event.name)).toEqual([
       'booking.reservation.confirmed.v1', 'booking.reservation.cancelled.v1', 'booking.reservation.paymentExpiring.v1',
+      'booking.reservation.latePayment.v1',
     ]);
     expect(source).not.toMatch(/@storeweave\/(?:catalog|inventory|order|cart|customer|commerce)/);
     expect(source).not.toMatch(/@storeweave\/(?:identity|customer)/);

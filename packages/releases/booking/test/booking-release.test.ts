@@ -45,9 +45,18 @@ describe('Booking release assembly', () => {
       .toEqual(['booking-reservation-access-grant', 'booking-reservation-checkout-credential']);
   });
 
-  it('requires a configured qualified payment Extension and retention policy', () => {
+  it('requires a qualified payment Extension, retention policy, and operator alert recipient', () => {
     const valid = release.manifestConfig as Record<string, unknown>;
     expect(() => bookingConfigDefinition.schema.parse({ ...valid, booking: {} })).toThrow();
+    const booking = (valid.booking as Record<string, unknown>);
+    expect(() => bookingConfigDefinition.schema.parse({ ...valid, booking: { reservationPiiRetentionDays: 365 } }))
+      .toThrow();
+    for (const operatorAlertEmail of ['', 'invalid', 'booker@example.test extra']) {
+      expect(() => bookingConfigDefinition.schema.parse({ ...valid, booking: { ...booking, operatorAlertEmail } }))
+        .toThrow();
+    }
+    expect(bookingConfigDefinition.schema.parse({ ...valid, booking: { ...booking, operatorAlertEmail: ' alerts@example.test ' } })
+      .booking.operatorAlertEmail).toBe('alerts@example.test');
     expect(() => bookingConfigDefinition.schema.parse({ ...valid, extensions: [] })).toThrow('refund-qualified payment Extension');
     expect(() => bookingConfigDefinition.schema.parse({ ...valid, extensions: [{ id: 'ecpay' }] })).toThrow('refund-qualified payment Extension');
     expect(() => bookingConfigDefinition.schema.parse({ ...valid, extensions: [{ id: 'mock-payment', enabled: false }] })).toThrow('refund-qualified payment Extension');

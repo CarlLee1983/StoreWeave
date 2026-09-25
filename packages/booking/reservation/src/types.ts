@@ -261,13 +261,14 @@ export const resendBookingReservationAccessGrantOutputSchema = z.object({
   accepted: z.literal(true),
 }).strict();
 
-export const bookingReservationNotificationKindSchema = z.enum(['confirmed', 'cancelled', 'payment-expiring']);
+export const bookingReservationNotificationKindSchema = z.enum(['confirmed', 'cancelled', 'payment-expiring', 'late-payment']);
 export type BookingReservationNotificationKind = z.infer<typeof bookingReservationNotificationKindSchema>;
 
 export const bookingReservationNotificationTemplateIdSchema = z.enum([
   'booking.reservation.confirmed',
   'booking.reservation.cancelled',
   'booking.reservation.payment-expiring',
+  'booking.reservation.late-payment',
 ]);
 export type BookingReservationNotificationTemplateId = z.infer<typeof bookingReservationNotificationTemplateIdSchema>;
 
@@ -285,27 +286,36 @@ export const materializeBookingReservationNotificationInputSchema = z.discrimina
   notificationEventBaseSchema.extend({
     kind: z.literal('payment-expiring'), paymentAttemptId: z.string().uuid(), expiresAt: z.string().datetime(),
   }).strict(),
+  notificationEventBaseSchema.extend({
+    kind: z.literal('late-payment'), paymentAttemptId: z.string().uuid(), refundId: z.string().uuid(),
+  }).strict(),
 ]);
 
 export const bookingReservationNotificationMappingStatusSchema = z.enum([
   'pending', 'requested', 'mapping_failed', 'mapping_retryable', 'superseded',
 ]);
 export const bookingReservationNotificationMappingFailureCodeSchema = z.enum([
-  'booker_unavailable', 'materialization_retryable',
+  'booker_unavailable', 'late_evidence_invalid', 'materialization_retryable',
 ]);
 
 const bookingReservationNotificationLinkBaseSchema = z.object({
   id: z.string().uuid(), reservationId: z.string().uuid(), eventId: z.string().uuid(),
   kind: bookingReservationNotificationKindSchema, templateId: bookingReservationNotificationTemplateIdSchema,
+  paymentAttemptId: z.string().uuid().nullable().default(null), refundId: z.string().uuid().nullable().default(null),
   reference: z.string().min(1).max(240), mappingStatus: bookingReservationNotificationMappingStatusSchema,
   mappingFailureCode: bookingReservationNotificationMappingFailureCodeSchema.nullable(),
   createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
 }).strict();
 export const bookingReservationNotificationLinkSchema = bookingReservationNotificationLinkBaseSchema.superRefine((value, context) => {
-  const expectedCode = value.mappingStatus === 'mapping_failed' ? 'booker_unavailable'
-    : value.mappingStatus === 'mapping_retryable' ? 'materialization_retryable' : null;
-  if (value.mappingFailureCode !== expectedCode) {
+  const validCode = value.mappingStatus === 'mapping_failed'
+    ? value.mappingFailureCode === 'booker_unavailable' || value.mappingFailureCode === 'late_evidence_invalid'
+    : value.mappingStatus === 'mapping_retryable'
+      ? value.mappingFailureCode === 'materialization_retryable' : value.mappingFailureCode === null;
+  if (!validCode) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['mappingFailureCode'], message: 'mapping failure code must match mapping status' });
+  }
+  if ((value.kind === 'late-payment') !== (value.paymentAttemptId !== null && value.refundId !== null)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['paymentAttemptId'], message: 'Late Payment links require Attempt and refund correlation' });
   }
 });
 
@@ -313,7 +323,12 @@ export const materializeBookingReservationNotificationOutputSchema = bookingRese
 export const recordBookingReservationNotificationMappingFailureInputSchema = z.object({
   eventId: z.string().uuid(), reservationId: z.string().uuid(), kind: bookingReservationNotificationKindSchema,
   failure: z.enum(['permanent', 'retryable']),
-}).strict();
+  paymentAttemptId: z.string().uuid().optional(), refundId: z.string().uuid().optional(),
+}).strict().superRefine((value, context) => {
+  if (value.kind === 'late-payment' && (!value.paymentAttemptId || !value.refundId)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Late Payment failure evidence requires Attempt and refund IDs' });
+  }
+});
 export const recordBookingReservationNotificationMappingFailureOutputSchema = bookingReservationNotificationLinkSchema;
 
 export const listBookingReservationNotificationsInputSchema = z.object({
@@ -327,9 +342,11 @@ export const operatorBookingNotificationDeliverySchema = deliveryEvidenceDto.pic
 export const bookingReservationNotificationEvidenceSchema = bookingReservationNotificationLinkBaseSchema.extend({
   deliveries: z.array(operatorBookingNotificationDeliverySchema),
 }).strict().superRefine((value, context) => {
-  const expectedCode = value.mappingStatus === 'mapping_failed' ? 'booker_unavailable'
-    : value.mappingStatus === 'mapping_retryable' ? 'materialization_retryable' : null;
-  if (value.mappingFailureCode !== expectedCode) {
+  const validCode = value.mappingStatus === 'mapping_failed'
+    ? value.mappingFailureCode === 'booker_unavailable' || value.mappingFailureCode === 'late_evidence_invalid'
+    : value.mappingStatus === 'mapping_retryable'
+      ? value.mappingFailureCode === 'materialization_retryable' : value.mappingFailureCode === null;
+  if (!validCode) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['mappingFailureCode'], message: 'mapping failure code must match mapping status' });
   }
 });

@@ -36,7 +36,7 @@ function writeConfig(name: string, url: string, port = 0): string {
   writeFileSync(path, JSON.stringify({
     version: 1, store: { id: name, name: 'Booking Clean Start' },
     database: { url, autoMigrate: false },
-    booking: { reservationPiiRetentionDays: 365 },
+    booking: { reservationPiiRetentionDays: 365, operatorAlertEmail: 'operator@example.test' },
     extensions: [{ id: 'mock-payment' }],
     ...(port ? { http: { host: '127.0.0.1', port } } : {}),
     logging: { level: 'info' },
@@ -176,6 +176,20 @@ describe('Booking clean start', () => {
       env: environment(wrongDatabase), timeout: 15_000,
     })).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('booking_database_does_not_exist') });
   });
+
+  it('rejects a missing or malformed operator alert mailbox before the Booking API starts', async () => {
+    const url = await createDatabase('booking_invalid_alert_recipient');
+    for (const [name, mailbox] of [['missing', undefined], ['malformed', 'invalid-address']] as const) {
+      const config = writeConfig(`invalid-alert-${name}`, url);
+      const value = JSON.parse(readFileSync(config, 'utf8')) as { booking: Record<string, unknown> };
+      if (mailbox === undefined) delete value.booking.operatorAlertEmail;
+      else value.booking.operatorAlertEmail = mailbox;
+      writeFileSync(config, JSON.stringify(value));
+      await expect(exec(process.execPath, [join(output, 'app/api.js')], {
+        env: environment(config), timeout: 15_000,
+      })).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('operatorAlertEmail') });
+    }
+  }, 60_000);
 
   it('rejects missing Booking migration history after an activated clean start', async () => {
     const url = await createDatabase('booking_missing_migration');

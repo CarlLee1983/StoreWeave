@@ -26,6 +26,14 @@ export const BOOKING_RESERVATION_NOTIFICATION_TEMPLATES: Record<BookingReservati
       html: '<p>Payment for reservation <strong>{reservationId}</strong> is due by {paymentExpiresAt}.</p><p>Use this short-lived access grant before {accessGrantExpiresAt}: <code>{accessGrant}</code></p>',
     },
   },
+  'booking.reservation.late-payment': {
+    id: 'booking.reservation.late-payment', version: 1,
+    email: {
+      subject: 'Late reservation payment requires review',
+      text: 'Late payment for reservation {reservationId}, attempt {paymentAttemptId}, has refund {refundId}. Review the refund and notification delivery records.',
+      html: '<p>Late payment for reservation <strong>{reservationId}</strong>, attempt <strong>{paymentAttemptId}</strong>, has refund <strong>{refundId}</strong>.</p><p>Review the refund and notification delivery records.</p>',
+    },
+  },
 };
 
 /** Deliberately separate from lifecycle-event templates: this is user-requested. */
