@@ -2,7 +2,7 @@
   "schema_version": 1,
   "story_ref": "specs/stories/SW-146-booking-verification",
   "story_md_digest": "sha256:63481c8bf700238d151e8be374a3c934937d4c34270a54b584f9689afdb7540b",
-  "acceptance_md_digest": "sha256:366083ae477346b3ef510320a96ab5a44665ef42ae80a5a693f6c8ff05c1bee3",
+  "acceptance_md_digest": "sha256:839f08a3cdaaaa4e232b615de84915179f5ae16f7a0d8084ec562289636f2a2e",
   "criteria": [
     { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
     { "id": "AC-002", "operations": [], "owner": "canonical_verification", "future_identities": [] },
