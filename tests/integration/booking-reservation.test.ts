@@ -554,16 +554,19 @@ async function drainBookingNotificationWork() {
   // This file deliberately shares one Testcontainers database so it can cover
   // cross-command durability.  Earlier lifecycle fixtures legitimately leave
   // their notification deliveries pending; drain that bounded backlog before
-  // asserting the notifications created by the current fixture.
-  for (let round = 0; round < 100; round += 1) {
+  // asserting the notifications created by the current fixture.  The backlog
+  // grows with the file (a Late reconciliation republishes every earlier
+  // unlinked Late Attempt), so run until idle and fail loudly rather than
+  // returning with the current fixture's delivery still pending.
+  for (let round = 0; round < 1_000; round += 1) {
     const relay = await worker.relayOutbox();
     const jobs = await worker.runJobs();
     relayed += relay.relayed;
     processed += jobs.processed;
     failed += jobs.failed;
-    if (relay.relayed === 0 && jobs.processed === 0 && jobs.failed === 0) break;
+    if (relay.relayed === 0 && jobs.processed === 0 && jobs.failed === 0) return { relayed, processed, failed };
   }
-  return { relayed, processed, failed };
+  throw new Error(`Booking notification work did not settle: relayed ${relayed}, processed ${processed}, failed ${failed}`);
 }
 
 async function createAlertRepairRuntime(operatorAlertEmail?: string): Promise<Runtime> {
