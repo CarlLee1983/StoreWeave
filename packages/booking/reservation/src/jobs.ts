@@ -8,6 +8,7 @@ export const ANONYMIZE_EXPIRED_BOOKING_RESERVATION_PII_JOB = 'booking.reservatio
 export const PROCESS_BOOKING_RESERVATION_PAYMENT_JOB = 'booking.reservation.process-payment';
 export const PROCESS_BOOKING_RESERVATION_REFUND_JOB = 'booking.reservation.process-refund';
 export const RECONCILE_BOOKING_RESERVATION_REFUNDS_JOB = 'booking.reservation.reconcile-refunds';
+export const RECONCILE_BOOKING_RESERVATION_LATE_NOTIFICATIONS_JOB = 'booking.reservation.reconcile-late-notifications';
 
 export const processBookingReservationPaymentJobPayload = z.object({
   attemptId: z.string().uuid(),
@@ -20,6 +21,10 @@ export const processBookingReservationRefundJobPayload = z.object({
   refundId: z.string().uuid(), generation: z.number().int().positive(),
 }).strict();
 export const reconcileBookingReservationRefundsJobPayload = z.object({}).strict();
+export const reconcileLatePaymentNotificationsJobPayload = z.union([
+  z.object({ bucket: z.number().int(), scheduledFor: z.string().datetime() }).strict(),
+  z.object({ cutoff: z.string().datetime(), afterAttemptId: z.string().uuid() }).strict(),
+]);
 
 export const anonymizeExpiredBookingReservationPiiJobPayload = z.object({
   bucket: z.number().int(),
@@ -105,6 +110,19 @@ export function createReconcileBookingReservationRefundsJob(): JobHandler {
     const context = rawContext as CoreJobContext;
     if (!context.executeCommand) throw new Error('Reservation refund reconciler requires the core command bridge');
     await context.executeCommand('booking.reservation.reconcileRefunds', {}, `booking-reservation:refund-reconcile:${rawContext.occurrenceId}`);
+  };
+}
+
+export function createReconcileLatePaymentNotificationsJob(): JobHandler {
+  return async (rawPayload, rawContext) => {
+    const payload = reconcileLatePaymentNotificationsJobPayload.parse(rawPayload);
+    const context = rawContext as CoreJobContext;
+    if (!context.executeCommand) throw new Error('Late Payment notification reconciler requires the core command bridge');
+    await context.executeCommand('booking.reservation.reconcileLatePaymentNotifications', {
+      cutoff: 'scheduledFor' in payload ? payload.scheduledFor : payload.cutoff,
+      ...('afterAttemptId' in payload ? { afterAttemptId: payload.afterAttemptId } : {}),
+      limit: 100,
+    }, `booking-reservation:late-notification-reconcile:${rawContext.occurrenceId}`);
   };
 }
 

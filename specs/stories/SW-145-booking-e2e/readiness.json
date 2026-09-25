@@ -2,7 +2,7 @@
   "schema_version": 1,
   "story_ref": "specs/stories/SW-145-booking-e2e",
   "story_md_digest": "sha256:230d25fa2aa2e3cad991f1dfb3cde140615ae36fd35677fb9b43eefde1491bbf",
-  "acceptance_md_digest": "sha256:f4a246dc8e3376f19fb9ce0ca9606ea740fde2a3c7c1c9d5260205d839332e91",
+  "acceptance_md_digest": "sha256:3bd1bfd663af87815fe65b5410ff3617c6a4bd8c0cb17aa4eebff538a48029b3",
   "criteria": [
     { "id": "AC-001", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },
     { "id": "AC-002", "operations": ["plan", "modify"], "owner": "runner_worker", "future_identities": [] },

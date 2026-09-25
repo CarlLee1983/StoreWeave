@@ -68,12 +68,15 @@ describe('Booking Reservation notification contracts', () => {
   });
 
   it('uses a transient access grant in Booking-owned content and never names a management credential', () => {
-    for (const template of Object.values(BOOKING_RESERVATION_NOTIFICATION_TEMPLATES)) {
+    for (const template of Object.values(BOOKING_RESERVATION_NOTIFICATION_TEMPLATES).filter(
+      template => template.id !== 'booking.reservation.late-payment')) {
       const content = `${template.email?.subject}\n${template.email?.text}\n${template.email?.html}`;
       expect(content).toContain('{accessGrant}');
       expect(content).toContain('{accessGrantExpiresAt}');
       expect(content).not.toMatch(/management(?:Credential|Token)/i);
     }
+    const late = BOOKING_RESERVATION_NOTIFICATION_TEMPLATES['booking.reservation.late-payment'];
+    expect(`${late.email?.subject}\n${late.email?.text}\n${late.email?.html}`).not.toMatch(/accessGrant|booker|managementToken/i);
   });
 
   it('exposes only fixed mapping-failure evidence, never a provider error body', () => {
@@ -169,5 +172,49 @@ describe('Booking Reservation notification contracts', () => {
     const [first, second] = await Promise.all([handler(input, context()), handler(input, context())]);
     expect(first.reference).toBe(second.reference);
     expect(sends).toBe(1);
+  });
+
+  it('repairs a missing operator recipient through the same Late link without a Booker grant', async () => {
+    const refundId = '00000000-0000-4000-8000-000000000005';
+    const input = { eventId: attemptId, kind: 'late-payment' as const, reservationId,
+      paymentAttemptId: attemptId, refundId };
+    let stored: ReturnType<typeof link> | undefined;
+    let sends = 0;
+    let recipient: unknown;
+    const links = {
+      findNotificationLinkByEventTemplate: async () => stored,
+      lockById: async () => ({ ...currentReservation, status: 'cancelled', bookerEmail: null }),
+      lockPaymentAttemptsForReservation: async () => [{
+        id: attemptId, status: 'succeeded', successKind: 'late', amountMinor: 24_690, currency: 'USD',
+      }],
+      findRefundById: async () => ({
+        id: refundId, reservationId, paymentAttemptId: attemptId, reason: 'late_payment',
+        amountMinor: 24_690, currency: 'USD',
+      }),
+      insertNotificationLink: async (_tx: unknown, values: Record<string, unknown>) => {
+        stored = link(values); return stored;
+      },
+      updateNotificationLink: async (_tx: unknown, _id: string, values: Record<string, unknown>) => {
+        stored = link({ ...stored, ...values }); return stored;
+      },
+    };
+    const access = { issueGrant: async () => { throw new Error('Late alert must not issue a grant'); } };
+    const notifications = () => ({ send: async (_tx: unknown, value: Record<string, unknown>) => {
+      sends++; recipient = value.recipient; return {};
+    } }) as never;
+    const missing = createMaterializeBookingReservationNotificationHandler({ access, notifications, locale: 'en' }, links as never);
+    await expect(missing(input, context())).rejects.toThrow('operator alert recipient is unavailable');
+    stored = undefined; // CommandBus rolls back the materializer transaction.
+    const failure = createRecordBookingReservationNotificationMappingFailureHandler(links as never);
+    await expect(failure({ ...input, failure: 'retryable' }, context())).resolves.toMatchObject({
+      mappingStatus: 'mapping_retryable', paymentAttemptId: attemptId, refundId,
+    });
+    const repaired = createMaterializeBookingReservationNotificationHandler({
+      access, notifications, locale: 'en', operatorAlertEmail: 'alerts@example.test',
+    }, links as never);
+    await expect(repaired(input, context())).resolves.toMatchObject({ mappingStatus: 'requested' });
+    await expect(repaired(input, context())).resolves.toMatchObject({ mappingStatus: 'requested' });
+    expect(sends).toBe(1);
+    expect(recipient).toEqual({ email: 'alerts@example.test' });
   });
 });

@@ -436,6 +436,18 @@ export class BookingReservationRepository {
     return row;
   }
 
+  async listLatePaymentAttemptsForAlert(
+    tx: Tx,
+    input: { cutoff: Date; afterAttemptId?: string; limit: number },
+  ): Promise<BookingReservationPaymentAttemptRow[]> {
+    return tx.select().from(bookingReservationPaymentAttempts).where(and(
+      eq(bookingReservationPaymentAttempts.status, 'succeeded'),
+      eq(bookingReservationPaymentAttempts.successKind, 'late'),
+      lte(bookingReservationPaymentAttempts.succeededAt, input.cutoff),
+      input.afterAttemptId ? gt(bookingReservationPaymentAttempts.id, input.afterAttemptId) : undefined,
+    )).orderBy(asc(bookingReservationPaymentAttempts.id)).limit(input.limit);
+  }
+
   async insertNotificationLink(
     tx: Tx,
     values: typeof bookingReservationNotificationLinks.$inferInsert,

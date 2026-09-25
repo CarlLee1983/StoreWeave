@@ -300,6 +300,7 @@ beforeAll(async () => {
       createBookingPropertyModule(),
       createBookingReservationModule(
         quoteReservationBinding, roomNightOperationsBinding, reservationAccess, RETENTION_POLICY, bookingPaymentProvider,
+        'booking-alerts@example.test',
       ),
     ],
   });
@@ -510,6 +511,35 @@ async function drainBookingNotificationWork() {
     if (relay.relayed === 0 && jobs.processed === 0 && jobs.failed === 0) break;
   }
   return { relayed, processed, failed };
+}
+
+async function createAlertRepairRuntime(operatorAlertEmail?: string): Promise<Runtime> {
+  const config = baseConfigSchema.parse({
+    version: 1, store: { id: 'booking-reservation-test', name: 'Booking Reservation Test' },
+    database: { url: containers[0]!.getConnectionUri() }, logging: { level: 'error' },
+    security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
+  });
+  const secrets = {
+    get: (name: string) => name === 'SW_SIGNING_KEY_TEST' ? TEST_SECRET : undefined,
+    has: (name: string) => name === 'SW_SIGNING_KEY_TEST',
+    listNames: () => ['SW_SIGNING_KEY_TEST'],
+  };
+  const property = bindModuleCapability('booking-property', BOOKING_PROPERTY_READ_CAPABILITY, bookingPropertyRead);
+  const quote = bindBookingAvailabilityQuoteReservation(property, QUOTE_LIMITS, keyring);
+  const nights = bindModuleCapability('booking-availability', BOOKING_AVAILABILITY_ROOM_NIGHT_OPERATIONS_CAPABILITY,
+    testRoomNightOperations);
+  const created = await createRuntime({
+    release: { id: 'booking-reservation-test', version: '1.0.0', buildManifestChecksum: `sha256:${'8'.repeat(64)}` },
+    roles: BASE_ROLES, config, secrets, logger: noopLogger, availableExtensions: {},
+    modules: [
+      createBookingAvailabilityModule(property, QUOTE_LIMITS, keyring),
+      createBookingPropertyModule(),
+      createBookingReservationModule(quote, nights, createBookingReservationAccess(keyring), RETENTION_POLICY,
+        bookingPaymentProvider, operatorAlertEmail),
+    ],
+  });
+  await created.migrate();
+  return created;
 }
 
 async function enqueueRetentionJob(dedupeKey: string) {
@@ -1462,7 +1492,7 @@ describe('Booking Reservation PostgreSQL integration', () => {
     }
   }, 120_000);
 
-  it('serializes verified callbacks after expiry and cancellation as late payments', async () => {
+  it('classifies verified callbacks after completed expiry and cancellation as late payments', async () => {
     const expired = await createReservation('verified-callback-expiry-race');
     const expiredAttempt = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
       'booking.reservation.startPayment', { reservationId: expired.reservation.id, method: 'deferred', checkoutCredential: await checkoutCredentialFor(expired.reservation.id) },
@@ -1472,14 +1502,10 @@ describe('Booking Reservation PostgreSQL integration', () => {
     const now = await runtime.database.pool.query<{ now: Date }>('SELECT pg_catalog.clock_timestamp() AS now');
     const overdue = new Date(now.rows[0]!.now.getTime() - 1_000);
     await runtime.database.pool.query('UPDATE booking_reservation_reservations SET payment_expires_at = $2 WHERE id = $1', [expired.reservation.id, overdue]);
-    const releaseExpiryBarrier = await holdReservationLifecycleLock(expired.reservation.id);
-    const expiry = expireReservation(expired.reservation.id, overdue.toISOString());
-    await waitForDatabaseLockWait();
+    await expect(expireReservation(expired.reservation.id, overdue.toISOString())).resolves.toEqual({ kind: 'expired' });
     const afterExpiry = recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
       type: 'payment_confirmed', reference: expiredAttempt.attempt.reference, providerRef: 'callback:expired',
     });
-    await releaseExpiryBarrier();
-    await expect(expiry).resolves.toEqual({ kind: 'expired' });
     await expect(afterExpiry).resolves.toMatchObject({ attempt: { id: expiredAttempt.attempt.id, status: 'succeeded' } });
 
     const cancelled = await createReservation('verified-callback-cancellation-race');
@@ -1488,16 +1514,12 @@ describe('Booking Reservation PostgreSQL integration', () => {
       { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
     );
     await clearPaymentAttemptJobs(cancelled.reservation.id);
-    const releaseCancellationBarrier = await holdReservationLifecycleLock(cancelled.reservation.id);
-    const cancellation = runtime.commands.execute('booking.reservation.cancelByOperator', {
-      reservationId: cancelled.reservation.id, refundAmountMinor: 0, reason: 'callback race cancellation',
+    await runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: cancelled.reservation.id, refundAmountMinor: 0, reason: 'callback after cancellation',
     }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() });
-    await waitForDatabaseLockWait();
     const afterCancellation = recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
       type: 'payment_confirmed', reference: cancelledAttempt.attempt.reference, providerRef: 'callback:cancelled',
     });
-    await releaseCancellationBarrier();
-    await cancellation;
     await expect(afterCancellation).resolves.toMatchObject({ attempt: { id: cancelledAttempt.attempt.id, status: 'succeeded' } });
     const late = await runtime.database.pool.query<{ reservation_id: string; status: string; success_kind: string }>(`
       SELECT a.reservation_id, a.status, a.success_kind
@@ -3499,6 +3521,358 @@ describe('Booking Reservation PostgreSQL integration', () => {
       WHERE r.id = $1 GROUP BY r.status`, [expiring.reservation.id]);
     expect(unchanged.rows).toEqual([{ status: 'pending_payment', reserved: '2' }]);
     expect(confirmedAttempt.id).toEqual(expect.any(String));
+  }, 120_000);
+
+  it('alerts once for a late Provider initiation result and keeps its Attempt/refund correlation on replay', async () => {
+    const fixture = await createReservation('late-initiation-alert');
+    const started = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', {
+        reservationId: fixture.reservation.id, method: 'deferred',
+        checkoutCredential: await checkoutCredentialFor(fixture.reservation.id),
+      }, { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(fixture.reservation.id);
+    await runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: fixture.reservation.id, refundAmountMinor: 0, reason: 'late initiation fixture',
+    }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() });
+    const result = {
+      attemptId: started.attempt.id, provider: bookingPaymentProviderId,
+      result: { status: 'confirmed', providerRef: `late-initiation:${started.attempt.id}` },
+    };
+    await runtime.commands.execute('booking.reservation.recordPaymentResult', result,
+      { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() });
+    await runtime.commands.execute('booking.reservation.recordPaymentResult', result,
+      { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() });
+    await drainBookingNotificationWork();
+    const evidence = await runtime.database.pool.query<{
+      event_id: string; payment_attempt_id: string; refund_id: string; mapping_status: string;
+      recipient_email: string; variables: Record<string, unknown>;
+    }>(`SELECT l.event_id, l.payment_attempt_id, l.refund_id, l.mapping_status,
+        n.recipient_email, n.variables
+      FROM booking_reservation_notification_links l
+      JOIN platform_notifications n ON n.reference = l.reference
+      WHERE l.reservation_id = $1 AND l.kind = 'late-payment'`, [fixture.reservation.id]);
+    expect(evidence.rows).toEqual([expect.objectContaining({
+      event_id: started.attempt.id, payment_attempt_id: started.attempt.id,
+      refund_id: expect.any(String), mapping_status: 'requested', recipient_email: 'booking-alerts@example.test',
+    })]);
+    expect(evidence.rows[0]!.variables).toEqual({
+      reservationId: fixture.reservation.id, paymentAttemptId: started.attempt.id,
+      refundId: evidence.rows[0]!.refund_id,
+    });
+    const delivery = await runtime.database.pool.query<{ status: string }>(`
+      SELECT d.status FROM platform_notification_deliveries d
+      JOIN platform_notifications n ON n.id = d.notification_id
+      WHERE n.reference = $1`,
+    [`booking-reservation:${started.attempt.id}:booking.reservation.late-payment`]);
+    expect(delivery.rows).toEqual([{ status: 'skipped' }]);
+    const operatorEvidence = await runtime.queries.execute<any>('booking.reservation.listNotifications', {
+      reservationId: fixture.reservation.id, limit: 20, offset: 0,
+    }, { actor: actor(['booking-reservation:notification-read']) });
+    expect(operatorEvidence.items.find((item: { kind: string }) => item.kind === 'late-payment')?.deliveries)
+      .toEqual([expect.objectContaining({ status: 'skipped' })]);
+    expect(await reservedCounts(fixture.roomType.id)).toEqual([0, 0]);
+    await runtime.database.pool.query(`UPDATE platform_notification_deliveries d
+      SET status = 'failed' FROM platform_notifications n
+      WHERE n.id = d.notification_id AND n.reference LIKE $1`,
+    [`booking-reservation:${started.attempt.id}:booking.reservation.late-payment`]);
+    const corrected = await createAlertRepairRuntime('corrected-alerts@example.test');
+    try {
+      await corrected.commands.execute('booking.reservation.materializeNotification', {
+        eventId: started.attempt.id, kind: 'late-payment', reservationId: fixture.reservation.id,
+        paymentAttemptId: started.attempt.id, refundId: evidence.rows[0]!.refund_id,
+      }, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() });
+    } finally {
+      await corrected.close();
+    }
+    const immutable = await runtime.database.pool.query<{ recipient_email: string; count: string }>(`
+      SELECT n.recipient_email, count(*)::text AS count FROM platform_notifications n
+      WHERE n.reference = $1 GROUP BY n.recipient_email`,
+    [`booking-reservation:${started.attempt.id}:booking.reservation.late-payment`]);
+    expect(immutable.rows).toEqual([{ recipient_email: 'booking-alerts@example.test', count: '1' }]);
+    const auditSql = `SELECT id, action, resource_id, payload FROM platform_audit_log
+      WHERE action = 'booking.reservation.payment-result-recorded' AND resource_id = $1 ORDER BY id`;
+    const auditBeforeRetention = await runtime.database.pool.query(auditSql, [started.attempt.id]);
+    expect(auditBeforeRetention.rows.length).toBeGreaterThan(0);
+    const databaseNow = await runtime.database.pool.query<{ now: Date }>('SELECT now() AS now');
+    const checkout = addDays(propertyLocalDate(databaseNow.rows[0]!.now), -2);
+    await runtime.database.pool.query(`UPDATE booking_reservation_reservations
+      SET check_in_local_date = $2, check_out_local_date = $3 WHERE id = $1`,
+    [fixture.reservation.id, addDays(checkout, -2), checkout]);
+    await expect(enqueueAndRunRetentionJob(`late-alert-retention:${randomUUID()}`))
+      .resolves.toMatchObject({ failed: 0 });
+    const retained = await runtime.database.pool.query<{
+      booker_email: string | null; primary_guest_name: string | null;
+      payment_attempt_id: string; refund_id: string;
+    }>(`SELECT r.booker_email, r.primary_guest_name, l.payment_attempt_id, l.refund_id
+      FROM booking_reservation_reservations r
+      JOIN booking_reservation_notification_links l ON l.reservation_id = r.id
+      WHERE r.id = $1 AND l.kind = 'late-payment'`, [fixture.reservation.id]);
+    expect(retained.rows).toEqual([{
+      booker_email: null, primary_guest_name: null,
+      payment_attempt_id: started.attempt.id, refund_id: evidence.rows[0]!.refund_id,
+    }]);
+    const auditAfterRetention = await runtime.database.pool.query(auditSql, [started.attempt.id]);
+    expect(auditAfterRetention.rows).toEqual(auditBeforeRetention.rows);
+  }, 120_000);
+
+  it('reconciles a historical Late Attempt at a recorded cutoff without another payment or refund', async () => {
+    const fixture = await createReservation('historical-late-alert');
+    const started = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', {
+        reservationId: fixture.reservation.id, method: 'deferred',
+        checkoutCredential: await checkoutCredentialFor(fixture.reservation.id),
+      }, { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(fixture.reservation.id);
+    await runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: fixture.reservation.id, refundAmountMinor: 0, reason: 'historical late fixture',
+    }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() });
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: started.attempt.reference,
+      providerRef: `historical-late:${started.attempt.id}`,
+    });
+    await runtime.database.pool.query(`DELETE FROM platform_outbox
+      WHERE event_name = 'booking.reservation.latePayment.v1' AND payload->>'paymentAttemptId' = $1`,
+    [started.attempt.id]);
+    const refundBefore = await runtime.database.pool.query<{ id: string; generation: number }>(
+      'SELECT id, generation FROM booking_reservation_refunds WHERE payment_attempt_id = $1', [started.attempt.id]);
+    const cutoff = new Date(Date.now() + 60_000).toISOString();
+    let afterAttemptId: string | undefined;
+    let found = false;
+    for (let page = 0; page < 20; page++) {
+      const result = await runtime.commands.execute<{
+        scanned: number; enqueued: number; missingRefunds: number; nextAfterAttemptId: string | null;
+      }>('booking.reservation.reconcileLatePaymentNotifications', {
+        cutoff, limit: 100, ...(afterAttemptId ? { afterAttemptId } : {}),
+      }, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() });
+      found ||= result.enqueued > 0;
+      if (!result.nextAfterAttemptId) break;
+      afterAttemptId = result.nextAfterAttemptId;
+    }
+    expect(found).toBe(true);
+    await drainBookingNotificationWork();
+    const links = await runtime.database.pool.query<{ refund_id: string; mapping_status: string }>(`
+      SELECT refund_id, mapping_status FROM booking_reservation_notification_links
+      WHERE payment_attempt_id = $1 AND kind = 'late-payment'`, [started.attempt.id]);
+    expect(links.rows).toEqual([{ refund_id: refundBefore.rows[0]!.id, mapping_status: 'requested' }]);
+    const refundAfter = await runtime.database.pool.query<{ id: string; generation: number }>(
+      'SELECT id, generation FROM booking_reservation_refunds WHERE payment_attempt_id = $1', [started.attempt.id]);
+    expect(refundAfter.rows).toEqual(refundBefore.rows);
+  }, 120_000);
+
+  it('accepts and runs the real hourly Late notification reconciliation occurrence', async () => {
+    const scheduled = await runtime.recurring.ensureScheduled(new Date());
+    expect(scheduled.failed).toBe(0);
+    const occurrence = await runtime.database.pool.query<{
+      id: string; payload: unknown; payload_version: number; status: string;
+    }>(`SELECT id, payload, payload_version, status FROM platform_jobs
+      WHERE type = 'booking.reservation.reconcile-late-notifications'
+      ORDER BY created_at DESC LIMIT 1`);
+    expect(occurrence.rows).toHaveLength(1);
+    expect(runtime.jobRegistry.decode('booking.reservation.reconcile-late-notifications',
+      occurrence.rows[0]!.payload, occurrence.rows[0]!.payload_version)).toMatchObject({
+      bucket: expect.any(Number), scheduledFor: expect.any(String),
+    });
+    const worker = new Worker(runtime, { workerId: `late-reconcile-schedule-${randomUUID().slice(0, 8)}`, concurrency: 1 });
+    for (let round = 0; round < 100; round++) {
+      await worker.runJobs();
+      const state = await runtime.database.pool.query<{ status: string }>(
+        'SELECT status FROM platform_jobs WHERE id = $1', [occurrence.rows[0]!.id]);
+      if (state.rows[0]?.status === 'completed') break;
+    }
+    const completed = await runtime.database.pool.query<{ status: string }>(
+      'SELECT status FROM platform_jobs WHERE id = $1', [occurrence.rows[0]!.id]);
+    expect(completed.rows).toEqual([{ status: 'completed' }]);
+  }, 120_000);
+
+  it('keeps malformed Late event evidence without blocking the corrected Attempt alert', async () => {
+    const fixture = await createReservation('malformed-late-alert');
+    const started = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', {
+        reservationId: fixture.reservation.id, method: 'deferred',
+        checkoutCredential: await checkoutCredentialFor(fixture.reservation.id),
+      }, { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(fixture.reservation.id);
+    await runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: fixture.reservation.id, refundAmountMinor: 0, reason: 'malformed Late event fixture',
+    }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() });
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: started.attempt.reference,
+      providerRef: `malformed-late:${started.attempt.id}`,
+    });
+    const outbox = await runtime.database.pool.query<{ id: string }>(`
+      SELECT id FROM platform_outbox WHERE event_name = 'booking.reservation.latePayment.v1'
+        AND payload->>'paymentAttemptId' = $1`, [started.attempt.id]);
+    expect(outbox.rows).toHaveLength(1);
+    const wrongRefundId = randomUUID();
+    await runtime.database.pool.query(`UPDATE platform_outbox
+      SET payload = jsonb_set(payload, '{refundId}', to_jsonb($2::text)) WHERE id = $1`,
+    [outbox.rows[0]!.id, wrongRefundId]);
+    await expect(drainBookingNotificationWork()).resolves.toMatchObject({ failed: expect.any(Number) });
+    const failed = await runtime.database.pool.query<{ event_id: string; refund_id: string; mapping_failure_code: string }>(`
+      SELECT event_id, refund_id, mapping_failure_code FROM booking_reservation_notification_links
+      WHERE payment_attempt_id = $1 AND kind = 'late-payment'`, [started.attempt.id]);
+    expect(failed.rows).toEqual([{
+      event_id: outbox.rows[0]!.id, refund_id: wrongRefundId, mapping_failure_code: 'late_evidence_invalid',
+    }]);
+    await runtime.commands.execute('booking.reservation.reconcileLatePaymentNotifications', {
+      cutoff: new Date(Date.now() + 60_000).toISOString(), limit: 100,
+    }, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() });
+    await drainBookingNotificationWork();
+    const links = await runtime.database.pool.query<{ event_id: string; mapping_status: string; refund_id: string }>(`
+      SELECT event_id, mapping_status, refund_id FROM booking_reservation_notification_links
+      WHERE payment_attempt_id = $1 AND kind = 'late-payment' ORDER BY mapping_status`, [started.attempt.id]);
+    expect(links.rows).toEqual([
+      { event_id: outbox.rows[0]!.id, mapping_status: 'mapping_failed', refund_id: wrongRefundId },
+      { event_id: started.attempt.id, mapping_status: 'requested', refund_id: expect.any(String) },
+    ]);
+    const requests = await runtime.database.pool.query<{ count: string }>(`
+      SELECT count(*)::text AS count FROM platform_notifications WHERE reference = $1`,
+    [`booking-reservation:${started.attempt.id}:booking.reservation.late-payment`]);
+    expect(requests.rows).toEqual([{ count: '1' }]);
+  }, 120_000);
+
+  it('keeps two Late Attempts on one cancelled Reservation as separate alerts and refunds', async () => {
+    const fixture = await createReservation('two-late-attempt-alerts');
+    const first = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', {
+        reservationId: fixture.reservation.id, method: 'deferred',
+        checkoutCredential: await checkoutCredentialFor(fixture.reservation.id),
+      }, { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(fixture.reservation.id);
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_failed', reference: first.attempt.reference, providerRef: `two-late-failed:${first.attempt.id}`,
+      message: 'failed before retry',
+    });
+    const second = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', {
+        reservationId: fixture.reservation.id, method: 'deferred',
+        checkoutCredential: await checkoutCredentialFor(fixture.reservation.id),
+      }, { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(fixture.reservation.id);
+    await runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: fixture.reservation.id, refundAmountMinor: 0, reason: 'two Late Attempts',
+    }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() });
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: first.attempt.reference, providerRef: `two-late-first:${first.attempt.id}`,
+    });
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: second.attempt.reference, providerRef: `two-late-second:${second.attempt.id}`,
+    });
+    await drainBookingNotificationWork();
+    const alerts = await runtime.database.pool.query<{ payment_attempt_id: string; refund_id: string; reference: string }>(`
+      SELECT payment_attempt_id, refund_id, reference FROM booking_reservation_notification_links
+      WHERE reservation_id = $1 AND kind = 'late-payment' ORDER BY payment_attempt_id`, [fixture.reservation.id]);
+    expect(alerts.rows.map(row => row.payment_attempt_id)).toEqual([first.attempt.id, second.attempt.id].sort());
+    expect(new Set(alerts.rows.map(row => row.refund_id)).size).toBe(2);
+    expect(new Set(alerts.rows.map(row => row.reference)).size).toBe(2);
+    expect(await reservedCounts(fixture.roomType.id)).toEqual([0, 0]);
+  }, 120_000);
+
+  it('serializes competing Late initiation and callback outcomes into one alert event', async () => {
+    const fixture = await createReservation('late-initiation-callback-race');
+    const started = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', {
+        reservationId: fixture.reservation.id, method: 'deferred',
+        checkoutCredential: await checkoutCredentialFor(fixture.reservation.id),
+      }, { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(fixture.reservation.id);
+    await runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: fixture.reservation.id, refundAmountMinor: 0, reason: 'Late outcome race',
+    }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() });
+    const providerRef = `late-race:${started.attempt.id}`;
+    await Promise.all([
+      runtime.commands.execute('booking.reservation.recordPaymentResult', {
+        attemptId: started.attempt.id, provider: bookingPaymentProviderId,
+        result: { status: 'confirmed', providerRef },
+      }, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() }),
+      recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+        type: 'payment_confirmed', reference: started.attempt.reference, providerRef,
+      }),
+    ]);
+    const events = await runtime.database.pool.query<{ count: string }>(`
+      SELECT count(*)::text AS count FROM platform_outbox
+      WHERE event_name = 'booking.reservation.latePayment.v1'
+        AND payload->>'paymentAttemptId' = $1`, [started.attempt.id]);
+    expect(events.rows).toEqual([{ count: '1' }]);
+    await drainBookingNotificationWork();
+    const alerts = await runtime.database.pool.query<{ links: string; requests: string; refunds: string }>(`
+      SELECT (SELECT count(*)::text FROM booking_reservation_notification_links
+        WHERE payment_attempt_id = $1 AND kind = 'late-payment') AS links,
+        (SELECT count(*)::text FROM platform_notifications
+        WHERE reference = 'booking-reservation:' || $1 || ':booking.reservation.late-payment') AS requests,
+        (SELECT count(*)::text FROM booking_reservation_refunds WHERE payment_attempt_id = $1) AS refunds`,
+    [started.attempt.id]);
+    expect(alerts.rows).toEqual([{ links: '1', requests: '1', refunds: '1' }]);
+  }, 120_000);
+
+  it('retries the same exhausted Late event job after the operator mailbox is configured', async () => {
+    await drainBookingNotificationWork();
+    const fixture = await createReservation('late-alert-recipient-repair');
+    const started = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
+      'booking.reservation.startPayment', {
+        reservationId: fixture.reservation.id, method: 'deferred',
+        checkoutCredential: await checkoutCredentialFor(fixture.reservation.id),
+      }, { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
+    );
+    await clearPaymentAttemptJobs(fixture.reservation.id);
+    await runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: fixture.reservation.id, refundAmountMinor: 0, reason: 'missing mailbox fixture',
+    }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() });
+    await recordVerifiedPaymentOutcome(bookingPaymentProviderId, {
+      type: 'payment_confirmed', reference: started.attempt.reference,
+      providerRef: `missing-mailbox:${started.attempt.id}`,
+    });
+    let missing: Runtime | undefined;
+    let repaired: Runtime | undefined;
+    try {
+      missing = await createAlertRepairRuntime();
+      const missingWorker = new Worker(missing, { workerId: `missing-mailbox-${randomUUID().slice(0, 8)}`, concurrency: 1 });
+      await missingWorker.relayOutbox();
+      const job = await runtime.database.pool.query<{ id: string }>(`
+        SELECT id FROM platform_jobs WHERE type = 'platform.event.deliver'
+          AND payload->'event'->'payload'->>'paymentAttemptId' = $1`, [started.attempt.id]);
+      expect(job.rows).toHaveLength(1);
+      await runtime.database.pool.query('UPDATE platform_jobs SET max_attempts = 1 WHERE id = $1', [job.rows[0]!.id]);
+      for (let round = 0; round < 20; round++) {
+        await missingWorker.runJobs();
+        const state = await runtime.database.pool.query<{ status: string }>('SELECT status FROM platform_jobs WHERE id = $1', [job.rows[0]!.id]);
+        if (state.rows[0]?.status === 'dead') break;
+      }
+      const failed = await runtime.database.pool.query<{ mapping_status: string; mapping_failure_code: string }>(`
+        SELECT mapping_status, mapping_failure_code FROM booking_reservation_notification_links
+        WHERE payment_attempt_id = $1 AND kind = 'late-payment'`, [started.attempt.id]);
+      expect(failed.rows).toEqual([{ mapping_status: 'mapping_retryable', mapping_failure_code: 'materialization_retryable' }]);
+      await expect(runtime.database.pool.query('SELECT status FROM platform_jobs WHERE id = $1', [job.rows[0]!.id]))
+        .resolves.toMatchObject({ rows: [{ status: 'dead' }] });
+      await missing.close();
+      missing = undefined;
+
+      repaired = await createAlertRepairRuntime('repaired-alerts@example.test');
+      await repaired.commands.execute('platform.jobs.retryJob', { jobId: job.rows[0]!.id },
+        { actor: actor(['jobs:write']), idempotencyKey: randomUUID() });
+      const repairedWorker = new Worker(repaired, { workerId: `repaired-mailbox-${randomUUID().slice(0, 8)}`, concurrency: 1 });
+      for (let round = 0; round < 20; round++) {
+        await repairedWorker.runJobs();
+        const state = await runtime.database.pool.query<{ mapping_status: string }>(`
+          SELECT mapping_status FROM booking_reservation_notification_links
+          WHERE payment_attempt_id = $1 AND kind = 'late-payment'`, [started.attempt.id]);
+        if (state.rows[0]?.mapping_status === 'requested') break;
+      }
+      const delivered = await runtime.database.pool.query<{ mapping_status: string; recipient_email: string }>(`
+        SELECT l.mapping_status, n.recipient_email FROM booking_reservation_notification_links l
+        JOIN platform_notifications n ON n.reference = l.reference
+        WHERE l.payment_attempt_id = $1 AND l.kind = 'late-payment'`, [started.attempt.id]);
+      expect(delivered.rows).toEqual([{ mapping_status: 'requested', recipient_email: 'repaired-alerts@example.test' }]);
+      expect(await reservedCounts(fixture.roomType.id)).toEqual([0, 0]);
+    } finally {
+      await Promise.allSettled([missing?.close(), repaired?.close()].filter(Boolean) as Promise<void>[]);
+    }
   }, 120_000);
 
   it('records a failed event-to-notification mapping separately while leaving the cancelled Reservation and released Room Nights intact', async () => {

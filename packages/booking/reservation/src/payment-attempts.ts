@@ -4,7 +4,7 @@ import type { PaymentInitiationInput, PaymentInitiationResult, PaymentMethod, Pa
 import { BookingReservationRepository } from './repository';
 import type { BookingReservationCheckoutAccess } from './checkout-access';
 import { EXPIRE_BOOKING_RESERVATION_JOB, PROCESS_BOOKING_RESERVATION_PAYMENT_JOB } from './jobs';
-import { bookingReservationConfirmedV1, bookingReservationPaymentExpiringV1 } from './events';
+import { bookingReservationConfirmedV1, bookingReservationLatePaymentV1, bookingReservationPaymentExpiringV1 } from './events';
 import { createRequiredBookingReservationRefund } from './refunds';
 import {
   recordBookingReservationPaymentResultInputSchema,
@@ -278,10 +278,15 @@ async function applyPaymentOutcome(
           reservationId: reservation.id, paymentAttemptId: attempt.id, confirmedAt: databaseNow,
         } });
       } else {
-        await createRequiredBookingReservationRefund(context, {
+        const refund = await createRequiredBookingReservationRefund(context, {
           reservationId: reservation.id, paymentAttemptId: attempt.id,
           reason: kind === 'late' ? 'late_payment' : 'excess_payment', allowExisting: true,
         });
+        if (kind === 'late') {
+          await context.publish({ name: bookingReservationLatePaymentV1.name, payload: {
+            reservationId: reservation.id, paymentAttemptId: attempt.id, refundId: refund.refund!.id,
+          } });
+        }
       }
       return { attempt: toAttemptOutput(updated) };
     }

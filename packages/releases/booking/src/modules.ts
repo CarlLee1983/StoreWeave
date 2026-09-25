@@ -75,7 +75,8 @@ export function bookingModules(config: BookingConfig, providers: ProviderRegistr
     refund: input => providers.get<PaymentProviderV2>('payment', 'mock-payment').refund(input),
   };
   const reservation = createBookingReservationModule(availability.quoteReservation, roomNights, access.access,
-    { reservationPiiRetentionDays: config.booking.reservationPiiRetentionDays }, payment);
+    { reservationPiiRetentionDays: config.booking.reservationPiiRetentionDays }, payment,
+    config.booking.operatorAlertEmail);
   const securedReservation: PlatformModule = {
     ...reservation,
     runtimeSecurity: { signingKeyPurposes: [BOOKING_RESERVATION_ACCESS_GRANT_PURPOSE, BOOKING_RESERVATION_CHECKOUT_CREDENTIAL_PURPOSE] },

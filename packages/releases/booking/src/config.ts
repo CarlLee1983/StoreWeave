@@ -9,6 +9,7 @@ export const bookingConfigSchema = baseConfigSchema.extend({
   booking: z.object({
     maxRoomsPerRequest: z.number().int().min(1).max(20).default(5),
     reservationPiiRetentionDays: z.number().int().safe().min(1),
+    operatorAlertEmail: z.string().trim().email().max(320),
   }).strict(),
   extensions: baseConfigSchema.shape.extensions.removeDefault().superRefine((entries, context) => {
     if (entries.length !== 1 || entries[0]?.id !== 'mock-payment' || !entries[0].enabled) {

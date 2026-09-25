@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { Worker, type Runtime } from '@storeweave/kernel';
+import { SYSTEM_ACTOR } from '@storeweave/contracts';
 import { bootstrapRelease } from '../../packages/platform/release/src/bootstrap';
 import { serverProjection } from '../../packages/releases/booking/src/server';
 import { createReleaseServer } from '../../apps/api/src/release-server';
@@ -59,7 +60,7 @@ beforeAll(async () => {
   writeFileSync(configPath, JSON.stringify({
     version: 1, store: { id: 'booking-release-journey', name: 'Booking Release Journey', currency: 'USD' },
     database: { url: container.getConnectionUri() },
-    booking: { reservationPiiRetentionDays: 365 },
+    booking: { reservationPiiRetentionDays: 365, operatorAlertEmail: 'operator@example.test' },
     theme: { id: 'booking-default' },
     extensions: [{ id: 'mock-payment', config: { autoApprove: true } }],
     logging: { level: 'error' },
@@ -163,5 +164,50 @@ describe('Booking Release composed journey', () => {
     expect(evidence.rows).toMatchObject([{
       status: 'succeeded', provider_refund_ref: expect.stringMatching(/^mock_refund_/), outcome: 'succeeded',
     }]);
+  }, 180_000);
+
+  it('routes a Late Payment alert to the configured operator mailbox through the selected Release', async () => {
+    const checkInLocalDate = addDays(localDate(new Date()), 7);
+    const checkOutLocalDate = addDays(checkInLocalDate, 2);
+    const stay = { roomTypeId, checkInLocalDate, checkOutLocalDate, adults: 2, children: 0, roomCount: 1 };
+    const quote = await app.inject({ method: 'POST', url: '/api/v1/booking/quotes', payload: stay });
+    const created = await app.inject({ method: 'POST', url: '/api/v1/booking/reservations',
+      headers: { 'idempotency-key': randomUUID() }, payload: {
+        quote: { ...stay, fingerprint: quote.json().data.quote.fingerprint },
+        booker: { name: 'Late Booker', email: 'late.booker@example.test', phone: '+1 555 0199' },
+        primaryGuestName: 'Late Guest', accommodationNotes: 'Late fixture',
+      } });
+    expect(created.statusCode, created.body).toBe(201);
+    const { reservation, checkoutCredential } = created.json().data as {
+      reservation: { id: string }; checkoutCredential: string;
+    };
+    const payment = await app.inject({ method: 'POST', url: `/api/v1/booking/reservations/${reservation.id}/payments`,
+      headers: { 'x-booking-checkout-credential': checkoutCredential, 'idempotency-key': randomUUID() },
+      payload: { method: 'mock' } });
+    expect(payment.statusCode, payment.body).toBe(202);
+    const attemptId = payment.json().data.attemptId as string;
+    await runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: reservation.id, refundAmountMinor: 0, reason: 'Late Release fixture',
+    }, { actor: operator, idempotencyKey: randomUUID() });
+    await runtime.commands.execute('booking.reservation.recordPaymentResult', {
+      attemptId, provider: 'mock-payment', result: { status: 'confirmed', providerRef: `late-release:${attemptId}` },
+    }, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() });
+    await runWorkerUntil(async () => {
+      const result = await runtime.database.pool.query<{ count: string }>(`
+        SELECT count(*)::text AS count FROM booking_reservation_notification_links
+        WHERE payment_attempt_id = $1 AND kind = 'late-payment' AND mapping_status = 'requested'`, [attemptId]);
+      return result.rows[0]?.count === '1';
+    });
+    const alert = await runtime.database.pool.query<{ recipient_email: string; variables: Record<string, unknown>; refund_id: string }>(`
+      SELECT n.recipient_email, n.variables, l.refund_id
+      FROM booking_reservation_notification_links l
+      JOIN platform_notifications n ON n.reference = l.reference
+      WHERE l.payment_attempt_id = $1 AND l.kind = 'late-payment'`, [attemptId]);
+    expect(alert.rows).toEqual([expect.objectContaining({ recipient_email: 'operator@example.test' })]);
+    expect(alert.rows[0]!.variables).toEqual({
+      reservationId: reservation.id, paymentAttemptId: attemptId, refundId: alert.rows[0]!.refund_id,
+    });
+    expect(JSON.stringify(alert.rows[0])).not.toContain('late.booker@example.test');
+    expect(await roomNights(checkInLocalDate, checkOutLocalDate)).toEqual([0, 0]);
   }, 180_000);
 });
