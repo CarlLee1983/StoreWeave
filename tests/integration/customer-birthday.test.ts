@@ -20,11 +20,12 @@ describe('客服修正會員生日', () => {
     const updated = await correct(actor.customerId, { birthday: '1990-02-03', reason: '顧客來信說填錯月份' });
     expect(updated.birthday).toBe('1990-02-03');
 
-    const audit = await h.runtime.database.db.execute<{ payload: any }>(sql`
-      SELECT payload FROM platform_audit_log
+    const audit = await h.runtime.database.db.execute<{ actor_id: string; payload: any }>(sql`
+      SELECT actor_id, payload FROM platform_audit_log
       WHERE action = 'customer.birthday-corrected' AND resource_id = ${actor.customerId}
       ORDER BY occurred_at DESC LIMIT 1
     `);
+    expect(audit.rows[0].actor_id).toBe(ADMIN_ACTOR.id);
     expect(audit.rows[0].payload).toMatchObject({ reason: '顧客來信說填錯月份', previousBirthday: '1990-01-01', birthday: '1990-02-03' });
   });
 
