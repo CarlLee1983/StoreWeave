@@ -163,6 +163,28 @@ Reservation 可以在前一筆明確失敗或到期後重試，但只能有一�
 透過 Email 交付的短期、單次簽章憑證，只能兌換成 Reservation Management Token。兌換成功後以安全 cookie
 保存管理狀態並轉址到不含憑證的 URL；Access Grant 不能直接執行 Reservation 操作。
 
+## 餐廳訂位
+
+**餐廳訂位申請（Dining Reservation Request）**:
+顧客為指定人數與店家開放的用餐開始時刻提出的請求。待處理的申請不占用桌位；店家可以接受或拒絕。
+_Avoid_: 住宿 Reservation、已確認訂位
+
+**餐廳訂位（Dining Reservation）**:
+店家接受申請後，對指定開始時刻、人數與桌型容量作出的用餐承諾。已接受的訂位占用桌型名額，取消後釋放。
+_Avoid_: 住宿 Reservation、Order
+
+**桌型（Table Type）**:
+店家以可容納人數和桌數定義的用餐供應類別；訂位保留桌型名額，不指定實體桌號。
+_Avoid_: 房型、實體桌號
+
+**占桌時長（Table Occupancy Duration）**:
+店家設定的一筆訂位占用桌位的完整時間，包含用餐與清桌。
+_Avoid_: 單純用餐時長
+
+**用餐人數（Party Size）**:
+一筆餐廳訂位需要座位的總人數；需要兒童椅的嬰幼兒也計入，不區分成人與兒童。
+_Avoid_: 僅計成人的人數
+
 ---
 
 # 開發流程詞彙
@@ -174,7 +196,7 @@ Reservation 可以在前一筆明確失敗或到期後重試，但只能有一�
 
 **Product Release**:
 一份可獨立建置、部署並使用獨立資料庫的產品交付物。它選取 Platform、Base Module、Product Module、
-Theme 與 Extension 組成可執行應用；Commerce 與 Booking 是不同的 Product Release。
+Theme 與 Extension 組成可執行應用；Commerce、Booking 與 Dining 是不同的 Product Release。
 _Avoid_: Core、產品 Core
 
 **Base Module**:
@@ -191,6 +213,10 @@ _Avoid_: Core Module
 以住宿預訂為產品領域的 Product Release。第一個 Booking Release 與 Commerce 分開建置、部署與使用資料庫，
 並以房型庫存完成搜尋、報價、保留、訂房、付款、確認、取消與後台管理的完整旅程。
 _Avoid_: 訂房外掛、Commerce 訂房模式
+
+**Dining Release**:
+以餐廳訂位為產品領域的 Product Release，與 Commerce、Booking 分開建置、部署並使用資料庫。
+_Avoid_: Booking 訂位模式、Commerce 訂位外掛
 
 ## Spec
 

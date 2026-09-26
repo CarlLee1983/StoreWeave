@@ -22,6 +22,7 @@ GitHub 派工入口：[Spec 0008 總單 #17](https://github.com/CarlLee1983/Stor
 | [0009](0009-complete-modular-base.md) | 完整應用基礎服務、模組契約與建站基底 | 既有 platform；Admin 部分銜接 0008 | done（Base 工程）；release readiness 與產品驗證另行追蹤 |
 | [0010](0010-auth-pages-as-declared-pages.md) | 認證頁面成為模組宣告的頁面 | 0009 的 B13；ADR 0047 | done（工單 92–98） |
 | [0011](0011-booking-product-release.md) | Booking Product Release 與跨產品組裝 | 0009；ADR 0052 | approved；等待 Story 拆分 |
+| [0012](0012-dining-product-release.md) | Dining Product Release 與餐廳訂位 | 0009；ADR 0053 | ready-for-agent；待拆 Story |
 
 0001 與 0002 沒有相依，可並行；兩條線在 0003 會合。加價購接在 0004 之後，
 是定價引擎輸出「可加購清單」的延伸，不獨立成規格。
