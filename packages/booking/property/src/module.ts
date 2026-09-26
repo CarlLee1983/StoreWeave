@@ -10,6 +10,7 @@ import { bookingPropertyPages } from './pages';
 import {
   getActiveRoomTypeHandler, getActiveRoomTypeQuery, getPropertyHandler, getPropertyQuery,
   getPublicPropertyHandler, getPublicPropertyQuery, getRoomTypeHandler, getRoomTypeQuery,
+  getPublicMediaHandler, getPublicMediaQuery,
   listActiveRoomTypesHandler, listActiveRoomTypesQuery, listRoomTypesHandler, listRoomTypesQuery,
 } from './queries';
 
@@ -33,6 +34,7 @@ export function createBookingPropertyModule() {
       { descriptor: updateRoomTypeCommand, handler: updateRoomTypeHandler(() => mediaReferences) },
     ],
     queries: [
+      { descriptor: getPublicMediaQuery, handler: getPublicMediaHandler },
       { descriptor: getPropertyQuery, handler: getPropertyHandler },
       { descriptor: getPublicPropertyQuery, handler: getPublicPropertyHandler },
       { descriptor: listActiveRoomTypesQuery, handler: listActiveRoomTypesHandler },

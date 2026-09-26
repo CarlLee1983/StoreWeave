@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { noopLogger } from '@storeweave/contracts';
 import { createKeyring } from '@storeweave/crypto';
@@ -14,6 +16,22 @@ import { resolveBookingStorefrontProjection } from '../src/storefront';
 import { resolveBookingWorkerProjection } from '../src/worker';
 
 describe('Booking release assembly', () => {
+  it('points every package export at an existing source file', () => {
+    const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'packages/releases/booking/package.json'), 'utf8')) as {
+      exports: Record<string, { types: string }>;
+    };
+    for (const entry of Object.values(packageJson.exports)) {
+      expect(existsSync(resolve(process.cwd(), 'packages/releases/booking', entry.types)), entry.types).toBe(true);
+    }
+
+    const tsconfig = JSON.parse(readFileSync(resolve(process.cwd(), 'tsconfig.base.json'), 'utf8')) as {
+      compilerOptions: { paths: Record<string, string[]> };
+    };
+    expect(tsconfig.compilerOptions.paths['@storeweave/release-booking/admin']).toEqual([
+      `packages/releases/booking/${packageJson.exports['./admin'].types.slice(2)}`,
+    ]);
+  });
+
   it('keeps the root serializable and resolves each target contribution', () => {
     expect(JSON.parse(JSON.stringify(bookingReleaseDefinition))).toEqual(bookingReleaseDefinition);
     expect(Object.keys(bookingReleaseDefinition)).toEqual(['manifest']);

@@ -8,6 +8,7 @@ import type { PoolClient } from 'pg';
 import { catalogDigest } from '@storeweave/db';
 import type { Runtime } from '@storeweave/kernel';
 import { pairedSnapshotSchema, readPrivateJson } from './read-release-snapshot';
+import { releaseIdentitySchema } from './native-layout';
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const objectId = z.string().uuid();
@@ -46,7 +47,7 @@ export const fullBackupSchema = z.object({
   schemaVersion: z.literal(1),
   kind: z.literal('storeweave-full-backup'),
   createdAt: z.string().datetime(),
-  release: z.object({ id: z.enum(['base', 'commerce']), version: z.string().min(1), buildManifestChecksum: z.string().regex(/^sha256:[a-f0-9]{64}$/) }).strict(),
+  release: z.object({ id: releaseIdentitySchema, version: z.string().min(1), buildManifestChecksum: z.string().regex(/^sha256:[a-f0-9]{64}$/) }).strict(),
   /**
    * Provenance only, intentionally not enforced on restore. Every other
    * snapshot path compares this against the target endpoint, but a full bundle

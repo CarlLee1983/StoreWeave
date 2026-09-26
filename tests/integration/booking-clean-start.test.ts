@@ -101,6 +101,14 @@ function assertBookingOnly(tables: string[], migrationIds: string[]): void {
   expect(forbiddenMigrations, `Commerce migrations leaked into Booking: ${forbiddenMigrations.join(', ')}`).toEqual([]);
 }
 
+function commerceImplementationImports(inputs: string[]): string[] {
+  return inputs.filter(input => {
+    const path = input.replaceAll('\\', '/');
+    return /(^|\/)packages\/(commerce|releases\/commerce|extensions\/(ecpay|demo-erp))\//.test(path)
+      || /(^|\/)apps\/api\/src\/releases\/commerce\.ts$/.test(path);
+  });
+}
+
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'storeweave-booking-clean-'));
   output = join(directory, 'build');
@@ -143,12 +151,30 @@ describe('Booking clean start', () => {
 
     for (const entry of ['api', 'worker', 'cli']) {
       const graph = JSON.parse(readFileSync(join(output, `app/${entry}.js.meta.json`), 'utf8')) as { inputs: Record<string, unknown> };
-      const imports = Object.keys(graph.inputs).filter(path =>
-        /(^|\/)packages\/(commerce|releases\/commerce|extensions\/(ecpay|demo-erp))\//.test(path)
-        || /(^|\/)apps\/api\/src\/releases\/commerce\//.test(path));
+      const imports = commerceImplementationImports(Object.keys(graph.inputs));
       expect(imports, `${entry} imports Commerce implementation: ${imports.join(', ')}`).toEqual([]);
     }
     await startApi(env, port);
+  });
+
+  it('detects Commerce implementation paths without rejecting similarly named files', () => {
+    const forbidden = [
+      'apps/api/src/releases/commerce.ts',
+      'C:\\repo\\apps\\api\\src\\releases\\commerce.ts',
+      'packages/commerce/catalog/src/index.ts',
+      'packages/releases/commerce/src/runtime.ts',
+      'packages/extensions/ecpay/src/index.ts',
+      'packages/extensions/demo-erp/src/index.ts',
+    ];
+    expect(commerceImplementationImports(forbidden)).toEqual(forbidden);
+    expect(commerceImplementationImports([
+      'apps/api/src/releases/commerce.test.ts',
+      'apps/api/src/releases/commerce.tsx',
+      'apps/api/src/releases/commerce-helper.ts',
+      'apps/api/src/releases/commerce.ts.map',
+      'apps/api/src/releases/other-commerce.ts',
+      'packages/commerce-tools/src/index.ts',
+    ])).toEqual([]);
   });
 
   it('rejects missing and duplicate selected manifest entries with named errors', () => {

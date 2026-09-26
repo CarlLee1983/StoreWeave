@@ -5,7 +5,7 @@ import { baseConfigSchema } from '@storeweave/config';
 import { noopLogger, SYSTEM_ACTOR, type Actor, type CommandContext } from '@storeweave/contracts';
 import { sha256Hex, signValue, type Keyring } from '@storeweave/crypto';
 import type { PaymentInitiationInput, PaymentInitiationResult, PaymentMethod, PaymentProviderV2, PaymentRefundInputV2, PaymentRefundResult } from '@storeweave/extension-sdk';
-import { bindModuleCapability, createRuntime, resolveKeyring, Worker, type Runtime } from '@storeweave/kernel';
+import { bindModuleCapability, createRuntime, parseScheduleSpec, resolveKeyring, scheduleOccurrencePayload, Worker, type Runtime } from '@storeweave/kernel';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
@@ -368,6 +368,36 @@ async function reservedCounts(roomTypeId: string): Promise<number[]> {
   return result.rows.map(row => row.reserved_units);
 }
 
+async function roomNights(roomTypeId: string) {
+  const result = await runtime.database.pool.query<{
+    local_date: string; sellable_units: number; reserved_units: number;
+  }>(`SELECT local_date::text, sellable_units, reserved_units
+      FROM booking_availability_room_nights WHERE room_type_id = $1 ORDER BY local_date`, [roomTypeId]);
+  return result.rows;
+}
+
+async function quoteForRooms(base: BookingQuote, adults: number, children: number, roomCount: number): Promise<BookingQuote> {
+  const result = await runtime.queries.execute<{ kind: 'available'; quote: BookingQuote } | { kind: 'unavailable' }>(
+    'booking.availability.getQuote', {
+      roomTypeId: base.roomTypeId, checkInLocalDate: base.checkInLocalDate,
+      checkOutLocalDate: base.checkOutLocalDate, adults, children, roomCount,
+    }, { actor: RESERVATION_ACTOR },
+  );
+  if (result.kind !== 'available') throw new Error('Expected an available multi-room Quote');
+  return result.quote;
+}
+
+async function settleWhileRoomNightsLocked<T>(attempt: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([attempt, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Reservation waited for a Room Night lock before occupancy validation')), 3_000);
+    })]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function reservationCount(roomTypeId: string): Promise<number> {
   const result = await runtime.database.pool.query<{ count: string }>(
     'SELECT count(*)::text AS count FROM booking_reservation_reservations WHERE room_type_id = $1', [roomTypeId],
@@ -659,6 +689,128 @@ async function cloneReservations(templateId: string, count: number): Promise<str
 }
 
 describe('Booking Reservation PostgreSQL integration', () => {
+  describe('SW-157 multi-room Reservation', () => {
+    it('persists a two-room stay with adults and children on both Room Nights', async () => {
+      const { roomType, quote: base } = await createFixture('sw157-valid', 3);
+      const quote = await quoteForRooms(base, 2, 2, 2);
+      const before = await roomNights(roomType.id);
+      expect(before).toEqual([
+        { local_date: quote.checkInLocalDate, sellable_units: 3, reserved_units: 0 },
+        { local_date: addDays(quote.checkInLocalDate, 1), sellable_units: 3, reserved_units: 0 },
+      ]);
+      expect(await reservationCount(roomType.id)).toBe(0);
+
+      const created = await runtime.commands.execute<{
+        kind: string; reservation: { id: string; quote: BookingQuote };
+      }>('booking.reservation.create', inputFor(quote), {
+        actor: RESERVATION_ACTOR, idempotencyKey: randomUUID(),
+      });
+      expect(created.kind).toBe('created');
+      expect(created.reservation.quote).toEqual(quote);
+      const persisted = await runtime.database.pool.query<{
+        id: string; room_count: number; adults: number; children: number; check_in_local_date: string;
+        check_out_local_date: string; currency: string; total_minor: number; nightly_prices: unknown;
+        cancellation_policy: unknown; quote_fingerprint: string;
+      }>(`SELECT id, room_count, adults, children, check_in_local_date::text, check_out_local_date::text,
+          currency, total_minor::float8 AS total_minor, nightly_prices, cancellation_policy, quote_fingerprint
+          FROM booking_reservation_reservations WHERE room_type_id = $1`, [roomType.id]);
+      expect(persisted.rows).toEqual([{
+        id: created.reservation.id, room_count: 2, adults: 2, children: 2,
+        check_in_local_date: quote.checkInLocalDate, check_out_local_date: quote.checkOutLocalDate,
+        currency: quote.currency, total_minor: quote.totalMinor, nightly_prices: quote.nights,
+        cancellation_policy: quote.cancellationPolicy, quote_fingerprint: quote.fingerprint,
+      }]);
+      expect(await roomNights(roomType.id)).toEqual(before.map(night => ({ ...night, reserved_units: 2 })));
+    });
+
+    it('rejects too few adults and excess guests before taking Room Night locks', async () => {
+      const { roomType, quote: base } = await createFixture('sw157-occupancy', 2);
+      const quote = await quoteForRooms(base, 2, 2, 2);
+      const before = await roomNights(roomType.id);
+      expect(before.map(night => night.reserved_units)).toEqual([0, 0]);
+      expect(await reservationCount(roomType.id)).toBe(0);
+      const client = await runtime.database.pool.connect();
+      const attempts: Promise<unknown>[] = [];
+      try {
+        await client.query('BEGIN');
+        await client.query('SELECT room_type_id FROM booking_availability_room_nights WHERE room_type_id = $1 FOR UPDATE', [roomType.id]);
+        for (const [adults, children, message] of [
+          [1, 2, 'Each requested room requires at least one adult'],
+          [2, 7, 'Guest count exceeds the selected Room Type occupancy'],
+        ] as const) {
+          const attempt = runtime.commands.execute('booking.reservation.create', {
+            ...inputFor(quote), quote: { ...inputFor(quote).quote, adults, children },
+          }, { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() });
+          attempts.push(attempt);
+          await expect(settleWhileRoomNightsLocked(attempt)).rejects.toMatchObject({
+            code: 'VALIDATION_ERROR', message: expect.stringContaining(message),
+          });
+        }
+        expect(await reservationCount(roomType.id)).toBe(0);
+        expect(await roomNights(roomType.id)).toEqual(before);
+      } finally {
+        try { await client.query('ROLLBACK'); } finally { client.release(); }
+        await Promise.allSettled(attempts);
+      }
+      expect(await reservationCount(roomType.id)).toBe(0);
+      expect(await roomNights(roomType.id)).toEqual(before);
+    });
+
+    it('leaves both nights unchanged when only the later night lacks two units', async () => {
+      const { roomType, quote: base } = await createFixture('sw157-later-night', 2);
+      const quote = await quoteForRooms(base, 2, 2, 2);
+      await runtime.commands.execute('booking.availability.updateRoomNightRange', {
+        roomTypeId: roomType.id, startLocalDate: addDays(quote.checkInLocalDate, 1),
+        endLocalDateExclusive: quote.checkOutLocalDate, sellableUnits: 1,
+      }, { actor: PROPERTY_MANAGER, idempotencyKey: randomUUID() });
+      const before = await roomNights(roomType.id);
+      expect(before).toEqual([
+        { local_date: quote.checkInLocalDate, sellable_units: 2, reserved_units: 0 },
+        { local_date: addDays(quote.checkInLocalDate, 1), sellable_units: 1, reserved_units: 0 },
+      ]);
+      expect(await reservationCount(roomType.id)).toBe(0);
+      const result = await runtime.commands.execute<{ kind: string }>('booking.reservation.create', inputFor(quote), {
+        actor: RESERVATION_ACTOR, idempotencyKey: randomUUID(),
+      });
+      expect(result.kind).toBe('unavailable');
+      expect(await reservationCount(roomType.id)).toBe(0);
+      expect(await roomNights(roomType.id)).toEqual(before);
+    });
+
+    it('serializes two contenders for the final two units without partial rows', async () => {
+      const { roomType, quote: base } = await createFixture('sw157-final-two', 2);
+      const quote = await quoteForRooms(base, 2, 2, 2);
+      const before = await roomNights(roomType.id);
+      expect(before.map(night => night.reserved_units)).toEqual([0, 0]);
+      expect(await reservationCount(roomType.id)).toBe(0);
+      const client = await runtime.database.pool.connect();
+      const attempts: Promise<{ kind: string }>[] = [];
+      try {
+        await client.query('BEGIN');
+        await client.query('SELECT room_type_id FROM booking_availability_room_nights WHERE room_type_id = $1 FOR UPDATE', [roomType.id]);
+        const holderPid = (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
+        const create = () => runtime.commands.execute<{ kind: string }>('booking.reservation.create', inputFor(quote), {
+          actor: RESERVATION_ACTOR, idempotencyKey: randomUUID(),
+        });
+        attempts.push(create());
+        await waitForReservationLockBlocking(holderPid, 1);
+        attempts.push(create());
+        await waitForReservationLockBlocking(holderPid, 2);
+        expect(await reservationCount(roomType.id)).toBe(0);
+        expect(await roomNights(roomType.id)).toEqual(before);
+      } finally {
+        try { await client.query('ROLLBACK'); } finally { client.release(); }
+        await Promise.allSettled(attempts);
+      }
+      const outcomes = await Promise.allSettled(attempts);
+      expect(outcomes.every(outcome => outcome.status === 'fulfilled')).toBe(true);
+      expect(outcomes.flatMap(outcome => outcome.status === 'fulfilled' ? [outcome.value.kind] : []).sort())
+        .toEqual(['created', 'unavailable']);
+      expect(await reservationCount(roomType.id)).toBe(1);
+      expect(await roomNights(roomType.id)).toEqual(before.map(night => ({ ...night, reserved_units: 2 })));
+    });
+  });
+
   it('starts one deferred payment attempt through the neutral Provider ABI', async () => {
     paymentInitiations.length = 0;
     paymentResult = defaultPaymentResult;
@@ -1276,7 +1428,7 @@ describe('Booking Reservation PostgreSQL integration', () => {
       .rejects.toThrow(/booking_reservation_refund_attempt_reservation_fk/i);
   }, 120_000);
 
-  it('reconciles past a dead oldest refund job without starving later pending refunds', async () => {
+  it('runs scheduled reconciliation past a dead oldest refund job without starving later refunds', async () => {
     const fixtures = Array.from({ length: 101 }, () => ({
       reservationId: randomUUID(), roomTypeId: randomUUID(), attemptId: randomUUID(), refundId: randomUUID(),
     }));
@@ -1320,15 +1472,24 @@ describe('Booking Reservation PostgreSQL integration', () => {
     `, [refundIds]);
     const oldestRefundId = ordered.rows[0]!.id;
     const deadJobId = randomUUID();
+    const reconcileDedupeKey = `test:scheduled-refund-reconcile:${randomUUID()}`;
     await runtime.database.pool.query(`
       INSERT INTO platform_jobs (id, type, payload, dedupe_key, status, attempts, max_attempts, run_at)
       VALUES ($1, 'booking.reservation.process-refund', jsonb_build_object('refundId', $2::text, 'generation', 1),
         $3, 'dead', 5, 5, clock_timestamp())
     `, [deadJobId, oldestRefundId, `booking-reservation:refund:${oldestRefundId}:1`]);
     try {
-      await expect(runtime.commands.execute<{ enqueued: number }>(
-        'booking.reservation.reconcileRefunds', {}, { actor: SYSTEM_ACTOR, idempotencyKey: randomUUID() },
-      )).resolves.toEqual({ enqueued: 100 });
+      const definition = runtime.modules.flatMap(module => module.jobs ?? [])
+        .find(job => job.type === 'booking.reservation.reconcile-refunds')!;
+      expect(definition.schedule).toBeDefined();
+      const payload = scheduleOccurrencePayload(parseScheduleSpec(definition.type, definition.schedule!), new Date());
+      await runtime.database.transaction(tx => runtime.jobs.enqueue(tx, {
+        type: definition.type, payload, dedupeKey: reconcileDedupeKey, runAt: new Date(0),
+      }));
+      const worker = new Worker(runtime, { workerId: `scheduled-refunds-${randomUUID()}`, concurrency: 1 });
+      await expect(worker.runJobs()).resolves.toEqual({ processed: 1, failed: 0 });
+      expect((await runtime.database.pool.query('SELECT status FROM platform_jobs WHERE dedupe_key = $1', [reconcileDedupeKey])).rows)
+        .toEqual([{ status: 'completed' }]);
       await expect(runtime.database.pool.query('SELECT status FROM platform_jobs WHERE id = $1', [deadJobId]))
         .resolves.toMatchObject({ rows: [{ status: 'pending' }] });
       const firstPass = await runtime.database.pool.query<{ refund_id: string }>(`
@@ -1348,6 +1509,7 @@ describe('Booking Reservation PostgreSQL integration', () => {
         WHERE type = 'booking.reservation.process-refund' AND payload->>'refundId' = $1
       `, [laterRefundId])).resolves.toMatchObject({ rows: [{ refund_id: laterRefundId }] });
     } finally {
+      await runtime.database.pool.query('DELETE FROM platform_jobs WHERE dedupe_key = $1', [reconcileDedupeKey]);
       await runtime.database.pool.query(`
         DELETE FROM platform_jobs
         WHERE type = 'booking.reservation.process-refund' AND payload->>'refundId' = ANY($1::text[])

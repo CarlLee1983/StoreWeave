@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { closeSync, constants, copyFileSync, cpSync, fstatSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readSync, readdirSync, readFileSync, renameSync, rmSync, statSync, type Stats } from 'node:fs';
+import { closeSync, constants, copyFileSync, cpSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readSync, readdirSync, readFileSync, renameSync, rmSync, statSync, type Stats } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import semver from 'semver';
 import { z } from 'zod';
 import { catalogDigest } from '@storeweave/db';
+import { readNativeLayout, releaseIdentitySchema } from './native-layout';
 
 const MAX_ARCHIVE_BYTES = 256 * 1024 * 1024;
 const MAX_PAYLOAD_BYTES = 1024n * 1024n * 1024n;
@@ -16,9 +17,9 @@ export function validateReleaseDirectory(directory: string, expectedReleaseId?: 
   return withReleaseTree(directory, root => {
     const releaseId = readFileSync(join(root, 'RELEASE'), 'utf8').trim();
     const version = readFileSync(join(root, 'VERSION'), 'utf8').trim();
-    if (!['base', 'commerce'].includes(releaseId) || (expectedReleaseId && releaseId !== expectedReleaseId)) throw new Error('Release identity mismatch');
+    if (!releaseIdentitySchema.safeParse(releaseId).success || (expectedReleaseId && releaseId !== expectedReleaseId)) throw new Error('Release identity mismatch');
     if (semver.valid(version) !== version) throw new Error('Invalid release version');
-    const name = releaseId === 'commerce' ? 'commerce' : 'storeweave';
+    const { name, requiredAssets } = readNativeLayout(root, releaseId);
     const info = JSON.parse(readFileSync(join(root, 'build-info.json'), 'utf8'));
     const manifest = JSON.parse(readFileSync(join(root, 'release-manifest.json'), 'utf8'));
     const manifestChecksum = catalogDigest(manifest);
@@ -29,13 +30,12 @@ export function validateReleaseDirectory(directory: string, expectedReleaseId?: 
       'runtime/bin/node', `bin/${name}`, 'scripts/install.sh', 'scripts/validate-release.js',
       `config/${name}.yaml.example`, `config/${name}.env.example`,
       `systemd/${name}-api.service`, `systemd/${name}-worker.service`,
-    ])) {
+    ], requiredAssets)) {
       if (!lstatSync(join(root, file)).isFile()) throw new Error(`Missing release file: ${file}`);
     }
     for (const file of ['runtime/bin/node', `bin/${name}`]) {
       if (!(lstatSync(join(root, file)).mode & 0o111)) throw new Error(`Release executable is not executable: ${file}`);
     }
-    if (releaseId === 'base' && ['admin', 'theme-assets'].some(path => existsSync(join(root, path)))) throw new Error('Base release contains Commerce assets');
     return { releaseId, version, name, manifestChecksum };
   });
 }
@@ -43,7 +43,7 @@ export function validateReleaseDirectory(directory: string, expectedReleaseId?: 
 /** Only the explicit B01 bridge may call this; modern validation never falls back to it. */
 export function validateLegacyB01Directory(directory: string) {
   return withReleaseTree(directory, root => {
-    for (const marker of ['RELEASE', 'release-manifest.json', 'scripts/validate-release.js', 'app/seed.js']) {
+    for (const marker of ['RELEASE', 'release-manifest.json', 'native-layout.json', 'scripts/validate-release.js', 'app/seed.js']) {
       if (lstatSync(join(root, marker), { throwIfNoEntry: false })) throw new Error('Modern release markers cannot be accepted as legacy B01');
     }
     if (readFileSync(join(root, 'VERSION'), 'utf8').trim() !== '0.1.0') throw new Error('Legacy B01 requires Commerce 0.1.0');

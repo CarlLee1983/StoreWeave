@@ -18,13 +18,14 @@ export async function createLegacySafetySnapshot(pool: Pool, options: {
   if (!url.hostname || url.pathname === '/' || !url.pathname) throw new Error('Legacy safety snapshot requires an explicit endpoint');
   url.port = url.port || process.env.PGPORT || '5432';
   const source = validateLegacyB01Directory(options.sourceDirectory);
-  const candidate = validateReleaseDirectory(options.candidateDirectory, 'commerce');
+  const candidate = validateReleaseDirectory(options.candidateDirectory, source.releaseId);
+  if (candidate.name !== source.name) throw new Error('B01 bridge filesystem name mismatch');
   if (candidate.version === source.version) throw new Error('B01 bridge requires a distinct candidate release version');
   const staging = mkdtempSync(join(root, '.legacy-safety-'));
   const id = randomUUID(), destination = join(root, id);
   const verifyArtifacts = () => {
     if (validateLegacyB01Directory(source.directory).treeChecksum !== source.treeChecksum
-      || validateReleaseDirectory(candidate.directory, 'commerce').treeChecksum !== candidate.treeChecksum) throw new Error('B01 bridge artifacts changed during safety capture');
+      || validateReleaseDirectory(candidate.directory, source.releaseId).treeChecksum !== candidate.treeChecksum) throw new Error('B01 bridge artifacts changed during safety capture');
   };
   try {
     const manifest = await withLegacySafetySnapshot(pool, async captured => {
@@ -67,9 +68,10 @@ export async function readLegacySafetySnapshot(directory: string, expectedChecks
   const raw = readPrivateJson(join(directory, 'safety.json'));
   if (catalogDigest(raw) !== expectedChecksum) throw new Error('Legacy safety descriptor checksum mismatch');
   const manifest = legacySafetySnapshotSchema.parse(raw);
-  if (basename(directory) !== manifest.id || manifest.candidate.releaseId !== 'commerce' || manifest.candidate.version === '0.1.0') throw new Error('Legacy safety identity mismatch');
+  if (basename(directory) !== manifest.id || manifest.candidate.releaseId !== manifest.source.releaseId
+    || manifest.candidate.name !== manifest.source.name || manifest.candidate.version === manifest.source.version) throw new Error('Legacy safety identity mismatch');
   if (catalogDigest(validateLegacyB01Directory(manifest.source.directory)) !== catalogDigest(manifest.source)
-    || catalogDigest(validateReleaseDirectory(manifest.candidate.directory, 'commerce')) !== catalogDigest(manifest.candidate)) throw new Error('Legacy safety recovery artifact changed');
+    || catalogDigest(validateReleaseDirectory(manifest.candidate.directory, manifest.source.releaseId)) !== catalogDigest(manifest.candidate)) throw new Error('Legacy safety recovery artifact changed');
   const dump = join(directory, manifest.dump.file);
   await verifyPrivateDump(dump, manifest.dump);
   return { directory, manifest, manifestChecksum: expectedChecksum, dump };

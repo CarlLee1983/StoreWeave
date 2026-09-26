@@ -9,7 +9,7 @@ export interface SourceText { readonly path: string; readonly text: string }
 const PRODUCT_IDS = new Set<ProductId>(['commerce', 'booking']);
 
 /**
- * Known, pinned exceptions (GitHub issue #97), matched by file + normalized (whitespace-
+ * Pinned historical-format and non-behavior literals, matched by file + normalized (whitespace-
  * collapsed) source line + an exact expected occurrence **count** on that line — not line
  * number alone, and not "any hit on this line passes". This closes two ways a masking
  * regression could slip through the checker unnoticed: a NEW branch anywhere in scope, and
@@ -19,24 +19,15 @@ const PRODUCT_IDS = new Set<ProductId>(['commerce', 'booking']);
  */
 export interface KnownException { readonly path: string; readonly snippet: string; readonly count: number; readonly issue: string }
 export const R3_KNOWN_EXCEPTIONS: readonly KnownException[] = [
-  { path: 'tools/cli/src/release-validation.ts', count: 1, issue: '#97', snippet: "if (!['base', 'commerce'].includes(releaseId) || (expectedReleaseId && releaseId !== expectedReleaseId)) throw new Error('Release identity mismatch');" },
-  { path: 'tools/cli/src/release-validation.ts', count: 2, issue: '#97', snippet: "const name = releaseId === 'commerce' ? 'commerce' : 'storeweave';" },
-  { path: 'tools/cli/src/release-validation.ts', count: 2, issue: '#97', snippet: "return { format: 'legacy-b01' as const, releaseId: 'commerce' as const, version: '0.1.0' as const, name: 'commerce' as const };" },
-  { path: 'tools/cli/src/legacy-safety-snapshot.ts', count: 1, issue: '#97', snippet: "const candidate = validateReleaseDirectory(options.candidateDirectory, 'commerce');" },
-  { path: 'tools/cli/src/legacy-safety-snapshot.ts', count: 1, issue: '#97', snippet: "|| validateReleaseDirectory(candidate.directory, 'commerce').treeChecksum !== candidate.treeChecksum) throw new Error('B01 bridge artifacts changed during safety capture');" },
-  { path: 'tools/cli/src/legacy-safety-snapshot.ts', count: 2, issue: '#97', snippet: "source: z.object({ format: z.literal('legacy-b01'), releaseId: z.literal('commerce'), version: z.literal('0.1.0'), name: z.literal('commerce')," },
-  { path: 'tools/cli/src/legacy-safety-snapshot.ts', count: 1, issue: '#97', snippet: "if (basename(directory) !== manifest.id || manifest.candidate.releaseId !== 'commerce' || manifest.candidate.version === '0.1.0') throw new Error('Legacy safety identity mismatch');" },
-  { path: 'tools/cli/src/legacy-safety-snapshot.ts', count: 1, issue: '#97', snippet: "|| catalogDigest(validateReleaseDirectory(manifest.candidate.directory, 'commerce')) !== catalogDigest(manifest.candidate)) throw new Error('Legacy safety recovery artifact changed');" },
-  { path: 'tools/cli/src/legacy-paired-snapshot.ts', count: 1, issue: '#97', snippet: "|| manifest.evidence.release.releaseId !== 'commerce' || manifest.evidence.release.releaseVersion !== '0.1.0'" },
-  { path: 'tools/cli/src/read-release-snapshot.ts', count: 1, issue: '#97', snippet: "const artifact = z.object({ directory: text.refine(isAbsolute), releaseId: z.enum(['base', 'commerce']), version: text," },
-  { path: 'tools/cli/src/read-release-snapshot.ts', count: 1, issue: '#97', snippet: "name: z.enum(['storeweave', 'commerce']), manifestChecksum: checksum, treeChecksum: checksum }).strict();" },
-  { path: 'tools/cli/src/read-release-snapshot.ts', count: 1, issue: '#97', snippet: "}).strict(), release: z.object({ sequence: decimal, checksum, releaseId: z.enum(['base', 'commerce']), releaseVersion: text, buildManifestChecksum: checksum }).strict()," },
-  { path: 'tools/cli/src/storage-backup.ts', count: 1, issue: '#97', snippet: "release: z.object({ id: z.enum(['base', 'commerce']), version: z.string().min(1), buildManifestChecksum: z.string().regex(/^sha256:[a-f0-9]{64}$/) }).strict()," },
-  { path: 'scripts/build.mjs', count: 1, issue: '#97', snippet: "const releaseId = process.env.STOREWEAVE_RELEASE ?? 'commerce';" },
-  { path: 'apps/admin/vite.config.ts', count: 1, issue: '#97', snippet: "const releaseId = process.env.STOREWEAVE_RELEASE ?? 'commerce';" },
-  { path: 'apps/admin/src/i18n.tsx', count: 1, issue: '#97', snippet: "navigation: '主要導覽', commerce: 'Commerce', integrations: 'Integrations', orders: '訂單', products: '商品', shipping: '配送與出貨', rmas: '退貨案件', invoices: '電子發票', erpQueue: 'ERP 佇列', systemHealth: '系統健康度', dlq: '死信佇列', online: 'Online'," },
-  { path: 'apps/admin/src/i18n.tsx', count: 1, issue: '#97', snippet: "navigation: 'Main navigation', commerce: 'Commerce', integrations: 'Integrations', orders: 'Orders', products: 'Products', shipping: 'Shipping & fulfillment', rmas: 'Returns', invoices: 'Invoices', erpQueue: 'ERP queue', systemHealth: 'System health', dlq: 'Dead letter queue', online: 'Online'," },
-  { path: 'apps/admin/src/i18n.tsx', count: 1, issue: '#97', snippet: "navigation: 'メインナビゲーション', commerce: 'Commerce', integrations: 'Integrations', orders: '注文', products: '商品', shipping: '配送と出荷', rmas: '返品', invoices: '電子インボイス', erpQueue: 'ERP キュー', systemHealth: 'システムヘルス', dlq: 'デッドレターキュー', online: 'オンライン'," },
+  // Compatibility for archives created before native-layout.json existed; new IDs require metadata.
+  { path: 'tools/cli/src/native-layout.ts', count: 2, issue: 'pre-layout native archive compatibility', snippet: "['commerce', { name: 'commerce', forbidAssets: false }]," },
+  { path: 'tools/cli/src/release-validation.ts', count: 2, issue: 'historical B01 format / default selection / UI label', snippet: "return { format: 'legacy-b01' as const, releaseId: 'commerce' as const, version: '0.1.0' as const, name: 'commerce' as const };" },
+  { path: 'tools/cli/src/legacy-safety-snapshot.ts', count: 2, issue: 'historical B01 format / default selection / UI label', snippet: "source: z.object({ format: z.literal('legacy-b01'), releaseId: z.literal('commerce'), version: z.literal('0.1.0'), name: z.literal('commerce')," },
+  { path: 'scripts/build.mjs', count: 1, issue: 'historical B01 format / default selection / UI label', snippet: "const releaseId = process.env.STOREWEAVE_RELEASE ?? 'commerce';" },
+  { path: 'apps/admin/vite.config.ts', count: 1, issue: 'historical B01 format / default selection / UI label', snippet: "const releaseId = process.env.STOREWEAVE_RELEASE ?? 'commerce';" },
+  { path: 'apps/admin/src/i18n.tsx', count: 1, issue: 'historical B01 format / default selection / UI label', snippet: "navigation: '主要導覽', commerce: 'Commerce', integrations: 'Integrations', orders: '訂單', products: '商品', shipping: '配送與出貨', rmas: '退貨案件', invoices: '電子發票', erpQueue: 'ERP 佇列', systemHealth: '系統健康度', dlq: '死信佇列', online: 'Online'," },
+  { path: 'apps/admin/src/i18n.tsx', count: 1, issue: 'historical B01 format / default selection / UI label', snippet: "navigation: 'Main navigation', commerce: 'Commerce', integrations: 'Integrations', orders: 'Orders', products: 'Products', shipping: 'Shipping & fulfillment', rmas: 'Returns', invoices: 'Invoices', erpQueue: 'ERP queue', systemHealth: 'System health', dlq: 'Dead letter queue', online: 'Online'," },
+  { path: 'apps/admin/src/i18n.tsx', count: 1, issue: 'historical B01 format / default selection / UI label', snippet: "navigation: 'メインナビゲーション', commerce: 'Commerce', integrations: 'Integrations', orders: '注文', products: '商品', shipping: '配送と出荷', rmas: '返品', invoices: '電子インボイス', erpQueue: 'ERP キュー', systemHealth: 'システムヘルス', dlq: 'デッドレターキュー', online: 'オンライン'," },
 ];
 
 function normalizeSnippet(value: string): string {

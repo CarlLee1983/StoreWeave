@@ -16,6 +16,7 @@ export async function createPairedSnapshot(options: {
   url.port = port;
   const source = validateReleaseDirectory(options.sourceDirectory);
   const candidate = validateReleaseDirectory(options.candidateDirectory, source.releaseId);
+  if (candidate.name !== source.name) throw new Error('Snapshot release filesystem name mismatch');
   const root = resolve(options.snapshotDirectory);
   mkdirSync(root, { recursive: true, mode: 0o700 });
   const staging = mkdtempSync(join(root, '.snapshot-'));

@@ -41,8 +41,8 @@
         },
         "cli": {
           "status": "present",
-          "inputCount": 186,
-          "inputsChecksum": "sha256:61064a8586cfa02275fdfe011448a722d4b8edaafac7eed0ea3d0781c8536502"
+          "inputCount": 187,
+          "inputsChecksum": "sha256:be4a171a263eadb1e5b67603522c1475ccfb241050de9e5f3a50bf58f564c31d"
         },
         "admin": {
           "status": "absent"
@@ -82,8 +82,8 @@
           "source": "packages/releases/base/src/cli.ts",
           "artifact": "app/cli.js",
           "status": "built",
-          "inputCount": 186,
-          "inputsChecksum": "sha256:61064a8586cfa02275fdfe011448a722d4b8edaafac7eed0ea3d0781c8536502"
+          "inputCount": 187,
+          "inputsChecksum": "sha256:be4a171a263eadb1e5b67603522c1475ccfb241050de9e5f3a50bf58f564c31d"
         }
       },
       "runtimeProjections": {
@@ -148,8 +148,8 @@
         },
         "cli": {
           "status": "present",
-          "inputCount": 375,
-          "inputsChecksum": "sha256:2e7364b155f93ea8375de4542d254c47a24c2fbedebc6235dee8359130ac0dcd"
+          "inputCount": 376,
+          "inputsChecksum": "sha256:0e32e7f988ae2f51c713fb6c0743203b1aaaeb1e948da7eed65c3694db849137"
         },
         "admin": {
           "status": "present",
@@ -191,8 +191,8 @@
           "source": "packages/releases/commerce/src/cli.ts",
           "artifact": "app/cli.js",
           "status": "built",
-          "inputCount": 375,
-          "inputsChecksum": "sha256:2e7364b155f93ea8375de4542d254c47a24c2fbedebc6235dee8359130ac0dcd"
+          "inputCount": 376,
+          "inputsChecksum": "sha256:0e32e7f988ae2f51c713fb6c0743203b1aaaeb1e948da7eed65c3694db849137"
         }
       },
       "runtimeProjections": {
@@ -240,7 +240,7 @@
           },
           {
             "path": "docs/base/b17/commerce-public-contract.semantic.v2.json",
-            "sha256": "da302c3037b16977c4f56ca48b437f5cdeb57a1e6394108e55c8268552ce707e"
+            "sha256": "0ad7f15e3fd454f5b0bfda418615407f3fd6277a2ddd3ed9ab3491b1450ee22a"
           }
         ]
       }

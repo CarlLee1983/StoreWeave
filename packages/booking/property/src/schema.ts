@@ -1,4 +1,4 @@
-import { check, integer, jsonb, pgTable, smallint, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { check, index, integer, jsonb, pgTable, smallint, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import type { PropertyAddress, PropertyDefaultPolicy, RoomTypeFacts } from './types';
 
@@ -39,6 +39,7 @@ export const bookingRoomTypes = pgTable('booking_property_room_types', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, table => [
+  index('booking_property_room_types_active_media_idx').on(table.mediaAssetId).where(sql`${table.status} = 'active'`),
   check('booking_property_room_type_status_check', sql`${table.status} IN ('active', 'disabled')`),
   check('booking_property_room_type_occupancy_check', sql`${table.maxOccupancyPerUnit} BETWEEN 1 AND 32`),
   check('booking_property_room_type_beds_check', sql`jsonb_typeof(${table.beds}) = 'array'`),

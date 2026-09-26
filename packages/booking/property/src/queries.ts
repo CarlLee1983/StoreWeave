@@ -1,11 +1,21 @@
 import { z } from 'zod';
-import { defineQuery, type QueryContext } from '@storeweave/contracts';
+import { defineQuery, PlatformError, type QueryContext } from '@storeweave/contracts';
 import { BookingPropertyRepository, toPropertyDto, toRoomTypeDto } from './repository';
 import { bookingPropertyRead } from './service';
 import { propertyDtoSchema, roomTypeDtoSchema } from './types';
 
 const repository = new BookingPropertyRepository();
 const emptyInput = z.object({}).strict();
+
+export const getPublicMediaQuery = defineQuery({
+  name: 'booking.property.getPublicMedia', summary: '確認公開房型圖片引用',
+  input: z.object({ mediaAssetId: z.string().uuid() }).strict(),
+  output: z.object({ mediaAssetId: z.string().uuid() }).strict(), permission: 'booking-property:public-read',
+});
+export const getPublicMediaHandler = async (input: { mediaAssetId: string }, context: QueryContext) => {
+  if (!await repository.hasActiveMedia(context.db, input.mediaAssetId)) throw PlatformError.notFound('Booking media', input.mediaAssetId);
+  return { mediaAssetId: input.mediaAssetId };
+};
 
 export const getPropertyQuery = defineQuery({
   name: 'booking.property.getProperty', summary: '讀取 Booking Property', input: emptyInput,

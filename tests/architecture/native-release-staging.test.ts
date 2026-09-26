@@ -106,6 +106,11 @@ describe('native release staging', () => {
         expect(readFileSync(join(stage, 'systemd', service.split('/').at(-1)!))).toEqual(readFileSync(join(ROOT, service)));
       }
       expect(existsSync(join(stage, 'admin/index.html'))).toBe(plan.admin);
+      expect(JSON.parse(readFileSync(join(stage, 'native-layout.json'), 'utf8'))).toEqual({
+        schemaVersion: 1, releaseId, name: plan.name,
+        assets: { admin: plan.admin, themeAssets: false },
+      });
+      expect(JSON.parse(readFileSync(join(stage, 'build-info.json'), 'utf8')).nativeLayoutVersion).toBe(1);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
