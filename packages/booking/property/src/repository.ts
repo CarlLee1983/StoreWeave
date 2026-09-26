@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { DrizzleDb, Tx } from '@storeweave/contracts';
 import { bookingProperties, bookingRoomTypes, type BookingPropertyRow, type BookingRoomTypeRow } from './schema';
 import type { PropertyDto, RoomTypeDto } from './types';
@@ -23,6 +23,12 @@ export function toRoomTypeDto(row: BookingRoomTypeRow): RoomTypeDto {
 }
 
 export class BookingPropertyRepository {
+  async hasActiveMedia(db: DrizzleDb | Tx, mediaAssetId: string): Promise<boolean> {
+    const rows = await db.select({ id: bookingRoomTypes.id }).from(bookingRoomTypes)
+      .where(and(eq(bookingRoomTypes.status, 'active'), eq(bookingRoomTypes.mediaAssetId, mediaAssetId))).limit(1);
+    return rows.length !== 0;
+  }
+
   async getProperty(db: DrizzleDb | Tx): Promise<BookingPropertyRow | null> {
     const [row] = await db.select().from(bookingProperties).where(eq(bookingProperties.singletonSlot, SINGLETON_SLOT)).limit(1);
     return row ?? null;

@@ -36,5 +36,8 @@ CREATE TABLE IF NOT EXISTS public.booking_property_room_types (
 );
 CREATE INDEX IF NOT EXISTS booking_property_room_types_active_idx
   ON public.booking_property_room_types (name, id) WHERE status = 'active';
+`), sqlMigration('0002_active_room_type_media_lookup', 'expand', `
+CREATE INDEX IF NOT EXISTS booking_property_room_types_active_media_idx
+  ON public.booking_property_room_types (media_asset_id) WHERE status = 'active';
 `)],
 };

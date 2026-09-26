@@ -20,7 +20,11 @@ export const processBookingReservationPaymentJobPayload = z.object({
 export const processBookingReservationRefundJobPayload = z.object({
   refundId: z.string().uuid(), generation: z.number().int().positive(),
 }).strict();
-export const reconcileBookingReservationRefundsJobPayload = z.object({}).strict();
+export const reconcileBookingReservationRefundsJobPayload = z.union([
+  z.object({ bucket: z.number().int(), scheduledFor: z.string().datetime() }).strict(),
+  // Preserve the original v1 shape for already queued or manually enqueued jobs.
+  z.object({}).strict(),
+]);
 export const reconcileLatePaymentNotificationsJobPayload = z.union([
   z.object({ bucket: z.number().int(), scheduledFor: z.string().datetime() }).strict(),
   z.object({ cutoff: z.string().datetime(), afterAttemptId: z.string().uuid() }).strict(),

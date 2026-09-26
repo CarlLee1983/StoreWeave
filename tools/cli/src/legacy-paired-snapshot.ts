@@ -93,7 +93,7 @@ export async function readLegacyPairedSnapshot(directory: string, expectedChecks
     || catalogDigest(manifest.candidate) !== catalogDigest(safety.manifest.candidate)
     || manifest.endpointChecksum !== safety.manifest.endpointChecksum
     || catalogDigest(manifest.evidence.database) !== catalogDigest(safety.manifest.evidence.database)
-    || manifest.evidence.release.releaseId !== 'commerce' || manifest.evidence.release.releaseVersion !== '0.1.0'
+    || manifest.evidence.release.releaseId !== manifest.source.releaseId || manifest.evidence.release.releaseVersion !== manifest.source.version
     || manifest.evidence.release.buildManifestChecksum !== (baseline.manifest as { buildManifestChecksum?: unknown }).buildManifestChecksum
     || baseline.id !== 'legacy-commerce-0.1.0-pre-b02') throw new Error('Legacy pair identity mismatch');
   const dump = join(directory, manifest.dump.file);

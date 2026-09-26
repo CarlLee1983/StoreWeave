@@ -21,6 +21,7 @@ import { SESSION_COOKIE, cookieName } from '../../apps/api/src/http/cookie-names
 
 const signingSecret = Buffer.alloc(32, 4).toString('base64url');
 const callbackSecret = 'booking-http-test-provider-signature';
+const internalPermissions = ['booking-reservation:system-write', 'booking-reservation:retention-write'];
 const manager: Actor = {
   id: 'test:booking-public-http-manager', type: 'user', displayName: 'Booking HTTP manager',
   permissions: ['booking-property:manage', 'booking-availability:manage'],
@@ -54,6 +55,7 @@ let quoteInput: Record<string, unknown>;
 let reservationAccess: BookingReservationAccess;
 let keyring: Keyring;
 let diagnosticLines: CapturedLine[];
+let internalCommandNames: string[];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -172,10 +174,15 @@ beforeAll(async () => {
   const quoteReservation = bindBookingAvailabilityQuoteReservation(property, { maxRoomsPerRequest: 4 }, keyring);
   const roomNights = bindModuleCapability('booking-availability', BOOKING_AVAILABILITY_ROOM_NIGHT_OPERATIONS_CAPABILITY, bookingAvailabilityRoomNightOperations);
   reservationAccess = createBookingReservationAccess(keyring);
+  const reservationModule = createBookingReservationModule(quoteReservation, roomNights, reservationAccess,
+    { reservationPiiRetentionDays: 1 }, testProvider);
+  internalCommandNames = (reservationModule.commands ?? [])
+    .filter(command => internalPermissions.includes(command.descriptor.permission))
+    .map(command => command.descriptor.name);
   runtime = await createRuntime({ release: { id: 'booking-public-http', version: '1.0.0', buildManifestChecksum: `sha256:${'4'.repeat(64)}` },
     roles: BASE_ROLES, config, secrets, logger: diagnostics.logger, availableExtensions: {}, modules: [
       createBookingAvailabilityModule(property, { maxRoomsPerRequest: 4 }, keyring), createBookingPropertyModule(),
-      createBookingReservationModule(quoteReservation, roomNights, reservationAccess, { reservationPiiRetentionDays: 1 }, testProvider),
+      reservationModule,
     ] });
   runtime.providers.register({ provider: testProvider, owner: 'booking-http-test' });
   await runtime.migrate();
@@ -193,6 +200,24 @@ beforeAll(async () => {
 afterAll(async () => { await app?.close(); await runtime?.close(); await container?.stop(); });
 
 describe('Booking public HTTP checkout credential boundary', () => {
+  it('rejects non-system direct invocation of internal Reservation commands', async () => {
+    const attempts = [
+      ['booking.reservation.materializeNotification', {
+        eventId: randomUUID(), reservationId: randomUUID(), kind: 'cancelled', cancelledAt: new Date().toISOString(),
+      }],
+      ['booking.reservation.anonymizeExpiredPii', {
+        afterId: null, runId: randomUUID(), bucket: 1, scheduledFor: new Date().toISOString(),
+      }],
+    ] as const;
+    for (const [name, input] of attempts) {
+      await expect(runtime.commands.execute(name, input, { actor: manager, idempotencyKey: randomUUID() }))
+        .rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(runtime.commands.execute(name, input, {
+        actor: { id: 'test:wildcard-operator', type: 'user', permissions: ['*'] }, idempotencyKey: randomUUID(),
+      })).rejects.toMatchObject({ code: 'FORBIDDEN', message: expect.stringContaining('Only a system') });
+    }
+  });
+
   it('mounts explicit browse/quote/create routes and returns the bearer only on a no-store create response', async () => {
     const property = await app.inject('/api/v1/booking/property');
     const roomTypes = await app.inject('/api/v1/booking/room-types');
@@ -209,9 +234,18 @@ describe('Booking public HTTP checkout credential boundary', () => {
       adults: quoteInput.adults, children: quoteInput.children, roomCount: quoteInput.roomCount,
     } });
     expect([quote.statusCode, invalidQuote.statusCode, soldOutQuote.statusCode, search.statusCode]).toEqual([201, 400, 201, 201]);
-    const catalog = (app.getHttpAdapter().getInstance() as { storeweaveHttpCatalog?: Array<{ path: string; output: unknown }> }).storeweaveHttpCatalog!;
+    const catalog = (app.getHttpAdapter().getInstance() as { storeweaveHttpCatalog?: Array<{
+      path: string; output: unknown; permission?: string | null; target?: { kind: string; name: string } | null;
+    }> }).storeweaveHttpCatalog!;
     const bookingRoutes = catalog.filter(route => route.path.startsWith('/api/v1/booking'));
     const callbackRoutes = catalog.filter(route => route.path.startsWith('/callbacks/'));
+    expect(internalCommandNames).toEqual(expect.arrayContaining([
+      'booking.reservation.materializeNotification', 'booking.reservation.anonymizeExpiredPii',
+    ]));
+    for (const route of catalog) {
+      expect(internalPermissions).not.toContain(route.permission);
+      expect(internalCommandNames).not.toContain(route.target?.name);
+    }
     expect(callbackRoutes).toHaveLength(1);
     expect(callbackRoutes[0]?.path).toBe('/callbacks/:kind/:providerId');
     expect(bookingRoutes).toHaveLength(31);

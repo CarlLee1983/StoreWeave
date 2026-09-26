@@ -1,4 +1,9 @@
 /** One build selection supplies process adapters and non-artifact runtime projections. */
+const bookingImplementationInputs = [
+  'packages/booking', 'packages/releases/booking', 'packages/themes/booking-default',
+  'apps/api/src/releases/booking.ts', 'scripts/seeds/booking.ts',
+];
+
 export const releases = {
   base: {
     runtime: 'packages/releases/base/src/runtime.ts',
@@ -10,7 +15,7 @@ export const releases = {
     storefrontProjection: 'packages/releases/base/src/storefront.ts',
     seed: 'scripts/seeds/base.ts',
     admin: false,
-    forbiddenInputs: ['packages/commerce', 'packages/extensions', 'packages/themes/default', 'packages/releases/commerce', 'apps/api/src/releases/commerce.ts', 'scripts/seeds/commerce.ts'],
+    forbiddenInputs: ['packages/commerce', 'packages/extensions', 'packages/themes/default', 'packages/releases/commerce', 'apps/api/src/releases/commerce.ts', 'scripts/seeds/commerce.ts', ...bookingImplementationInputs],
     native: {
       name: 'storeweave',
       configFiles: [
@@ -33,7 +38,7 @@ export const releases = {
     storefrontProjection: 'packages/examples/file-requests/src/storefront.ts',
     seed: 'scripts/seeds/file-requests.ts',
     admin: false,
-    forbiddenInputs: ['packages/commerce', 'packages/extensions', 'packages/themes/default', 'packages/releases/commerce'],
+    forbiddenInputs: ['packages/commerce', 'packages/extensions', 'packages/themes/default', 'packages/releases/commerce', ...bookingImplementationInputs],
     native: undefined,
   },
   commerce: {
@@ -46,6 +51,7 @@ export const releases = {
     storefrontProjection: 'packages/releases/commerce/src/storefront.ts',
     seed: 'scripts/seeds/commerce.ts',
     admin: true,
+    forbiddenInputs: bookingImplementationInputs,
     native: {
       name: 'commerce',
       configFiles: [

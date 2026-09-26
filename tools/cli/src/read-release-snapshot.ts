@@ -4,12 +4,13 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { catalogDigest } from '@storeweave/db';
 import { validateReleaseDirectory } from './release-validation';
+import { releaseIdentitySchema, safeReleaseNameSchema } from './native-layout';
 
 const text = z.string().min(1).refine(value => !value.includes('\0'));
 const checksum = z.string().regex(/^sha256:[a-f0-9]{64}$/);
 const decimal = z.string().regex(/^\d+$/);
-const artifact = z.object({ directory: text.refine(isAbsolute), releaseId: z.enum(['base', 'commerce']), version: text,
-  name: z.enum(['storeweave', 'commerce']), manifestChecksum: checksum, treeChecksum: checksum }).strict();
+const artifact = z.object({ directory: text.refine(isAbsolute), releaseId: releaseIdentitySchema, version: text,
+  name: safeReleaseNameSchema, manifestChecksum: checksum, treeChecksum: checksum }).strict();
 export const pairedSnapshotSchema = z.object({ schemaVersion: z.literal(1), id: z.string().uuid(), createdAt: z.string().datetime(),
   source: artifact, candidate: artifact, endpointChecksum: checksum,
   evidence: z.object({ database: z.object({ name: text, oid: decimal, systemIdentifier: decimal, serverVersion: text,
@@ -18,7 +19,7 @@ export const pairedSnapshotSchema = z.object({ schemaVersion: z.literal(1), id: 
       acl: z.array(z.object({ grantor: text, grantee: text.nullable(), privilege: z.enum(['CREATE', 'CONNECT', 'TEMPORARY']), grantable: z.boolean() }).strict()),
       settings: z.array(z.object({ role: text.nullable(), values: z.array(text) }).strict()),
     }).strict(),
-  }).strict(), release: z.object({ sequence: decimal, checksum, releaseId: z.enum(['base', 'commerce']), releaseVersion: text, buildManifestChecksum: checksum }).strict(),
+  }).strict(), release: z.object({ sequence: decimal, checksum, releaseId: releaseIdentitySchema, releaseVersion: text, buildManifestChecksum: checksum }).strict(),
     migrationsChecksum: checksum, historyChecksum: checksum,
     historySequence: z.object({ lastValue: decimal, isCalled: z.boolean() }).strict(),
   }).strict(),
@@ -33,6 +34,7 @@ export async function readPairedSnapshot(directory: string, expectedChecksum: st
   if (catalogDigest(raw) !== expectedChecksum) throw new Error('Snapshot descriptor checksum mismatch');
   const manifest = pairedSnapshotSchema.parse(raw);
   if (basename(directory) !== manifest.id || manifest.source.releaseId !== manifest.candidate.releaseId
+    || manifest.source.name !== manifest.candidate.name
     || manifest.evidence.release.releaseId !== manifest.source.releaseId
     || manifest.evidence.release.releaseVersion !== manifest.source.version
     || manifest.evidence.release.buildManifestChecksum !== manifest.source.manifestChecksum) throw new Error('Snapshot identity mismatch');

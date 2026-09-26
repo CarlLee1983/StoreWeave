@@ -64,6 +64,7 @@ cp -R "$BUILD_DIR/scripts/." "$STAGE/scripts/"
 cp "$BUILD_DIR/VERSION" "$BUILD_DIR/build-info.json" "$STAGE/"
 cp "$BUILD_DIR/release-manifest.json" "$BUILD_DIR/release-manifest.js.meta.json" "$STAGE/"
 printf '%s\n' "$RELEASE_ID" > "$STAGE/RELEASE"
+SKIP_ADMIN="$SKIP_ADMIN" node scripts/native-release-plan.mjs "$RELEASE_ID" --write-layout "$STAGE"
 
 # 固定版本的 Node runtime，只留執行所需的部分
 mkdir -p "$STAGE/runtime"

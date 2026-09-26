@@ -38540,6 +38540,11 @@
     },
     {
       "assurance": "provenance-only",
+      "file": "apps/api/src/controllers/booking-media.controller.ts",
+      "fingerprint": "a370d912b6108dab3d8750975b84ba35d44f10ef883ebf22008fa1c1e75ff4a5"
+    },
+    {
+      "assurance": "provenance-only",
       "file": "apps/api/src/controllers/booking-operator.controller.ts",
       "fingerprint": "917b38e8d9330ead6fd40265195638957cb9c6557bc0282698ff3d863e12b131"
     },
@@ -38776,7 +38781,7 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src/releases/booking.ts",
-      "fingerprint": "cc7bd7f7334b07f32d74bde802e1ee74717e2c4bfb62c9347c6b01e3fb4c682d"
+      "fingerprint": "260898f0e88511fccd0499fc201efc795791aad83e7b8559a774d187e3ec0447"
     },
     {
       "assurance": "provenance-only",

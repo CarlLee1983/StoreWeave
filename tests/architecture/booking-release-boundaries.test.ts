@@ -19,6 +19,32 @@ describe('Booking release target boundaries', () => {
     })).toThrow('forbidden source "packages/commerce/order/src/module.ts"');
   });
 
+  it('excludes Booking implementation from other product builds', () => {
+    const bookingSources = [
+      'packages/booking/property/src/index.ts',
+      'packages/releases/booking/src/runtime.ts',
+      'packages/themes/booking-default/src/index.ts',
+      'apps/api/src/releases/booking.ts',
+      'scripts/seeds/booking.ts',
+    ];
+    for (const releaseId of ['base', 'commerce', 'file-requests'] as const) {
+      const release = releases[releaseId];
+      for (const source of bookingSources) {
+        expect(() => validateBuildGraph({
+          root, releaseId, target: 'manifest', inputs: [release.runtime, source],
+          forbiddenSources: release.forbiddenInputs,
+        }), `${releaseId} should reject ${source}`).toThrow(`forbidden source "${source}"`);
+      }
+      expect(validateBuildGraph({
+        root, releaseId, target: 'manifest',
+        inputs: [release.runtime, 'packages/platform/release/src/runtime.ts', 'apps/api/src/releases/booking.test.ts'],
+        forbiddenSources: release.forbiddenInputs,
+      })).toEqual([
+        'apps/api/src/releases/booking.test.ts', 'packages/platform/release/src/runtime.ts', release.runtime,
+      ].sort());
+    }
+  });
+
   it('rejects cross-target and React imports from the Booking server and worker', () => {
     expect(() => validateProjectionGraph({
       root, releaseId: 'booking', target: 'server', source: booking.server, artifact: 'app/api.js',

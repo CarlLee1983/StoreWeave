@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Readable } from 'node:stream';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { Worker, type Runtime } from '@storeweave/kernel';
 import { SYSTEM_ACTOR } from '@storeweave/contracts';
@@ -106,6 +107,66 @@ afterAll(async () => {
 });
 
 describe('Booking Release composed journey', () => {
+  it('serves only previews referenced by active rooms through the composed storefront', async () => {
+    const index = await runtime.database.pool.query<{ indexdef: string }>(
+      "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'booking_property_room_types' AND indexname = 'booking_property_room_types_active_media_idx'",
+    );
+    expect(index.rows).toHaveLength(1);
+    expect(index.rows[0]!.indexdef).toContain('(media_asset_id)');
+    expect(index.rows[0]!.indexdef).toContain("WHERE (status = 'active'::text)");
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64');
+    const asset = await runtime.media.upload({ stream: Readable.from(png), originalName: 'room.png', contentType: 'image/png', ownerActorId: operator.id });
+    await runtime.media.process({ assetId: asset.id, generation: asset.generation }, { signal: new AbortController().signal });
+    const facts = {
+      name: 'Photo Room', description: null, maxOccupancyPerUnit: 2, beds: [{ type: 'queen', count: 1 }],
+      amenities: [], minimumStayNights: 1, maximumStayNights: null, mediaAssetId: asset.id,
+    };
+    const preview = `/booking/media/${asset.id}/preview`;
+    const opened = vi.spyOn(runtime.media, 'openPreview');
+    let photoRoomId: string | undefined;
+    try {
+      for (const id of ['invalid', randomUUID(), asset.id]) {
+        const denied = await app.inject(`/booking/media/${id}/preview`);
+        expect(denied.statusCode, denied.body).toBe(404);
+      }
+      expect(opened).not.toHaveBeenCalled();
+
+      const room = await runtime.commands.execute<{ id: string }>('booking.property.createRoomType', {
+        code: 'photo-room', ...facts,
+      }, { actor: operator, idempotencyKey: randomUUID() });
+      photoRoomId = room.id;
+      const page = await app.inject(`/rooms/${room.id}`);
+      expect(page.statusCode, page.body).toBe(200);
+      expect(page.body).toContain(`src="${preview}"`);
+      const response = await app.inject(preview);
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.headers['content-type']).toBe('image/webp');
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.rawPayload.subarray(0, 4).toString()).toBe('RIFF');
+      expect(response.rawPayload.subarray(8, 12).toString()).toBe('WEBP');
+      expect(opened).toHaveBeenCalledTimes(1);
+      expect((await app.inject(`/api/v1/media/${asset.id}/preview`)).statusCode).not.toBe(200);
+
+      await runtime.commands.execute('booking.property.updateRoomType', {
+        roomTypeId: room.id, ...facts, status: 'disabled',
+      }, { actor: operator, idempotencyKey: randomUUID() });
+      opened.mockClear();
+      expect((await app.inject(preview)).statusCode).toBe(404);
+      expect(opened).not.toHaveBeenCalled();
+
+      await runtime.commands.execute('booking.property.updateRoomType', {
+        roomTypeId: room.id, ...facts, status: 'active', mediaAssetId: null,
+      }, { actor: operator, idempotencyKey: randomUUID() });
+      expect((await app.inject(preview)).statusCode).toBe(404);
+      expect(opened).not.toHaveBeenCalled();
+    } finally {
+      opened.mockRestore();
+      if (photoRoomId) await runtime.commands.execute('booking.property.updateRoomType', {
+        roomTypeId: photoRoomId, ...facts, status: 'disabled', mediaAssetId: null,
+      }, { actor: operator, idempotencyKey: randomUUID() });
+    }
+  });
+
   it('searches, quotes, reserves, confirms with mock payment, cancels and refunds through the selected Release', async () => {
     const checkInLocalDate = addDays(localDate(new Date()), 7);
     const checkOutLocalDate = addDays(checkInLocalDate, 2);

@@ -9,7 +9,7 @@
     "./runtime": { "types": "./src/runtime.ts" },
     "./server": { "types": "./src/server.ts" },
     "./worker": { "types": "./src/worker.ts" },
-    "./admin": { "types": "./src/admin.ts" },
+    "./admin": { "types": "./src/admin.tsx" },
     "./cli": { "types": "./src/cli.ts" },
     "./config": { "types": "./src/config.ts" },
     "./storefront": { "types": "./src/storefront.ts" }

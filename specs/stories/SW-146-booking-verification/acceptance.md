@@ -2,7 +2,7 @@
 
 ## Happy Path
 
-* [ ] AC-001: A verification record maps every Spec 0011 §9 condition to executable evidence or an explicitly separate external release gate.
+* [x] AC-001: A verification record maps every Spec 0011 §9 condition to executable evidence or an explicitly separate external release gate.
 * [x] AC-002: `make verify` passes at the recorded source revision after all Booking stories are integrated.
 
 ## Business Rules
@@ -29,7 +29,11 @@
 | `AC-005` | negative record review | failed/missing-environment sample | induced/missing evidence | completion blocked with reason |
 | `AC-006` | diff review | verification changes | final worktree | docs/tests evidence only; no source workaround |
 
-## Current evidence
+## Current candidate — 2026-09-26
+
+[follow-up-verification.md](follow-up-verification.md) tracks the integrated working-tree candidate based on `013822c`. #109 was resolved by PR #111; SW-157 now supplies focused PostgreSQL multi-room evidence for #110. [contract-surfaces.md](contract-surfaces.md) records the explicit §9.1 inventory and bounded helper applicability. Checkpoint 4 passed both typechecks and all suites (158/1,577 unit, 32/351 Admin, 115/1,032 integration), with unchanged source digest `2d3e7003bdf936ed22916d768e342465036cd3ca1f609f329371f6981615db23`. Earlier interrupted/failed runs are retained in the follow-up. AC-001 is supported by the updated 17-row mapping and independent audit; AC-002 is supported by checkpoint 4. External gates remain unresolved. These records do not claim a ForgePilot runner completion.
+
+## Historical evidence (prior revision)
 
 [verification.md](verification.md) records the §9.1–17 matrix, exact repository commands and test paths, application source SHA `d1e707e8342e7a1336d829dd17fe36c1cfcf142d`, initial evidence commit `16e435b1d9a77296df00be6c9019aa9a35fe5a3b`, explicit coverage limits, unresolved external gates, and the failure/missing-evidence rule. `AC-001` stays unchecked because §9.8 lacks direct callback/cancellation and callback/expiry race assertions (blocker #109), and §9.13 lacks a real PostgreSQL multi-room occupancy-plus-inventory Reservation case (blocker #110). The record also bounds aggregate §9.1 coverage, captured-log scope for §9.11, and Booking-selected Admin shell typing for §9.14. These gaps are not external gates.
 
