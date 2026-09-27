@@ -203,6 +203,7 @@ ForgeFlowV2 是開發協定，不是 workflow engine，所以「整合」是這�
 | [117](117-s3-test-minio-image-unavailable.md) | S3 測試環境的 MinIO image 取得失敗 | 已修正 |
 | [118](118-historical-late-reconcile-drain-budget.md) | 歷史 Late Attempt 通知對帳測試的 drain 上限不足 | 已修正 |
 | [119](119-complete-documentation-update.md) | 已實作功能的文件與交付狀態同步 | 文件同步 |
+| [120](120-booking-notification-drain-failure-count.md) | Booking 通知重試整合測試的失敗數不符預期 | 待診斷 |
 
 **76–80 是 Spec 0007 的回填紀錄**（2026-08-26）：這一批不是先開工單再做，而是照
 [Spec 0007](../specs/0007-brand-content-and-contact.md) 直接實作完再補上工單。
