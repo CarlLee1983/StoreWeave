@@ -200,6 +200,9 @@ ForgeFlowV2 是開發協定，不是 workflow engine，所以「整合」是這�
 | [114](114-scheduler-dst-budgeted-tick-test.md) | DST 整合測試等待有界排程輪替（**completed locally**） | 完整 gate 穩定性 |
 | [115](115-admin-projection-snapshot-path-false-positive.md) | Admin projection 對含 `db` 的快照路徑誤判 | 待實作；SW-137 範圍外 |
 | [116](116-booking-room-media-public-preview.md) | Booking 房型圖片缺少公開預覽端點 | SW-135 漏項；SW-138 組裝後可見 |
+| [117](117-s3-test-minio-image-unavailable.md) | S3 測試環境的 MinIO image 取得失敗 | 已修正 |
+| [118](118-historical-late-reconcile-drain-budget.md) | 歷史 Late Attempt 通知對帳測試的 drain 上限不足 | 已修正 |
+| [119](119-complete-documentation-update.md) | 已實作功能的文件與交付狀態同步 | 文件同步 |
 
 **76–80 是 Spec 0007 的回填紀錄**（2026-08-26）：這一批不是先開工單再做，而是照
 [Spec 0007](../specs/0007-brand-content-and-contact.md) 直接實作完再補上工單。

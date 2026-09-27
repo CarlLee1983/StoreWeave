@@ -2,6 +2,9 @@
 
 ## `commerce` CLI
 
+下表以 Commerce 的命令名稱示範共用維運流程。Booking artifact 使用 `booking` 命令名稱、
+自己的設定與資料庫；Booking 的建置及目前部署界線見 [Booking 指南](booking.md)。
+
 同一支指令在 Docker 容器內、原生主機上、以及開發機（`pnpm commerce ...`）行為一致，
 因為三者走的是同一個 `bootstrap()` 與同一份 Runtime。
 
@@ -113,9 +116,10 @@ service: commerce-api/worker  行程是否在跑
 # 復原碼只顯示一次，遺失只能用一組有效代碼重發（mfa/recovery-codes，舊的一批同時作廢）
 ```
 
-後台的帳號管理與登入復原頁面由 B13 補上；在那之前這些流程走 HTTP 與 CLI。
-
-尚未實作的部分：後台的帳號管理 UI。
+後台的 Account 頁可讓已登入操作者設定第二因素與管理復原碼。Commerce 的 Operators
+頁提供有權限者的帳號管理；Booking 的 Admin projection 目前沒有 Operators 頁，操作者
+可由 CLI `user:create` 建立。登入與密碼復原頁由
+所選 Release 的認證頁面宣告提供，權限仍由後端檢查。
 
 ## 簽章金鑰
 

@@ -2,7 +2,7 @@
 
 本文件描述目前架構。跨應用的共用目標與分工見
 [通用應用基底與產品分工](reusable-application-base.md)；該方向包含 HTTP、Admin、CLI 與建置部署工具，
-尚未全部完成拆分，不限於目前的 Commerce 產品或 kernel。
+目前由 Base、Commerce 與 Booking 三個 Release 組裝，不限於 Commerce 產品或 kernel。
 
 ## 平台與產品
 
@@ -29,6 +29,7 @@ packages/platform/
   command-bus/          唯一寫入入口：授權 → 驗證 → Idempotency → 交易 → Audit → Outbox
   query-bus/            唯一讀取入口
   event-bus/            事件目錄與訂閱登記（不做即時派送）
+  release/              ReleaseDefinition、target projections、bootstrap 與組裝契約檢查
   outbox/               Transactional Outbox
   jobs/                 PostgreSQL 背景工作佇列（SKIP LOCKED、退避重試、dedupeKey）
   authorization/        權限登記、Policy Registry、角色映射
@@ -51,6 +52,7 @@ packages/platform/
 packages/releases/
   base/                  Base runtime 與 server / worker / Admin / CLI / config projections
   commerce/              Commerce runtime、module / extension catalog 與 target projections
+  booking/               Booking runtime、module / extension catalog 與 target projections
 
 packages/commerce/      第一個產品的 Product Modules：cart / catalog / coupon / customer /
                         inventory / invoice / loyalty / notification /
@@ -62,8 +64,10 @@ packages/extensions/    金流（mock-payment / ecpay）、物流（ecpay-logist
                         通知不是 Extension——是 base capability
                         `@storeweave/notifications`（module `platform-notifications`），
                         見 `packages/platform/notifications`
+packages/booking/       第二個產品的 Product Modules：property / availability / reservation
 packages/themes/default 預設 Storefront Theme（純 SSR 表單，不載入 JavaScript）
-tools/cli/              commerce CLI
+packages/themes/booking-default Booking Storefront Theme
+tools/cli/              共用 CLI 流程；名稱與設定由所選 Release 提供
 deployments/            example-store、example-store-two、systemd unit、設定 JSON Schema
 ```
 
@@ -163,9 +167,9 @@ Core subscriber 預設只能執行自身 command，外部 command 必須精確�
 | CLI | `tools/cli/src/main.ts` | 同一個 `bootstrap()` 與 Runtime |
 | Worker | `apps/worker/src/main.ts` | 同一個 `bootstrap()` 與 Runtime |
 
-`/api/v1/meta/commands`、`/meta/queries`、`/meta/events`、`/meta/permissions`
+`/api/v1/meta/commands`、`/api/v1/meta/queries`、`/api/v1/meta/events`、`/api/v1/meta/permissions`
 會輸出目前這個 Release 的完整契約（含 JSON Schema），可直接當整合文件用。
 
 ## Admin 資料流
 
-Admin 在 `main.tsx` 建立唯一且存活於 App 的 `QueryClient`。`query.ts` 集中 query keys，頁面透過 `api.ts` 的唯一 HTTP transport 呼叫 REST；`routes.tsx` 是 16 個 routes、導覽、頁首 metadata 與 actions 的唯一來源。Query 和 mutation 都不自動 retry，cache 與未知結果的 operation recovery 都只在記憶體；登入、登出或 token／帳號切換時，App 先取消並清除舊 query cache 與 operation recovery。未知 command 只能以原本不可變的 request 與 idempotency key 重試；只有明確成功或拒絕才結束該次操作，之後使用者另發起的合法新操作才取得新 key。
+Admin 在 `main.tsx` 建立唯一且存活於 App 的 `QueryClient`。`query.ts` 集中 query keys，頁面透過 `api.ts` 的唯一 HTTP transport 呼叫 REST；`routes.tsx` 讀取所選 Release 的 Admin projection，導覽、頁首 metadata 與 actions 隨產品組裝。Query 和 mutation 都不自動 retry，cache 與未知結果的 operation recovery 都只在記憶體；登入、登出或 token／帳號切換時，App 先取消並清除舊 query cache 與 operation recovery。未知 command 只能以原本不可變的 request 與 idempotency key 重試；只有明確成功或拒絕才結束該次操作，之後使用者另發起的合法新操作才取得新 key。

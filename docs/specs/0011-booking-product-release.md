@@ -1,7 +1,7 @@
 # Spec 0011 — Booking Product Release 與跨產品組裝
 
 - 日期：2026-09-19；程式盤點基準：`866ceaf`。
-- 狀態：approved；ready for Story decomposition，尚未授權實作。
+- 狀態：主要工程功能已實作；§9 完整驗收與外部 release gate 仍須分別核對。
 - 決策來源：[ADR 0052](../adr/0052-booking-is-a-separate-product-release.md)。
 - 執行入口：[Booking 實作計畫](../booking-implementation-plan.md)。
 - 詞彙依根目錄 `CONTEXT.md`：Product Release、Base Module、Product Module、Property、Room Type、
@@ -141,8 +141,8 @@ Payment，只記錄並全額退款。若期限延長先取得鎖，原到期 job
 或重新占用房晚；退款失敗須通知營運者。
 
 任何提供可退款 Cancellation Policy 的 Release，只能選取通過 refund contract 的 Payment Provider。現有
-ECPay adapter 必須實作並驗證退款，才能成為 Booking 的可退款 provider；目前回傳 `unsupported` 的實作不符合
-本規格。外部 ECPay staging refund UAT 是該 provider 的 release gate。
+ECPay adapter 的退款能力須取得商家授權並通過驗證，才能成為 Booking 的可退款 provider；
+目前 Booking Release 只選用 Mock Payment。外部 ECPay staging refund UAT 是該 provider 的 release gate。
 
 Booking 擁有 confirmed、cancelled、payment-expiring 等事件到模板的 mapping 與文案；Base Notification 只
 提供 durable record、排程、寄送、重試、delivery log 與 provider adapter。通知失敗不回滾 Reservation。
@@ -231,4 +231,5 @@ Access Grant、management cookie、Account claim、rate limit
 工作流，最後一個 consumer 遷移後立即移除 superseded path。實作 Story 先跑受影響的最低有用檢查，整合 checkpoint
 與最終交付依根 `AGENTS.md` 執行 `make verify`。
 
-本次只交付規劃文件，因此不執行應用測試或外部 provider 驗證；文件檢查與獨立規格審查結果記在執行計畫。
+本節最後一段原為 2026-09-19 的規劃交付紀錄。後續已建立 Booking 模組、Release、Theme、
+HTTP 與 Admin 入口；目前操作方式及交付限制見 [Booking 指南](../booking.md)。

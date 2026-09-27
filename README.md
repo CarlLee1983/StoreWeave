@@ -1,12 +1,13 @@
 # StoreWeave
 
-跨應用的共用目標見 [通用應用基底與產品分工](docs/reusable-application-base.md)：
-後端、前端與工具可按需復用，Commerce 是第一個產品，後續也能以相同基底建構 ERP 等應用。
-目標定位與完整基底規劃見 [Spec 0009](docs/specs/0009-complete-modular-base.md)；
-能力盤點、套件策略與派工順序見 [Base 執行計畫](docs/base-implementation-plan.md)。
-Base B00–B17 已完成工程驗收：基礎工程可運作，`make verify` 已通過，且本機 SMTP 設定已完成實測。外部 staging、商家 UAT、正式部署設定與真實案場的商品化驗證另行追蹤；Base 工程完成不代表 production-ready。
+StoreWeave 以同一套 Platform 與 Base 組裝獨立的產品 Release。現有 **Base**（非商務網站基底）、
+**Commerce**（電商）與 **Booking**（住宿預訂）；各產品分開建置與使用資料庫。
+跨產品分工見 [通用應用基底與產品分工](docs/reusable-application-base.md)，
+Booking 的功能與操作入口見 [Booking 使用與開發指南](docs/booking.md)。
+Base B00–B17 已完成工程驗收。外部 staging、商家 UAT、正式部署設定與真實案場的驗證
+另行追蹤；工程功能完成不等於 production-ready。
 
-單站獨立部署的電商平台。每個客戶獨立建置、獨立部署、使用獨立資料庫，
+Commerce 是單站獨立部署的電商產品。每個客戶獨立建置、部署並使用獨立資料庫，
 但共用同一套 Commerce Core：**品牌差異用 Theme，特殊需求用 Extension，Core 永遠不改**。
 
 概念接近 WordPress 的 Core + Theme + Plugin，差別在於 Extension 不能改核心、
@@ -27,7 +28,7 @@ Infrastructure      PostgreSQL（唯一必要依賴；Redis 選配）
 
 ## 快速開始
 
-Docker（一條指令啟動 PostgreSQL + API + Worker）：
+Commerce Docker（一條指令啟動 PostgreSQL + API + Worker）：
 
 ```bash
 docker compose up -d
@@ -36,7 +37,9 @@ docker compose up -d
 # MCP 端點      http://localhost:3000/mcp
 ```
 
-本機開發（需要 Node.js 22 以上、pnpm 12 以上，以及自備一個 PostgreSQL）：
+Commerce 本機開發（需要 Node.js 22 以上、pnpm 12 以上，以及自備一個 PostgreSQL）。
+Booking 的獨立建置與設定見 [Booking 指南](docs/booking.md)；根目錄 Compose 與 Dockerfile
+目前只提供 Commerce／Base 路徑：
 
 pnpm 的版本釘在 `package.json` 的 `packageManager`（目前 `pnpm@12.0.0`），
 CI 與 Docker 建置都以它為準。用 Corepack（`corepack enable pnpm`）就不必自己裝：
@@ -65,7 +68,8 @@ pnpm "dev:worker"    # 需要 API token 時：pnpm commerce token:create --name 
 
 | 文件 | 內容 |
 | --- | --- |
-| [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | **全功能 Demo 演示指南（示範帳號、前台體驗、折扣碼測試與後台操作）** |
+| [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | Commerce Demo 演示指南（示範帳號、前台體驗、折扣碼測試與後台操作） |
+| [docs/booking.md](docs/booking.md) | Booking 功能、前後台入口、設定、建置與目前交付界線 |
 | [docs/architecture.md](docs/architecture.md) | 模組邊界、Command/Query/Event 流向、目錄結構 |
 | [docs/reusable-application-base.md](docs/reusable-application-base.md) | 通用基底與產品分工、前後端及工具復用原則、完成標準 |
 | [apps/admin/DESIGN.md](apps/admin/DESIGN.md) | 管理後台設計系統與資料／互動邊界 |
@@ -105,8 +109,9 @@ pnpm "dev:worker"    # 需要 API token 時：pnpm commerce token:create --name 
 | `pnpm build:admin` | 管理後台 Vite production build |
 | `pnpm test:integration` | PostgreSQL 整合測試（Testcontainers，需要 Docker） |
 | `pnpm test:all` | 以上三組測試 |
-| `pnpm smoke:docker` | Docker Compose 端到端 smoke test |
-| `pnpm smoke:native` | 在乾淨的 Debian 容器安裝 tarball 並跑端到端 smoke test |
+| `make verify` | 完成門檻：後端與後台型別檢查、unit、admin、integration 測試 |
+| `pnpm smoke:docker` | Commerce Docker Compose 端到端 smoke test |
+| `pnpm smoke:native` | 在乾淨的 Debian 容器安裝現有原生 tarball 並跑端到端 smoke test |
 
 ## 邊界（由測試強制，不只是文件）
 

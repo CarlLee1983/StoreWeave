@@ -1,7 +1,7 @@
 # 通用應用基底與產品分工
 
 - 日期：2026-09-10
-- 狀態：架構方向已確認；Base 工程實作已由 Spec 0009 B00–B17 完成。Base／Commerce 組裝與非商務範例提供可復用性證據，但跨產品的完整驗證仍隨未來產品追蹤。
+- 狀態：架構方向已確認；Base 工程實作已由 Spec 0009 B00–B17 完成。Booking 作為第二個產品已有獨立 Release、模組與 Theme；完整交付驗收與外部 release gate 依 Spec 0011 追蹤。
 - 本次交付：記錄概念、責任與完成標準，未變更程式或部署。
 
 ## 目標
@@ -60,16 +60,16 @@ Commerce 與 ERP 都有「庫存」，仍須先確認其資料與操作語意是
 
 ## 與目前專案的關係
 
-目前的共用 Runtime 與 Base／Commerce 組裝已由 B00–B17 驗證；下表說明已實作的責任分工，
+目前的共用 Runtime、Base／Commerce 組裝已由 B00–B17 驗證，Booking 亦已組裝；下表說明已實作的責任分工，
 不是僅因為已有 `packages/platform` 目錄而推論未來每種產品都已完成驗證：
 
 | 目前位置 | 已區分的責任 |
 | --- | --- |
 | `packages/platform/release` | 共用 Release 契約、bootstrap、manifest 與 target contract checks；產品組裝分別位於 `packages/releases/*` |
 | `packages/platform/config`、`authorization` | 共用設定與授權機制，以及產品設定預設和角色權限清單 |
-| `apps/api`、`apps/admin` | 共用 HTTP／Admin 能力，以及 Commerce 的路由、頁面與操作 |
+| `apps/api`、`apps/admin` | 共用 HTTP／Admin 能力，以及所選 Base、Commerce 或 Booking Release 的路由、頁面與操作 |
 | `tools/cli` | 共用維運流程，以及產品名稱、路徑、Release 限制與舊版相容處理 |
-| `scripts`、`deployments`、Docker 相關檔案 | 共用建置部署機制，以及產品入口、資產與部署範本 |
+| `scripts`、`deployments`、Docker 相關檔案 | 共用建置機制與 Base／Commerce 部署範本；Booking 已可建置，部署範本仍須補齊 |
 
 本文件確認責任分工，不預先固定搬移後的目錄名稱、套件發布方式或 repository 拆分方式。
 已完成的實作同時處理實際依賴、公開入口與建置產物；只搬檔案或隱藏選單不代表完成隔離。
@@ -88,9 +88,9 @@ Commerce 與 ERP 都有「庫存」，仍須先確認其資料與操作語意是
 6. 獨立使用範例能透過共用套件的公開入口運作，不依賴 Commerce 專案的隱藏設定或原始碼路徑。
 7. 共用能力有契約、測試與升級說明；Commerce 既有功能與資料相容性通過回歸驗證。
 
-## 第二產品的驗證方向：Booking
+## 第二產品的驗證：Booking
 
-下一個跨產品驗證以一個實際的住宿預訂 Product Release 為準，不先設計抽象的多產品模板。Booking 與
+跨產品驗證使用實際的住宿預訂 Product Release。Booking 與
 Commerce 分開建置、部署並使用獨立資料庫；它沿用 Platform 與適用的 Base Module，以自己的 Product Module
 表達住宿供應、價格、訂房與政策。第一版以房型數量表示可售供應，數量為一時也能涵蓋整棟或單一房間出租；
 實體房號分配不屬於第一版。

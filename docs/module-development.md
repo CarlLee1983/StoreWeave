@@ -8,7 +8,8 @@
 
 1. **模組套件**：`packages/<產品目錄>/<模組>/`。
 2. **站點組裝**：這個網站的 release package（`packages/releases/<id>/src/` 的 runtime 與 target projections），
-   以及把 release 登記進建置的 `scripts/releases.mjs`、`scripts/build-release.sh`、`scripts/seeds/<id>.ts`。
+   以及在 `scripts/releases.mjs` 登記各 build target 與 `scripts/seeds/<id>.ts`。需要原生安裝媒體時，
+   再提供 `native` 部署資料供 `scripts/build-release.sh` 使用。
 
 整份文件以可執行的範例對照：模組 [`packages/examples/file-requests`](../packages/examples/file-requests/src/module.ts)（檔案處理申請），
 release [`file-requests`](../packages/examples/file-requests/src/runtime.ts)。它跑通「授權上傳 → 排 job → 背景處理 →
@@ -191,8 +192,10 @@ export const httpAdapter: ReleaseHttpAdapter = { ...baseHttpAdapter, releaseId: 
 
 需要自己組 controllers 的 release，照 `apps/api/src/releases/base.ts` 寫完整的 adapter，頁面的 session 簽發接到
 `this.startSession`（工單 92 的守衛檢查這件事）。
-最後把 release id 登記進 `scripts/releases.mjs`、`scripts/build-release.sh` 的 `case` 與 `scripts/seeds/<id>.ts`，
-`STOREWEAVE_RELEASE=file-requests pnpm build` 就會建出這個網站。
+最後在 `scripts/releases.mjs` 登記 release 的 runtime、server、worker、Admin、CLI、config、
+storefront 與 seed 入口；`STOREWEAVE_RELEASE=file-requests pnpm build` 就會建出這個網站。
+Booking 的實際組裝參考 `packages/releases/booking/src/definition.ts` 與相鄰 target projections；
+它已可建置，但未提供 `scripts/releases.mjs` 的 `native` 部署資料，因此不能產生原生安裝媒體。
 
 ## 12. 測試
 

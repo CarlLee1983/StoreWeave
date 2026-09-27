@@ -2,7 +2,10 @@
 
 **完整基底目標（2026-09-06）**：[Spec 0009](0009-complete-modular-base.md) 與
 [Base 執行計畫](../base-implementation-plan.md)。B00–B17 已完成 Base 工程驗收；semantic contract coverage、external staging、商家 UAT、正式部署設定與首個真實專案驗證屬後續 quality、release 或產品工作，不阻擋 Base 工程結案。詳見 [B17 驗收矩陣](../base/b17/acceptance.md)。
-狀態核對（2026-09-19）：Spec 0008 的 Ticket 81–90 已完成、通過指定獨立審查並已合入 `main`；各票保留各自的驗收證據。
+狀態核對（2026-09-26）：0001–0007 的 Commerce 功能已依工單落地，0008 的 Ticket 81–90
+已完成並合入 `main`；0009、0010 的工程交付亦已結案。0011 已組裝 Booking Release 與
+主要旅程，仍須依其驗收條件核對完整交付及外部 release gate。舊規格內的派工語句保留作為歷史，
+目前進度以各工單、[Booking 指南](../booking.md)及本表為準。
 
 GitHub 派工入口：[Spec 0008 總單 #17](https://github.com/CarlLee1983/StoreWeave/issues/17)，內含完整規格與本批工單連結。
 
@@ -11,17 +14,17 @@ GitHub 派工入口：[Spec 0008 總單 #17](https://github.com/CarlLee1983/Stor
 
 | # | 規格 | 依賴 | 狀態 |
 | --- | --- | --- | --- |
-| [0001](0001-customer-identity-and-membership.md) | 顧客身分與前台會員 | — | ready-for-agent |
-| [0002](0002-pricing-engine-and-order-money-model.md) | 定價引擎與訂單金額模型 | — | ready-for-agent |
-| [0003](0003-cart.md) | 購物車 | 0001, 0002 | ready-for-agent |
-| [0004](0004-coupons-and-marketing-codes.md) | 優惠券與行銷碼 | 0001–0003 | ready-for-agent |
-| [0005](0005-points-tiers-and-analytics.md) | 購物金、會員等級與行銷分析 | 0001–0004 | ready-for-agent |
-| [0006](0006-commerce-operations-closure.md) | 購物營運閉環：付款、履約、售後與探索 | 0001–0005 | ready-for-agent |
-| [0007](0007-brand-content-and-contact.md) | 品牌內容與聯絡我們 | 0001–0006 | ready-for-agent |
+| [0001](0001-customer-identity-and-membership.md) | 顧客身分與前台會員 | — | 工程功能已實作 |
+| [0002](0002-pricing-engine-and-order-money-model.md) | 定價引擎與訂單金額模型 | — | 工程功能已實作 |
+| [0003](0003-cart.md) | 購物車 | 0001, 0002 | 工程功能已實作 |
+| [0004](0004-coupons-and-marketing-codes.md) | 優惠券與行銷碼 | 0001–0003 | 工程功能已實作 |
+| [0005](0005-points-tiers-and-analytics.md) | 購物金、會員等級與行銷分析 | 0001–0004 | 工程功能已實作 |
+| [0006](0006-commerce-operations-closure.md) | 購物營運閉環：付款、履約、售後與探索 | 0001–0005 | 工程功能已實作；外部金流／物流驗收另行追蹤 |
+| [0007](0007-brand-content-and-contact.md) | 品牌內容與聯絡我們 | 0001–0006 | 工程功能已實作 |
 | [0008](0008-admin-foundations-and-contracts.md) | 後台共用元件、資料狀態與 HTTP 契約收斂 | 既有後台 | done（Ticket 81–90 已合入 `main`） |
 | [0009](0009-complete-modular-base.md) | 完整應用基礎服務、模組契約與建站基底 | 既有 platform；Admin 部分銜接 0008 | done（Base 工程）；release readiness 與產品驗證另行追蹤 |
 | [0010](0010-auth-pages-as-declared-pages.md) | 認證頁面成為模組宣告的頁面 | 0009 的 B13；ADR 0047 | done（工單 92–98） |
-| [0011](0011-booking-product-release.md) | Booking Product Release 與跨產品組裝 | 0009；ADR 0052 | approved；等待 Story 拆分 |
+| [0011](0011-booking-product-release.md) | Booking Product Release 與跨產品組裝 | 0009；ADR 0052 | 主要功能已實作；完整驗收與外部 release gate 待核對 |
 | [0012](0012-dining-product-release.md) | Dining Product Release 與餐廳訂位 | 0009；ADR 0053 | ready-for-agent；待拆 Story |
 
 0001 與 0002 沒有相依，可並行；兩條線在 0003 會合。加價購接在 0004 之後，

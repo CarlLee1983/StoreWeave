@@ -1,12 +1,15 @@
 # Booking Product Release 實作計畫
 
 - 日期：2026-09-19
-- 狀態：planning complete；等待依本計畫拆成核准 Story，尚未授權實作。
+- 狀態：K00–K19 對應的主要工程路徑已落地；K20 完整驗收及外部 release gate 尚須依 Spec 0011 §9 核對。
 - 規格：[Spec 0011](specs/0011-booking-product-release.md)
 - 架構決策：[ADR 0052](adr/0052-booking-is-a-separate-product-release.md)
 - 訪談決策：[Booking decision log](booking-decision-log.md)
 
 ## 1. 執行規則
+
+以下工作圖與派工規則保留當時的規劃脈絡，不是目前仍待執行的工作清單。
+現行組裝與使用方式見 [Booking 指南](booking.md)。
 
 本計畫只管理依賴、邊界與驗收，不取代 Spec。每個工作包在派工前須拆成一張或多張 Story；一張 Story 的
 In Scope 只碰一個 package boundary。跨 package 契約以 expand／migrate／contract 拆開，使每張 Story 完成後

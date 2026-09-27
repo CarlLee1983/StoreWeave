@@ -20,7 +20,7 @@ OrderAdjustment 只接受 `promotion`，而後端也會回傳 `reward`。
 
 ## Current Baseline
 
-- `apps/admin`：React 18、Vite 6，16 個 routes；`routes.tsx` 是導覽與頁首的唯一來源。
+- `apps/admin`：React 18、Vite 6；`routes.tsx` 讀取所選 Release 的 Admin projection，組出導覽與頁首。
 - `api.ts` 集中 fetch、Bearer／cookie session、CSRF、Idempotency-Key、回應 envelope 與 ApiError。
 - `styles.css` 與 `enhancements.css` 依序載入，盤點共 2,832 行；14 處 payload-overlay、17 處 dialog 標記。
 - 已使用 `react-day-picker`；DateTimeField 組合日期與原生 time，保留現有本地日期語意。

@@ -1,6 +1,6 @@
 # Spec 0007 — 品牌內容與聯絡我們
 
-- 狀態：ready-for-agent
+- 狀態：工程功能已實作；交付證據見工單 76–80 及對應的 content／storefront 測試
 - 依賴：Spec 0001–0006
 - 相關 ADR：0033（品牌內容是 Core 的 content 模組）、0034（編輯照片仍由 Theme 擁有）、0010（平台對領域中立）、0021（跨模組不加外鍵）、0024（輸入拒絕未知欄位）、0018（匿名寫入端點用 Origin 檢查）；後續取代本規格部分內容的是 0049（Content 是 Base 模組）、0040（通知是 Base 能力）、0045（模組宣告前台頁面）
 
@@ -109,16 +109,16 @@ SSR 表單 POST，沿用既有 Origin 檢查。另加 honeypot 隱藏欄位與�
 
 ## Acceptance Criteria
 
-- [ ] 空資料庫時 `/story`、`/journal`、`/news`、`/faq` 皆回 404，`/contact` 仍可用。
-- [ ] 後台建立的草稿不出現在任何前台頁面；按下發布後才出現。
-- [ ] 同 kind 的內容依 `position` 排序，前台與後台一致。
-- [ ] `(kind, slug)` 重複時 command 回可讀的錯誤，不是資料庫例外。
-- [ ] 未登入訪客送得出聯絡訊息；缺 Origin 或 Origin 不符時被擋。
-- [ ] honeypot 有值時回成功畫面，但資料表沒有新列。
-- [ ] 聯絡訊息在後台收件匣可見，可標記已處理，且已處理的不能重複標記。
-- [ ] `image_key` 指向不存在的圖時，前台以無圖版型呈現而不是失敗。
-- [ ] 織日選物的三篇生活誌與品牌故事由 seed 注入，前台呈現與這輪之前一致。
-- [ ] `pnpm test`、`pnpm test:integration`、`pnpm test:admin`、`pnpm typecheck` 全綠。
+- [x] 空資料庫時 `/story`、`/journal`、`/news`、`/faq` 皆回 404，`/contact` 仍可用。
+- [x] 後台建立的草稿不出現在任何前台頁面；按下發布後才出現。
+- [x] 同 kind 的內容依 `position` 排序，前台與後台一致。
+- [x] `(kind, slug)` 重複時 command 回可讀的錯誤，不是資料庫例外。
+- [x] 未登入訪客送得出聯絡訊息；缺 Origin 或 Origin 不符時被擋。
+- [x] honeypot 有值時回成功畫面，但資料表沒有新列。
+- [x] 聯絡訊息在後台收件匣可見，可標記已處理，且已處理的不能重複標記。
+- [x] `image_key` 指向不存在的圖時，前台以無圖版型呈現而不是失敗。
+- [x] 織日選物的三篇生活誌與品牌故事由 seed 注入，前台呈現與這輪之前一致。
+- [x] `pnpm test`、`pnpm test:integration`、`pnpm test:admin`、`pnpm typecheck` 全綠（工單 119 的第二次 `make verify`）。
 
 ## Out of Scope
 
