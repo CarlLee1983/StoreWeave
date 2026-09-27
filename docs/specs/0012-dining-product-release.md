@@ -1,7 +1,7 @@
 # Spec 0012 — Dining Product Release
 
 - 日期：2026-09-26。
-- 狀態：ready-for-agent；已完成需求訪談，尚未拆成 Story 或開始實作。
+- 狀態：ready-for-agent；已完成需求訪談並拆成 SW-160–SW-176；尚未開始實作。
 - 產品邊界：[ADR 0053](../adr/0053-dining-is-a-separate-product-release.md)。
 - 詞彙依根目錄 `CONTEXT.md`：Dining Release、餐廳訂位申請、餐廳訂位、桌型、占桌時長、用餐人數。
 
