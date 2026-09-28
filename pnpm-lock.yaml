@@ -378,6 +378,8 @@ importers:
 
   packages/releases/commerce: {}
 
+  packages/releases/dining: {}
+
   packages/themes/base: {}
 
   packages/themes/booking-default: {}

@@ -1,0 +1,8 @@
+{
+  "name": "@storeweave/release-dining",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    "./config": { "types": "./src/config.ts" }
+  }
+}
