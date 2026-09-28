@@ -211,6 +211,7 @@ describe('release process artifacts', () => {
               'platform-cache/0001_init',
               'platform-storage/0001_init',
               'platform-mail/0001_init',
+              'platform-mail/0002_reference_erasure',
               'platform-media/0001_init',
               'platform-notifications/0001_init',
               'platform-site/0001_init',

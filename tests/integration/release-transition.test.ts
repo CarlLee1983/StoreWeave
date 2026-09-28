@@ -163,6 +163,7 @@ describe('release transitions', () => {
       'identity/0008_login_lockout',
       'platform-storage/0001_init',
       'platform-mail/0001_init',
+      'platform-mail/0002_reference_erasure',
       'platform-media/0001_init',
       'platform-notifications/0001_init',
       'platform-site/0001_init',
