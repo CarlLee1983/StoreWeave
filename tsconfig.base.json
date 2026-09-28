@@ -78,6 +78,7 @@
       "@storeweave/booking-property": ["packages/booking/property/src/index.ts"],
       "@storeweave/booking-availability": ["packages/booking/availability/src/index.ts"],
       "@storeweave/booking-reservation": ["packages/booking/reservation/src/index.ts"],
+      "@storeweave/dining-reservation": ["packages/dining/reservation/src/index.ts"],
       "@storeweave/release-file-requests": ["packages/examples/file-requests/src/definition.ts"],
       "@storeweave/release-file-requests/server": ["packages/examples/file-requests/src/server.ts"],
       "@storeweave/release-file-requests/worker": ["packages/examples/file-requests/src/worker.ts"],

@@ -46,6 +46,7 @@ COPY packages/releases/booking/package.json packages/releases/booking/
 COPY packages/releases/commerce/package.json packages/releases/commerce/
 COPY packages/releases/dining/package.json packages/releases/dining/
 COPY packages/booking/property/package.json packages/booking/property/
+COPY packages/dining/reservation/package.json packages/dining/reservation/
 COPY packages/booking/availability/package.json packages/booking/availability/
 COPY packages/booking/reservation/package.json packages/booking/reservation/
 COPY packages/platform/storage/package.json packages/platform/storage/

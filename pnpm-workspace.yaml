@@ -8,6 +8,7 @@ packages:
   - 'packages/platform/*'
   - 'packages/releases/*'
   - 'packages/booking/*'
+  - 'packages/dining/*'
   - 'packages/commerce/*'
   - 'packages/extensions/*'
   - 'packages/themes/*'

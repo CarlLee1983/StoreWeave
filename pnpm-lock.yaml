@@ -276,6 +276,8 @@ importers:
 
   packages/booking/reservation: {}
 
+  packages/dining/reservation: {}
+
   packages/commerce/cart: {}
 
   packages/commerce/catalog: {}
