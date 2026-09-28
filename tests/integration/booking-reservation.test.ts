@@ -599,6 +599,15 @@ async function drainBookingNotificationWork() {
   throw new Error(`Booking notification work did not settle: relayed ${relayed}, processed ${processed}, failed ${failed}`);
 }
 
+async function notificationEventJob(eventId: string) {
+  const result = await runtime.database.pool.query<{ status: string; attempts: number }>(`
+    SELECT status, attempts FROM platform_jobs
+    WHERE type = 'platform.event.deliver' AND payload->'event'->>'id' = $1
+  `, [eventId]);
+  expect(result.rows).toHaveLength(1);
+  return result.rows[0]!;
+}
+
 async function createAlertRepairRuntime(operatorAlertEmail?: string): Promise<Runtime> {
   const config = baseConfigSchema.parse({
     version: 1, store: { id: 'booking-reservation-test', name: 'Booking Reservation Test' },
@@ -4308,11 +4317,14 @@ describe('Booking Reservation PostgreSQL integration', () => {
     await runtime.commands.execute('booking.reservation.cancelByOperator', {
       reservationId: fixture.reservation.id, refundAmountMinor: 0, reason: 'mapping failure fixture',
     }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() });
-    await expect(drainBookingNotificationWork()).resolves.toMatchObject({ failed: 1 });
-    const mapping = await runtime.database.pool.query<{ mapping_status: string; mapping_failure_code: string; reference: string }>(`
-      SELECT mapping_status, mapping_failure_code, reference FROM booking_reservation_notification_links
+    await drainBookingNotificationWork();
+    const mapping = await runtime.database.pool.query<{ event_id: string; mapping_status: string; mapping_failure_code: string; reference: string }>(`
+      SELECT event_id, mapping_status, mapping_failure_code, reference FROM booking_reservation_notification_links
       WHERE reservation_id = $1`, [fixture.reservation.id]);
-    expect(mapping.rows).toEqual([{ mapping_status: 'mapping_failed', mapping_failure_code: 'booker_unavailable', reference: expect.any(String) }]);
+    expect(mapping.rows).toEqual([{ event_id: expect.any(String), mapping_status: 'mapping_failed', mapping_failure_code: 'booker_unavailable', reference: expect.any(String) }]);
+    const job = await notificationEventJob(mapping.rows[0]!.event_id);
+    expect(['pending', 'dead', 'completed']).toContain(job.status);
+    expect(job.attempts).toBeGreaterThan(0);
     const requestCount = await runtime.database.pool.query<{ count: string }>(
       'SELECT count(*)::text AS count FROM platform_notifications WHERE reference = $1', [mapping.rows[0]!.reference],
     );
@@ -4326,6 +4338,10 @@ describe('Booking Reservation PostgreSQL integration', () => {
 
   it('keeps a transient Base materialization failure retryable, then the same event creates exactly one request', async () => {
     const fixture = await createReservation('notification-retryable-materialization');
+    const unrelated = await createReservation('notification-unrelated-backlog');
+    await runtime.commands.execute('booking.reservation.cancelByOperator', {
+      reservationId: unrelated.reservation.id, refundAmountMinor: 0, reason: 'unrelated notification backlog',
+    }, { actor: OPERATOR_ACTOR, idempotencyKey: randomUUID() });
     const started = await runtime.commands.execute<{ attempt: { id: string; reference: string } }>(
       'booking.reservation.startPayment', { reservationId: fixture.reservation.id, method: 'deferred', checkoutCredential: await checkoutCredentialFor(fixture.reservation.id) },
       { actor: RESERVATION_ACTOR, idempotencyKey: randomUUID() },
@@ -4345,7 +4361,7 @@ describe('Booking Reservation PostgreSQL integration', () => {
       BEFORE INSERT ON public.platform_notifications
       FOR EACH ROW EXECUTE FUNCTION public.fail_booking_notification_materialization();`);
     try {
-      await expect(drainBookingNotificationWork()).resolves.toMatchObject({ failed: 1 });
+      await drainBookingNotificationWork();
     } finally {
       await runtime.database.pool.query(`DROP TRIGGER IF EXISTS booking_notification_materialization_failure ON public.platform_notifications;
         DROP FUNCTION IF EXISTS public.fail_booking_notification_materialization();`);
@@ -4358,13 +4374,26 @@ describe('Booking Reservation PostgreSQL integration', () => {
       mapping_status: 'mapping_retryable', mapping_failure_code: 'materialization_retryable', reference: expect.any(String),
     })]);
     const eventId = first.rows[0]!.event_id;
+    const failedJob = await notificationEventJob(eventId);
+    expect(['pending', 'dead']).toContain(failedJob.status);
+    expect(failedJob.attempts).toBeGreaterThan(0);
+    const unrelatedLink = await runtime.database.pool.query<{ event_id: string; mapping_status: string }>(`
+      SELECT event_id, mapping_status FROM booking_reservation_notification_links WHERE reservation_id = $1
+    `, [unrelated.reservation.id]);
+    expect(unrelatedLink.rows).toEqual([{ event_id: expect.any(String), mapping_status: 'mapping_retryable' }]);
+    const unrelatedJob = await notificationEventJob(unrelatedLink.rows[0]!.event_id);
+    expect(['pending', 'dead']).toContain(unrelatedJob.status);
+    expect(unrelatedJob.attempts).toBeGreaterThan(0);
     await runtime.database.pool.query(`UPDATE platform_jobs SET status = 'pending', run_at = pg_catalog.clock_timestamp()
       WHERE type = 'platform.event.deliver' AND payload->'event'->>'id' = $1`, [eventId]);
-    await expect(drainBookingNotificationWork()).resolves.toMatchObject({ failed: 0 });
+    await drainBookingNotificationWork();
     const final = await runtime.database.pool.query<{ mapping_status: string; mapping_failure_code: string | null; reference: string }>(`
       SELECT mapping_status, mapping_failure_code, reference FROM booking_reservation_notification_links WHERE reservation_id = $1
     `, [fixture.reservation.id]);
     expect(final.rows).toEqual([{ mapping_status: 'requested', mapping_failure_code: null, reference: first.rows[0]!.reference }]);
+    const completedJob = await notificationEventJob(eventId);
+    expect(completedJob.status).toBe('completed');
+    expect(completedJob.attempts).toBeGreaterThan(failedJob.attempts);
     const counts = await runtime.database.pool.query<{ links: string; requests: string }>(`
       SELECT
         (SELECT count(*)::text FROM booking_reservation_notification_links WHERE reservation_id = $1) AS links,
@@ -4394,7 +4423,7 @@ describe('Booking Reservation PostgreSQL integration', () => {
       BEFORE INSERT ON public.platform_notifications
       FOR EACH ROW EXECUTE FUNCTION public.fail_booking_notification_materialization();`);
     try {
-      await expect(drainBookingNotificationWork()).resolves.toMatchObject({ failed: 1 });
+      await drainBookingNotificationWork();
     } finally {
       await runtime.database.pool.query(`DROP TRIGGER IF EXISTS booking_notification_materialization_failure ON public.platform_notifications;
         DROP FUNCTION IF EXISTS public.fail_booking_notification_materialization();`);
@@ -4403,18 +4432,27 @@ describe('Booking Reservation PostgreSQL integration', () => {
       SELECT event_id FROM booking_reservation_notification_links WHERE reservation_id = $1 AND mapping_status = 'mapping_retryable'
     `, [fixture.reservation.id]);
     const eventId = retryable.rows[0]!.event_id;
+    const retryableJob = await notificationEventJob(eventId);
+    expect(['pending', 'dead']).toContain(retryableJob.status);
+    expect(retryableJob.attempts).toBeGreaterThan(0);
     await runtime.database.pool.query('UPDATE booking_reservation_reservations SET booker_email = NULL WHERE id = $1', [fixture.reservation.id]);
     await runtime.database.pool.query(`UPDATE platform_jobs SET status = 'pending', run_at = pg_catalog.clock_timestamp()
       WHERE type = 'platform.event.deliver' AND payload->'event'->>'id' = $1`, [eventId]);
-    await expect(drainBookingNotificationWork()).resolves.toMatchObject({ failed: 1 });
+    await drainBookingNotificationWork();
     await expect(runtime.database.pool.query(`SELECT mapping_status, mapping_failure_code
       FROM booking_reservation_notification_links WHERE reservation_id = $1`, [fixture.reservation.id]))
       .resolves.toMatchObject({ rows: [{ mapping_status: 'mapping_failed', mapping_failure_code: 'booker_unavailable' }] });
+    const terminalJob = await notificationEventJob(eventId);
+    expect(['pending', 'dead', 'completed']).toContain(terminalJob.status);
+    expect(terminalJob.attempts).toBeGreaterThan(retryableJob.attempts);
     // Terminal linkage short-circuits the event's next delivery without ever
     // issuing a grant or creating a Base request.
     await runtime.database.pool.query(`UPDATE platform_jobs SET status = 'pending', run_at = pg_catalog.clock_timestamp()
       WHERE type = 'platform.event.deliver' AND payload->'event'->>'id' = $1`, [eventId]);
-    await expect(drainBookingNotificationWork()).resolves.toMatchObject({ failed: 0 });
+    await drainBookingNotificationWork();
+    const settledJob = await notificationEventJob(eventId);
+    expect(settledJob.status).toBe('completed');
+    expect(settledJob.attempts).toBeGreaterThan(terminalJob.attempts);
     await expect(runtime.database.pool.query<{ count: string }>(`
       SELECT count(*)::text AS count FROM platform_notifications
       WHERE reference LIKE 'booking-reservation:' || $1 || ':%'
