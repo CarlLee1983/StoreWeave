@@ -34,7 +34,10 @@ async function start() {
       security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
     }),
     secrets: testSecretProvider({ SW_SIGNING_KEY_TEST: Buffer.alloc(32, 6).toString('base64url') }),
-    logger: noopLogger, availableExtensions: {}, modules: [createDiningReservationModule()],
+    logger: noopLogger, availableExtensions: {}, modules: [createDiningReservationModule({
+      source: { limit: 5, windowMinutes: 60 }, recipient: { limit: 5, windowMinutes: 60 },
+      piiRetentionDays: 30, identityKey: Buffer.alloc(32, 1),
+    })],
   });
   runtimes.push(runtime);
   await runtime.migrate();

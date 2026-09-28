@@ -57,6 +57,26 @@ export class DiningReservationRepository {
     return rows.map(row => ({ date: row.date, startTimes: row.startTimes }));
   }
 
+  /** Pending requests have no commitment and therefore never occupy a table. */
+  private async availableTable(db: DrizzleDb | Tx, partySize: number, startAt: Date, endAt: Date) {
+    const occupied = await db.select({
+      tableTypeId: diningCapacityCommitments.tableTypeId,
+      startAt: diningRequestSnapshots.startAt, endAt: diningRequestSnapshots.endAt,
+    }).from(diningCapacityCommitments)
+      .innerJoin(diningRequestSnapshots, eq(diningCapacityCommitments.requestId, diningRequestSnapshots.id))
+      .where(and(isNull(diningCapacityCommitments.cancelledAt),
+        lt(diningRequestSnapshots.startAt, endAt), gt(diningRequestSnapshots.endAt, startAt)));
+    for (const type of await this.listTableTypes(db)) {
+      if (type.active !== 1 || type.capacity < partySize || type.count === 0) continue;
+      if (peakConcurrent([...occupied.filter(row => row.tableTypeId === type.id), { startAt, endAt }]) <= type.count) return type;
+    }
+    return null;
+  }
+
+  async hasAvailableTable(db: DrizzleDb | Tx, partySize: number, startAt: Date, endAt: Date): Promise<boolean> {
+    return (await this.availableTable(db, partySize, startAt, endAt)) !== null;
+  }
+
   /** SW-166 calls this inside its request transaction, after its own eligibility checks. */
   async insertRequestSnapshot(tx: Tx, input: {
     id?: string; date: string; time: string; partySize: number; createdAt: Date;
@@ -101,23 +121,12 @@ export class DiningReservationRepository {
     if (!offeredStartTimes(request.startDate, await this.listWeekly(tx), await this.listOverrides(tx))
       .includes(request.startTime)) throw PlatformError.conflict('This Dining start is closed');
 
-    const occupied = await tx.select({
-      tableTypeId: diningCapacityCommitments.tableTypeId,
-      startAt: diningRequestSnapshots.startAt, endAt: diningRequestSnapshots.endAt,
-    }).from(diningCapacityCommitments)
-      .innerJoin(diningRequestSnapshots, eq(diningCapacityCommitments.requestId, diningRequestSnapshots.id))
-      .where(and(isNull(diningCapacityCommitments.cancelledAt),
-        lt(diningRequestSnapshots.startAt, request.endAt), gt(diningRequestSnapshots.endAt, request.startAt)));
-    for (const type of await this.listTableTypes(tx)) {
-      if (type.active !== 1 || type.capacity < request.partySize || type.count === 0) continue;
-      const overlapping = occupied.filter(row => row.tableTypeId === type.id);
-      if (peakConcurrent([...overlapping, request]) > type.count) continue;
-      const [commitment] = await tx.insert(diningCapacityCommitments).values({
-        requestId, tableTypeId: type.id, tableTypeCapacity: type.capacity, acceptedAt: effectiveNow,
-      }).returning();
-      return commitment!;
-    }
-    throw PlatformError.conflict('No Dining table type has capacity for this interval');
+    const type = await this.availableTable(tx, request.partySize, request.startAt, request.endAt);
+    if (!type) throw PlatformError.conflict('No Dining table type has capacity for this interval');
+    const [commitment] = await tx.insert(diningCapacityCommitments).values({
+      requestId, tableTypeId: type.id, tableTypeCapacity: type.capacity, acceptedAt: effectiveNow,
+    }).returning();
+    return commitment!;
   }
 
   /** Cancellation releases capacity; the accepted fact and table snapshot remain. */

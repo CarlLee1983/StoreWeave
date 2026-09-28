@@ -17,9 +17,9 @@ export const listWeeklyStartsQuery = defineQuery({ name: 'dining.reservation.lis
 export const listDateOverridesQuery = defineQuery({ name: 'dining.reservation.listDateOverrides', input: empty,
   output: z.array(overrideDtoSchema), permission });
 export const getOpenStartsQuery = defineQuery({ name: 'dining.reservation.getOpenStarts',
-  input: z.object({ date: localDateSchema }).strict(), output: z.array(z.object({
+  input: z.object({ date: localDateSchema, partySize: z.number().int().min(1).max(1000) }).strict(), output: z.array(z.object({
     time: z.string(), startAt: z.date(), endAt: z.date(),
-  }).strict()), permission });
+  }).strict()), permission: 'dining-reservation:availability' });
 
 export async function getVenueHandler(_input: unknown, context: QueryContext) {
   const row = await repository.getSettings(context.db);
@@ -34,15 +34,19 @@ export async function listWeeklyStartsHandler(_input: unknown, context: QueryCon
 export async function listDateOverridesHandler(_input: unknown, context: QueryContext) {
   return repository.listOverrides(context.db);
 }
-export async function getOpenStartsHandler(input: { date: string }, context: QueryContext) {
+export async function getOpenStartsHandler(input: { date: string; partySize: number }, context: QueryContext) {
   const venue = await repository.getSettings(context.db);
   if (!venue) throw PlatformError.notFound('Dining venue', 'singleton');
   const times = offeredStartTimes(input.date, await repository.listWeekly(context.db), await repository.listOverrides(context.db));
-  return times.flatMap(time => {
+  const candidates = times.flatMap(time => {
     const startAt = resolveLocalStart(input.date, time, venue.timezone);
     if (!startAt || !isWithinBookingWindow(startAt, context.now, {
       minAdvanceMinutes: venue.minAdvanceMinutes, maxAdvanceDays: venue.maxAdvanceDays,
     })) return [];
     return [{ time, startAt, endAt: new Date(startAt.getTime() + venue.occupancyMinutes * 60_000) }];
   });
+  const available = await Promise.all(candidates.map(async candidate =>
+    await repository.hasAvailableTable(context.db, input.partySize, candidate.startAt, candidate.endAt)
+      ? candidate : null));
+  return available.filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null);
 }

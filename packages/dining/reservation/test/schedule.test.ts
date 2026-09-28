@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isWithinBookingWindow, offeredStartTimes, resolveLocalStart } from '../src/schedule.js';
+import { createDiningReservationModule } from '../src/module.js';
 
 describe('resolveLocalStart', () => {
   it('resolves an ordinary local time to its UTC instant', () => {
@@ -69,5 +70,18 @@ describe('isWithinBookingWindow', () => {
     expect(isWithinBookingWindow(new Date(now.getTime() + 2 * 24 * 60 * 60_000 + 1), now, limits)).toBe(false);
     expect(() => isWithinBookingWindow(now, now, { minAdvanceMinutes: 0 })).toThrow(RangeError);
     expect(() => isWithinBookingWindow(now, now, { maxAdvanceDays: -1 })).toThrow(RangeError);
+  });
+});
+
+describe('public request policy', () => {
+  const policy = {
+    source: { limit: 2, windowMinutes: 60 }, recipient: { limit: 3, windowMinutes: 60 },
+    piiRetentionDays: 1, identityKey: Buffer.alloc(32, 1),
+  };
+
+  it('requires configured positive limits and cleanup before the Dining retention deadline', () => {
+    expect(() => createDiningReservationModule({ ...policy, source: { limit: 0, windowMinutes: 60 } })).toThrow();
+    expect(() => createDiningReservationModule({ ...policy, recipient: { limit: 3, windowMinutes: 1440 } })).toThrow();
+    expect(() => createDiningReservationModule(policy)).not.toThrow();
   });
 });

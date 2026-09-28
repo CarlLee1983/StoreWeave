@@ -107,5 +107,30 @@ CREATE TABLE IF NOT EXISTS public.dining_reservation_capacity_commitments (
 CREATE INDEX IF NOT EXISTS dining_reservation_commitments_active_type_idx
   ON public.dining_reservation_capacity_commitments (table_type_id)
   WHERE cancelled_at IS NULL;
+`), sqlMigration('0003_public_requests', 'expand', `
+CREATE TABLE IF NOT EXISTS public.dining_reservation_requests (
+  id uuid PRIMARY KEY REFERENCES public.dining_reservation_request_snapshots(id),
+  submission_hash text NOT NULL UNIQUE,
+  request_number text NOT NULL UNIQUE,
+  contact_name text NOT NULL,
+  contact_phone text NOT NULL,
+  contact_email text NOT NULL,
+  note text,
+  status text NOT NULL DEFAULT 'pending' CHECK (status = 'pending'),
+  created_at timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.dining_reservation_request_rate_events (
+  id uuid PRIMARY KEY,
+  source_hash text NOT NULL,
+  recipient_hash text NOT NULL,
+  created_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS dining_reservation_rate_source_idx
+  ON public.dining_reservation_request_rate_events (source_hash, created_at);
+CREATE INDEX IF NOT EXISTS dining_reservation_rate_recipient_idx
+  ON public.dining_reservation_request_rate_events (recipient_hash, created_at);
+CREATE INDEX IF NOT EXISTS dining_reservation_rate_expiry_idx
+  ON public.dining_reservation_request_rate_events (expires_at);
 `)],
 };

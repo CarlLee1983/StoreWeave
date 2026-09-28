@@ -60,6 +60,26 @@ export const diningRequestSnapshots = pgTable('dining_reservation_request_snapsh
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const diningRequests = pgTable('dining_reservation_requests', {
+  id: uuid('id').primaryKey().references(() => diningRequestSnapshots.id),
+  submissionHash: text('submission_hash').notNull().unique(),
+  number: text('request_number').notNull().unique(),
+  name: text('contact_name').notNull(),
+  phone: text('contact_phone').notNull(),
+  email: text('contact_email').notNull(),
+  note: text('note'),
+  status: text('status').notNull().default('pending'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+});
+
+export const diningRequestRateEvents = pgTable('dining_reservation_request_rate_events', {
+  id: uuid('id').primaryKey(),
+  sourceHash: text('source_hash').notNull(),
+  recipientHash: text('recipient_hash').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
+
 export const diningCapacityCommitments = pgTable('dining_reservation_capacity_commitments', {
   requestId: uuid('request_id').primaryKey().references(() => diningRequestSnapshots.id),
   tableTypeId: uuid('table_type_id').notNull().references(() => diningTableTypes.id),

@@ -9,7 +9,7 @@ import { DiningReservationRepository } from '../../packages/dining/reservation/s
 import { actorWith, createTestDatabase, testSecretProvider } from './helpers';
 
 const MANAGER = actorWith(['dining-reservation:manage']);
-const READER = actorWith(['dining-reservation:read']);
+const READER = actorWith(['dining-reservation:read', 'dining-reservation:availability']);
 const runtimes: Runtime[] = [];
 const repository = new DiningReservationRepository();
 
@@ -25,7 +25,10 @@ async function start() {
       security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
     }),
     secrets: testSecretProvider({ SW_SIGNING_KEY_TEST: Buffer.alloc(32, 5).toString('base64url') }),
-    logger: noopLogger, availableExtensions: {}, modules: [createDiningReservationModule()],
+    logger: noopLogger, availableExtensions: {}, modules: [createDiningReservationModule({
+      source: { limit: 5, windowMinutes: 60 }, recipient: { limit: 5, windowMinutes: 60 },
+      piiRetentionDays: 30, identityKey: Buffer.alloc(32, 1),
+    })],
   });
   runtimes.push(runtime);
   await runtime.migrate();
@@ -70,7 +73,7 @@ describe('Dining settings and schedule', () => {
       minAdvanceMinutes: 60, maxAdvanceDays: 30,
     })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     const open = await runtime.queries.execute<{ time: string }[]>('dining.reservation.getOpenStarts',
-      { date: liveDate }, { actor: READER });
+      { date: liveDate, partySize: 2 }, { actor: READER });
     expect(open).toMatchObject([{ time: '19:00' }]);
     await expect(runtime.queries.execute('dining.reservation.getVenue', {}, { actor: MANAGER }))
       .rejects.toMatchObject({ code: 'FORBIDDEN' });
