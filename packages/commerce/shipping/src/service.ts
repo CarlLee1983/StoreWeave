@@ -171,21 +171,15 @@ export const shippingService = {
     db: DrizzleDb | Tx,
     input: { shippingMethodId: string; subtotalCents: number; destinationKind: ShippingDestinationKind },
   ): Promise<CheckoutShippingMethodSnapshot> {
-    if (!Number.isSafeInteger(input.subtotalCents) || input.subtotalCents < 0) {
-      throw PlatformError.validation('subtotalCents must be a nonnegative integer');
-    }
-    const method = await repository.findMethodById(db, input.shippingMethodId);
-    if (!method || !method.enabled) throw PlatformError.notFound('ShippingMethod', input.shippingMethodId);
-    if (method.destinationKind !== input.destinationKind) {
-      throw PlatformError.validation(`Shipping method ${method.id} does not support destination kind ${input.destinationKind}`);
-    }
-    const shippingCents = method.freeShippingThresholdCents !== null && input.subtotalCents >= method.freeShippingThresholdCents
-      ? 0
-      : method.feeCents;
-    return {
-      id: method.id, code: method.code, name: method.name, provider: method.provider, type: method.type,
-      destinationKind: method.destinationKind as ShippingDestinationKind, shippingCents,
-    };
+    return resolveCheckoutSnapshot(await repository.findMethodById(db, input.shippingMethodId), input);
+  },
+
+  /** Freeze merchant terms until the Order transaction commits. */
+  async resolveCheckoutMethodForOrder(
+    tx: Tx,
+    input: { shippingMethodId: string; subtotalCents: number; destinationKind: ShippingDestinationKind },
+  ): Promise<CheckoutShippingMethodSnapshot> {
+    return resolveCheckoutSnapshot(await repository.findMethodByIdForCheckout(tx, input.shippingMethodId), input);
   },
 
   /** Order owns cancellation, while Shipping owns whether fulfilment has begun. */
@@ -373,3 +367,23 @@ export const shippingService = {
     return dto;
   },
 };
+
+function resolveCheckoutSnapshot(
+  method: Awaited<ReturnType<ShippingRepository['findMethodById']>>,
+  input: { shippingMethodId: string; subtotalCents: number; destinationKind: ShippingDestinationKind },
+): CheckoutShippingMethodSnapshot {
+  if (!Number.isSafeInteger(input.subtotalCents) || input.subtotalCents < 0) {
+    throw PlatformError.validation('subtotalCents must be a nonnegative integer');
+  }
+  if (!method || !method.enabled) throw PlatformError.notFound('ShippingMethod', input.shippingMethodId);
+  if (method.destinationKind !== input.destinationKind) {
+    throw PlatformError.validation(`Shipping method ${method.id} does not support destination kind ${input.destinationKind}`);
+  }
+  const shippingCents = method.freeShippingThresholdCents !== null && input.subtotalCents >= method.freeShippingThresholdCents
+    ? 0
+    : method.feeCents;
+  return {
+    id: method.id, code: method.code, name: method.name, provider: method.provider, type: method.type,
+    destinationKind: method.destinationKind as ShippingDestinationKind, shippingCents,
+  };
+}

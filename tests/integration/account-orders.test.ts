@@ -49,7 +49,7 @@ async function buy(session: string, sku: string, quantity = 1): Promise<string> 
   const confirm = await inject({ method: 'GET', url: '/checkout', cookies: { [SESSION_COOKIE]: session } });
   const cartId = /name="cartId" value="([^"]+)"/.exec(confirm.body)![1];
 
-  const res = await inject({ method: 'POST', url: '/checkout', ...form(storefrontCheckoutForm(h, cartId)) });
+  const res = await inject({ method: 'POST', url: '/checkout', ...form(await storefrontCheckoutForm(h, cartId)) });
   return (res.headers.location as string).replace('/orders/', '');
 }
 

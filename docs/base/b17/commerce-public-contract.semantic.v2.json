@@ -1,6 +1,6 @@
 {
   "caseCount": 145,
-  "caseDigest": "a60ae729f7575797430d042550d13fc9805004f2c6b6fd1cc034d2735ac512eb",
+  "caseDigest": "e6556fc7011f7fd10e3d27427241638d9395d83ff36bc0a9904faff0c779e3c4",
   "cases": [
     {
       "accepted": {
@@ -1010,6 +1010,32 @@
                       }
                     ]
                   },
+                  "removedItems": {
+                    "default": [],
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "productId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "unitPriceCents": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "productId",
+                        "name",
+                        "unitPriceCents"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "removedNames": {
                     "items": {
                       "type": "string"
@@ -1359,6 +1385,32 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "removedItems": {
+                    "default": [],
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "productId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "unitPriceCents": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "productId",
+                        "name",
+                        "unitPriceCents"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
                   },
                   "removedNames": {
                     "items": {
@@ -1717,6 +1769,32 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "removedItems": {
+                    "default": [],
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "productId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "unitPriceCents": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "productId",
+                        "name",
+                        "unitPriceCents"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
                   },
                   "removedNames": {
                     "items": {
@@ -3158,6 +3236,32 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "removedItems": {
+                    "default": [],
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "productId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "unitPriceCents": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "productId",
+                        "name",
+                        "unitPriceCents"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
                   },
                   "removedNames": {
                     "items": {
@@ -14902,6 +15006,32 @@
                       }
                     ]
                   },
+                  "removedItems": {
+                    "default": [],
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "productId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "unitPriceCents": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "productId",
+                        "name",
+                        "unitPriceCents"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "removedNames": {
                     "items": {
                       "type": "string"
@@ -16514,6 +16644,8 @@
           "auth": "session-or-anonymous",
           "bodyFields": [
             "cartId",
+            "confirmedPrices",
+            "confirmedShippingCents",
             "shippingMethodId",
             "destination"
           ],
@@ -16574,6 +16706,33 @@
               "cartId": {
                 "format": "uuid",
                 "type": "string"
+              },
+              "confirmedPrices": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "productId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "unitPriceCents": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "productId",
+                    "unitPriceCents"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 50,
+                "minItems": 1,
+                "type": "array"
+              },
+              "confirmedShippingCents": {
+                "minimum": 0,
+                "type": "integer"
               },
               "destination": {
                 "anyOf": [
@@ -16694,6 +16853,8 @@
               }
             },
             "required": [
+              "confirmedShippingCents",
+              "confirmedPrices",
               "shippingMethodId"
             ],
             "type": "object"
@@ -17815,6 +17976,13 @@
       ],
       "expected": {
         "cartId": "11111111-1111-4111-8111-111111111111",
+        "confirmedPrices": [
+          {
+            "productId": "11111111-1111-4111-8111-111111111111",
+            "unitPriceCents": 1
+          }
+        ],
+        "confirmedShippingCents": 1,
         "destination": {
           "city": "input-city",
           "countryCode": "TW",
@@ -17831,6 +17999,13 @@
       "id": "http-input:POST:/api/v1/cart/checkout",
       "input": {
         "cartId": "11111111-1111-4111-8111-111111111111",
+        "confirmedPrices": [
+          {
+            "productId": "11111111-1111-4111-8111-111111111111",
+            "unitPriceCents": 1
+          }
+        ],
+        "confirmedShippingCents": 1,
         "destination": {
           "city": "input-city",
           "countryCode": "TW",
@@ -18103,6 +18278,32 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "removedItems": {
+                    "default": [],
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "productId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "unitPriceCents": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "productId",
+                        "name",
+                        "unitPriceCents"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
                   },
                   "removedNames": {
                     "items": {
@@ -18471,6 +18672,32 @@
                       }
                     ]
                   },
+                  "removedItems": {
+                    "default": [],
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "productId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "unitPriceCents": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "productId",
+                        "name",
+                        "unitPriceCents"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "removedNames": {
                     "items": {
                       "type": "string"
@@ -18832,6 +19059,32 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "removedItems": {
+                    "default": [],
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "productId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "unitPriceCents": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "productId",
+                        "name",
+                        "unitPriceCents"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
                   },
                   "removedNames": {
                     "items": {
@@ -38479,13 +38732,13 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src + packages/commerce + packages/extensions + packages/platform + packages/releases/commerce/src + packages/themes/default/src",
-      "fingerprint": "1bd399f55ab454391ca6e5bf2281344fa33797e8f980a3eb8f9acfc2fd9f2d55",
+      "fingerprint": "7a0058510884630c20c3362ef26bf877883148a3c1ced39e390edeaa49eff5a6",
       "id": "zod:commerce-production-source-inventory",
       "limitations": [
         "A source fingerprint detects drift but does not prove behavior.",
         "Called predicate bodies and the complete input domain are not inferred from this AST inventory."
       ],
-      "occurrences": 1094,
+      "occurrences": 1109,
       "operator": "zod-semantic-operations"
     }
   ],
@@ -38494,13 +38747,13 @@
     "dependencyLock": "pnpm-lock.yaml",
     "dependencyLockSha256": "94cfd7c111675cca635f2f2376bfd854f2b80754eb4acd9fd36534d3b53965e2",
     "http": "docs/base/b17/commerce-http-contract.v1.json",
-    "httpSha256": "1f9c5563cd8cada3c51a797a121bd3a21c17ced22329eb9e6091da8f66c7066a",
+    "httpSha256": "bfb87bb8bd169fd5aac968d4d02971d2ec1ff261432033e66b85318e39e76ca1",
     "limitations": [
       "Artifact, dependency and source hashes detect drift but do not prove behavior.",
       "Only executable cases may remove runtime obligations from remaining."
     ],
     "structural": "docs/base/b17/commerce-public-contract.structural.v1.json",
-    "structuralSha256": "8181bc2aca70013d5215e2e95a15cbf9f7547de5bb9eaf3bd403df241bd927e7"
+    "structuralSha256": "899c0b68696728ebd8fc1c93e5c2845ccd63e5264a03e1376894ca865854af65"
   },
   "sourceFiles": [
     {
@@ -38561,7 +38814,7 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src/controllers/cart.controller.ts",
-      "fingerprint": "df5bec14816c76d3f97fd15f8cafb0300ee6ffbecaacc86c5e5a340a22d65750"
+      "fingerprint": "b0ea01cca851706be9ad1e5da20278f8304fb672463d0d1fd1faf3669db80947"
     },
     {
       "assurance": "provenance-only",
@@ -38836,7 +39089,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/commerce/cart/src/dto.ts",
-      "fingerprint": "c3bafc7be7bf82ba94b7119c7b2ca48106e337e7f05d20a93390afddf733d60c"
+      "fingerprint": "5141324f5d2645a88da318690baa4e6d886e93b9e446837337e203a75a480d29"
     },
     {
       "assurance": "provenance-only",
@@ -38861,7 +39114,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/commerce/cart/src/pages.ts",
-      "fingerprint": "9eae644e0f18bc3c1dd802b79e468b772e07269c7fc196f594a8405b4ceb2a18"
+      "fingerprint": "d07274e501bd1e1fd1c9b95032b37434fe787406ebf19596a0727a842ab6ca89"
     },
     {
       "assurance": "provenance-only",
@@ -38881,7 +39134,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/commerce/cart/src/service.ts",
-      "fingerprint": "4bce9c926a75945a5fb76d3d0e2074fcf79c313051b481d9855f5c00e3bc523a"
+      "fingerprint": "99291527063c3ea853cd3d4c7079123b2a7b3964b017df6a126a6a614c6c1c7f"
     },
     {
       "assurance": "provenance-only",
@@ -38926,7 +39179,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/commerce/catalog/src/repository.ts",
-      "fingerprint": "00c064808b74e0adbd3159a7d905ef9b95de58e139cd283d224a3498fcda5ae6"
+      "fingerprint": "2766f1e3fcf5263f2d4050e24c90861f4ea6b45625b99bda2d5de376ca8fd643"
     },
     {
       "assurance": "provenance-only",
@@ -38936,7 +39189,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/commerce/catalog/src/service.ts",
-      "fingerprint": "43f66eaaae2487dffdcf4e4abba0b2a983647aa09f59f7a4b53fc7ed069abb60"
+      "fingerprint": "4298065408032f07b56325cb595ce9c042a08764ddefcea9b395815e69811189"
     },
     {
       "assurance": "provenance-only",
@@ -39280,8 +39533,13 @@
     },
     {
       "assurance": "provenance-only",
+      "file": "packages/commerce/order/src/checkout-retry.ts",
+      "fingerprint": "0d33fe08715fc134166fb34d5a313a67d21d793abece5c7aae6863b023f69c10"
+    },
+    {
+      "assurance": "provenance-only",
       "file": "packages/commerce/order/src/commands.ts",
-      "fingerprint": "701472932daf635ee96860b0567333d512692554bd5644a69f876349954481b7"
+      "fingerprint": "6404a009162238dc4680f4576103142d27500acf3768b434067617d6b730ff7d"
     },
     {
       "assurance": "provenance-only",
@@ -39291,7 +39549,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/commerce/order/src/dto.ts",
-      "fingerprint": "f20cbca23d6d9d9ce07a5fe1c44e06252eff98fbc3b48ba223746b9c746f8a25"
+      "fingerprint": "7441b2930a67478b579298291c8ac569ffdac73e7d59d34b02ebf63fe2d81ae1"
     },
     {
       "assurance": "provenance-only",
@@ -39546,7 +39804,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/commerce/shipping/src/repository.ts",
-      "fingerprint": "2f71a5e145aa689cc033ca98e9af61b4edb7cb4d002e8fbc1d86ecbae5130619"
+      "fingerprint": "70250caeaf462816fc4d10431cbda3c3aae25a3de61d18ca2c57a79a7f435586"
     },
     {
       "assurance": "provenance-only",
@@ -39556,7 +39814,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/commerce/shipping/src/service.ts",
-      "fingerprint": "dcf91c2d7dba362e6ee39eb4aff4b3858f190c4192e39d9eaef075aced66a59b"
+      "fingerprint": "8bf858cbf0b287352cf01545687d5c29049c1ac6a8a1fce5afd9e06cc3012740"
     },
     {
       "assurance": "provenance-only",
@@ -39756,7 +40014,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/command-bus/src/command-bus.ts",
-      "fingerprint": "87c2894710a019905b1d07ffe69429f57083e134a5f4492d293150daeaf61a35"
+      "fingerprint": "246c172be88d299de3a55fdcfc589e32f68d614a180ef89f8a012b5f3e31d998"
     },
     {
       "assurance": "provenance-only",
@@ -39856,7 +40114,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/contracts/src/descriptors.ts",
-      "fingerprint": "0d55b1a12275ab24bd0ad59d478ef4587c2cc1ddb51650b66d709a96851bec1e"
+      "fingerprint": "6bc668fec5adc9977f2e5dfffd6003328986ce87b4ff34b227c75032b521c036"
     },
     {
       "assurance": "provenance-only",
@@ -40506,7 +40764,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/themes/default/src/index.ts",
-      "fingerprint": "c1cc5c664c554bb1c4627415a1aa828a455ffc369874691d965f7c131a9c1cb6"
+      "fingerprint": "eb470f4e33be26a0af52e0b4d6c42f94f7f8d4bfc54bb847aaaeec49b829de05"
     },
     {
       "assurance": "provenance-only",
@@ -40524,7 +40782,7 @@
     {
       "assurance": "provenance-only",
       "category": "core-command-output",
-      "fingerprint": "c4429973d54aac67331b0a2f6571ac50f10f43121b5ee3de75c5af4172c4902a",
+      "fingerprint": "c414d8487e7f1db0e322ec954750225f095662d62d13bfd82d45216d6b6511fd",
       "id": "core:command:commerce.cart.addToCart:output"
     },
     {
@@ -40536,7 +40794,7 @@
     {
       "assurance": "provenance-only",
       "category": "core-command-output",
-      "fingerprint": "c4429973d54aac67331b0a2f6571ac50f10f43121b5ee3de75c5af4172c4902a",
+      "fingerprint": "c414d8487e7f1db0e322ec954750225f095662d62d13bfd82d45216d6b6511fd",
       "id": "core:command:commerce.cart.applyCoupon:output"
     },
     {
@@ -40548,7 +40806,7 @@
     {
       "assurance": "provenance-only",
       "category": "core-command-output",
-      "fingerprint": "c4429973d54aac67331b0a2f6571ac50f10f43121b5ee3de75c5af4172c4902a",
+      "fingerprint": "c414d8487e7f1db0e322ec954750225f095662d62d13bfd82d45216d6b6511fd",
       "id": "core:command:commerce.cart.clearCart:output"
     },
     {
@@ -40560,7 +40818,7 @@
     {
       "assurance": "provenance-only",
       "category": "core-command-output",
-      "fingerprint": "c4429973d54aac67331b0a2f6571ac50f10f43121b5ee3de75c5af4172c4902a",
+      "fingerprint": "c414d8487e7f1db0e322ec954750225f095662d62d13bfd82d45216d6b6511fd",
       "id": "core:command:commerce.cart.mergeGuestCart:output"
     },
     {
@@ -40584,7 +40842,7 @@
     {
       "assurance": "provenance-only",
       "category": "core-command-output",
-      "fingerprint": "c4429973d54aac67331b0a2f6571ac50f10f43121b5ee3de75c5af4172c4902a",
+      "fingerprint": "c414d8487e7f1db0e322ec954750225f095662d62d13bfd82d45216d6b6511fd",
       "id": "core:command:commerce.cart.removeCartItem:output"
     },
     {
@@ -40596,7 +40854,7 @@
     {
       "assurance": "provenance-only",
       "category": "core-command-output",
-      "fingerprint": "c4429973d54aac67331b0a2f6571ac50f10f43121b5ee3de75c5af4172c4902a",
+      "fingerprint": "c414d8487e7f1db0e322ec954750225f095662d62d13bfd82d45216d6b6511fd",
       "id": "core:command:commerce.cart.removeCoupon:output"
     },
     {
@@ -40608,7 +40866,7 @@
     {
       "assurance": "provenance-only",
       "category": "core-command-output",
-      "fingerprint": "c4429973d54aac67331b0a2f6571ac50f10f43121b5ee3de75c5af4172c4902a",
+      "fingerprint": "c414d8487e7f1db0e322ec954750225f095662d62d13bfd82d45216d6b6511fd",
       "id": "core:command:commerce.cart.setCartItemQuantity:output"
     },
     {
@@ -40620,7 +40878,7 @@
     {
       "assurance": "provenance-only",
       "category": "core-command-output",
-      "fingerprint": "c4429973d54aac67331b0a2f6571ac50f10f43121b5ee3de75c5af4172c4902a",
+      "fingerprint": "c414d8487e7f1db0e322ec954750225f095662d62d13bfd82d45216d6b6511fd",
       "id": "core:command:commerce.cart.setRewardRedemption:output"
     },
     {
@@ -41058,7 +41316,7 @@
     {
       "assurance": "provenance-only",
       "category": "core-command-input",
-      "fingerprint": "12bd19ebb2a494ab18c47855b02a7a92a053d2d9aa74f6aa17e2959f4948f628",
+      "fingerprint": "a8010efe0b54737b73e15ab4a2b01830fedde4587ac222b176b4fe049f555311",
       "id": "core:command:commerce.order.checkoutCart:input"
     },
     {
@@ -41850,7 +42108,7 @@
     {
       "assurance": "provenance-only",
       "category": "core-query-output",
-      "fingerprint": "c4429973d54aac67331b0a2f6571ac50f10f43121b5ee3de75c5af4172c4902a",
+      "fingerprint": "c414d8487e7f1db0e322ec954750225f095662d62d13bfd82d45216d6b6511fd",
       "id": "core:query:commerce.cart.getCart:output"
     },
     {
@@ -42822,19 +43080,19 @@
     {
       "assurance": "provenance-only",
       "category": "http-route",
-      "fingerprint": "d81e64b851488eefe9230973ba135f0996346239421e96afd6108f4595f708dd",
+      "fingerprint": "d26bb9a8adcbcc3687c959f98b32126707a05050cf5ad588a7486ef243506ba4",
       "id": "http:DELETE:/api/v1/cart/coupon:composed"
     },
     {
       "assurance": "provenance-only",
       "category": "http-route",
-      "fingerprint": "c99df8dce5f8743b0a24d0b8304d7cc527d0671cecb71daea27d9d75d0954b81",
+      "fingerprint": "3055b1b817f974cd381108b030ee77376fbacd96b0ee44e4ad489b8bea0df5ad",
       "id": "http:DELETE:/api/v1/cart/items/:productId:composed"
     },
     {
       "assurance": "provenance-only",
       "category": "http-route",
-      "fingerprint": "211e1ab00e856325e90a2942051ff4657f52829150d64afcd901131d7db1b342",
+      "fingerprint": "a862c8ba29ad06384ad1a3328ad9f37399c76411ae73b77a042e387f709b81f7",
       "id": "http:DELETE:/api/v1/cart:composed"
     },
     {
@@ -42942,7 +43200,7 @@
     {
       "assurance": "provenance-only",
       "category": "http-route",
-      "fingerprint": "740a98cc9253a21b11f9720469c62e152f87f8f1244759621a695f8e3cee991d",
+      "fingerprint": "3d5b3f0db3f29c9609eb231954255295095a799205eae4508af66626ee85e835",
       "id": "http:GET:/api/v1/cart:composed"
     },
     {
@@ -43440,7 +43698,7 @@
     {
       "assurance": "provenance-only",
       "category": "http-route",
-      "fingerprint": "8df506387c6fd9686b4f098eb9df9c86eb64789bc0795b4d667d92a907ae23d6",
+      "fingerprint": "7e81f1f6fbe93a5046cb1d4edc5eaaad28d63458755d9b27dd1d1161680f19f6",
       "id": "http:PATCH:/api/v1/cart/items/:productId:composed"
     },
     {
@@ -43578,25 +43836,25 @@
     {
       "assurance": "provenance-only",
       "category": "http-route",
-      "fingerprint": "fb56fd5338fb62afd29f3006a0ba4d1959ae37a3702f483af62dd95dd1750533",
+      "fingerprint": "85c7a78d32cd02b31e1225dc579b12765c5df271c6048b1f90fc83e27e23081e",
       "id": "http:POST:/api/v1/cart/checkout:composed"
     },
     {
       "assurance": "provenance-only",
       "category": "http-route",
-      "fingerprint": "8034f3d5bb3a0344b62aa344d5b418503f112e5614839c059a3495a2d5e1cbbb",
+      "fingerprint": "8762052a76f2620c6e7e2e093410ebc23fbc6eda391d64dd53ae8c1a67d4c7ce",
       "id": "http:POST:/api/v1/cart/coupon:composed"
     },
     {
       "assurance": "provenance-only",
       "category": "http-route",
-      "fingerprint": "6707fd5beddaecc713251f188a2d0b2b2b42bc5adcb54cfbd52197e2a89737ce",
+      "fingerprint": "f7419810a8b06d30afe8209c1323f09251d1dc7c3457a72f27df0e2827dc53eb",
       "id": "http:POST:/api/v1/cart/items:composed"
     },
     {
       "assurance": "provenance-only",
       "category": "http-route",
-      "fingerprint": "9dc87e3875cf7c1749c48f8cd0873731b4e0dfc15fe9b832c7555d2b2fd68c17",
+      "fingerprint": "078fe2a1cf7c32953504185fe172c551998e11145121051bf018e1830e3700cc",
       "id": "http:POST:/api/v1/cart/rewards:bus"
     },
     {
@@ -43962,7 +44220,7 @@
     {
       "assurance": "provenance-only",
       "category": "http-route",
-      "fingerprint": "6336f4c3e21f11deca29a0fa5c44bfcc0d263ced32a9f2ec7ca8f755fea42737",
+      "fingerprint": "5fbdda5fef3679895a4c09133d2e77fd9fe5c6ba2167430014f32be012534456",
       "id": "http:POST:/checkout:storefront"
     },
     {

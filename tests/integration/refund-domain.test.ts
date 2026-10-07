@@ -14,7 +14,7 @@ async function paidOrder() {
   const customer = await defaultCustomer(h.runtime);
   await h.runtime.commands.execute('commerce.cart.addToCart', { productId: product.id, quantity: 1 }, { actor: customer, idempotencyKey: randomUUID() });
   const cart = await h.runtime.queries.execute<{ id: string }>('commerce.cart.getCart', {}, { actor: customer });
-  const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cart.id), { actor: customer, idempotencyKey: randomUUID() });
+  const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', await checkoutInput(h, cart.id), { actor: customer, idempotencyKey: randomUUID() });
   await payOrder(h.runtime, order.id);
   expect(await runJobsUntilProcessed(h.worker)).toMatchObject({ processed: 1, failed: 0 });
   return order;

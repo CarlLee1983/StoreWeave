@@ -60,7 +60,7 @@ async function paidOrderWithShipment(harness: TestHarness) {
   });
   const cart = await harness.runtime.queries.execute<{ id: string }>('commerce.cart.getCart', {}, { actor: customer });
   const order = await harness.runtime.commands.execute<any>(
-    'commerce.order.checkoutCart', checkoutInput(harness, cart.id), { actor: customer, idempotencyKey: randomUUID() },
+    'commerce.order.checkoutCart', await checkoutInput(harness, cart.id), { actor: customer, idempotencyKey: randomUUID() },
   );
   await payOrder(harness.runtime, order.id);
   // Mock payment confirmation is a worker job; a shipment may only be created

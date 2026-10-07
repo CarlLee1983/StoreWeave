@@ -280,13 +280,28 @@ export const checkoutCartInput = z.object({
    * （ADR 0022）——重送表單的瀏覽器不會、也沒辦法帶同一把鍵。
    */
   cartId: z.string().uuid(),
+  confirmedShippingCents: z.number().int().nonnegative(),
+  /** Every cart line's unit price as last confirmed by the customer. */
+  confirmedPrices: z.array(z.object({
+    productId: z.string().uuid(), unitPriceCents: z.number().int().nonnegative(),
+  }).strict()).min(1).max(50).superRefine((lines, context) => {
+    if (new Set(lines.map((line) => line.productId)).size !== lines.length) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Confirmed prices must contain each product once' });
+    }
+  }).transform((lines) => [...lines].sort((a, b) => a.productId.localeCompare(b.productId))),
   /** The merchant-owned method selected for this checkout. */
   shippingMethodId: z.string().uuid(),
   /** Home deliveries use a complete address; pickup uses a server-issued selection capability. */
-  destination: shippingDestinationInput.optional(),
+  destination: z.preprocess((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+    const normalized = Object.fromEntries(Object.entries(value).map(([key, field]) =>
+      [key, typeof field === 'string' ? field.trim() : field]));
+    if (normalized.line2 === '') normalized.line2 = null;
+    return normalized;
+  }, shippingDestinationInput).optional(),
   pickupSelectionToken: z.string().min(32).max(200).regex(/^[A-Za-z0-9_-]+$/).optional(),
-  pickupRecipient: z.string().min(1).max(120).optional(),
-  pickupPhone: z.string().min(1).max(40).optional(),
+  pickupRecipient: z.string().trim().min(1).max(120).optional(),
+  pickupPhone: z.string().trim().min(1).max(40).optional(),
   /** Defaults to ECPay's email/phone carrier when the customer makes no choice. */
   invoicePreference: invoicePreferenceInput.optional(),
   metadata: z.record(z.unknown()).optional(),

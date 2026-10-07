@@ -87,6 +87,11 @@ export class ShippingRepository {
     return row ?? null;
   }
 
+  async findMethodByIdForCheckout(tx: Tx, id: string): Promise<ShippingMethodRow | null> {
+    const [row] = await tx.select().from(shippingMethods).where(eq(shippingMethods.id, id)).limit(1).for('share');
+    return row ?? null;
+  }
+
   async findMethodByCode(db: DrizzleDb | Tx, code: string): Promise<ShippingMethodRow | null> {
     const [row] = await db.select().from(shippingMethods).where(eq(shippingMethods.code, code)).limit(1);
     return row ?? null;

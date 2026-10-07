@@ -35,8 +35,9 @@ export interface ThemeCartView {
   discountCents: number;
   totalCents: number;
   adjustments: { name: string; amountCents: number }[];
-  /** 已經買不到而被拿掉的商品。顧客要在結帳之前就知道。 */
+  /** Unavailable Cart lines excluded from the priced quote, pending explicit removal. */
   removedNames: string[];
+  removedItems?: { productId: string; name: string; unitPriceCents: number }[];
   /** 差一點就達成的門檻活動；沒有就是 null。 */
   nextThreshold: { name: string; remainingCents: number } | null;
   /** 本次套用的券。券不生效時 `discountCents` 是 0。 */
@@ -58,6 +59,11 @@ export interface ThemeCartView {
 
 /** 確認頁：購物車的資料加上結帳才需要的配送與付款選項。 */
 export interface ThemeCheckoutView extends ThemeCartView {
+  rejectedLines?: { productId: string; name: string | null; sku: string | null; message: string; currentUnitPriceCents?: number }[];
+  currentShippingCents?: number;
+  selectedPaymentMethod?: string;
+  pickupContact?: { recipient: string; phone: string };
+  invoiceSelection?: { preference: string; carrierNumber: string; loveCode: string };
   /** 訂單會寄到哪裡。結帳必須是會員，因此它一定有值。 */
   customerEmail: string;
   /** Merchant methods compatible with address or pickup checkout. */
@@ -135,6 +141,7 @@ async function loadCartView(ctx: PageResolveContext): Promise<ThemeCartView> {
     couponError: cart.couponError,
     reward: cart.reward,
     removedNames: cart.removedNames,
+    removedItems: cart.removedItems,
   };
 }
 
@@ -193,6 +200,8 @@ const pickupStorePickerInput = z.object({ token: formValue });
 
 const checkoutInput = z.object({
   cartId: formValue.optional(),
+  confirmedPrices: formValue,
+  confirmedShippingCents: formValue,
   shippingMethodId: formValue.optional(),
   pickupSelectionToken: formValue.optional(),
   pickupRecipient: formValue.optional(),
@@ -209,6 +218,15 @@ const checkoutInput = z.object({
   invoicePreference: formValue.optional(),
   invoiceCarrierNumber: formValue.optional(),
   invoiceLoveCode: formValue.optional(),
+});
+
+const orderLineRejection = z.object({
+  kind: z.literal('order_lines_rejected'),
+  lines: z.array(z.object({ productId: z.string(), sku: z.string().nullable(), name: z.string().nullable(),
+    reason: z.string(), message: z.string(), currentUnitPriceCents: z.number().int().nonnegative().optional() })),
+});
+const shippingFeeRejection = z.object({
+  kind: z.literal('shipping_fee_changed'), currentShippingCents: z.number().int().nonnegative(),
 });
 
 export const cartPages = {
@@ -343,7 +361,7 @@ export const cartPages = {
           'commerce.shipping.listShippingMethods', { enabled: true, limit: 100, offset: 0 }, { actor: ctx.actor },
         ),
       ]);
-      if (view.lines.length === 0) return { kind: 'redirect', location: '/cart' };
+      if (view.lines.length === 0 && view.removedNames.length === 0) return { kind: 'redirect', location: '/cart' };
       const shippingMethods = methods.items.map((method) => ({
         id: method.id,
         name: method.name,
@@ -479,7 +497,7 @@ export const cartPages = {
     contract: {
       kind: 'storefront', request: 'form', rateLimit: 'cart',
       input: jsonSchema([
-        'cartId', 'shippingMethodId', 'pickupSelectionToken', 'pickupRecipient', 'pickupPhone', 'recipient', 'phone',
+        'cartId', 'confirmedPrices', 'confirmedShippingCents', 'shippingMethodId', 'pickupSelectionToken', 'pickupRecipient', 'pickupPhone', 'recipient', 'phone',
         'postcode', 'city', 'district', 'line1', 'line2', 'paymentProvider', 'paymentMethod', 'invoicePreference',
         'invoiceCarrierNumber', 'invoiceLoveCode',
       ]),
@@ -487,15 +505,24 @@ export const cartPages = {
     },
     resolve: async (ctx, body) => {
       const cartId = body.cartId;
+      let confirmedPrices: unknown;
+      try { confirmedPrices = JSON.parse(body.confirmedPrices); }
+      catch { throw PlatformError.validation('請重新確認商品單價'); }
+      if (!/^\d+$/.test(body.confirmedShippingCents)) throw PlatformError.validation('請重新確認運費');
+      const confirmedShippingCents = Number(body.confirmedShippingCents);
       const paymentProvider: PaymentMethodProvider = ctx.providers.get<PaymentProviderV2>('payment', body.paymentProvider || undefined);
       const paymentMethod = paymentProvider.paymentMethods().find((method) => method.code === body.paymentMethod);
       if (!paymentMethod) {
         throw PlatformError.validation('請先選擇可用的付款方式');
       }
-      const order = await ctx.commands.execute<{ id: string; number: string }>(
+      let order: { id: string; number: string };
+      try {
+        order = await ctx.commands.execute<{ id: string; number: string }>(
         'commerce.order.checkoutCart',
         {
           cartId,
+          confirmedPrices,
+          confirmedShippingCents,
           shippingMethodId: body.shippingMethodId,
           ...(body.pickupSelectionToken ? {
             pickupSelectionToken: body.pickupSelectionToken, pickupRecipient: body.pickupRecipient?.trim() ?? '', pickupPhone: body.pickupPhone?.trim() ?? '',
@@ -508,7 +535,16 @@ export const cartPages = {
         },
         // 鍵綁上身分：冪等鍵是猜得到的（購物車識別碼），而它決定了誰讀得到那份回應。
         { actor: ctx.actor, idempotencyKey: `cart:${ctx.actor.id}:${cartId}` },
-      );
+        );
+      } catch (error) {
+        const rejection = error instanceof PlatformError && error.code === 'VALIDATION_ERROR'
+          ? orderLineRejection.safeParse(error.details) : null;
+        if (rejection?.success) return rejectedCheckoutView(ctx, body, rejection.data.lines, error);
+        const shipping = error instanceof PlatformError && error.code === 'VALIDATION_ERROR'
+          ? shippingFeeRejection.safeParse(error.details) : null;
+        if (shipping?.success) return rejectedCheckoutView(ctx, body, [], error, shipping.data.currentShippingCents);
+        throw error;
+      }
       await ctx.commands.execute('commerce.order.payOrder', {
         orderId: order.id,
         provider: paymentProvider.id,
@@ -524,3 +560,35 @@ export const cartPages = {
 } as const;
 
 export type CartPages = typeof cartPages;
+
+async function rejectedCheckoutView(
+  ctx: PageResolveContext,
+  body: z.infer<typeof checkoutInput>,
+  rejectedLines: NonNullable<ThemeCheckoutView['rejectedLines']>,
+  originalError: unknown,
+  currentShippingCents?: number,
+): Promise<{ kind: 'view'; status: 400; view: ThemeCheckoutView }> {
+  const outcome = await cartPages.checkoutView.resolve(ctx, {
+    shippingMethodId: body.shippingMethodId, pickupSelectionToken: body.pickupSelectionToken,
+  });
+  if (outcome.kind !== 'view') throw originalError;
+  return { kind: 'view', status: 400, view: {
+    ...outcome.view,
+    lines: outcome.view.lines.map((line) => ({ ...line, available: null })),
+    selectedPaymentMethod: body.paymentMethod,
+    pickupContact: body.pickupSelectionToken ? {
+      recipient: body.pickupRecipient ?? '', phone: body.pickupPhone ?? '',
+    } : undefined,
+    invoiceSelection: {
+      preference: body.invoicePreference ?? 'ecpay',
+      carrierNumber: body.invoiceCarrierNumber ?? '', loveCode: body.invoiceLoveCode ?? '',
+    },
+    currentShippingCents,
+    deliveryAddress: body.pickupSelectionToken ? outcome.view.deliveryAddress : {
+      recipient: body.recipient?.trim() ?? '', phone: body.phone?.trim() ?? '',
+      postcode: body.postcode?.trim() ?? '', city: body.city?.trim() ?? '',
+      district: body.district?.trim() || null, line1: body.line1?.trim() ?? '', line2: body.line2?.trim() || null,
+    },
+    error: currentShippingCents === undefined ? '部分商品無法結帳，請調整以下明細。' : '運費已變更，請重新確認目前運費。', rejectedLines,
+  } };
+}

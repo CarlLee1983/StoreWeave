@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ThemeContext } from '@storeweave/kernel';
-import type { ThemeCartView } from '@storeweave/cart';
+import type { ThemeCartView, ThemeCheckoutView } from '@storeweave/cart';
 import type { ThemeProductView } from '@storeweave/catalog';
 import type { ThemeArticleView } from '@storeweave/content';
 import type { ThemeOrderView } from '@storeweave/order';
@@ -413,13 +413,13 @@ describe('Default Theme 的商品瀏覽切片', () => {
     expect(html).toContain('href="/checkout">前往結帳</a>');
     expect(html).toContain('夏日折扣');
     expect(html).toContain('再買');
-    expect(html).toContain('這些商品已經買不到');
+    expect(html).toContain('這些商品目前無法購買');
     expect(html).toContain('role="status"');
   });
 
   it('空車與確認訂單都有可理解的下一步，確認頁仍只送既有 cartId 與 confirm 欄位', () => {
-    const empty = defaultTheme.renderers['commerce.cart.view'](context(), { ...cart, lines: [] });
-    const checkout = defaultTheme.renderers['commerce.checkout.view'](context({ customerName: '小美', csrfToken: 'csrf-token' }), {
+    const empty = defaultTheme.renderers['commerce.cart.view'](context(), { ...cart, lines: [], removedNames: [] });
+    const checkoutView = {
       ...cart,
       customerEmail: 'buyer@example.test',
       shippingMethods: [{ id: 'shipping-1', name: '宅配', feeCents: 6_000, freeShippingThresholdCents: 100_000 }],
@@ -427,7 +427,8 @@ describe('Default Theme 的商品瀏覽切片', () => {
       shippingPreview: { shippingCents: 6_000, totalCents: 124_000 },
       deliveryAddress: { recipient: '小美', phone: '0911222333', postcode: '100', city: '台北市', district: '中正區', line1: '忠孝東路 1 號', line2: null },
       payment: { provider: 'mock', methods: [{ code: 'mock', label: '測試付款', timing: 'immediate' }] },
-    });
+    } as const;
+    const checkout = defaultTheme.renderers['commerce.checkout.view'](context({ customerName: '小美', csrfToken: 'csrf-token' }), checkoutView);
 
     expect(empty).toContain('購物車是空的');
     expect(empty).toContain('href="/">返回商品列表</a>');
@@ -449,6 +450,43 @@ describe('Default Theme 的商品瀏覽切片', () => {
     expect(checkout).toContain('name="_csrf" value="csrf-token"');
     expect(checkout).toContain('建立訂單');
     expect(checkout).not.toContain('action="/cart/items/product-1"');
+
+    const rejected = defaultTheme.renderers['commerce.checkout.view'](context(), {
+      ...checkoutView, rejectedLines: [
+        { productId: 'p1', sku: 'A', name: '<缺貨商品>', message: '可售量不足' },
+        { productId: 'p2', sku: 'B', name: '幣別商品', message: '商品幣別與訂單不符' },
+      ],
+    });
+    expect(rejected).toContain('role="alert" aria-label="無法結帳的商品"');
+    expect(rejected).toContain('&lt;缺貨商品&gt;：可售量不足');
+    expect(rejected).toContain('幣別商品：商品幣別與訂單不符');
+    expect(rejected).not.toContain('<缺貨商品>');
+  });
+
+  it('結帳拒絕後的表單保留取貨聯絡資料與非預設發票選項', () => {
+    const view: ThemeCheckoutView = {
+      ...cart,
+      customerEmail: 'buyer@example.test',
+      shippingMethods: [{ id: 'pickup-1', name: '超商取貨', destinationKind: 'pickup_store', feeCents: 6000, freeShippingThresholdCents: null }],
+      selectedShippingMethodId: 'pickup-1', shippingPreview: { shippingCents: 6000, totalCents: 124000 },
+      deliveryAddress: { recipient: '帳戶姓名', phone: '0911111111', postcode: '100', city: '台北市', district: '中正區', line1: '舊地址', line2: null },
+      pickupSelection: { token: 'selection-token', storeName: '指定門市', storeAddress: '門市地址' },
+      pickupContact: { recipient: '<自填取貨人>', phone: '0922222222' },
+      payment: { provider: 'mock', methods: [{ code: 'mock', label: '測試付款', timing: 'immediate' }] },
+      invoice: { enabled: true },
+      invoiceSelection: { preference: 'mobile', carrierNumber: '/ABCD123', loveCode: '' },
+    };
+    const mobile = defaultTheme.renderers['commerce.checkout.submit'](context(), view);
+    expect(mobile).toContain('name="pickupRecipient" value="&lt;自填取貨人&gt;"');
+    expect(mobile).toContain('name="pickupPhone" value="0922222222"');
+    expect(mobile).toContain('<option value="mobile" selected>');
+    expect(mobile).toContain('name="invoiceCarrierNumber" value="/ABCD123"');
+
+    const donation = defaultTheme.renderers['commerce.checkout.submit'](context(), {
+      ...view, invoiceSelection: { preference: 'donation', carrierNumber: '', loveCode: '1234567' },
+    });
+    expect(donation).toContain('<option value="donation" selected>');
+    expect(donation).toContain('name="invoiceLoveCode" value="1234567"');
   });
 
   it('讓帳戶存取與個人資料沿用同一套頁面結構，而不改變欄位名稱', () => {
