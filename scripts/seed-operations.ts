@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { sql } from 'drizzle-orm';
 import { bootstrapRelease } from '@storeweave/release/bootstrap';
 import { release } from '../packages/releases/commerce/src/runtime';
+import { PUSH_ORDER_JOB } from '../packages/extensions/demo-erp/src/config';
 import type { Actor, Runtime } from '@storeweave/kernel';
 
 /**
@@ -19,7 +20,7 @@ const SYSTEM: Actor = { id: 'seed:operations', type: 'system', displayName: 'Ope
 const customerActor = (accountId: string): Actor => ({ id: accountId, type: 'customer', permissions: ['*'] });
 
 /** 每次執行都是新的一批資料，冪等鍵帶上這個前綴才不會撞到上一次的。 */
-const RUN = process.env.SEED_RUN_ID ?? new Date().toISOString().replace(/\D/g, '').slice(0, 14);
+const RUN = process.env.SEED_RUN_ID ?? randomUUID();
 let step = 0;
 const key = (name: string) => `seed-ops-${RUN}-${name}-${++step}`;
 
@@ -63,10 +64,26 @@ async function checkout(
     );
   }
   const cart = await runtime.queries.execute<{ id: string }>('commerce.cart.getCart', {}, { actor });
+  const distinctProductIds = [...new Set(lines.map((line) => line.productId))];
+  const prices = await runtime.database.db.execute<{ id: string; price_cents: number }>(sql`
+    SELECT id, price_cents FROM catalog_products
+    WHERE id IN (${sql.join(distinctProductIds.map((id) => sql`${id}`), sql`, `)})
+  `);
+  const confirmedPrices = prices.rows.map((row) => ({ productId: row.id, unitPriceCents: row.price_cents }));
+  if (confirmedPrices.length !== distinctProductIds.length) throw new Error('找不到結帳商品價格，請先執行 pnpm seed');
+  const priceByProduct = new Map(prices.rows.map((row) => [row.id, row.price_cents]));
+  const subtotalCents = lines.reduce((sum, line) => sum + priceByProduct.get(line.productId)! * line.quantity, 0);
+  const shippingQuote = await runtime.queries.execute<{ shippingCents: number }>(
+    'commerce.shipping.quoteCheckoutShipping',
+    { shippingMethodId, subtotalCents, destinationKind: 'taiwan_home' },
+    { actor },
+  );
   return runtime.commands.execute<PlacedOrder>(
     'commerce.order.checkoutCart',
     {
       cartId: cart.id,
+      confirmedPrices,
+      confirmedShippingCents: shippingQuote.shippingCents,
       shippingMethodId,
       destination: {
         kind: 'taiwan_home',
@@ -222,7 +239,7 @@ async function seedOperations(runtime: Runtime) {
   console.log('  ✓ 退款：1 筆成功、1 筆失敗（可在退款佇列重試）');
 
   // ── 物流：出貨中與剛建單各一，出貨工作台才有單可查 ───────────────
-  await shipmentOf(shippedA, 'shipped');
+  const shippedAShipment = await shipmentOf(shippedA, 'shipped');
   await shipmentOf(shippedB, 'shipped');
   await shipmentOf(packing, 'created');
   console.log(`  ✓ 物流單：${shippedA.number} / ${shippedB.number} 已出貨，${packing.number} 已建單`);
@@ -308,10 +325,15 @@ async function seedOperations(runtime: Runtime) {
   console.log('  ✓ 電子發票：2 張已開立、1 張開立失敗（可重送）');
 
   // ── 通知：寄出成功與寄送失敗 ─────────────────────────────────
-  const notify = async (order: PlacedOrder, template: string, outcome: 'sent' | 'failed') => {
+  const notify = async (
+    order: PlacedOrder,
+    template: string,
+    outcome: 'sent' | 'failed',
+    extraVariables: Record<string, unknown> = {},
+  ) => {
     const delivery = await runtime.commands.execute<{ id: string }>(
       'commerce.notification.queueLifecycleDelivery',
-      { eventId: randomUUID(), orderId: order.id, template, variables: { orderNumber: order.number, total: money(order.totalCents) } },
+      { eventId: randomUUID(), orderId: order.id, template, variables: { orderNumber: order.number, total: money(order.totalCents), ...extraVariables } },
       { actor: SYSTEM, idempotencyKey: key('queue-notification') },
     );
     await runtime.commands.execute(
@@ -323,7 +345,7 @@ async function seedOperations(runtime: Runtime) {
     );
   };
   await notify(shippedA, 'customer.order-paid', 'sent');
-  await notify(shippedA, 'customer.shipment-shipped', 'sent');
+  await notify(shippedA, 'customer.shipment-shipped', 'sent', { shipmentId: shippedAShipment.id });
   await notify(packing, 'customer.order-paid', 'failed');
   console.log('  ✓ 通知紀錄：2 筆已送達、1 筆退信');
 
@@ -350,17 +372,20 @@ async function seedOperations(runtime: Runtime) {
   // ── 死信佇列：排一個工作、鎖起來、讓它用盡重試 ────────────────
   await runtime.database.transaction(async (tx) => {
     const enqueued = await runtime.jobs.enqueue(tx, {
-      type: 'demo-erp.pushOrder',
-      payload: { orderId: packing.id, orderNumber: packing.number },
+      type: PUSH_ORDER_JOB,
+      payload: { orderId: packing.id },
       maxAttempts: 1,
     });
-    return enqueued;
+    const dead = await tx.execute<{ id: string }>(sql`
+      UPDATE platform_jobs
+      SET status = 'dead', attempts = 1,
+          last_error = 'ERP 連線逾時：連續三次無回應，已停止重試', updated_at = now()
+      WHERE id = ${enqueued.id} AND status = 'pending'
+      RETURNING id
+    `);
+    if (dead.rows.length !== 1) throw new Error(`無法建立 ERP 死信示範工作 ${enqueued.id}`);
   });
-  const claimed = await runtime.database.transaction((tx) => runtime.jobs.claim(tx, 'seed-ops-worker', 1, ['demo-erp.pushOrder']));
-  for (const job of claimed) {
-    await runtime.jobs.fail(runtime.database.db, job, 'ERP 連線逾時：連續三次無回應，已停止重試', true, 'seed-ops-worker');
-  }
-  console.log(`  ✓ 死信佇列：${claimed.length} 筆（可在死信佇列重送）`);
+  console.log('  ✓ 死信佇列：1 筆（可在死信佇列查看）');
 
   console.log('\n🎉 營運示範資料完成。可重複執行，每次都會再建一批新的。');
 }
@@ -373,6 +398,7 @@ async function main() {
   );
   const { runtime } = await bootstrapRelease(release, { configPath, loggerName: 'storeweave-seed-ops', logDestination: 'stderr' });
   try {
+    await runtime.activateRelease('require-current');
     await seedOperations(runtime);
   } finally {
     await runtime.close();
