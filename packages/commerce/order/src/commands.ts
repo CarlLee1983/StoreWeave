@@ -131,7 +131,8 @@ export async function createOrderFromLines(
   const confirmedPriceByProduct = new Map(input.confirmedPrices?.map((line) => [line.productId, line.unitPriceCents]));
   // Acquire inventory locks in the same order for every checkout, even when
   // customers add the same products to their carts in opposite orders.
-  const sortedLines = [...input.lines].sort((a, b) => a.productId.localeCompare(b.productId));
+  const sortedLines = input.lines.map((line, inputIndex) => ({ ...line, inputIndex }))
+    .sort((a, b) => a.productId.localeCompare(b.productId));
   const checkoutProducts = new Map<string, Awaited<ReturnType<typeof catalogService.findByIdForCheckout>>>();
   for (const line of sortedLines) {
     checkoutProducts.set(line.productId, await catalogService.findByIdForCheckout(ctx.tx, line.productId));
@@ -168,7 +169,9 @@ export async function createOrderFromLines(
         reason: 'insufficient_stock', message: '可售量不足' });
       continue;
     }
-    lines.push({
+    // Lock order must not change pricing's input-order tie break or returned line order.
+    // Rejected checkouts throw before this array is used, so accepted orders have no gaps.
+    lines[line.inputIndex] = {
       id: randomUUID(),
       orderId,
       productId: product.id,
@@ -177,7 +180,7 @@ export async function createOrderFromLines(
       unitPriceCents: product.priceCents,
       quantity: line.quantity,
       lineTotalCents: product.priceCents * line.quantity,
-    });
+    };
   }
   if (rejectedLines.length > 0) {
     throw PlatformError.validation(
