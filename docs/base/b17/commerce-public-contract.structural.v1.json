@@ -11832,10 +11832,103 @@
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
+          "confirmedPrices": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "productId": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "unitPriceCents": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "productId",
+                "unitPriceCents"
+              ],
+              "type": "object"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          },
+          "confirmedShippingCents": {
+            "minimum": 0,
+            "type": "integer"
+          },
           "currency": {
             "maxLength": 3,
             "minLength": 3,
             "type": "string"
+          },
+          "destination": {
+            "additionalProperties": false,
+            "properties": {
+              "city": {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              "countryCode": {
+                "const": "TW",
+                "type": "string"
+              },
+              "district": {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              "kind": {
+                "const": "taiwan_home",
+                "type": "string"
+              },
+              "line1": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "line2": {
+                "anyOf": [
+                  {
+                    "maxLength": 200,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "phone": {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              "postcode": {
+                "maxLength": 20,
+                "minLength": 1,
+                "type": "string"
+              },
+              "recipient": {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "countryCode",
+              "recipient",
+              "phone",
+              "postcode",
+              "city",
+              "district",
+              "line1",
+              "line2"
+            ],
+            "type": "object"
           },
           "lines": {
             "items": {
@@ -11864,10 +11957,18 @@
           "metadata": {
             "additionalProperties": {},
             "type": "object"
+          },
+          "shippingMethodId": {
+            "format": "uuid",
+            "type": "string"
           }
         },
         "required": [
-          "lines"
+          "lines",
+          "confirmedPrices",
+          "shippingMethodId",
+          "destination",
+          "confirmedShippingCents"
         ],
         "type": "object"
       },
@@ -32405,6 +32506,6 @@
     "catalog": "docs/base/b17/b00-catalog.json",
     "catalogDigest": "sha256:7e2afa5fd3e1e7b3ddfdfac24f804d21d5a1e33585b348b5aceef6b2a92e7459",
     "httpCatalog": "docs/base/b17/commerce-http-contract.v1.json",
-    "httpCatalogSha256": "bfb87bb8bd169fd5aac968d4d02971d2ec1ff261432033e66b85318e39e76ca1"
+    "httpCatalogSha256": "c373e92a780083e710c18dc5c49dda6aa6dcd467250cc056d0e2d29477c51931"
   }
 }

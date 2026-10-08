@@ -70,6 +70,9 @@ export class CommandBus {
       || descriptor.idempotency !== 'required')) {
       throw PlatformError.internal(`Command "${descriptor.name}" requires bounded transaction retries and required idempotency`);
     }
+    if (descriptor.legacyIdempotencyGuard && (descriptor.idempotencyScope !== 'actor' || descriptor.idempotency !== 'required')) {
+      throw PlatformError.internal(`Command "${descriptor.name}" requires actor-scoped required idempotency for its legacy guard`);
+    }
     if (descriptor.requiresBeforeIdempotency && descriptor.idempotency !== 'required') {
       throw PlatformError.internal(`Command "${descriptor.name}" requires required idempotency for a pre-idempotency guard`);
     }
@@ -191,6 +194,27 @@ export class CommandBus {
       // terminal lifecycle work cannot race a cached response.
       await options.beforeIdempotency?.(tx);
       if (options.idempotencyKey) {
+        const guard = descriptor.legacyIdempotencyGuard;
+        if (guard) {
+          const legacy = await tx.execute<{ request_hash: string; status: string; response: unknown; actor_id: string }>(sql`
+            SELECT request_hash, status, response, actor_id FROM platform_idempotency
+            WHERE command_name = ${name} AND key = ${options.idempotencyKey}
+          `);
+          const row = legacy.rows[0];
+          // A foreign legacy key must not become a hash/status/response oracle.
+          if (row && row.actor_id === options.actor.id) {
+            if (row.request_hash !== requestHash(guard.input(input))) {
+              throw new PlatformError('IDEMPOTENCY_MISMATCH', 'The idempotency key was already used with a different legacy payload');
+            }
+            if (row.status !== 'completed') {
+              throw new PlatformError('IDEMPOTENCY_IN_PROGRESS', 'The legacy request is still in progress');
+            }
+            guard.onReplay(row.response);
+            // Runtime descriptors may come from JavaScript; a violated never
+            // contract must not fall through into a second business operation.
+            throw PlatformError.internal('Legacy idempotency guard returned without refusing replay');
+          }
+        }
         const replay = await this.claimIdempotency(tx, idempotencyName, options.idempotencyKey, hash, options.actor.id);
         if (replay.kind === 'replay') {
           // 重放走的是這條捷徑，不會經過下面成功那一行。少了它，客戶端重試風暴時

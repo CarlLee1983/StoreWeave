@@ -48,10 +48,7 @@ interface PlacedOrder {
   lines: { id: string; productId: string; sku: string; name: string; quantity: number }[];
 }
 
-/**
- * 走購物車結帳。placeOrder 是「直接下單」的捷徑，不會留下配送快照，
- * 而沒有配送快照就建不了物流單、也就沒有退貨案件可示範。
- */
+/** 走購物車結帳，保留物流與退貨示範所需的配送快照。 */
 async function checkout(
   runtime: Runtime,
   actor: Actor,
@@ -115,11 +112,19 @@ async function placeAndPay(
   runtime: Runtime,
   actor: Actor,
   lines: { productId: string; quantity: number }[],
-  options: { pay: boolean },
+  options: { pay: boolean; shippingMethodId: string },
 ): Promise<PlacedOrder> {
+  const prices = await runtime.database.db.execute<{ id: string; price_cents: number }>(sql`
+    SELECT id, price_cents FROM catalog_products
+    WHERE id IN (${sql.join([...new Set(lines.map((line) => line.productId))].map((id) => sql`${id}`), sql`, `)})
+  `);
+  const confirmedPrices = prices.rows.map((row) => ({ productId: row.id, unitPriceCents: row.price_cents }));
   const order = await runtime.commands.execute<PlacedOrder>(
     'commerce.order.placeOrder',
-    { lines },
+    { lines, confirmedPrices, shippingMethodId: options.shippingMethodId, confirmedShippingCents: 0,
+      destination: { kind: 'taiwan_home', countryCode: 'TW', recipient: actor.displayName ?? '示範收件人',
+        phone: '0912345678', postcode: '106', city: '臺北市', district: '大安區',
+        line1: '復興南路一段 100 號 5 樓', line2: null } },
     { actor, idempotencyKey: key('place-order') },
   );
   return options.pay ? payFor(runtime, actor, order) : order;
@@ -159,11 +164,16 @@ async function seedOperations(runtime: Runtime) {
   };
 
   // ── 訂單：待付款、已付款、已取消 ─────────────────────────────
-  const pending = await placeAndPay(runtime, alice, [line('WD-POT-03', 2)], { pay: false });
+  const directMethod = await runtime.commands.execute<{ id: string }>('commerce.shipping.createShippingMethod', {
+    code: `seed-ops-home-${RUN}`, name: '營運示範宅配', provider: 'manual',
+    type: 'home_delivery', destinationKind: 'taiwan_home', feeCents: 0, enabled: true,
+  }, { actor: SYSTEM, idempotencyKey: key('direct-shipping-method') });
+  const direct = { shippingMethodId: directMethod.id };
+  const pending = await placeAndPay(runtime, alice, [line('WD-POT-03', 2)], { ...direct, pay: false });
   console.log(`  ✓ 待付款訂單 ${pending.number}（${money(pending.totalCents)}）`);
 
-  const refundOk = await placeAndPay(runtime, alice, [line('WD-POT-01'), line('WD-TEX-03', 2)], { pay: true });
-  const refundFail = await placeAndPay(runtime, vip, [line('WD-TEX-01', 3)], { pay: true });
+  const refundOk = await placeAndPay(runtime, alice, [line('WD-POT-01'), line('WD-TEX-03', 2)], { ...direct, pay: true });
+  const refundFail = await placeAndPay(runtime, vip, [line('WD-TEX-01', 3)], { ...direct, pay: true });
   const homeDelivery = await runtime.queries.execute<{ items: { id: string; code: string }[] }>(
     'commerce.shipping.listShippingMethods',
     { limit: 50 },
@@ -177,7 +187,7 @@ async function seedOperations(runtime: Runtime) {
   const packing = await payFor(runtime, alice, await checkout(runtime, alice, [line('WD-TEX-01')], method.id));
   console.log(`  ✓ 已付款訂單 ${[refundOk, refundFail, shippedA, shippedB, packing].map((o) => o.number).join(' / ')}`);
 
-  const cancelled = await placeAndPay(runtime, alice, [line('WD-POT-02')], { pay: false });
+  const cancelled = await placeAndPay(runtime, alice, [line('WD-POT-02')], { ...direct, pay: false });
   await runtime.commands.execute(
     'commerce.order.cancelOrder',
     { orderId: cancelled.id, reason: '顧客改買其他款式' },

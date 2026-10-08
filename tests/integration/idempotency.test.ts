@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { defineCommand } from '@storeweave/contracts';
-import { defaultCustomer, ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
+import { defaultCustomer, ADMIN_ACTOR, createHarness, directOrderInput, createProduct, stockUp, type TestHarness } from './helpers';
 
 let h: TestHarness;
 beforeAll(async () => { h = await createHarness(); }, 300_000);
@@ -170,7 +170,7 @@ describe('Idempotency', () => {
     await adjust(product.id, 5, key);
     const order = await h.runtime.commands.execute<{ id: string }>(
       'commerce.order.placeOrder',
-      { lines: [{ productId: product.id, quantity: 1 }] },
+      await directOrderInput(h.runtime, [{ productId: product.id, quantity: 1 }]),
       { actor: await defaultCustomer(h.runtime), idempotencyKey: key },
     );
     expect(order.id).toBeTruthy();

@@ -55,6 +55,7 @@
 | [0051](0051-story-driver-holds-the-work-graph.md) | 工作圖與順序由 Story Driver 持有，Story 只描述一件工作 | accepted（決策 1、3 已更正） |
 | [0052](0052-booking-is-a-separate-product-release.md) | Booking 是獨立 Product Release，共用能力以第二個實際產品驗證 | accepted |
 | [0054](0054-checkout-confirmation-and-scoped-replay.md) | Checkout 確認值與顧客範圍的重送 | accepted |
+| [0055](0055-direct-order-confirmation-and-legacy-keys.md) | 直接下單的確認與舊識別鍵 | accepted |
 
 寫法：每篇結尾用 `## Falsified if` 這個標題起一段，段落裡以反引號標出這個決策所依賴的檔案；
 那些檔案就是這個決策的邊界清單，條件本身要寫成某個東西可以檢查的形式。

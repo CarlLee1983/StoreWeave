@@ -266,6 +266,29 @@ export function defaultCustomer(runtime: Runtime) {
   return existing;
 }
 
+const directShippingMethods = new WeakMap<Runtime, Promise<string>>();
+export async function directOrderInput(runtime: Runtime, lines: { productId: string; quantity: number }[],
+  options: { currency?: string; metadata?: Record<string, unknown> } = {}) {
+  let method = directShippingMethods.get(runtime);
+  if (!method) {
+    method = runtime.commands.execute<{ id: string }>('commerce.shipping.createShippingMethod', {
+      code: `direct-${randomUUID()}`, name: 'Direct test home delivery', provider: 'manual', type: 'home_delivery',
+      destinationKind: 'taiwan_home', feeCents: 0, enabled: true,
+    }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() }).then((value) => value.id);
+    directShippingMethods.set(runtime, method);
+  }
+  let shippingMethodId: string;
+  try { shippingMethodId = await method; }
+  catch (error) { directShippingMethods.delete(runtime); throw error; }
+  const confirmedPrices = await Promise.all([...new Set(lines.map((line) => line.productId))].map(async (productId) => {
+    const prices = await runtime.database.db.execute<{ price: number }>(sql`SELECT price_cents AS price FROM catalog_products WHERE id = ${productId}`);
+    return { productId, unitPriceCents: Number(prices.rows[0]?.price ?? 0) };
+  }));
+  return { ...options, lines, confirmedPrices, shippingMethodId, confirmedShippingCents: 0,
+    destination: { kind: 'taiwan_home' as const, countryCode: 'TW' as const, recipient: '測試收件人', phone: '0912345678',
+      postcode: '100', city: '台北市', district: '中正區', line1: '測試路 1 號', line2: null } };
+}
+
 export async function placeOrder(runtime: Runtime, productId: string, quantity = 1, actor?: Actor) {
   const buyer = actor ?? (await defaultCustomer(runtime));
   return runtime.commands.execute<{
@@ -274,7 +297,7 @@ export async function placeOrder(runtime: Runtime, productId: string, quantity =
     lines: { discountCents: number }[];
   }>(
     'commerce.order.placeOrder',
-    { lines: [{ productId, quantity }] },
+    await directOrderInput(runtime, [{ productId, quantity }]),
     { actor: buyer, idempotencyKey: randomUUID() },
   );
 }

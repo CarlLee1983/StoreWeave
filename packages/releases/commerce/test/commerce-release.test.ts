@@ -44,17 +44,17 @@ const LEGACY_ADMIN_ROUTES = [
   { path: 'account', permissions: [], module: null, navLabel: 'account', icon: 'user', section: 'platform', title: 'accountTitle', subtitle: 'accountSubtitle', action: null, badges: null, page: 'AccountPage' },
 ] as const;
 
-// Accepted checkout contract baseline for SW-182/SW-183 (ADR 0054). Required
+// Accepted checkout contract baseline for SW-182/SW-183 and SW-185/SW-186 (ADRs 0054/0055). Required
 // customer confirmations intentionally supersede the pre-projection baseline.
 // Keep explicit hashes so future contract changes require review. The semantic
 // digest excludes provenance-only source fingerprints, which change as code
 // moves while the contract surfaces and executable cases remain stable.
 const PUBLIC_CONTRACT_BASELINE_HASHES = {
   'docs/base/b17/b00-catalog.json': '7a6c392a4ab3bf752b5bd764d2904ac06f35832342e9c095a6406b08950d3a5e',
-  'docs/base/b17/commerce-http-contract.v1.json': 'bfb87bb8bd169fd5aac968d4d02971d2ec1ff261432033e66b85318e39e76ca1',
-  'docs/base/b17/commerce-public-contract.structural.v1.json': '899c0b68696728ebd8fc1c93e5c2845ccd63e5264a03e1376894ca865854af65',
+  'docs/base/b17/commerce-http-contract.v1.json': 'c373e92a780083e710c18dc5c49dda6aa6dcd467250cc056d0e2d29477c51931',
+  'docs/base/b17/commerce-public-contract.structural.v1.json': 'a18d20ecc53a498c708cedfeea96887adb00327b98ac91fa051a352672e6be61',
 } as const;
-const SEMANTIC_CONTRACT_BASELINE_HASH = '2a0550fd857a064fc4398b452bcd5d3a9c0ec2cc4a7c489ddcd2be94d914d872';
+const SEMANTIC_CONTRACT_BASELINE_HASH = 'b7ed18c4091149f2b4095b401f5579f6de22765ebf78dab7da9e70501f0e7a86';
 const SEMANTIC_CONTRACT_FIELDS = [
   'format', 'schemaVersion', 'scope', 'limitations', 'surfaces', 'runtimeFacets', 'cases', 'caseCount', 'caseDigest', 'remaining',
 ] as const;
