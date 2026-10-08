@@ -138,18 +138,18 @@
       "targets": {
         "server": {
           "status": "present",
-          "inputCount": 403,
-          "inputsChecksum": "sha256:12875db3e18ee6e4ff2c3f746c1b77640b1039206beddcae09c9f2d8dba918f9"
+          "inputCount": 404,
+          "inputsChecksum": "sha256:0747199201804a1fbe85d17c961c3a47d63e981cb957c5d320c3b4832ab3993f"
         },
         "worker": {
           "status": "present",
-          "inputCount": 350,
-          "inputsChecksum": "sha256:cd7331a3082d90317e671934aa719f507cf8a60a0f9bb35e75fd1cea745679ff"
+          "inputCount": 351,
+          "inputsChecksum": "sha256:ec5db7198bba92d2274b8ddcce368e2472353722618fcbe86a5426e24e78fb2f"
         },
         "cli": {
           "status": "present",
-          "inputCount": 376,
-          "inputsChecksum": "sha256:0e32e7f988ae2f51c713fb6c0743203b1aaaeb1e948da7eed65c3694db849137"
+          "inputCount": 377,
+          "inputsChecksum": "sha256:b68fa3fbe14c78e4f8bcc10aa497120e151b52005c098ae638cac91c8d5b0af1"
         },
         "admin": {
           "status": "present",
@@ -164,8 +164,8 @@
           "source": "packages/releases/commerce/src/server.ts",
           "artifact": "app/api.js",
           "status": "built",
-          "inputCount": 403,
-          "inputsChecksum": "sha256:12875db3e18ee6e4ff2c3f746c1b77640b1039206beddcae09c9f2d8dba918f9"
+          "inputCount": 404,
+          "inputsChecksum": "sha256:0747199201804a1fbe85d17c961c3a47d63e981cb957c5d320c3b4832ab3993f"
         },
         "worker": {
           "releaseId": "commerce",
@@ -173,8 +173,8 @@
           "source": "packages/releases/commerce/src/worker.ts",
           "artifact": "app/worker.js",
           "status": "built",
-          "inputCount": 350,
-          "inputsChecksum": "sha256:cd7331a3082d90317e671934aa719f507cf8a60a0f9bb35e75fd1cea745679ff"
+          "inputCount": 351,
+          "inputsChecksum": "sha256:ec5db7198bba92d2274b8ddcce368e2472353722618fcbe86a5426e24e78fb2f"
         },
         "admin": {
           "releaseId": "commerce",
@@ -191,8 +191,8 @@
           "source": "packages/releases/commerce/src/cli.ts",
           "artifact": "app/cli.js",
           "status": "built",
-          "inputCount": 376,
-          "inputsChecksum": "sha256:0e32e7f988ae2f51c713fb6c0743203b1aaaeb1e948da7eed65c3694db849137"
+          "inputCount": 377,
+          "inputsChecksum": "sha256:b68fa3fbe14c78e4f8bcc10aa497120e151b52005c098ae638cac91c8d5b0af1"
         }
       },
       "runtimeProjections": {
@@ -232,15 +232,15 @@
           },
           {
             "path": "docs/base/b17/commerce-http-contract.v1.json",
-            "sha256": "1f9c5563cd8cada3c51a797a121bd3a21c17ced22329eb9e6091da8f66c7066a"
+            "sha256": "bfb87bb8bd169fd5aac968d4d02971d2ec1ff261432033e66b85318e39e76ca1"
           },
           {
             "path": "docs/base/b17/commerce-public-contract.structural.v1.json",
-            "sha256": "8181bc2aca70013d5215e2e95a15cbf9f7547de5bb9eaf3bd403df241bd927e7"
+            "sha256": "899c0b68696728ebd8fc1c93e5c2845ccd63e5264a03e1376894ca865854af65"
           },
           {
             "path": "docs/base/b17/commerce-public-contract.semantic.v2.json",
-            "sha256": "35ddff0305a56d235a9343a5ef1c3a6722cbf37a7f1f88e5acd690115e93b4b7"
+            "sha256": "916bccd09bc280e942e2ede33b0e8de8f6523c440c1f242fb7c230bfa6140e1c"
           }
         ]
       }

@@ -86,13 +86,15 @@ deployments/            example-store、example-store-two、systemd unit、設�
    - 宣告 `requiresBeforeIdempotency` 的 Command 若呼叫端未提供交易內的授權 guard，也直接拒絕；撤銷式憑證必須在讀取冪等快取前重新驗權。
    - 開啟資料庫交易。
 4. **交易內**
-   - 以 `INSERT ... ON CONFLICT DO NOTHING` 宣告 Idempotency Key。併發的第二個請求會卡在
+   - 依 Command 的冪等宣告取得範圍與重送內容，再以 `INSERT ... ON CONFLICT DO NOTHING` 宣告 Idempotency Key。併發的第二個請求會卡在
      唯一索引上直到第一個 commit，然後讀到已完成的結果 —— 不會重複執行。
    - Handler 鎖住訂單列、呼叫 Payment Provider、寫入付款紀錄、更新訂單狀態。
    - `ctx.publish()` 把 `commerce.order.paid.v2` 寫進 `platform_outbox`（**同一個交易**）。
    - `ctx.audit()` 寫入 Audit Log（同一個交易），機密欄位先經 `redact()`。
    - 驗證輸出符合 descriptor 的 output schema，再把結果存回 Idempotency 紀錄。
 5. **commit**。到這裡「訂單已付款」與「事件已排入」要嘛都成立，要嘛都不成立。
+
+Checkout 的顧客範圍、確認值與有限交易重試見 [ADR 0054](adr/0054-checkout-confirmation-and-scoped-replay.md)。
 
 ## 事件如何抵達 Extension
 

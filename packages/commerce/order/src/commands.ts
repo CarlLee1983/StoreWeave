@@ -25,6 +25,7 @@ import {
 import { OrderRepository, toCustomerOrderDto, toOrderDto } from './repository';
 import { orderCancelledV1, orderPaidV2, orderPaymentInfoIssuedV1, orderPlacedV3 } from './events';
 import { orderAdjustments, orderDeliveries, orderLines, orderPayments, orders } from './schema';
+import { checkoutTransactionRetry, InconclusiveCheckoutError } from './checkout-retry';
 
 const repository = new OrderRepository();
 
@@ -106,12 +107,15 @@ export async function createOrderFromLines(
   input: {
     currency?: string;
     lines: { productId: string; quantity: number }[];
+    confirmedPrices?: readonly { productId: string; unitPriceCents: number }[];
+    /** Required by cart checkout; the legacy direct purchase API has its own input contract. */
+    confirmedShippingCents?: number;
     metadata?: Record<string, unknown>;
     /** 券指名的活動。它們不在「此刻人人適用」的清單裡，必須明確帶進來。 */
     couponPromotionIds?: readonly string[];
     /** 購物金折抵。上限由呼叫端算好，引擎只負責套用與分攤。 */
     rewardRedeemCents?: number;
-    /** Checkout passes a concrete merchant method and destination; direct back-office orders may omit delivery. */
+    /** Checkout passes a concrete merchant method and destination; legacy direct orders omit delivery. */
     delivery?: { shippingMethodId: string; destination: ShippingDestinationInput };
   },
   ctx: CommandContext,
@@ -123,12 +127,34 @@ export async function createOrderFromLines(
   const currency = input.currency ?? deps.defaultCurrency;
 
   const lines: (typeof orderLines.$inferInsert)[] = [];
-  for (const line of input.lines) {
-    const product = await catalogService.requireActiveProduct(ctx.tx, line.productId);
-    if (product.currency !== currency) {
-      throw PlatformError.validation(`Product ${product.sku} is priced in ${product.currency}, order is ${currency}`);
+  const rejectedLines: { productId: string; sku: string | null; name: string | null; reason: 'unavailable' | 'currency_mismatch' | 'insufficient_stock' | 'price_changed'; message: string; currentUnitPriceCents?: number }[] = [];
+  const confirmedPriceByProduct = new Map(input.confirmedPrices?.map((line) => [line.productId, line.unitPriceCents]));
+  // Acquire inventory locks in the same order for every checkout, even when
+  // customers add the same products to their carts in opposite orders.
+  const sortedLines = input.lines.map((line, inputIndex) => ({ ...line, inputIndex }))
+    .sort((a, b) => a.productId.localeCompare(b.productId));
+  const checkoutProducts = new Map<string, Awaited<ReturnType<typeof catalogService.findByIdForCheckout>>>();
+  for (const line of sortedLines) {
+    checkoutProducts.set(line.productId, await catalogService.findByIdForCheckout(ctx.tx, line.productId));
+  }
+  for (const line of sortedLines) {
+    const product = checkoutProducts.get(line.productId);
+    if (!product || product.status !== 'active') {
+      rejectedLines.push({ productId: line.productId, sku: product?.sku ?? null, name: product?.name ?? null,
+        reason: 'unavailable', message: '商品目前無法購買' });
+      continue;
     }
-    // 預留失敗的訊息必須說得出是哪一件商品：顧客拿到 uuid 沒辦法決定要調整什麼。
+    if (product.currency !== currency) {
+      rejectedLines.push({ productId: product.id, sku: product.sku, name: product.name,
+        reason: 'currency_mismatch', message: '商品幣別與訂單不符' });
+      continue;
+    }
+    if (input.confirmedPrices && confirmedPriceByProduct.get(product.id) !== product.priceCents) {
+      rejectedLines.push({ productId: product.id, sku: product.sku, name: product.name,
+        reason: 'price_changed', message: `目前單價已變更為 ${product.priceCents} 分，請重新確認`,
+        currentUnitPriceCents: product.priceCents });
+      continue;
+    }
     try {
       await inventoryService.reserve(ctx, {
         productId: product.id,
@@ -137,12 +163,15 @@ export async function createOrderFromLines(
       });
     } catch (err) {
       if (!(err instanceof PlatformError) || err.code !== 'CONFLICT') throw err;
-      const available = await inventoryService.availableFor(ctx.tx, product.id).catch(() => null);
-      throw PlatformError.conflict(
-        `Insufficient stock for ${product.sku} (${product.name}): ${available ?? 0} available, ${line.quantity} requested`,
-      );
+      const available = await inventoryService.availableFor(ctx.tx, product.id);
+      if (available === null || available >= line.quantity) throw new InconclusiveCheckoutError();
+      rejectedLines.push({ productId: product.id, sku: product.sku, name: product.name,
+        reason: 'insufficient_stock', message: '可售量不足' });
+      continue;
     }
-    lines.push({
+    // Lock order must not change pricing's input-order tie break or returned line order.
+    // Rejected checkouts throw before this array is used, so accepted orders have no gaps.
+    lines[line.inputIndex] = {
       id: randomUUID(),
       orderId,
       productId: product.id,
@@ -151,18 +180,31 @@ export async function createOrderFromLines(
       unitPriceCents: product.priceCents,
       quantity: line.quantity,
       lineTotalCents: product.priceCents * line.quantity,
-    });
+    };
+  }
+  if (rejectedLines.length > 0) {
+    throw PlatformError.validation(
+      rejectedLines.map((line) => `${line.name ?? line.sku ?? line.productId}：${line.message}`).join('；'),
+      { kind: 'order_lines_rejected', lines: rejectedLines },
+    );
   }
 
   // 配送費是商家的交易政策：在優惠引擎算總額以前，先把目前可用的方法解成不可變快照。
   // 之後停用、改名或改價都不會改寫這張訂單。
   const deliverySnapshot = input.delivery
-    ? await shippingService.resolveCheckoutMethod(ctx.tx, {
+    ? await shippingService.resolveCheckoutMethodForOrder(ctx.tx, {
       shippingMethodId: input.delivery.shippingMethodId,
       subtotalCents: lines.reduce((total, line) => total + line.lineTotalCents, 0),
       destinationKind: input.delivery.destination.kind,
     })
     : null;
+
+  if (input.confirmedShippingCents !== undefined
+    && input.confirmedShippingCents !== (deliverySnapshot?.shippingCents ?? 0)) {
+    throw PlatformError.validation('運費已變更，請重新確認', {
+      kind: 'shipping_fee_changed', currentShippingCents: deliverySnapshot?.shippingCents ?? 0,
+    });
+  }
 
   // 定價與訂單建立在同一個交易內：折扣依據的活動狀態與寫進訂單的金額必定一致。
   // 等級限定的活動要看得到下單者的等級。與購物車的試算讀的是同一支。
@@ -277,6 +319,9 @@ export const checkoutCartCommand = defineCommand({
   output: orderOutputDto,
   permission: 'order:write',
   idempotency: 'required',
+  idempotencyScope: 'actor',
+  idempotencyInput: ({ confirmedShippingCents: _fee, ...replay }) => replay,
+  transactionRetry: checkoutTransactionRetry,
   audit: {
     action: 'order.placed',
     resourceType: 'order',
@@ -317,15 +362,9 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
       ? await couponService.lockEligibleForCheckout(ctx.tx, { code: cart.couponCode, customerId: buyer.customerId, now: ctx.now })
       : null;
 
-    // 顧客看不到的商品行也結不進訂單：判斷與購物車顯示共用 `isPurchasable`，
-    // 兩邊各寫一次，遲早會有一邊多放行一種情況（例如幣別不符的商品）。
-    const lines: { productId: string; quantity: number }[] = [];
-    for (const row of await cartService.checkoutItems(ctx.tx, cart.id)) {
-      const product = await catalogService.findById(ctx.tx, row.productId);
-      if (isPurchasable(product, deps.defaultCurrency)) {
-        lines.push({ productId: row.productId, quantity: row.quantity });
-      }
-    }
+    // Every cart line must pass Order's checkout decision. A line that became
+    // unavailable after being added must be reported, never silently dropped.
+    const lines = await cartService.checkoutItems(ctx.tx, cart.id);
     if (lines.length === 0) throw PlatformError.validation('Your cart is empty');
     // 上限與 placeOrder 共用同一份宣告：從購物車進來的路徑本來完全繞過那個 schema，
     // 於是一張訂單可以帶數千行進 createOrderFromLines，在同一交易內鎖住大量庫存列。
@@ -333,12 +372,17 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
     if (!bounded.success) {
       throw PlatformError.validation('Your cart has too many items to check out', bounded.error.issues);
     }
+    const cartProducts = new Set(lines.map((line) => line.productId));
+    if (input.confirmedPrices.length !== cartProducts.size
+      || input.confirmedPrices.some((line) => !cartProducts.has(line.productId))) {
+      throw PlatformError.validation('Confirmed prices must match every cart line');
+    }
 
     // 折抵上限在結帳當下重新算：購物車存的是「顧客希望折多少」，
     // 而餘額與小計在那之後都可能變過。先鎖住這位顧客的購物金，
     // 讀餘額與寫負分錄之間才不會有別人插進來。
     await rewardService.lockCustomer(ctx.tx, buyer.customerId);
-    const subtotalCents = await subtotalOfLines(ctx, lines);
+    const subtotalCents = await subtotalOfLines(ctx, lines, deps.defaultCurrency);
     const balance = await rewardService.balanceFor(ctx.tx, buyer.customerId, ctx.now, ctx.logger);
     const rewardRedeemCents = Math.min(
       cart.rewardRedeemCents,
@@ -354,6 +398,8 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
 
     const order = await createOrderFromLines(deps, {
       lines: bounded.data,
+      confirmedPrices: input.confirmedPrices,
+      confirmedShippingCents: input.confirmedShippingCents,
       // `metadata` is caller extensible, but invoice preference is a reserved,
       // typed checkout fact. Overwrite any caller-supplied shadow value rather
       // than letting an unvalidated JSON shape reach the invoice worker.
@@ -408,11 +454,12 @@ async function redeemCoupon(
 async function subtotalOfLines(
   ctx: CommandContext,
   lines: readonly { productId: string; quantity: number }[],
+  currency: string,
 ): Promise<number> {
   let subtotal = 0;
-  for (const line of lines) {
-    const product = await catalogService.requireActiveProduct(ctx.tx, line.productId);
-    subtotal += product.priceCents * line.quantity;
+  for (const line of [...lines].sort((a, b) => a.productId.localeCompare(b.productId))) {
+    const product = await catalogService.findByIdForCheckout(ctx.tx, line.productId);
+    if (product && isPurchasable(product, currency)) subtotal += product.priceCents * line.quantity;
   }
   return subtotal;
 }

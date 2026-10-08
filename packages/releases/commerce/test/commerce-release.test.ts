@@ -44,15 +44,17 @@ const LEGACY_ADMIN_ROUTES = [
   { path: 'account', permissions: [], module: null, navLabel: 'account', icon: 'user', section: 'platform', title: 'accountTitle', subtitle: 'accountSubtitle', action: null, badges: null, page: 'AccountPage' },
 ] as const;
 
-// Frozen from the pre-projection public-contract artifacts. The semantic
+// Accepted checkout contract baseline for SW-182/SW-183 (ADR 0054). Required
+// customer confirmations intentionally supersede the pre-projection baseline.
+// Keep explicit hashes so future contract changes require review. The semantic
 // digest excludes provenance-only source fingerprints, which change as code
 // moves while the contract surfaces and executable cases remain stable.
-const LEGACY_PUBLIC_CONTRACT_HASHES = {
+const PUBLIC_CONTRACT_BASELINE_HASHES = {
   'docs/base/b17/b00-catalog.json': '7a6c392a4ab3bf752b5bd764d2904ac06f35832342e9c095a6406b08950d3a5e',
-  'docs/base/b17/commerce-http-contract.v1.json': '1f9c5563cd8cada3c51a797a121bd3a21c17ced22329eb9e6091da8f66c7066a',
-  'docs/base/b17/commerce-public-contract.structural.v1.json': '8181bc2aca70013d5215e2e95a15cbf9f7547de5bb9eaf3bd403df241bd927e7',
+  'docs/base/b17/commerce-http-contract.v1.json': 'bfb87bb8bd169fd5aac968d4d02971d2ec1ff261432033e66b85318e39e76ca1',
+  'docs/base/b17/commerce-public-contract.structural.v1.json': '899c0b68696728ebd8fc1c93e5c2845ccd63e5264a03e1376894ca865854af65',
 } as const;
-const LEGACY_SEMANTIC_CONTRACT_HASH = '227e5f7e5be34d072f16a37a2dca9e9b4fe25ba1dc34e9cc3f66fd1e1d6390ac';
+const SEMANTIC_CONTRACT_BASELINE_HASH = '2a0550fd857a064fc4398b452bcd5d3a9c0ec2cc4a7c489ddcd2be94d914d872';
 const SEMANTIC_CONTRACT_FIELDS = [
   'format', 'schemaVersion', 'scope', 'limitations', 'surfaces', 'runtimeFacets', 'cases', 'caseCount', 'caseDigest', 'remaining',
 ] as const;
@@ -146,11 +148,11 @@ describe('Commerce release definition', () => {
     expect(commerceAdminRouteContract()).toEqual(LEGACY_ADMIN_ROUTES);
   });
 
-  it('preserves the frozen pre-projection Commerce public contracts', () => {
-    for (const [path, expectedHash] of Object.entries(LEGACY_PUBLIC_CONTRACT_HASHES)) {
+  it('preserves the accepted Commerce checkout public contracts', () => {
+    for (const [path, expectedHash] of Object.entries(PUBLIC_CONTRACT_BASELINE_HASHES)) {
       expect(hashFile(path), path).toBe(expectedHash);
     }
-    expect(hashSemanticContract()).toBe(LEGACY_SEMANTIC_CONTRACT_HASH);
+    expect(hashSemanticContract()).toBe(SEMANTIC_CONTRACT_BASELINE_HASH);
   });
 
   it('preserves the fixed B01 catalog bytes', () => {

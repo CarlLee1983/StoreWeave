@@ -174,7 +174,7 @@ describe('用掉的券不能被改回可用', () => {
       { actor: customer, idempotencyKey: randomUUID() });
     const cart = await h.runtime.commands.execute<any>('commerce.cart.applyCoupon', { code: value },
       { actor: customer, idempotencyKey: randomUUID() });
-    await h.runtime.commands.execute('commerce.order.checkoutCart', checkoutInput(h, cart.id),
+    await h.runtime.commands.execute('commerce.order.checkoutCart', await checkoutInput(h, cart.id),
       { actor: customer, idempotencyKey: randomUUID() });
 
     await expect(h.runtime.commands.execute('commerce.coupon.setCouponStatus',
@@ -212,7 +212,7 @@ describe('結帳的商品行數有上限', () => {
       `);
     }
 
-    await expect(h.runtime.commands.execute('commerce.order.checkoutCart', checkoutInput(h, realCartId),
+    await expect(h.runtime.commands.execute('commerce.order.checkoutCart', await checkoutInput(h, realCartId),
       { actor: customer, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 });

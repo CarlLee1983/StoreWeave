@@ -204,6 +204,32 @@
               }
             ]
           },
+          "removedItems": {
+            "default": [],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "productId": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "unitPriceCents": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "productId",
+                "name",
+                "unitPriceCents"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "removedNames": {
             "items": {
               "type": "string"
@@ -473,6 +499,32 @@
               }
             ]
           },
+          "removedItems": {
+            "default": [],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "productId": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "unitPriceCents": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "productId",
+                "name",
+                "unitPriceCents"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "removedNames": {
             "items": {
               "type": "string"
@@ -732,6 +784,32 @@
                 "type": "null"
               }
             ]
+          },
+          "removedItems": {
+            "default": [],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "productId": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "unitPriceCents": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "productId",
+                "name",
+                "unitPriceCents"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "removedNames": {
             "items": {
@@ -995,6 +1073,32 @@
                 "type": "null"
               }
             ]
+          },
+          "removedItems": {
+            "default": [],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "productId": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "unitPriceCents": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "productId",
+                "name",
+                "unitPriceCents"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "removedNames": {
             "items": {
@@ -1299,6 +1403,32 @@
               }
             ]
           },
+          "removedItems": {
+            "default": [],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "productId": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "unitPriceCents": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "productId",
+                "name",
+                "unitPriceCents"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "removedNames": {
             "items": {
               "type": "string"
@@ -1558,6 +1688,32 @@
                 "type": "null"
               }
             ]
+          },
+          "removedItems": {
+            "default": [],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "productId": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "unitPriceCents": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "productId",
+                "name",
+                "unitPriceCents"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "removedNames": {
             "items": {
@@ -1832,6 +1988,32 @@
               }
             ]
           },
+          "removedItems": {
+            "default": [],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "productId": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "unitPriceCents": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "productId",
+                "name",
+                "unitPriceCents"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "removedNames": {
             "items": {
               "type": "string"
@@ -2094,6 +2276,32 @@
                 "type": "null"
               }
             ]
+          },
+          "removedItems": {
+            "default": [],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "productId": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "unitPriceCents": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "productId",
+                "name",
+                "unitPriceCents"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "removedNames": {
             "items": {
@@ -8094,6 +8302,33 @@
             "format": "uuid",
             "type": "string"
           },
+          "confirmedPrices": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "productId": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "unitPriceCents": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "productId",
+                "unitPriceCents"
+              ],
+              "type": "object"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          },
+          "confirmedShippingCents": {
+            "minimum": 0,
+            "type": "integer"
+          },
           "destination": {
             "anyOf": [
               {
@@ -8305,6 +8540,8 @@
         },
         "required": [
           "cartId",
+          "confirmedShippingCents",
+          "confirmedPrices",
           "shippingMethodId"
         ],
         "type": "object"
@@ -22453,6 +22690,32 @@
               }
             ]
           },
+          "removedItems": {
+            "default": [],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "productId": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "unitPriceCents": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "productId",
+                "name",
+                "unitPriceCents"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "removedNames": {
             "items": {
               "type": "string"
@@ -32142,6 +32405,6 @@
     "catalog": "docs/base/b17/b00-catalog.json",
     "catalogDigest": "sha256:7e2afa5fd3e1e7b3ddfdfac24f804d21d5a1e33585b348b5aceef6b2a92e7459",
     "httpCatalog": "docs/base/b17/commerce-http-contract.v1.json",
-    "httpCatalogSha256": "1f9c5563cd8cada3c51a797a121bd3a21c17ced22329eb9e6091da8f66c7066a"
+    "httpCatalogSha256": "bfb87bb8bd169fd5aac968d4d02971d2ec1ff261432033e66b85318e39e76ca1"
   }
 }

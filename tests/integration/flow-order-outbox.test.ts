@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { SYSTEM_ACTOR } from '@storeweave/contracts';
+import { PlatformError, SYSTEM_ACTOR } from '@storeweave/contracts';
 import type { PaymentInitiationInput, PaymentInitiationResult, PaymentProviderV2 } from '@storeweave/extension-sdk';
-import { ADMIN_ACTOR, runJobsUntilProcessed, createHarness, createProduct, payOrder, placeOrder, stockUp, type TestHarness } from './helpers';
+import { httpError } from '../../apps/api/src/http/envelope';
+import { ADMIN_ACTOR, runJobsUntilProcessed, createCustomer, createHarness, createProduct, payOrder, placeOrder, stockUp, type TestHarness } from './helpers';
 
 let h: TestHarness;
 beforeAll(async () => { h = await createHarness(); }, 300_000);
@@ -51,13 +52,61 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
   it('庫存不足時整筆訂單回滾，不留下訂單也不動庫存', async () => {
     const product = await createProduct(h.runtime);
     await stockUp(h.runtime, product.id, 2);
-    await expect(placeOrder(h.runtime, product.id, 5)).rejects.toThrow(/Insufficient stock for SKU-/);
+    await expect(placeOrder(h.runtime, product.id, 5)).rejects.toThrow(/可售量不足/);
 
     const stock = await h.runtime.queries.execute<any>('commerce.inventory.getStock', { productId: product.id }, { actor: ADMIN_ACTOR });
     expect(stock.onHand).toBe(2);
     expect(stock.reserved).toBe(0);
     const orders = await h.runtime.queries.execute<any>('commerce.order.listOrders', {}, { actor: ADMIN_ACTOR });
     expect(orders.items.every((o: any) => o.lines.every((l: any) => l.productId !== product.id))).toBe(true);
+  });
+
+  it('ORD-04 可售量不足只回報不足，不洩漏確切可售量', async () => {
+    const product = await createProduct(h.runtime, { name: 'ORD04 商品' });
+    await stockUp(h.runtime, product.id, 7);
+    try {
+      await placeOrder(h.runtime, product.id, 8);
+      throw new Error('Expected checkout rejection');
+    } catch (error) {
+      expect(error).toBeInstanceOf(PlatformError);
+      const rejected = error as PlatformError;
+      expect(rejected.code).toBe('VALIDATION_ERROR');
+      expect(rejected.message).toContain('可售量不足');
+      expect(rejected.details).toMatchObject({ kind: 'order_lines_rejected', lines: [{
+        productId: product.id, reason: 'insufficient_stock', message: '可售量不足',
+      }] });
+      const response = httpError(rejected);
+      expect(response.error.details).toEqual(rejected.details);
+      expect(JSON.stringify(response)).not.toMatch(/7 available|可售 7|庫存 7/);
+    }
+  });
+
+  it('ORD-05 多筆不同問題一次回報，健康明細不列入且沒有訂單或預留', async () => {
+    const healthy = await createProduct(h.runtime, { name: 'ORD05 正常商品' });
+    const shortage = await createProduct(h.runtime, { name: 'ORD05 缺貨商品' });
+    const currency = await createProduct(h.runtime, { name: 'ORD05 美元商品', currency: 'USD' });
+    await stockUp(h.runtime, healthy.id, 5);
+    await stockUp(h.runtime, shortage.id, 1);
+    await stockUp(h.runtime, currency.id, 5);
+    const buyer = await createCustomer(h.runtime);
+    const before = await h.runtime.database.db.execute<{ count: string }>(sql`SELECT count(*)::text AS count FROM order_orders`);
+    const result = h.runtime.commands.execute('commerce.order.placeOrder', { lines: [
+      { productId: healthy.id, quantity: 1 }, { productId: shortage.id, quantity: 2 }, { productId: currency.id, quantity: 1 },
+    ] }, { actor: buyer, idempotencyKey: randomUUID() });
+    await expect(result).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: {
+      kind: 'order_lines_rejected', lines: expect.arrayContaining([
+        expect.objectContaining({ productId: shortage.id, reason: 'insufficient_stock' }),
+        expect.objectContaining({ productId: currency.id, reason: 'currency_mismatch' }),
+      ]),
+    } });
+    const rejection = await result.catch((error: PlatformError) => error);
+    expect((rejection as PlatformError).details).toHaveProperty('lines.length', 2);
+    const after = await h.runtime.database.db.execute<{ count: string }>(sql`SELECT count(*)::text AS count FROM order_orders`);
+    expect(after.rows[0].count).toBe(before.rows[0].count);
+    for (const product of [healthy, shortage, currency]) {
+      const stock = await h.runtime.queries.execute<any>('commerce.inventory.getStock', { productId: product.id }, { actor: ADMIN_ACTOR });
+      expect(stock.reserved).toBe(0);
+    }
   });
 
   it('付款工作在交易外完成，成功才扣庫存並發出 commerce.order.paid.v2', async () => {

@@ -47,8 +47,8 @@ const addToCart = (input: Record<string, unknown>, actor: any = STOREFRONT_ACTOR
 const getCart = (input: Record<string, unknown>, actor: any = STOREFRONT_ACTOR) =>
   h.runtime.queries.execute<any>('commerce.cart.getCart', input, { actor });
 
-const checkout = (actor: any, cartId: string) =>
-  h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cartId), { actor, idempotencyKey: randomUUID() });
+const checkout = async (actor: any, cartId: string) =>
+  h.runtime.commands.execute<any>('commerce.order.checkoutCart', await checkoutInput(h, cartId), { actor, idempotencyKey: randomUUID() });
 
 async function sellable(sku: string, priceCents = 10_000) {
   const product = await createProduct(h.runtime, { sku, name: sku, priceCents });

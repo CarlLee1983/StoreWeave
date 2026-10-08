@@ -15,7 +15,7 @@ async function shippedOrder(quantity = 1) {
   const customer = await defaultCustomer(h.runtime);
   await h.runtime.commands.execute('commerce.cart.addToCart', { productId: product.id, quantity }, { actor: customer, idempotencyKey: randomUUID() });
   const cart = await h.runtime.queries.execute<{ id: string }>('commerce.cart.getCart', {}, { actor: customer });
-  const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cart.id), { actor: customer, idempotencyKey: randomUUID() });
+  const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', await checkoutInput(h, cart.id), { actor: customer, idempotencyKey: randomUUID() });
   await payOrder(h.runtime, order.id);
   await runJobsUntilProcessed(h.worker);
   const shipment = await h.runtime.commands.execute<any>('commerce.shipping.createShipment', { orderId: order.id }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
