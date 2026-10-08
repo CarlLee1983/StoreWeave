@@ -58,3 +58,18 @@ The successful run emitted existing Vite import and PostgreSQL client deprecatio
 ## External delivery
 
 WebForge implementation tables are updated locally after this passing gate. Its seven preexisting unpublished commits will not be pushed. The fixed-commit report was published as [WebForge issue #1](https://github.com/CarlLee1983/WebForge/issues/1) and verified with `gh issue view` on 2026-10-08. It contains all ORD-01–ORD-19 locations, executed results, environment, command, tested commit and explicit scope. Table updates remain local; the report is published.
+
+## CI smoke contract follow-up (2026-10-08)
+
+[PR #126's first Actions run](https://github.com/CarlLee1983/StoreWeave/actions/runs/37716559398) passed typecheck/unit/admin, both PostgreSQL integration shards and both Base smoke jobs. Both Commerce smoke jobs failed only because the shared smoke script still expected HTTP 409 for insufficient stock; SW-177's structured `VALIDATION_ERROR` contract maps to HTTP 400.
+
+At `baa1a7de803656c188ea7281a452f284de071071`, only `scripts/smoke.sh` changed: it expects 400 and checks the structured rejection, the exact safe message and line fields, and unchanged stock (on hand 10, reserved 2). No production implementation, dependency or migration changed. Shell syntax and `git diff --check` passed; independent reviewer accepted this delta.
+
+| Focused release gate | Executed result |
+| --- | --- |
+| Commerce Docker smoke | Exit 0; 74 checks passed, 0 failed; full backup/restore passed |
+| Commerce native tarball smoke | Exit 0; 73 checks passed, 0 failed; full backup/restore passed |
+
+Docker rebuilt the release and ran on isolated Compose port 3326; native executed the checksum-bound x64 tarball in an isolated Debian container on port 3327. Both generated passing manifest-bound smoke evidence identifying the exact commit above. Local evidence: `/tmp/storeweave-126-docker-smoke/evidence.json` and `/tmp/storeweave-126-native-evidence.json`.
+
+The passing full `make verify` checkpoint above remains the evidence for unchanged application sources; this follow-up exercises the changed smoke boundary directly. A fresh PR CI run verifies the complete head after publication.
