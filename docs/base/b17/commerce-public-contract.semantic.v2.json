@@ -1,6 +1,6 @@
 {
   "caseCount": 145,
-  "caseDigest": "e6556fc7011f7fd10e3d27427241638d9395d83ff36bc0a9904faff0c779e3c4",
+  "caseDigest": "ad4b973b631023f14207e013e4769b09fe740e0b9f2ffc9fc40234cd96c95dac",
   "cases": [
     {
       "accepted": {
@@ -23515,10 +23515,103 @@
             "$schema": "http://json-schema.org/draft-07/schema#",
             "additionalProperties": false,
             "properties": {
+              "confirmedPrices": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "productId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "unitPriceCents": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "productId",
+                    "unitPriceCents"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 50,
+                "minItems": 1,
+                "type": "array"
+              },
+              "confirmedShippingCents": {
+                "minimum": 0,
+                "type": "integer"
+              },
               "currency": {
                 "maxLength": 3,
                 "minLength": 3,
                 "type": "string"
+              },
+              "destination": {
+                "additionalProperties": false,
+                "properties": {
+                  "city": {
+                    "maxLength": 80,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "countryCode": {
+                    "const": "TW",
+                    "type": "string"
+                  },
+                  "district": {
+                    "maxLength": 80,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "taiwan_home",
+                    "type": "string"
+                  },
+                  "line1": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "line2": {
+                    "anyOf": [
+                      {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "phone": {
+                    "maxLength": 40,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "postcode": {
+                    "maxLength": 20,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "recipient": {
+                    "maxLength": 120,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "countryCode",
+                  "recipient",
+                  "phone",
+                  "postcode",
+                  "city",
+                  "district",
+                  "line1",
+                  "line2"
+                ],
+                "type": "object"
               },
               "lines": {
                 "items": {
@@ -23547,10 +23640,18 @@
               "metadata": {
                 "additionalProperties": {},
                 "type": "object"
+              },
+              "shippingMethodId": {
+                "format": "uuid",
+                "type": "string"
               }
             },
             "required": [
-              "lines"
+              "lines",
+              "confirmedPrices",
+              "shippingMethodId",
+              "destination",
+              "confirmedShippingCents"
             ],
             "type": "object"
           },
@@ -24666,25 +24767,63 @@
         "http:POST:/api/v1/orders:bus:bus-http-input"
       ],
       "expected": {
+        "confirmedPrices": [
+          {
+            "productId": "11111111-1111-4111-8111-111111111111",
+            "unitPriceCents": 1
+          }
+        ],
+        "confirmedShippingCents": 1,
         "currency": "inp",
+        "destination": {
+          "city": "input-city",
+          "countryCode": "TW",
+          "district": "input-district",
+          "kind": "taiwan_home",
+          "line1": "input-line1",
+          "line2": "input-line2",
+          "phone": "input-phone",
+          "postcode": "input-postcode",
+          "recipient": "input-recipient"
+        },
         "lines": [
           {
             "productId": "11111111-1111-4111-8111-111111111111",
             "quantity": 1
           }
         ],
-        "metadata": {}
+        "metadata": {},
+        "shippingMethodId": "11111111-1111-4111-8111-111111111111"
       },
       "id": "http-input:POST:/api/v1/orders",
       "input": {
+        "confirmedPrices": [
+          {
+            "productId": "11111111-1111-4111-8111-111111111111",
+            "unitPriceCents": 1
+          }
+        ],
+        "confirmedShippingCents": 1,
         "currency": "inp",
+        "destination": {
+          "city": "input-city",
+          "countryCode": "TW",
+          "district": "input-district",
+          "kind": "taiwan_home",
+          "line1": "input-line1",
+          "line2": "input-line2",
+          "phone": "input-phone",
+          "postcode": "input-postcode",
+          "recipient": "input-recipient"
+        },
         "lines": [
           {
             "productId": "11111111-1111-4111-8111-111111111111",
             "quantity": 1
           }
         ],
-        "metadata": {}
+        "metadata": {},
+        "shippingMethodId": "11111111-1111-4111-8111-111111111111"
       },
       "runner": "http-input",
       "surfaceId": "http:POST:/api/v1/orders:bus"
@@ -38732,13 +38871,13 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src + packages/commerce + packages/extensions + packages/platform + packages/releases/commerce/src + packages/themes/default/src",
-      "fingerprint": "7a0058510884630c20c3362ef26bf877883148a3c1ced39e390edeaa49eff5a6",
+      "fingerprint": "75d9522ef81a310fdf34a2a72232816c27036614de81d87a4d3144c4a887ae54",
       "id": "zod:commerce-production-source-inventory",
       "limitations": [
         "A source fingerprint detects drift but does not prove behavior.",
         "Called predicate bodies and the complete input domain are not inferred from this AST inventory."
       ],
-      "occurrences": 1109,
+      "occurrences": 1110,
       "operator": "zod-semantic-operations"
     }
   ],
@@ -38747,13 +38886,13 @@
     "dependencyLock": "pnpm-lock.yaml",
     "dependencyLockSha256": "94cfd7c111675cca635f2f2376bfd854f2b80754eb4acd9fd36534d3b53965e2",
     "http": "docs/base/b17/commerce-http-contract.v1.json",
-    "httpSha256": "bfb87bb8bd169fd5aac968d4d02971d2ec1ff261432033e66b85318e39e76ca1",
+    "httpSha256": "c373e92a780083e710c18dc5c49dda6aa6dcd467250cc056d0e2d29477c51931",
     "limitations": [
       "Artifact, dependency and source hashes detect drift but do not prove behavior.",
       "Only executable cases may remove runtime obligations from remaining."
     ],
     "structural": "docs/base/b17/commerce-public-contract.structural.v1.json",
-    "structuralSha256": "899c0b68696728ebd8fc1c93e5c2845ccd63e5264a03e1376894ca865854af65"
+    "structuralSha256": "a18d20ecc53a498c708cedfeea96887adb00327b98ac91fa051a352672e6be61"
   },
   "sourceFiles": [
     {
@@ -39539,7 +39678,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/commerce/order/src/commands.ts",
-      "fingerprint": "9f5637df05d18f6e6d27007d558d250ebd4de7436de9639faa1c515672fb73f5"
+      "fingerprint": "16977f61522e69f906824000056d78864beb62501a21197c8c0f03510dbd5052"
     },
     {
       "assurance": "provenance-only",
@@ -39549,7 +39688,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/commerce/order/src/dto.ts",
-      "fingerprint": "7441b2930a67478b579298291c8ac569ffdac73e7d59d34b02ebf63fe2d81ae1"
+      "fingerprint": "7c65e3740a526540209354706ef5a64a18e42168f5c9d54e2a230ba42b35a075"
     },
     {
       "assurance": "provenance-only",
@@ -40014,7 +40153,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/command-bus/src/command-bus.ts",
-      "fingerprint": "246c172be88d299de3a55fdcfc589e32f68d614a180ef89f8a012b5f3e31d998"
+      "fingerprint": "a834c40c4702b5367b4e1cf6ddf6c38e8932cf8409323bcea3859a0ebc4c807b"
     },
     {
       "assurance": "provenance-only",
@@ -40114,7 +40253,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/contracts/src/descriptors.ts",
-      "fingerprint": "6bc668fec5adc9977f2e5dfffd6003328986ce87b4ff34b227c75032b521c036"
+      "fingerprint": "0eb3a821d25dbfb801a36ee63d1f5aa8eee9731f51d82646fe3d934af5a32432"
     },
     {
       "assurance": "provenance-only",
@@ -41352,7 +41491,7 @@
     {
       "assurance": "provenance-only",
       "category": "core-command-input",
-      "fingerprint": "aaa8fca89dfd8d27e55abaed958f2b2a7ef05dfa5fb390804b18e689b7985709",
+      "fingerprint": "af0d44fddc746bead44f2d521a97ecb1422bc1e7f90203add830330e83e4095a",
       "id": "core:command:commerce.order.placeOrder:input"
     },
     {
@@ -44004,7 +44143,7 @@
     {
       "assurance": "provenance-only",
       "category": "http-route",
-      "fingerprint": "d297a468eed1ec321b3ff2cef156e153425d64ef028a03dd9518e7b146c8bbd9",
+      "fingerprint": "7f8ed9786b9e370877e4c9fa2e1c618c2c41eb4898f2ff4ffd3fdea54fa090c3",
       "id": "http:POST:/api/v1/orders:bus"
     },
     {

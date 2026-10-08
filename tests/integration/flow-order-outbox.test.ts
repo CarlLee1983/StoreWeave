@@ -4,7 +4,7 @@ import { sql } from 'drizzle-orm';
 import { PlatformError, SYSTEM_ACTOR } from '@storeweave/contracts';
 import type { PaymentInitiationInput, PaymentInitiationResult, PaymentProviderV2 } from '@storeweave/extension-sdk';
 import { httpError } from '../../apps/api/src/http/envelope';
-import { ADMIN_ACTOR, runJobsUntilProcessed, createCustomer, createHarness, createProduct, payOrder, placeOrder, stockUp, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, runJobsUntilProcessed, createCustomer, createHarness, directOrderInput, createProduct, payOrder, placeOrder, stockUp, type TestHarness } from './helpers';
 
 let h: TestHarness;
 beforeAll(async () => { h = await createHarness(); }, 300_000);
@@ -90,9 +90,9 @@ describe('流程二：訂單、付款與 Transactional Outbox', () => {
     await stockUp(h.runtime, currency.id, 5);
     const buyer = await createCustomer(h.runtime);
     const before = await h.runtime.database.db.execute<{ count: string }>(sql`SELECT count(*)::text AS count FROM order_orders`);
-    const result = h.runtime.commands.execute('commerce.order.placeOrder', { lines: [
+    const result = h.runtime.commands.execute('commerce.order.placeOrder', await directOrderInput(h.runtime, [
       { productId: healthy.id, quantity: 1 }, { productId: shortage.id, quantity: 2 }, { productId: currency.id, quantity: 1 },
-    ] }, { actor: buyer, idempotencyKey: randomUUID() });
+    ]), { actor: buyer, idempotencyKey: randomUUID() });
     await expect(result).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: {
       kind: 'order_lines_rejected', lines: expect.arrayContaining([
         expect.objectContaining({ productId: shortage.id, reason: 'insufficient_stock' }),

@@ -232,15 +232,15 @@
           },
           {
             "path": "docs/base/b17/commerce-http-contract.v1.json",
-            "sha256": "bfb87bb8bd169fd5aac968d4d02971d2ec1ff261432033e66b85318e39e76ca1"
+            "sha256": "c373e92a780083e710c18dc5c49dda6aa6dcd467250cc056d0e2d29477c51931"
           },
           {
             "path": "docs/base/b17/commerce-public-contract.structural.v1.json",
-            "sha256": "899c0b68696728ebd8fc1c93e5c2845ccd63e5264a03e1376894ca865854af65"
+            "sha256": "a18d20ecc53a498c708cedfeea96887adb00327b98ac91fa051a352672e6be61"
           },
           {
             "path": "docs/base/b17/commerce-public-contract.semantic.v2.json",
-            "sha256": "916bccd09bc280e942e2ede33b0e8de8f6523c440c1f242fb7c230bfa6140e1c"
+            "sha256": "601eda574dcd3cb404b127db7f000d1b8f29e06de78fb3c64fc049ca5ddd686a"
           }
         ]
       }

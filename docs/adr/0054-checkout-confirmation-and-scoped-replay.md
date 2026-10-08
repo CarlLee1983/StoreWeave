@@ -10,10 +10,10 @@ checkout 啟用它們，其他命令保留原本的範圍、完整輸入比對�
 這是共用產品的契約修正，不是店家或品牌差異。
 
 本次確認值與顧客鍵範圍適用於 `commerce.order.checkoutCart` 及其 REST／Storefront 入口。
-既有 `commerce.order.placeOrder`／`POST /api/v1/orders` 是較早的顧客直接下單介面，
-仍依自己的輸入契約成立；它沒有配送輸入，也未提供顧客確認的單價。
+本次決策時的 `commerce.order.placeOrder`／`POST /api/v1/orders` 是較早的顧客直接下單介面，
+當時依自己的輸入契約成立，沒有配送輸入，也未提供顧客確認的單價。
 共同的逐筆拒絕、庫存保留與安全錯誤訊息仍由同一個 Order 邊界處理。
-直接下單介面的契約調整另由 Story 決定，不能將本次購物車情境證據推廣為所有訂單介面的保證。
+直接下單後續由 [ADR 0055](0055-direct-order-confirmation-and-legacy-keys.md) 與 SW-185／SW-186／SW-187 補齊宅配確認及舊鍵防重複；本次購物車情境證據仍不能推廣為所有訂單介面的保證。
 
 ## 決策
 

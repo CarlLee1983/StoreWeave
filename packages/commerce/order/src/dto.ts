@@ -142,14 +142,43 @@ export type OrderOutputDto = z.infer<typeof orderOutputDto>;
  * strict：`customerEmail` 已於工單 21 移除，舊客戶端繼續送要收到錯誤而不是被靜默丟棄——
  * 那個欄位曾經決定訂單歸屬，安靜忽略它是最糟的失敗方式。
  */
-export const placeOrderInput = z.object({
-  currency: z.string().length(3).optional(),
-  lines: z.array(z.object({
+const confirmedPricesInput = z.array(z.object({
+  productId: z.string().uuid(), unitPriceCents: z.number().int().nonnegative(),
+}).strict()).min(1).max(50).superRefine((lines, context) => {
+  if (new Set(lines.map((line) => line.productId)).size !== lines.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Confirmed prices must contain each product once' });
+  }
+}).transform((lines) => [...lines].sort((a, b) => a.productId.localeCompare(b.productId)));
+
+function normalizeDestination(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const normalized = Object.fromEntries(Object.entries(value).map(([key, field]) =>
+    [key, typeof field === 'string' ? field.trim() : field]));
+  if (normalized.line2 === '') normalized.line2 = null;
+  return normalized;
+}
+const normalizedDestinationInput = z.preprocess(normalizeDestination, shippingDestinationInput);
+
+export const orderLinesInput = z.array(z.object({
     productId: z.string().uuid(),
     quantity: z.number().int().min(1).max(999),
-  }).strict()).min(1).max(50),
+  }).strict()).min(1).max(50);
+
+export const placeOrderInput = z.object({
+  currency: z.string().length(3).optional(),
+  lines: orderLinesInput,
+  confirmedPrices: confirmedPricesInput,
+  shippingMethodId: z.string().uuid(),
+  destination: z.preprocess(normalizeDestination, shippingDestinationInput.options[0]),
+  confirmedShippingCents: z.number().int().nonnegative(),
   metadata: z.record(z.unknown()).optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  const productIds = new Set(value.lines.map((line) => line.productId));
+  if (productIds.size !== value.confirmedPrices.length
+    || value.confirmedPrices.some((line) => !productIds.has(line.productId))) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['confirmedPrices'], message: 'Confirm exactly the products being ordered' });
+  }
+});
 
 export const payOrderInput = z.object({
   orderId: z.string().uuid(),
@@ -282,23 +311,11 @@ export const checkoutCartInput = z.object({
   cartId: z.string().uuid(),
   confirmedShippingCents: z.number().int().nonnegative(),
   /** Every cart line's unit price as last confirmed by the customer. */
-  confirmedPrices: z.array(z.object({
-    productId: z.string().uuid(), unitPriceCents: z.number().int().nonnegative(),
-  }).strict()).min(1).max(50).superRefine((lines, context) => {
-    if (new Set(lines.map((line) => line.productId)).size !== lines.length) {
-      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Confirmed prices must contain each product once' });
-    }
-  }).transform((lines) => [...lines].sort((a, b) => a.productId.localeCompare(b.productId))),
+  confirmedPrices: confirmedPricesInput,
   /** The merchant-owned method selected for this checkout. */
   shippingMethodId: z.string().uuid(),
   /** Home deliveries use a complete address; pickup uses a server-issued selection capability. */
-  destination: z.preprocess((value) => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-    const normalized = Object.fromEntries(Object.entries(value).map(([key, field]) =>
-      [key, typeof field === 'string' ? field.trim() : field]));
-    if (normalized.line2 === '') normalized.line2 = null;
-    return normalized;
-  }, shippingDestinationInput).optional(),
+  destination: normalizedDestinationInput.optional(),
   pickupSelectionToken: z.string().min(32).max(200).regex(/^[A-Za-z0-9_-]+$/).optional(),
   pickupRecipient: z.string().trim().min(1).max(120).optional(),
   pickupPhone: z.string().trim().min(1).max(40).optional(),

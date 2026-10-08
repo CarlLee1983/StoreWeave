@@ -19,7 +19,7 @@ import { cartService, isPurchasable } from '@storeweave/cart';
 import { couponService, reverseCouponForOrder } from '@storeweave/coupon';
 import { maxRedeemableCents, rewardService, tierService } from '@storeweave/loyalty';
 import {
-  cancelOrderInput, checkoutCartInput, orderOutputDto, payOrderInput, placeOrderInput,
+  cancelOrderInput, checkoutCartInput, orderLinesInput, orderOutputDto, payOrderInput, placeOrderInput,
   recordPaymentResultInput, type OrderDto, type OrderOutputDto,
 } from './dto';
 import { OrderRepository, toCustomerOrderDto, toOrderDto } from './repository';
@@ -90,6 +90,18 @@ export const placeOrderCommand = defineCommand({
   output: orderOutputDto,
   permission: 'order:write',
   idempotency: 'required',
+  idempotencyScope: 'actor',
+  idempotencyInput: ({ confirmedShippingCents: _fee, ...replay }) => replay,
+  legacyIdempotencyGuard: {
+    input: ({ currency, lines, metadata }) => ({ currency, lines, metadata }),
+    onReplay: (response) => {
+      const order = orderOutputDto.parse(response);
+      throw PlatformError.validation('識別鍵已用於升級前訂單；請先確認原訂單，本次配送資料未套用', {
+        kind: 'legacy_order_exists', orderId: order.id, orderNumber: order.number,
+      });
+    },
+  },
+  transactionRetry: checkoutTransactionRetry,
   audit: {
     action: 'order.placed',
     resourceType: 'order',
@@ -107,16 +119,14 @@ export async function createOrderFromLines(
   input: {
     currency?: string;
     lines: { productId: string; quantity: number }[];
-    confirmedPrices?: readonly { productId: string; unitPriceCents: number }[];
-    /** Required by cart checkout; the legacy direct purchase API has its own input contract. */
-    confirmedShippingCents?: number;
+    confirmedPrices: readonly { productId: string; unitPriceCents: number }[];
+    confirmedShippingCents: number;
     metadata?: Record<string, unknown>;
     /** 券指名的活動。它們不在「此刻人人適用」的清單裡，必須明確帶進來。 */
     couponPromotionIds?: readonly string[];
     /** 購物金折抵。上限由呼叫端算好，引擎只負責套用與分攤。 */
     rewardRedeemCents?: number;
-    /** Checkout passes a concrete merchant method and destination; legacy direct orders omit delivery. */
-    delivery?: { shippingMethodId: string; destination: ShippingDestinationInput };
+    delivery: { shippingMethodId: string; destination: ShippingDestinationInput };
   },
   ctx: CommandContext,
 ): Promise<OrderDto> {
@@ -128,7 +138,7 @@ export async function createOrderFromLines(
 
   const lines: (typeof orderLines.$inferInsert)[] = [];
   const rejectedLines: { productId: string; sku: string | null; name: string | null; reason: 'unavailable' | 'currency_mismatch' | 'insufficient_stock' | 'price_changed'; message: string; currentUnitPriceCents?: number }[] = [];
-  const confirmedPriceByProduct = new Map(input.confirmedPrices?.map((line) => [line.productId, line.unitPriceCents]));
+  const confirmedPriceByProduct = new Map(input.confirmedPrices.map((line) => [line.productId, line.unitPriceCents]));
   // Acquire inventory locks in the same order for every checkout, even when
   // customers add the same products to their carts in opposite orders.
   const sortedLines = input.lines.map((line, inputIndex) => ({ ...line, inputIndex }))
@@ -149,7 +159,7 @@ export async function createOrderFromLines(
         reason: 'currency_mismatch', message: '商品幣別與訂單不符' });
       continue;
     }
-    if (input.confirmedPrices && confirmedPriceByProduct.get(product.id) !== product.priceCents) {
+    if (confirmedPriceByProduct.get(product.id) !== product.priceCents) {
       rejectedLines.push({ productId: product.id, sku: product.sku, name: product.name,
         reason: 'price_changed', message: `目前單價已變更為 ${product.priceCents} 分，請重新確認`,
         currentUnitPriceCents: product.priceCents });
@@ -191,18 +201,15 @@ export async function createOrderFromLines(
 
   // 配送費是商家的交易政策：在優惠引擎算總額以前，先把目前可用的方法解成不可變快照。
   // 之後停用、改名或改價都不會改寫這張訂單。
-  const deliverySnapshot = input.delivery
-    ? await shippingService.resolveCheckoutMethodForOrder(ctx.tx, {
+  const deliverySnapshot = await shippingService.resolveCheckoutMethodForOrder(ctx.tx, {
       shippingMethodId: input.delivery.shippingMethodId,
       subtotalCents: lines.reduce((total, line) => total + line.lineTotalCents, 0),
       destinationKind: input.delivery.destination.kind,
-    })
-    : null;
+    });
 
-  if (input.confirmedShippingCents !== undefined
-    && input.confirmedShippingCents !== (deliverySnapshot?.shippingCents ?? 0)) {
+  if (input.confirmedShippingCents !== deliverySnapshot.shippingCents) {
     throw PlatformError.validation('運費已變更，請重新確認', {
-      kind: 'shipping_fee_changed', currentShippingCents: deliverySnapshot?.shippingCents ?? 0,
+      kind: 'shipping_fee_changed', currentShippingCents: deliverySnapshot.shippingCents,
     });
   }
 
@@ -214,7 +221,7 @@ export async function createOrderFromLines(
     couponPromotionIds: input.couponPromotionIds,
     rewardRedeemCents: input.rewardRedeemCents,
     membershipTier,
-    shippingCents: deliverySnapshot?.shippingCents,
+    shippingCents: deliverySnapshot.shippingCents,
     lines: lines.map((l) => ({
       lineId: l.id!,
       productId: l.productId,
@@ -259,7 +266,7 @@ export async function createOrderFromLines(
   ).returning();
 
   let deliveryRow: typeof orderDeliveries.$inferSelect | null = null;
-  if (deliverySnapshot && input.delivery) {
+  {
     const destination = input.delivery.destination;
     const [inserted] = await ctx.tx.insert(orderDeliveries).values({
       orderId,
@@ -309,7 +316,9 @@ export async function createOrderFromLines(
 
 export function createPlaceOrderHandler(deps: OrderModuleDeps) {
   return async (input: z.infer<typeof placeOrderInput>, ctx: CommandContext): Promise<OrderOutputDto> =>
-    orderOutputForActor(ctx, await createOrderFromLines(deps, input, ctx));
+    orderOutputForActor(ctx, await createOrderFromLines(deps, {
+      ...input, delivery: { shippingMethodId: input.shippingMethodId, destination: input.destination },
+    }, ctx));
 }
 
 export const checkoutCartCommand = defineCommand({
@@ -368,7 +377,7 @@ export function createCheckoutCartHandler(deps: OrderModuleDeps) {
     if (lines.length === 0) throw PlatformError.validation('Your cart is empty');
     // 上限與 placeOrder 共用同一份宣告：從購物車進來的路徑本來完全繞過那個 schema，
     // 於是一張訂單可以帶數千行進 createOrderFromLines，在同一交易內鎖住大量庫存列。
-    const bounded = placeOrderInput.shape.lines.safeParse(lines);
+    const bounded = orderLinesInput.safeParse(lines);
     if (!bounded.success) {
       throw PlatformError.validation('Your cart has too many items to check out', bounded.error.issues);
     }

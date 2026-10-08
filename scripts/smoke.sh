@@ -78,7 +78,12 @@ buyer_api() { # method path body [idempotency-key] -> http code
   curl "${args[@]}"
 }
 
-ORDER_JSON="{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":2}]}"
+SHIPPING_METHOD_JSON="{\"code\":\"smoke-home-$SKU\",\"name\":\"Smoke 宅配\",\"provider\":\"manual\",\"type\":\"home_delivery\",\"destinationKind\":\"taiwan_home\",\"feeCents\":0,\"enabled\":true}"
+check "建立零運費宅配方式 (201)" "$(api POST /api/v1/shipping/methods "$SHIPPING_METHOD_JSON" "smoke-shipping-$SKU")" "201"
+SHIPPING_METHOD_ID=$(jqr 'j.data.id' < /tmp/smoke_body)
+[ -n "$SHIPPING_METHOD_ID" ] || { echo "  FAIL 沒有拿到 shippingMethodId"; exit 1; }
+ORDER_CONFIRMATION="\"confirmedPrices\":[{\"productId\":\"$PRODUCT_ID\",\"unitPriceCents\":12500}],\"shippingMethodId\":\"$SHIPPING_METHOD_ID\",\"destination\":{\"kind\":\"taiwan_home\",\"countryCode\":\"TW\",\"recipient\":\"Smoke 收件人\",\"phone\":\"0912345678\",\"postcode\":\"100\",\"city\":\"台北市\",\"district\":\"中正區\",\"line1\":\"測試路 1 號\",\"line2\":null},\"confirmedShippingCents\":0"
+ORDER_JSON="{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":2}],$ORDER_CONFIRMATION}"
 check "建立訂單 (201)" "$(buyer_api POST /api/v1/orders "$ORDER_JSON" "smoke-order-$SKU")" "201"
 ORDER_ID=$(jqr 'j.data.id' < /tmp/smoke_body)
 ORDER_NUMBER=$(jqr 'j.data.number' < /tmp/smoke_body)
@@ -86,8 +91,8 @@ echo "  orderId=$ORDER_ID number=$ORDER_NUMBER"
 api GET "/api/v1/inventory/$PRODUCT_ID" >/dev/null
 check "下單後實體庫存仍為 10" "$(jqr 'j.data.onHand' < /tmp/smoke_body)" "10"
 check "下單後預留庫存為 2" "$(jqr 'j.data.reserved' < /tmp/smoke_body)" "2"
-OVERSELL_ORDER_JSON="{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":999}]}"
-STRICT_ORDER_JSON="{\"customerEmail\":\"$BUYER_EMAIL\",\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":1}]}"
+OVERSELL_ORDER_JSON="{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":999}],$ORDER_CONFIRMATION}"
+STRICT_ORDER_JSON="{\"customerEmail\":\"$BUYER_EMAIL\",\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":1}],$ORDER_CONFIRMATION}"
 check "庫存不足會被擋 (400)" "$(buyer_api POST /api/v1/orders "$OVERSELL_ORDER_JSON" "smoke-oversell-$SKU")" "400"
 check "庫存不足是逐筆 validation 拒絕" "$(jqr 'j.error.code === "VALIDATION_ERROR" && j.error.details.kind === "order_lines_rejected" && j.error.details.lines.length === 1' < /tmp/smoke_body)" "true"
 check "拒絕明細指出商品與原因，不洩漏可售量" "$(jqr "j.error.details.lines.every(l => l.productId === '$PRODUCT_ID' && l.reason === 'insufficient_stock' && l.message === '可售量不足' && Object.keys(l).sort().join(',') === 'message,name,productId,reason,sku') && j.error.message === 'Smoke 測試商品：可售量不足'" < /tmp/smoke_body)" "true"
@@ -96,7 +101,7 @@ check "拒絕後實體庫存仍為 10" "$(jqr 'j.data.onHand' < /tmp/smoke_body)
 check "拒絕後預留庫存仍為 2" "$(jqr 'j.data.reserved' < /tmp/smoke_body)" "2"
 check "多帶一個不認得的欄位會被擋 (400)" "$(buyer_api POST /api/v1/orders "$STRICT_ORDER_JSON" "smoke-strict-$SKU")" "400"
 check "400 說得出是哪一個欄位" "$(jqr 'JSON.stringify(j.error.details).includes("customerEmail")' < /tmp/smoke_body)" "true"
-SERVICE_ORDER_JSON="{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":1}]}"
+SERVICE_ORDER_JSON="{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":1}],$ORDER_CONFIRMATION}"
 check "服務 token 不能替別人下單 (403)" "$(api POST /api/v1/orders "$SERVICE_ORDER_JSON" "smoke-svc-order-$SKU")" "403"
 rm -f "$BUYER_JAR"
 check "標記付款" "$(api POST "/api/v1/orders/$ORDER_ID/pay" '{}' "smoke-pay-$SKU")" "200"
