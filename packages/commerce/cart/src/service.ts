@@ -49,7 +49,7 @@ export function isPurchasable(
 export function emptyCartDto(id: string, currency: string): CartDto {
   return {
     id, currency, items: [], subtotalCents: 0, discountCents: 0, totalCents: 0,
-    adjustments: [], coupon: null, couponError: null, reward: null, nextThreshold: null, removedNames: [],
+    adjustments: [], coupon: null, couponError: null, reward: null, nextThreshold: null, removedNames: [], removedItems: [],
   };
 }
 
@@ -70,13 +70,16 @@ export async function toCartDto(
   const rows = await repository.items(db, cart.id);
   const items = [];
   const removedNames: string[] = [];
+  const removedItems: { productId: string; name: string; unitPriceCents: number }[] = [];
 
   for (const row of rows) {
     const product = await catalogService.findById(db, row.productId);
-    // 買不到的商品不顯示，但要說得出被拿掉的是什麼：靜靜消失比消失更糟，
-    // 而顧客在結帳時才發現少了一件已經來不及調整（Spec 0003 User Story 11）。
+    // Keep unavailable lines in the Cart and expose their identity separately
+    // from the priced quote so the customer can remove them deliberately.
     if (!product || !isPurchasable(product, defaultCurrency)) {
-      if (product) removedNames.push(product.name);
+      const name = product?.name ?? '商品已不存在';
+      removedNames.push(name);
+      removedItems.push({ productId: row.productId, name, unitPriceCents: product?.priceCents ?? 0 });
       continue;
     }
 
@@ -92,7 +95,7 @@ export async function toCartDto(
     });
   }
 
-  if (items.length === 0) return { ...emptyCartDto(cart.id, defaultCurrency), removedNames };
+  if (items.length === 0) return { ...emptyCartDto(cart.id, defaultCurrency), removedNames, removedItems };
 
   // 券只是「多帶一條活動進定價」。它在這裡**不**扣任何額度——
   // 限量的扣減只發生在結帳，因此試算成功不保證結帳成功（Spec 0004）。
@@ -149,6 +152,7 @@ export async function toCartDto(
       : null,
     couponError: resolved && !resolved.ok ? resolved.message : null,
     removedNames,
+    removedItems,
     reward: balance
       ? {
         requestedCents: cart.rewardRedeemCents,

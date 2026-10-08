@@ -33,6 +33,11 @@ export class ProductRepository {
     return row ?? null;
   }
 
+  async findByIdForCheckout(tx: Tx, id: string): Promise<ProductRow | null> {
+    const [row] = await tx.select().from(products).where(eq(products.id, id)).limit(1).for('share');
+    return row ?? null;
+  }
+
   async findBySku(db: DrizzleDb | Tx, sku: string): Promise<ProductRow | null> {
     const [row] = await db.select().from(products).where(eq(products.sku, sku)).limit(1);
     return row ?? null;

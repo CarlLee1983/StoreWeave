@@ -57,7 +57,7 @@ async function buyWith(couponCode: string, customer?: any) {
   await h.runtime.commands.execute('commerce.cart.applyCoupon', { code: couponCode },
     { actor: buyer, idempotencyKey: randomUUID() });
   const cart = await h.runtime.queries.execute<any>('commerce.cart.getCart', {}, { actor: buyer });
-  const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cart.id),
+  const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', await checkoutInput(h, cart.id),
     { actor: buyer, idempotencyKey: randomUUID() });
   return { order, buyer };
 }

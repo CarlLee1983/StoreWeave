@@ -13,7 +13,7 @@ const routes = {
   add: { kind: 'composed', target: { kind: 'command', name: 'commerce.cart.addToCart' }, request: 'body', rateLimit: 'cart', injected: ['guestToken'], output: 'target' },
   setQuantity: { kind: 'composed', target: { kind: 'command', name: 'commerce.cart.setCartItemQuantity' }, request: 'body', params: { productId: 'productId' }, bodyFields: ['quantity'], injected: ['guestToken'], output: 'target' },
   remove: { kind: 'composed', target: { kind: 'command', name: 'commerce.cart.removeCartItem' }, request: 'none', params: { productId: 'productId' }, injected: ['guestToken'], output: 'target' },
-  checkout: { kind: 'composed', target: { kind: 'command', name: 'commerce.order.checkoutCart' }, request: 'body', rateLimit: 'cart', bodyFields: ['cartId', 'shippingMethodId', 'destination'], serverDefaulted: ['cartId'], idempotencyKey: 'server-derived', output: 'target' },
+  checkout: { kind: 'composed', target: { kind: 'command', name: 'commerce.order.checkoutCart' }, request: 'body', rateLimit: 'cart', bodyFields: ['cartId', 'confirmedPrices', 'confirmedShippingCents', 'shippingMethodId', 'destination'], serverDefaulted: ['cartId'], idempotencyKey: 'server-derived', output: 'target' },
   applyCoupon: { kind: 'composed', target: { kind: 'command', name: 'commerce.cart.applyCoupon' }, request: 'body', rateLimit: 'coupon', bodyFields: ['code'], injected: ['guestToken'], output: 'target' },
   rewards: { kind: 'bus', target: { kind: 'command', name: 'commerce.cart.setRewardRedemption' }, request: 'body', rateLimit: 'cart' },
   removeCoupon: { kind: 'composed', target: { kind: 'command', name: 'commerce.cart.removeCoupon' }, request: 'none', injected: ['guestToken'], output: 'target' },
@@ -131,13 +131,12 @@ export class CartController extends BusController {
    * apps/api 對任何 commerce 模組都沒有相依（ADR 0010），為了一句訊息開這個相依不划算。
    * 兩邊各自成立——這裡說的是「沒有車可以結」，命令說的是「這台車沒有結得了的商品」。
    *
-   * 判準也不同：這裡數的是購物車顯示的行數，命令數的是 `isPurchasable` 過濾後的行。
-   * 一台只剩下架商品的車會穿過這個預檢查，然後被命令擋下——結局一樣，理由不一樣。
+   * 判準也不同：這裡數的是可定價的顯示行，命令會檢查所有原始明細並逐筆回報問題。
    */
   private async currentCartId(req: AuthenticatedRequest): Promise<string> {
     const guestToken = existingGuestToken(req, this.runtime.config.http.publicUrl);
-    const cart = await this.query<{ id: string; items: unknown[] }>(req, routes.get.target.name, busHttpInput(routes.get, {}, {}, { guestToken }));
-    if (cart.items.length === 0) throw PlatformError.validation('No cart to check out');
+    const cart = await this.query<{ id: string; items: unknown[]; removedItems: unknown[] }>(req, routes.get.target.name, busHttpInput(routes.get, {}, {}, { guestToken }));
+    if (cart.items.length === 0 && cart.removedItems.length === 0) throw PlatformError.validation('No cart to check out');
     return cart.id;
   }
 

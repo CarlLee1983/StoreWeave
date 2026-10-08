@@ -60,6 +60,19 @@ export class CommandBus {
   constructor(private readonly deps: CommandBusDeps) {}
 
   register(descriptor: CommandDescriptor, handler: CommandHandler, owner: string): void {
+    // Actor-scoped storage namespaces are JSON tuples, never public command
+    // names. Reserve their prefix so registration cannot alias cached results.
+    if (descriptor.name.startsWith('[')) {
+      throw PlatformError.internal('Command names cannot use the reserved idempotency namespace');
+    }
+    if (descriptor.transactionRetry && (!Number.isSafeInteger(descriptor.transactionRetry.maxAttempts)
+      || descriptor.transactionRetry.maxAttempts < 1 || descriptor.transactionRetry.maxAttempts > 10
+      || descriptor.idempotency !== 'required')) {
+      throw PlatformError.internal(`Command "${descriptor.name}" requires bounded transaction retries and required idempotency`);
+    }
+    if (descriptor.legacyIdempotencyGuard && (descriptor.idempotencyScope !== 'actor' || descriptor.idempotency !== 'required')) {
+      throw PlatformError.internal(`Command "${descriptor.name}" requires actor-scoped required idempotency for its legacy guard`);
+    }
     if (descriptor.requiresBeforeIdempotency && descriptor.idempotency !== 'required') {
       throw PlatformError.internal(`Command "${descriptor.name}" requires required idempotency for a pre-idempotency guard`);
     }
@@ -94,7 +107,7 @@ export class CommandBus {
     const logger = this.deps.logger.child({ command: name, correlationId, actor: options.actor.id, channel: options.channel ?? 'internal' });
 
     try {
-      const output = await this.run<O>({ descriptor, handler, owner, name, rawInput, options, logger, correlationId, startedAt });
+      const output = await this.runWithRetry<O>({ descriptor, handler, owner, name, rawInput, options, logger, correlationId, startedAt });
       // 成功那一行寫在交易外：寫在裡面的話，commit 自己失敗時會先吐一行「成功」
       // 再吐一行「失敗」，同一次呼叫兩個 latencyMs，其中一個是假的。
       if (!output.alreadyLogged) {
@@ -104,6 +117,19 @@ export class CommandBus {
     } catch (error) {
       logBusCall(logger, 'command', { fields: { owner }, latencyMs: elapsed(startedAt), error });
       throw error;
+    }
+  }
+
+  private async runWithRetry<O>(call: Parameters<CommandBus['run']>[0]): Promise<{ value: O; alreadyLogged: boolean }> {
+    const policy = call.descriptor.transactionRetry;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.run<O>(call);
+      } catch (error) {
+        if (!policy?.shouldRetry(error)) throw error;
+        if (attempt >= policy.maxAttempts) throw PlatformError.conflict(policy.exhaustedMessage);
+        call.logger.warn({ attempt, command: call.name }, 'retrying transaction after a classified failure');
+      }
     }
   }
 
@@ -156,7 +182,11 @@ export class CommandBus {
       throw PlatformError.internal(`Command "${name}" requires a pre-idempotency guard`);
     }
 
-    const hash = requestHash(input);
+    const hash = requestHash(descriptor.idempotencyInput ? descriptor.idempotencyInput(input) : input);
+    // JSON tuples cannot collide with an ordinary command name. Keep legacy
+    // namespaces untouched so opting in does not change unrelated commands.
+    const idempotencyName = descriptor.idempotencyScope === 'actor'
+      ? JSON.stringify([name, options.actor.id]) : name;
 
     return this.deps.database.transaction(async (tx) => {
       // A completed idempotency row normally returns before the handler. For a
@@ -164,7 +194,28 @@ export class CommandBus {
       // terminal lifecycle work cannot race a cached response.
       await options.beforeIdempotency?.(tx);
       if (options.idempotencyKey) {
-        const replay = await this.claimIdempotency(tx, name, options.idempotencyKey, hash, options.actor.id);
+        const guard = descriptor.legacyIdempotencyGuard;
+        if (guard) {
+          const legacy = await tx.execute<{ request_hash: string; status: string; response: unknown; actor_id: string }>(sql`
+            SELECT request_hash, status, response, actor_id FROM platform_idempotency
+            WHERE command_name = ${name} AND key = ${options.idempotencyKey}
+          `);
+          const row = legacy.rows[0];
+          // A foreign legacy key must not become a hash/status/response oracle.
+          if (row && row.actor_id === options.actor.id) {
+            if (row.request_hash !== requestHash(guard.input(input))) {
+              throw new PlatformError('IDEMPOTENCY_MISMATCH', 'The idempotency key was already used with a different legacy payload');
+            }
+            if (row.status !== 'completed') {
+              throw new PlatformError('IDEMPOTENCY_IN_PROGRESS', 'The legacy request is still in progress');
+            }
+            guard.onReplay(row.response);
+            // Runtime descriptors may come from JavaScript; a violated never
+            // contract must not fall through into a second business operation.
+            throw PlatformError.internal('Legacy idempotency guard returned without refusing replay');
+          }
+        }
+        const replay = await this.claimIdempotency(tx, idempotencyName, options.idempotencyKey, hash, options.actor.id);
         if (replay.kind === 'replay') {
           // 重放走的是這條捷徑，不會經過下面成功那一行。少了它，客戶端重試風暴時
           // 看到的是流量進來、`command executed` 的計數卻不動——那正是最該量的一種。
@@ -240,7 +291,7 @@ export class CommandBus {
       if (options.idempotencyKey) {
         await tx.execute(sql`
           UPDATE platform_idempotency SET status = 'completed', response = ${JSON.stringify(output ?? null)}::jsonb, completed_at = now()
-          WHERE command_name = ${name} AND key = ${options.idempotencyKey}
+          WHERE command_name = ${idempotencyName} AND key = ${options.idempotencyKey}
         `);
       }
 

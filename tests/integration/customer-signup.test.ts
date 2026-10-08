@@ -4,7 +4,7 @@ import { csrfTokenFor } from '@storeweave/identity';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { SESSION_COOKIE, createServer } from '@storeweave/api';
 import { defaultTheme } from '@storeweave/theme-default';
-import { ADMIN_ACTOR, createHarness, createProduct, stockUp, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createHarness, directOrderInput, createProduct, stockUp, type TestHarness } from './helpers';
 
 /** 顧客註冊、登入與登出（工單 14）。 */
 
@@ -114,7 +114,7 @@ describe('顧客登入與登出', () => {
       cookies: { [SESSION_COOKIE]: session },
       headers: { 'x-csrf-token': csrfTokenFor(session), 'idempotency-key': 'customer-order-1' },
       // 不送 customerEmail：下單者由身分決定（工單 21），送了會被 strict 擋下
-      payload: { lines: [{ productId: product.id, quantity: 1 }] },
+      payload: await directOrderInput(h.runtime, [{ productId: product.id, quantity: 1 }]),
     });
     expect(created.statusCode).toBe(201);
     // 訂單上的 email 來自帳號，不是呼叫端說了算

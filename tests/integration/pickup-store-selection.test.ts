@@ -43,27 +43,29 @@ async function readyCart() {
     code: `pickup-${randomUUID().slice(0, 8)}`, name: '測試超商取貨', provider: 'ecpay-logistics', type: 'pickup',
     destinationKind: 'pickup_store', feeCents: 60, enabled: true,
   }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
-  return { customer, cart, method };
+  return { customer, cart, method, product };
 }
 
 describe('pickup store selection', () => {
   it('uses a provider-verified store once and freezes it on the order', async () => {
-    const { customer, cart, method } = await readyCart();
+    const { customer, cart, method, product } = await readyCart();
     const started = await h.runtime.commands.execute<{ token: string }>('commerce.shipping.beginPickupSelection', {
       cartId: cart.id, shippingMethodId: method.id,
     }, { actor: customer, idempotencyKey: randomUUID() });
     await h.runtime.commands.execute('commerce.shipping.completePickupSelection', {
       token: started.token, providerStoreId: 'STORE-1',
     }, { actor: h.runtime.actorForRole('storefront'), idempotencyKey: randomUUID() });
-    const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', {
+    const checkout = {
       cartId: cart.id, shippingMethodId: method.id, pickupSelectionToken: started.token,
       pickupRecipient: '取貨人', pickupPhone: '0912345678',
-    }, { actor: customer, idempotencyKey: randomUUID() });
+      confirmedPrices: [{ productId: product.id, unitPriceCents: 1_000 }],
+      confirmedShippingCents: 60,
+    };
+    const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkout,
+      { actor: customer, idempotencyKey: randomUUID() });
     expect(order.delivery.destination).toMatchObject({ kind: 'pickup_store', providerStoreId: 'STORE-1', storeName: '測試門市', storeAddress: '台北市測試路 1 號' });
-    const replay = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', {
-      cartId: cart.id, shippingMethodId: method.id, pickupSelectionToken: started.token,
-      pickupRecipient: '取貨人', pickupPhone: '0912345678',
-    }, { actor: customer, idempotencyKey: randomUUID() });
+    const replay = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkout,
+      { actor: customer, idempotencyKey: randomUUID() });
     // Checkout itself is idempotent; its existing-order path does not attempt
     // to consume the capability again or create another destination snapshot.
     expect(replay.id).toBe(order.id);

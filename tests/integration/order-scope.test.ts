@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PlatformError } from '@storeweave/contracts';
 import {
-  ADMIN_ACTOR, STOREFRONT_ACTOR, createCustomer, createHarness, createProduct, placeOrder, stockUp, type TestHarness,
+  ADMIN_ACTOR, STOREFRONT_ACTOR, createCustomer, createHarness, directOrderInput, createProduct, placeOrder, stockUp, type TestHarness,
 } from './helpers';
 
 /** 訂單查詢依身分限縮（工單 12）：修掉「猜到訂單號就能讀別人的訂單」。 */
@@ -131,7 +131,7 @@ describe('寫入路徑也依身分限縮', () => {
     await stockUp(h.runtime, product.id, 2);
 
     await expect(h.runtime.commands.execute('commerce.order.placeOrder',
-      { customerEmail: 'someone-else@example.com', lines: [{ productId: product.id, quantity: 1 }] },
+      { ...await directOrderInput(h.runtime, [{ productId: product.id, quantity: 1 }]), customerEmail: 'someone-else@example.com' },
       { actor: customer, idempotencyKey: randomUUID() },
     )).rejects.toThrow(PlatformError);
   });

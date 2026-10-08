@@ -305,6 +305,80 @@ describe('超商取貨門市挑選啟動頁', () => {
 describe('送出訂單', () => {
   const paymentProvider = { id: 'ecpay', paymentMethods: () => [{ code: 'credit', label: '信用卡', timing: 'immediate' as const }] };
 
+  function rejectedContext(details: unknown, pickup = false) {
+    const execute = vi.fn(async () => { throw PlatformError.validation('請重新確認', details); });
+    const queries = vi.fn(async (name: string) => {
+      if (name === 'commerce.cart.getCart') return cart({ items: [{ productId: 'p1', quantity: 1 }], subtotalCents: 1000 });
+      if (name === 'commerce.customer.getMyProfile') return { id: 'cust-1', email: 'buyer@example.test', address: {
+        recipient: '帳戶姓名', phone: '0911111111', postcode: '100', city: '台北市', district: '中正區', line1: '舊地址', line2: null,
+      } };
+      if (name === 'commerce.shipping.listShippingMethods') return { items: [{
+        id: 'ship-1', name: '配送', destinationKind: pickup ? 'pickup_store' : 'taiwan_home', feeCents: 100, freeShippingThresholdCents: null,
+      }] };
+      if (name === 'commerce.shipping.quoteCheckoutShipping') return { shippingCents: 100 };
+      if (name === 'commerce.shipping.getPickupSelectionView') return { token: 'token', store: {
+        storeName: '指定門市', storeAddress: '門市地址',
+      } };
+      throw new Error(`unexpected query ${name}`);
+    });
+    return { execute, ctx: makeCtx({ actor: customer, commands: { execute }, queries: { execute: queries },
+      providers: { get: vi.fn(() => paymentProvider), has: vi.fn(() => true) } }) };
+  }
+
+  it('ORD-16 運費拒絕重畫保留捐贈發票選項與愛心碼', async () => {
+    const { ctx, execute } = rejectedContext({ kind: 'shipping_fee_changed', currentShippingCents: 200 });
+    const outcome = await cartPages.submit.resolve(ctx, cartPages.submit.input.parse({
+      cartId: 'cart-1', confirmedPrices: '[]', confirmedShippingCents: '100', shippingMethodId: 'ship-1', paymentMethod: 'credit',
+      recipient: '自填收件人', phone: '0900000000', postcode: '100', city: '台北市', district: '中正區', line1: '新地址',
+      invoicePreference: 'donation', invoiceLoveCode: '1234567',
+    }));
+    expect(outcome).toMatchObject({ kind: 'view', status: 400, view: {
+      currentShippingCents: 200, invoiceSelection: { preference: 'donation', loveCode: '1234567' },
+      deliveryAddress: { recipient: '自填收件人', line1: '新地址' },
+    } });
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('ORD-03 單價拒絕重畫保留取貨聯絡資料與手機條碼', async () => {
+    const { ctx, execute } = rejectedContext({ kind: 'order_lines_rejected', lines: [{
+      productId: 'p1', sku: 'SKU1', name: '商品', reason: 'price_changed', message: '單價變更', currentUnitPriceCents: 1200,
+    }] }, true);
+    const outcome = await cartPages.submit.resolve(ctx, cartPages.submit.input.parse({
+      cartId: 'cart-1', confirmedPrices: '[]', confirmedShippingCents: '100', shippingMethodId: 'ship-1', paymentMethod: 'credit',
+      pickupSelectionToken: 'token', pickupRecipient: '自填取貨人', pickupPhone: '0922222222',
+      invoicePreference: 'mobile', invoiceCarrierNumber: '/ABCD123',
+    }));
+    expect(outcome).toMatchObject({ kind: 'view', status: 400, view: {
+      pickupContact: { recipient: '自填取貨人', phone: '0922222222' },
+      invoiceSelection: { preference: 'mobile', carrierNumber: '/ABCD123' },
+      pickupSelection: { storeName: '指定門市' },
+    } });
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('ORD-05 下單拒絕時結帳頁帶回所有有問題明細，且不啟動付款', async () => {
+    const lines = [
+      { productId: 'p1', sku: 'A', name: '缺貨商品', reason: 'insufficient_stock', message: '可售量不足' },
+      { productId: 'p2', sku: 'B', name: '幣別商品', reason: 'currency_mismatch', message: '商品幣別與訂單不符' },
+    ];
+    const commandExecute = vi.fn(async () => { throw PlatformError.validation('部分商品無法結帳', { kind: 'order_lines_rejected', lines }); });
+    const queryExecute = vi.fn(async (name: string) => {
+      if (name === 'commerce.cart.getCart') return cart({ items: [{ productId: 'p1', quantity: 2 }], subtotalCents: 1000 });
+      if (name === 'commerce.customer.getMyProfile') return { id: 'cust-1', email: 'buyer@example.test', address: null };
+      if (name === 'commerce.shipping.listShippingMethods') return { items: [{ id: 'ship-1', name: '宅配', destinationKind: 'taiwan_home', feeCents: 100, freeShippingThresholdCents: null }] };
+      if (name === 'commerce.shipping.quoteCheckoutShipping') return { shippingCents: 100 };
+      throw new Error(`unexpected query ${name}`);
+    });
+    const ctx = makeCtx({ actor: customer, commands: { execute: commandExecute }, queries: { execute: queryExecute },
+      providers: { get: vi.fn(() => paymentProvider), has: vi.fn(() => false) } });
+    const outcome = await cartPages.submit.resolve(ctx, cartPages.submit.input.parse({
+      confirmedPrices: '[]', confirmedShippingCents: '100',
+      cartId: 'cart-1', shippingMethodId: 'ship-1', paymentMethod: 'credit',
+    }));
+    expect(outcome).toMatchObject({ kind: 'view', status: 400, view: { rejectedLines: lines } });
+    expect(commandExecute).toHaveBeenCalledTimes(1);
+  });
+
   it('地址結帳成功後排入付款並轉址到訂單頁', async () => {
     const commandExecute = vi.fn(async (name: string) => {
       if (name === 'commerce.order.checkoutCart') return { id: 'order-1', number: 'N001' };
@@ -314,6 +388,7 @@ describe('送出訂單', () => {
     const ctx = makeCtx({ actor: customer, commands: { execute: commandExecute }, providers });
 
     const outcome = await cartPages.submit.resolve(ctx, cartPages.submit.input.parse({
+      confirmedPrices: '[]', confirmedShippingCents: '100',
       cartId: 'cart-1', shippingMethodId: 'ship-1', paymentMethod: 'credit',
       recipient: '王小明', phone: '0900000000', postcode: '100', city: '台北市', district: '中正區', line1: '忠孝路 1 號',
     }));
@@ -333,6 +408,7 @@ describe('送出訂單', () => {
     const ctx = makeCtx({ actor: customer, commands: { execute: commandExecute }, providers });
 
     await cartPages.submit.resolve(ctx, cartPages.submit.input.parse({
+      confirmedPrices: '[]', confirmedShippingCents: '100',
       cartId: 'cart-1', shippingMethodId: 'ship-1', paymentMethod: 'credit',
       pickupSelectionToken: 'tok', pickupRecipient: '王小明', pickupPhone: '0900000000',
     }));
@@ -347,7 +423,7 @@ describe('送出訂單', () => {
     const providers = { get: vi.fn(() => paymentProvider), has: vi.fn(() => true) };
     const ctx = makeCtx({ actor: customer, commands: { execute: commandExecute }, providers });
 
-    await expect(cartPages.submit.resolve(ctx, cartPages.submit.input.parse({ cartId: 'cart-1' }))).rejects.toThrow(/付款方式/);
+    await expect(cartPages.submit.resolve(ctx, cartPages.submit.input.parse({ cartId: 'cart-1', confirmedPrices: '[]', confirmedShippingCents: '100' }))).rejects.toThrow(/付款方式/);
     expect(commandExecute).not.toHaveBeenCalled();
   });
 });

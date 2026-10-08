@@ -50,13 +50,13 @@ describe('冪等鍵綁身分', () => {
     const cartId = (await getCart({}, alice)).id;
     const key = `cart:${cartId}`;
 
-    const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cartId),
+    const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', await checkoutInput(h, cartId),
       { actor: alice, idempotencyKey: key });
     expect(order.customerEmail).toBe(alice.email);
 
     // Bob 猜到同一把鍵、送同一份輸入——重放發生在 handler 之前，
     // 沒有這道檢查他會直接讀到 Alice 的訂單（含 email 與品項）。
-    await expect(h.runtime.commands.execute('commerce.order.checkoutCart', checkoutInput(h, cartId),
+    await expect(h.runtime.commands.execute('commerce.order.checkoutCart', await checkoutInput(h, cartId),
       // 回 NOT_FOUND 而不是 FORBIDDEN：後者會變成「這把鍵存不存在」的 oracle。
       { actor: bob, idempotencyKey: key })).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
@@ -68,9 +68,9 @@ describe('冪等鍵綁身分', () => {
     const cartId = (await getCart({}, customer)).id;
     const key = `cart:${customer.id}:${cartId}`;
 
-    const first = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cartId),
+    const first = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', await checkoutInput(h, cartId),
       { actor: customer, idempotencyKey: key });
-    const second = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cartId),
+    const second = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', await checkoutInput(h, cartId),
       { actor: customer, idempotencyKey: key });
 
     expect(second.id).toBe(first.id);
@@ -138,7 +138,7 @@ describe('幣別不符的商品進不了購物車', () => {
       .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
-  it('就算被塞進去，顯示與結帳的判斷也一致——不會出現看不到卻結不掉的行', async () => {
+  it('ORD-04 就算幣別不符的商品被塞進車裡，結帳也逐筆拒絕', async () => {
     const customer = await createCustomer(h.runtime, { email: `hard-cur-${randomUUID()}@example.test` });
     const local = await sellable(`HARD-LOCAL-${randomUUID().slice(0, 6)}`);
     const foreign = await sellable(`HARD-USD2-${randomUUID().slice(0, 6)}`, { currency: 'USD' });
@@ -153,9 +153,10 @@ describe('幣別不符的商品進不了購物車', () => {
     const cart = await getCart({}, customer);
     expect(cart.items.map((i: any) => i.productId)).toEqual([local.id]);
 
-    const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cartId),
-      { actor: customer, idempotencyKey: randomUUID() });
-    expect(order.lines.map((l: any) => l.productId)).toEqual([local.id]);
+    await expect(h.runtime.commands.execute<any>('commerce.order.checkoutCart', await checkoutInput(h, cartId),
+      { actor: customer, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: {
+      kind: 'order_lines_rejected', lines: [{ productId: foreign.id, reason: 'currency_mismatch' }],
+    } });
   });
 });
 
@@ -165,7 +166,7 @@ describe('結完帳之後的寫入', () => {
     const product = await sellable(`HARD-AFTER-${randomUUID().slice(0, 6)}`);
     await addToCart({ productId: product.id, quantity: 1 }, customer);
     const cartId = (await getCart({}, customer)).id;
-    await h.runtime.commands.execute('commerce.order.checkoutCart', checkoutInput(h, cartId),
+    await h.runtime.commands.execute('commerce.order.checkoutCart', await checkoutInput(h, cartId),
       { actor: customer, idempotencyKey: randomUUID() });
 
     const after = await addToCart({ productId: product.id, quantity: 2 }, customer);

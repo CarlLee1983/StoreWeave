@@ -9,6 +9,20 @@ import type { DrizzleDb, Tx } from './db-types';
 
 export type IdempotencyMode = 'required' | 'optional' | 'none';
 
+export interface LegacyIdempotencyGuard<I> {
+  /** Exact parsed-input projection used by the former unscoped command. */
+  readonly input: (input: I) => unknown;
+  /** Reject an owned historical result before a new scoped claim is written. */
+  readonly onReplay: (response: unknown) => never;
+}
+
+export interface TransactionRetryPolicy {
+  /** Includes the first attempt. Retry only failures known to permit a new transaction. */
+  readonly maxAttempts: number;
+  readonly shouldRetry: (error: unknown) => boolean;
+  readonly exhaustedMessage: string;
+}
+
 export interface AuditSpec<I = any, O = any> {
   readonly action: string;
   readonly resourceType: string;
@@ -31,6 +45,12 @@ export interface CommandDescriptor<I = any, O = any> {
   readonly output: Schema<O>;
   readonly permission: string;
   readonly idempotency: IdempotencyMode;
+  /** Opt in to keys isolated by the authenticated actor; other commands retain their existing namespace. */
+  readonly idempotencyScope?: 'actor';
+  /** Project parsed input onto the facts that identify a replay. Validation still uses the full input. */
+  readonly idempotencyInput?: (input: I) => unknown;
+  readonly transactionRetry?: TransactionRetryPolicy;
+  readonly legacyIdempotencyGuard?: LegacyIdempotencyGuard<I>;
   /** Require the caller to recheck revocable authority before a cached response may be returned. */
   readonly requiresBeforeIdempotency?: true;
   readonly audit?: AuditSpec<I, O>;
@@ -108,6 +128,10 @@ export function defineCommand<I, O>(d: {
   output: Schema<O>;
   permission: string;
   idempotency?: IdempotencyMode;
+  idempotencyScope?: 'actor';
+  idempotencyInput?: (input: I) => unknown;
+  transactionRetry?: TransactionRetryPolicy;
+  legacyIdempotencyGuard?: LegacyIdempotencyGuard<I>;
   requiresBeforeIdempotency?: true;
   audit?: AuditSpec<I, O>;
   summary?: string;
@@ -123,6 +147,10 @@ export function defineCommand<I, O>(d: {
     output: d.output,
     permission: d.permission,
     idempotency: d.idempotency ?? 'optional',
+    idempotencyScope: d.idempotencyScope,
+    idempotencyInput: d.idempotencyInput,
+    transactionRetry: d.transactionRetry,
+    legacyIdempotencyGuard: d.legacyIdempotencyGuard,
     requiresBeforeIdempotency: d.requiresBeforeIdempotency,
     audit: d.audit,
     summary: d.summary,

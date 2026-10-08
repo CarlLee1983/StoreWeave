@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import {
-  ADMIN_ACTOR, STOREFRONT_ACTOR, createCustomer, createHarness, createProduct, stockUp, type TestHarness,
+  ADMIN_ACTOR, STOREFRONT_ACTOR, createCustomer, createHarness, directOrderInput, createProduct, stockUp, type TestHarness,
 } from './helpers';
 
 /** 購物車即時試算（工單 26）。 */
@@ -34,7 +34,7 @@ const getCart = (input: Record<string, unknown>, actor: any = STOREFRONT_ACTOR) 
   h.runtime.queries.execute<any>('commerce.cart.getCart', input, { actor });
 
 const placeOrderLines = async (lines: { productId: string; quantity: number }[], actor: any) =>
-  h.runtime.commands.execute<any>('commerce.order.placeOrder', { lines }, { actor, idempotencyKey: randomUUID() });
+  h.runtime.commands.execute<any>('commerce.order.placeOrder', await directOrderInput(h.runtime, lines), { actor, idempotencyKey: randomUUID() });
 
 async function sellable(sku: string, priceCents: number) {
   const product = await createProduct(h.runtime, { sku, name: sku, priceCents });

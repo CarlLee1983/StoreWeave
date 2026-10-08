@@ -115,7 +115,7 @@
 
 ### 結帳前提
 
-- `commerce.order.placeOrder` 的 `customerEmail` 自由文字輸入移除，下單者由 Actor 決定。
+- `commerce.order.placeOrder` 的 `customerEmail` 自由文字輸入移除，下單者由 Actor 決定。後續確認值、宅配與舊識別鍵的契約依 [ADR 0055](../adr/0055-direct-order-confirmation-and-legacy-keys.md)。
   這是既有契約變更，依 ADR 0006 處理事件與 Command 契約的版本。
 - 未登入呼叫結帳一律拒絕。
 

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { ADMIN_ACTOR, createHarness, createProduct, defaultCustomer, stockUp, type TestHarness } from './helpers';
+import { ADMIN_ACTOR, createHarness, directOrderInput, createProduct, defaultCustomer, stockUp, type TestHarness } from './helpers';
 
 let h: TestHarness;
 beforeAll(async () => { h = await createHarness(); }, 300_000);
@@ -29,12 +29,12 @@ afterEach(async () => {
 // 下單者由身分決定（工單 21）：測試裡的每一張訂單都出自一位真的顧客。
 const order = async (productId: string, quantity = 1) =>
   h.runtime.commands.execute<any>('commerce.order.placeOrder',
-    { lines: [{ productId, quantity }] },
+    await directOrderInput(h.runtime, [{ productId, quantity }]),
     { actor: await defaultCustomer(h.runtime), idempotencyKey: randomUUID() });
 
 const orderLines = async (lines: { productId: string; quantity: number }[]) =>
   h.runtime.commands.execute<any>('commerce.order.placeOrder',
-    { lines },
+    await directOrderInput(h.runtime, lines),
     { actor: await defaultCustomer(h.runtime), idempotencyKey: randomUUID() });
 
 async function sellableProduct(sku: string, priceCents: number) {

@@ -912,7 +912,7 @@ describe('Storefront SSR', () => {
     const confirm = await inject({ method: 'GET', url: '/checkout', cookies: { commerce_session: session } });
     const cartId = /name="cartId" value="([^"]+)"/.exec(confirm.body)![1];
 
-    const res = await inject({ method: 'POST', url: '/checkout', ...form(storefrontCheckoutForm(h, cartId)) });
+    const res = await inject({ method: 'POST', url: '/checkout', ...form(await storefrontCheckoutForm(h, cartId)) });
     expect(res.statusCode).toBe(303);
     const location = res.headers.location as string;
     const orderPage = await inject({ method: 'GET', url: location, cookies: { commerce_session: session } });

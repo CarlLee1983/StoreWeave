@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { CART_COOKIE, SESSION_COOKIE, createServer } from '@storeweave/api';
@@ -148,7 +149,7 @@ describe('結帳流程', () => {
     const placed = await inject({
       method: 'POST', url: '/checkout', cookies: auth.cookies,
       headers: { ...auth.headers, 'content-type': 'application/x-www-form-urlencoded' },
-      payload: storefrontCheckoutForm(h, cartId),
+      payload: await storefrontCheckoutForm(h, cartId),
     });
 
     expect(placed.statusCode).toBe(303);
@@ -158,7 +159,7 @@ describe('結帳流程', () => {
     expect((await inject({ method: 'GET', url: '/cart', cookies: auth.cookies })).body).toContain('購物車是空的');
   });
 
-  it('配送方式的預覽總額由伺服器試算，提交時不信任表單金額', async () => {
+  it('ORD-16 配送費變動先回報新價格，重新確認後才建立訂單', async () => {
     const product = await sellable('SF-SHIPPING-PREVIEW', 7_000);
     const auth = await signIn('shipping-preview');
     const premium = await h.runtime.commands.execute<any>('commerce.shipping.createShippingMethod', {
@@ -189,22 +190,57 @@ describe('結帳流程', () => {
       feeCents: 900,
     }, { actor: ADMIN_ACTOR, idempotencyKey: `shipping-reprice-${Date.now()}` });
 
-    const form = new URLSearchParams(storefrontCheckoutForm(h, cartId));
+    const form = new URLSearchParams(await storefrontCheckoutForm(h, cartId));
     form.set('shippingMethodId', premium.id);
+    form.set('confirmedShippingCents', '700');
     // This is deliberately client-supplied nonsense. Checkout must recompute
     // from the current shipping rule instead of accepting a displayed total.
     form.set('totalCents', '1');
-    const placed = await inject({
+    const rejected = await inject({
       method: 'POST',
       url: '/checkout',
       cookies: auth.cookies,
       headers: { ...auth.headers, 'content-type': 'application/x-www-form-urlencoded' },
       payload: form.toString(),
     });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.body).toContain('運費已變更');
+    expect(rejected.body).toContain('name="confirmedShippingCents" value="900"');
+
+    form.set('confirmedShippingCents', '900');
+    const placed = await inject({
+      method: 'POST', url: '/checkout', cookies: auth.cookies,
+      headers: { ...auth.headers, 'content-type': 'application/x-www-form-urlencoded' }, payload: form.toString(),
+    });
     const number = (placed.headers.location as string).replace('/orders/', '');
     const order = await h.runtime.queries.execute<any>('commerce.order.getOrder', { number }, { actor: ADMIN_ACTOR });
     expect(order.shippingCents).toBe(900);
     expect(order.totalCents).toBe(14_900);
+  });
+
+  it('ORD-03 and ORD-15 前台顯示新單價並保留地址，同鍵重新確認後成立', async () => {
+    const product = await sellable('SF-PRICE-RECONFIRM', 1_000);
+    const auth = await signIn('price-reconfirm');
+    await inject({ method: 'POST', url: '/cart/items', ...auth, payload: { productId: product.id, quantity: 1 } });
+    const confirm = await inject({ method: 'GET', url: '/checkout', cookies: auth.cookies });
+    const cartId = /name="cartId" value="([^"]+)"/.exec(confirm.body)![1];
+    const form = new URLSearchParams(await storefrontCheckoutForm(h, cartId));
+    form.set('recipient', '自填收件人');
+    await h.runtime.commands.execute('commerce.catalog.updateProduct', { id: product.id, priceCents: 1_200 },
+      { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+
+    const rejected = await inject({ method: 'POST', url: '/checkout', cookies: auth.cookies,
+      headers: { ...auth.headers, 'content-type': 'application/x-www-form-urlencoded' }, payload: form.toString() });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.body).toContain('目前單價 $12.00');
+    expect(rejected.body).toContain('name="recipient" value="自填收件人"');
+    expect(rejected.body).toContain('name="confirmedPrices"');
+
+    form.set('confirmedPrices', JSON.stringify([{ productId: product.id, unitPriceCents: 1_200 }]));
+    const placed = await inject({ method: 'POST', url: '/checkout', cookies: auth.cookies,
+      headers: { ...auth.headers, 'content-type': 'application/x-www-form-urlencoded' }, payload: form.toString() });
+    expect(placed.statusCode).toBe(303);
+    expect(placed.headers.location).toMatch(/^\/orders\//);
   });
 
   it('滿額時預覽採用配送方式的免運門檻', async () => {
@@ -243,7 +279,7 @@ describe('結帳流程', () => {
       url: '/checkout',
       cookies: owner.cookies,
       headers: { ...owner.headers, 'content-type': 'application/x-www-form-urlencoded' },
-      payload: storefrontCheckoutForm(h, cartId),
+      payload: await storefrontCheckoutForm(h, cartId),
     });
     const number = (placed.headers.location as string).replace('/orders/', '');
     const beforeFailure = await h.runtime.queries.execute<any>(
@@ -375,10 +411,10 @@ describe('結帳流程', () => {
     const confirm = await inject({ method: 'GET', url: '/checkout', cookies: auth.cookies });
     const cartId = /name="cartId" value="([^"]+)"/.exec(confirm.body)![1];
 
-    const checkoutRequest = () => inject({
+    const checkoutRequest = async () => inject({
       method: 'POST' as const, url: '/checkout', cookies: auth.cookies,
       headers: { ...auth.headers, 'content-type': 'application/x-www-form-urlencoded' },
-      payload: storefrontCheckoutForm(h, cartId),
+      payload: await storefrontCheckoutForm(h, cartId),
     });
     const first = await checkoutRequest();
     const second = await checkoutRequest();
@@ -395,7 +431,7 @@ describe('結帳流程', () => {
 });
 
 describe('買不到的商品要說出來（Spec 0003 User Story 11）', () => {
-  it('購物車頁列出被移除的商品，而不是讓它無聲消失', async () => {
+  it('ORD-04 購物車頁列出無法購買的商品與移除動作', async () => {
     const product = await sellable('SF-REMOVED', 8_000);
     const added = await inject({ method: 'POST', url: '/cart/items', payload: { productId: product.id, quantity: '1' } });
     const cookies = { [CART_COOKIE]: added.cookies.find((c) => c.name === CART_COOKIE)!.value };
@@ -405,8 +441,27 @@ describe('買不到的商品要說出來（Spec 0003 User Story 11）', () => {
 
     const page = await inject({ method: 'GET', url: '/cart', cookies });
 
-    expect(page.body).toContain('已經買不到');
+    expect(page.body).toContain('目前無法購買');
+    expect(page.body).toContain('移除 SF-REMOVED');
     expect(page.body).toContain('SF-REMOVED');
+  });
+
+  it('ORD-04 只有下架明細時前台結帳頁逐筆顯示拒絕原因', async () => {
+    const product = await sellable('SF-ARCHIVED-CHECKOUT', 1_000);
+    const auth = await signIn('archived-checkout');
+    await inject({ method: 'POST', url: '/cart/items', ...auth, payload: { productId: product.id, quantity: 1 } });
+    const initial = await inject({ method: 'GET', url: '/checkout', cookies: auth.cookies });
+    const cartId = /name="cartId" value="([^"]+)"/.exec(initial.body)![1];
+    const payload = await storefrontCheckoutForm(h, cartId);
+    await h.runtime.commands.execute('commerce.catalog.updateProduct', { id: product.id, status: 'archived' },
+      { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
+
+    const rejected = await inject({ method: 'POST', url: '/checkout', cookies: auth.cookies,
+      headers: { ...auth.headers, 'content-type': 'application/x-www-form-urlencoded' }, payload });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.body).toContain('SF-ARCHIVED-CHECKOUT');
+    expect(rejected.body).toContain('商品目前無法購買');
+    expect(rejected.body).toContain(`action="/cart/items/${product.id}"`);
   });
 
   it('購物車頁有清空的出口——顧客卡住時唯一的自救手段', async () => {

@@ -306,11 +306,16 @@ function couponBox(ctx: ThemeContext, view: ThemeCartView): string {
     </section>`;
 }
 
-/** 買不到的商品被拿掉時要講出來，而且要在結帳之前。 */
-function removedNotice(view: ThemeCartView): string {
+/** Show unavailable Cart lines and let the customer remove each one explicitly. */
+function removedNotice(ctx: ThemeContext, view: ThemeCartView): string {
   if (view.removedNames.length === 0) return '';
-  return `<div class="notice" role="status"><p>這些商品已經買不到，已從購物車移除：${
-    view.removedNames.map((name) => escapeHtml(name)).join('、')}。</p></div>`;
+  const items = view.removedItems ?? [];
+  return `<div class="notice" role="status"><p>這些商品目前無法購買，請決定是否移除：${
+    view.removedNames.map((name) => escapeHtml(name)).join('、')}。</p>${items.map((item) => `
+      <form method="post" action="/cart/items/${escapeHtml(item.productId)}" class="inline">
+        ${csrfField(ctx)}<input type="hidden" name="quantity" value="0">
+        <button type="submit" class="linklike">移除 ${escapeHtml(item.name)}</button>
+      </form>`).join('')}</div>`;
 }
 
 /**
@@ -782,12 +787,12 @@ export function renderCart(ctx: ThemeContext, view: ThemeCartView): string {
       <article class="cart-page">
         ${pageHeading('購物流程', '購物車', '價格與可售狀態會在建立訂單前再次確認。')}
         ${feedback(view.error, 'error')}
-        ${removedNotice(view)}
+        ${removedNotice(ctx, view)}
         ${view.lines.length === 0
           ? `<section class="empty-state empty-state--cart" aria-labelledby="empty-cart-title">
-              <p class="eyebrow">尚未選購</p>
-              <h2 id="empty-cart-title">購物車是空的</h2>
-              <p>挑選商品後，它們會出現在這裡。</p>
+              <p class="eyebrow">${view.removedNames.length ? '商品狀態已變更' : '尚未選購'}</p>
+              <h2 id="empty-cart-title">${view.removedNames.length ? '目前沒有可結帳的商品' : '購物車是空的'}</h2>
+              <p>${view.removedNames.length ? '請移除無法購買的明細，或返回商品列表挑選其他商品。' : '挑選商品後，它們會出現在這裡。'}</p>
               <a class="cta" href="/">返回商品列表</a>
             </section>`
           : `<div class="cart-layout">
@@ -835,7 +840,7 @@ export function renderCheckout(ctx: ThemeContext, view: ThemeCheckoutView): stri
       return `<option value="${escapeHtml(method.id)}"${method.id === view.selectedShippingMethodId ? ' selected' : ''}>${escapeHtml(label)}</option>`;
     }).join('');
     const paymentOptions = view.payment.methods.map((method) =>
-      `<option value="${escapeHtml(method.code)}">${escapeHtml(method.label)}（${method.timing === 'deferred' ? '取得繳費資訊後付款' : '立即付款'}）</option>`,
+      `<option value="${escapeHtml(method.code)}"${method.code === view.selectedPaymentMethod ? ' selected' : ''}>${escapeHtml(method.label)}（${method.timing === 'deferred' ? '取得繳費資訊後付款' : '立即付款'}）</option>`,
     ).join('');
     const field = (label: string, name: string, value: string | null | undefined, extra = '') =>
       `<label>${label}<input name="${name}" value="${escapeHtml(value ?? '')}" ${extra}></label>`;
@@ -846,7 +851,10 @@ export function renderCheckout(ctx: ThemeContext, view: ThemeCheckoutView): stri
       <article class="checkout-page">
         ${pageHeading('建立訂單', '確認訂單', '請核對這次訂單的品項、金額與通知信箱。')}
         ${feedback(view.error, 'error')}
-        ${removedNotice(view)}
+        ${view.currentShippingCents === undefined ? '' : `<p class="notice" role="alert">目前運費為 ${money(view.currentShippingCents)}，請重新確認。</p>`}
+        ${view.rejectedLines?.length ? `<section class="notice" role="alert" aria-label="無法結帳的商品"><ul>${view.rejectedLines.map((line) =>
+          `<li>${escapeHtml(line.name ?? line.sku ?? line.productId)}：${escapeHtml(line.message)}${line.currentUnitPriceCents === undefined ? '' : `（目前單價 ${money(line.currentUnitPriceCents)}）`}</li>`).join('')}</ul></section>` : ''}
+        ${removedNotice(ctx, view)}
         <div class="checkout-layout">
           <section class="checkout-content" aria-labelledby="checkout-items-title">
             <div class="checkout-email">
@@ -876,10 +884,15 @@ export function renderCheckout(ctx: ThemeContext, view: ThemeCheckoutView): stri
               <form method="post" action="/checkout">
                 ${csrfField(ctx)}
                 <input type="hidden" name="cartId" value="${escapeHtml(view.cartId)}">
+                <input type="hidden" name="confirmedPrices" value="${escapeHtml(JSON.stringify([
+                  ...view.lines.map((line) => ({ productId: line.productId, unitPriceCents: line.unitPriceCents })),
+                  ...(view.removedItems ?? []).map((line) => ({ productId: line.productId, unitPriceCents: line.unitPriceCents })),
+                ].sort((a, b) => a.productId.localeCompare(b.productId))))}">
+                <input type="hidden" name="confirmedShippingCents" value="${view.shippingPreview.shippingCents}">
                 <input type="hidden" name="confirm" value="1">
                 <input type="hidden" name="paymentProvider" value="${escapeHtml(view.payment.provider)}">
                 <input type="hidden" name="shippingMethodId" value="${escapeHtml(view.selectedShippingMethodId)}">
-                ${view.pickupSelection ? `<fieldset class="profile-form__section"><legend>已選門市</legend><p><strong>${escapeHtml(view.pickupSelection.storeName)}</strong><br>${escapeHtml(view.pickupSelection.storeAddress)}</p><input type="hidden" name="pickupSelectionToken" value="${escapeHtml(view.pickupSelection.token)}"><div class="form-grid">${field('取貨人', 'pickupRecipient', address?.recipient, 'required maxlength="120" autocomplete="shipping name"')}${field('取貨電話', 'pickupPhone', address?.phone, 'required type="tel" maxlength="40" autocomplete="shipping tel"')}</div></fieldset>` : needsPickupSelection ? '' : `<fieldset class="profile-form__section">
+                ${view.pickupSelection ? `<fieldset class="profile-form__section"><legend>已選門市</legend><p><strong>${escapeHtml(view.pickupSelection.storeName)}</strong><br>${escapeHtml(view.pickupSelection.storeAddress)}</p><input type="hidden" name="pickupSelectionToken" value="${escapeHtml(view.pickupSelection.token)}"><div class="form-grid">${field('取貨人', 'pickupRecipient', view.pickupContact?.recipient ?? address?.recipient, 'required maxlength="120" autocomplete="shipping name"')}${field('取貨電話', 'pickupPhone', view.pickupContact?.phone ?? address?.phone, 'required type="tel" maxlength="40" autocomplete="shipping tel"')}</div></fieldset>` : needsPickupSelection ? '' : `<fieldset class="profile-form__section">
                   <legend>配送方式與收件地址</legend>
                   <div class="form-grid">
                     ${field('收件人', 'recipient', address?.recipient, 'required maxlength="120" autocomplete="shipping name"')}
@@ -903,15 +916,15 @@ export function renderCheckout(ctx: ThemeContext, view: ThemeCheckoutView): stri
                   <legend>電子發票</legend>
                   <label>載具／捐贈選項
                     <select name="invoicePreference">
-                      <option value="ecpay">綠界電子發票載具（以通知信箱歸戶）</option>
-                      <option value="mobile">手機條碼載具</option>
-                      <option value="natural_person">自然人憑證</option>
-                      <option value="donation">捐贈發票</option>
+                      <option value="ecpay"${!view.invoiceSelection || view.invoiceSelection.preference === 'ecpay' ? ' selected' : ''}>綠界電子發票載具（以通知信箱歸戶）</option>
+                      <option value="mobile"${view.invoiceSelection?.preference === 'mobile' ? ' selected' : ''}>手機條碼載具</option>
+                      <option value="natural_person"${view.invoiceSelection?.preference === 'natural_person' ? ' selected' : ''}>自然人憑證</option>
+                      <option value="donation"${view.invoiceSelection?.preference === 'donation' ? ' selected' : ''}>捐贈發票</option>
                     </select>
                   </label>
                   <div class="form-grid">
-                    ${field('手機條碼或自然人憑證號碼', 'invoiceCarrierNumber', null, 'maxlength="16"')}
-                    ${field('愛心碼', 'invoiceLoveCode', null, 'inputmode="numeric" maxlength="7"')}
+                    ${field('手機條碼或自然人憑證號碼', 'invoiceCarrierNumber', view.invoiceSelection?.carrierNumber, 'maxlength="16"')}
+                    ${field('愛心碼', 'invoiceLoveCode', view.invoiceSelection?.loveCode, 'inputmode="numeric" maxlength="7"')}
                   </div>
                   <p>選手機條碼或自然人憑證時填前一欄；選捐贈時填愛心碼。愛心碼會由綠界驗證。</p>
                 </fieldset>` : ''}
@@ -1343,6 +1356,7 @@ export const defaultTheme = defineTheme<ServedPages>({
     // 折扣碼失敗會帶著 couponError 重新渲染購物車頁，形狀與 cart.view 相同。
     'commerce.cart.coupon': renderCart,
     'commerce.checkout.view': renderCheckout,
+    'commerce.checkout.submit': renderCheckout,
     'commerce.checkout.pickupStorePicker': renderPickupStorePicker,
     'commerce.loyalty.rewards': renderAccountRewards,
     'commerce.coupon.accountList': renderAccountCoupons,

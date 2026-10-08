@@ -10,7 +10,7 @@ async function paidOrderInvoice(h: TestHarness) {
   const customer = await defaultCustomer(h.runtime);
   await h.runtime.commands.execute('commerce.cart.addToCart', { productId: product.id, quantity: 1 }, { actor: customer, idempotencyKey: randomUUID() });
   const cart = await h.runtime.queries.execute<{ id: string }>('commerce.cart.getCart', {}, { actor: customer });
-  const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', { ...checkoutInput(h, cart.id), invoicePreference: { kind: 'ecpay' } }, { actor: customer, idempotencyKey: randomUUID() });
+  const order = await h.runtime.commands.execute<any>('commerce.order.checkoutCart', { ...await checkoutInput(h, cart.id), invoicePreference: { kind: 'ecpay' } }, { actor: customer, idempotencyKey: randomUUID() });
   await payOrder(h.runtime, order.id);
   await settleWorker(h.worker);
   return (await h.runtime.queries.execute<any>('commerce.invoice.list', { orderId: order.id }, { actor: ADMIN_ACTOR })).items[0];
@@ -84,7 +84,7 @@ describe('工單 69：重試要重排既有工作，而不是排第二支', () =
     const customer = await defaultCustomer(failing.runtime);
     await failing.runtime.commands.execute('commerce.cart.addToCart', { productId: product.id, quantity: 1 }, { actor: customer, idempotencyKey: randomUUID() });
     const cart = await failing.runtime.queries.execute<{ id: string }>('commerce.cart.getCart', {}, { actor: customer });
-    const order = await failing.runtime.commands.execute<any>('commerce.order.checkoutCart', { ...checkoutInput(failing, cart.id), invoicePreference: { kind: 'donation', loveCode: '999999' } }, { actor: customer, idempotencyKey: randomUUID() });
+    const order = await failing.runtime.commands.execute<any>('commerce.order.checkoutCart', { ...await checkoutInput(failing, cart.id), invoicePreference: { kind: 'donation', loveCode: '999999' } }, { actor: customer, idempotencyKey: randomUUID() });
     await payOrder(failing.runtime, order.id);
     await settleWorker(failing.worker);
 

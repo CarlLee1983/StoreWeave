@@ -18,8 +18,8 @@ const addToCart = (input: Record<string, unknown>, actor: any = STOREFRONT_ACTOR
 const getCart = (input: Record<string, unknown>, actor: any = STOREFRONT_ACTOR) =>
   h.runtime.queries.execute<any>('commerce.cart.getCart', input, { actor });
 
-const checkout = (actor: any, cartId: string, idempotencyKey = randomUUID()) =>
-  h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cartId), { actor, idempotencyKey });
+const checkout = async (actor: any, cartId: string, idempotencyKey = randomUUID()) =>
+  h.runtime.commands.execute<any>('commerce.order.checkoutCart', await checkoutInput(h, cartId), { actor, idempotencyKey });
 
 /** 結帳要帶購物車識別碼——它就是這次結帳的冪等鍵。 */
 const cartIdOf = async (actor: any) => (await getCart({}, actor)).id;
@@ -89,7 +89,7 @@ describe('購物車結帳轉單', () => {
     }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
     const order = await h.runtime.commands.execute<any>(
       'commerce.order.checkoutCart',
-      { ...checkoutInput(h, await cartIdOf(customer)), shippingMethodId: method.id },
+      { ...await checkoutInput(h, await cartIdOf(customer)), shippingMethodId: method.id },
       { actor: customer, idempotencyKey: randomUUID() },
     );
 
@@ -239,10 +239,13 @@ describe('購物車結帳轉單', () => {
   it('沒有那台車就結不了帳', async () => {
     const customer = await buyer('void');
     // 空車時 getCart 回的是一個隨機 id，資料庫裡沒有這一列。
-    await expect(checkout(customer, await cartIdOf(customer))).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    const cartId = await cartIdOf(customer);
+    await expect(h.runtime.commands.execute('commerce.order.checkoutCart', {
+      ...await checkoutInput(h, cartId), confirmedPrices: [{ productId: randomUUID(), unitPriceCents: 0 }],
+    }, { actor: customer, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
-  it('車裡的東西全下架時，結帳說得出是空的——不是回一個查無此車', async () => {
+  it('ORD-04 車裡的東西全下架時回報那一筆不可購買', async () => {
     const customer = await buyer('allgone');
     const gone = await sellable(`CO-ALLGONE-${randomUUID().slice(0, 6)}`);
     await addToCart({ productId: gone.id, quantity: 1 }, customer);
@@ -250,7 +253,9 @@ describe('購物車結帳轉單', () => {
     await h.runtime.commands.execute('commerce.catalog.updateProduct',
       { id: gone.id, status: 'archived' }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
 
-    await expect(checkout(customer, cartId)).rejects.toThrow(/cart is empty/);
+    await expect(checkout(customer, cartId)).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: {
+      kind: 'order_lines_rejected', lines: [{ productId: gone.id, reason: 'unavailable' }],
+    } });
   });
 
   it('未登入結不了帳：那張單沒有歸屬', async () => {
@@ -266,7 +271,7 @@ describe('購物車結帳轉單', () => {
     await expect(checkout(someone, guestCartId)).rejects.toThrow(PlatformError);
   });
 
-  it('下架的商品不會被結進訂單——顧客本來就看不到它', async () => {
+  it('ORD-04 下架商品和正常商品同車時整筆拒絕並逐筆指出問題', async () => {
     const customer = await buyer('archived');
     const alive = await sellable(`CO-ALIVE-${randomUUID().slice(0, 6)}`);
     const gone = await sellable(`CO-GONE-${randomUUID().slice(0, 6)}`);
@@ -275,8 +280,10 @@ describe('購物車結帳轉單', () => {
     await h.runtime.commands.execute('commerce.catalog.updateProduct',
       { id: gone.id, status: 'archived' }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
 
-    const order = await checkout(customer, await cartIdOf(customer));
-
-    expect(order.lines.map((l: any) => l.productId)).toEqual([alive.id]);
+    await expect(checkout(customer, await cartIdOf(customer))).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: {
+      kind: 'order_lines_rejected', lines: [{ productId: gone.id, reason: 'unavailable' }],
+    } });
+    const stock = await h.runtime.queries.execute<any>('commerce.inventory.getStock', { productId: alive.id }, { actor: ADMIN_ACTOR });
+    expect(stock.reserved).toBe(0);
   });
 });

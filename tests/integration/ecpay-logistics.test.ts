@@ -37,7 +37,7 @@ async function paidCarrierOrder(harness: TestHarness) {
   }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() });
   const order = await harness.runtime.commands.execute<{ id: string; status: string }>(
     'commerce.order.checkoutCart',
-    { ...checkoutInput(harness, cart.id), shippingMethodId: method.id },
+    { ...await checkoutInput(harness, cart.id), shippingMethodId: method.id },
     { actor: customer, idempotencyKey: randomUUID() },
   );
   await payOrder(harness.runtime, order.id);
@@ -168,7 +168,7 @@ describe('ECPay logistics adapter integration', () => {
     });
     const cart = await h.runtime.queries.execute<{ id: string }>('commerce.cart.getCart', {}, { actor: customer });
     const order = await h.runtime.commands.execute<{ id: string }>('commerce.order.checkoutCart', {
-      ...checkoutInput(h, cart.id), shippingMethodId: h.defaultShippingMethodId,
+      ...await checkoutInput(h, cart.id), shippingMethodId: h.defaultShippingMethodId,
     }, { actor: customer, idempotencyKey: randomUUID() });
     await payOrder(h.runtime, order.id);
     expect((await runJobsUntilProcessed(h.worker)).failed).toBe(0);

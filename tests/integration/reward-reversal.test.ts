@@ -22,8 +22,8 @@ const setRedemption = (amountCents: number, actor: any) =>
 
 const getCart = (actor: any) => h.runtime.queries.execute<any>('commerce.cart.getCart', {}, { actor });
 
-const checkout = (actor: any, cartId: string) =>
-  h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cartId), { actor, idempotencyKey: randomUUID() });
+const checkout = async (actor: any, cartId: string) =>
+  h.runtime.commands.execute<any>('commerce.order.checkoutCart', await checkoutInput(h, cartId), { actor, idempotencyKey: randomUUID() });
 
 const cancel = (orderId: string) =>
   h.runtime.commands.execute<any>('commerce.order.cancelOrder', { orderId, reason: 'test' },

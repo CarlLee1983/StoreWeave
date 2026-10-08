@@ -56,7 +56,7 @@ async function buy(priceCents: number, couponCode?: string) {
       { actor: customer, idempotencyKey: randomUUID() });
   }
   const cart = await h.runtime.queries.execute<any>('commerce.cart.getCart', {}, { actor: customer });
-  return h.runtime.commands.execute<any>('commerce.order.checkoutCart', checkoutInput(h, cart.id),
+  return h.runtime.commands.execute<any>('commerce.order.checkoutCart', await checkoutInput(h, cart.id),
     { actor: customer, idempotencyKey: randomUUID() });
 }
 

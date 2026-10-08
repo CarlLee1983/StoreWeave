@@ -1,6 +1,7 @@
 import { COMMERCE_ROLES } from '@storeweave/authorization';
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
+import { sql } from 'drizzle-orm';
 import { commerceConfigSchema, type CommerceConfig, type SecretProvider } from '@storeweave/config';
 import { createRuntime, Worker, type Runtime } from '@storeweave/kernel';
 import { ProviderRegistry } from '@storeweave/extension-sdk';
@@ -51,9 +52,30 @@ export interface TestHarness {
 }
 
 /** All checkout integration tests use the same enabled home-delivery policy. */
-export function checkoutInput(harness: Pick<TestHarness, 'defaultShippingMethodId'>, cartId: string) {
+const confirmedCartQuotes = new WeakMap<Runtime, Map<string, { confirmedPrices: { productId: string; unitPriceCents: number }[]; confirmedShippingCents: number }>>();
+
+export async function checkoutInput(harness: TestHarness, cartId: string) {
+  let snapshots = confirmedCartQuotes.get(harness.runtime);
+  if (!snapshots) { snapshots = new Map(); confirmedCartQuotes.set(harness.runtime, snapshots); }
+  let quote = snapshots.get(cartId);
+  if (!quote) {
+    const prices = await harness.runtime.database.db.execute<{ productId: string; unitPriceCents: number | null; quantity: number }>(sql`
+      SELECT ci.product_id AS "productId", p.price_cents AS "unitPriceCents", ci.quantity
+      FROM cart_items ci LEFT JOIN catalog_products p ON p.id = ci.product_id
+      WHERE ci.cart_id = ${cartId}
+      ORDER BY ci.product_id
+    `);
+    const confirmedPrices = prices.rows.map((line) => ({ productId: line.productId, unitPriceCents: Number(line.unitPriceCents ?? 0) }));
+    const subtotalCents = prices.rows.reduce((sum, line) => sum + Number(line.unitPriceCents ?? 0) * Number(line.quantity), 0);
+    const shipping = await harness.runtime.queries.execute<{ shippingCents: number }>('commerce.shipping.quoteCheckoutShipping', {
+      shippingMethodId: harness.defaultShippingMethodId, subtotalCents, destinationKind: 'taiwan_home',
+    }, { actor: ADMIN_ACTOR });
+    quote = { confirmedPrices, confirmedShippingCents: shipping.shippingCents };
+    snapshots.set(cartId, quote);
+  }
   return {
     cartId,
+    ...quote,
     shippingMethodId: harness.defaultShippingMethodId,
     destination: {
       kind: 'taiwan_home' as const,
@@ -70,9 +92,12 @@ export function checkoutInput(harness: Pick<TestHarness, 'defaultShippingMethodI
 }
 
 /** REST checkout uses the same valid Taiwan home-delivery input as command tests. */
-export function checkoutPayload(harness: Pick<TestHarness, 'defaultShippingMethodId'>, cartId?: string) {
+export async function checkoutPayload(harness: TestHarness, cartId?: string) {
+  const quote = cartId ? await checkoutInput(harness, cartId) : { confirmedPrices: [], confirmedShippingCents: 0 };
   return {
     ...(cartId ? { cartId } : {}),
+    confirmedPrices: quote.confirmedPrices,
+    confirmedShippingCents: quote.confirmedShippingCents,
     shippingMethodId: harness.defaultShippingMethodId,
     destination: {
       kind: 'taiwan_home' as const,
@@ -89,9 +114,12 @@ export function checkoutPayload(harness: Pick<TestHarness, 'defaultShippingMetho
 }
 
 /** Storefront checkout is form-encoded, so it cannot reuse the nested REST payload directly. */
-export function storefrontCheckoutForm(harness: Pick<TestHarness, 'defaultShippingMethodId'>, cartId: string) {
+export async function storefrontCheckoutForm(harness: TestHarness, cartId: string) {
+  const quote = await checkoutInput(harness, cartId);
   return new URLSearchParams({
     cartId,
+    confirmedPrices: JSON.stringify(quote.confirmedPrices),
+    confirmedShippingCents: String(quote.confirmedShippingCents),
     shippingMethodId: harness.defaultShippingMethodId,
     recipient: '測試收件人',
     phone: '0912345678',
@@ -238,6 +266,29 @@ export function defaultCustomer(runtime: Runtime) {
   return existing;
 }
 
+const directShippingMethods = new WeakMap<Runtime, Promise<string>>();
+export async function directOrderInput(runtime: Runtime, lines: { productId: string; quantity: number }[],
+  options: { currency?: string; metadata?: Record<string, unknown> } = {}) {
+  let method = directShippingMethods.get(runtime);
+  if (!method) {
+    method = runtime.commands.execute<{ id: string }>('commerce.shipping.createShippingMethod', {
+      code: `direct-${randomUUID()}`, name: 'Direct test home delivery', provider: 'manual', type: 'home_delivery',
+      destinationKind: 'taiwan_home', feeCents: 0, enabled: true,
+    }, { actor: ADMIN_ACTOR, idempotencyKey: randomUUID() }).then((value) => value.id);
+    directShippingMethods.set(runtime, method);
+  }
+  let shippingMethodId: string;
+  try { shippingMethodId = await method; }
+  catch (error) { directShippingMethods.delete(runtime); throw error; }
+  const confirmedPrices = await Promise.all([...new Set(lines.map((line) => line.productId))].map(async (productId) => {
+    const prices = await runtime.database.db.execute<{ price: number }>(sql`SELECT price_cents AS price FROM catalog_products WHERE id = ${productId}`);
+    return { productId, unitPriceCents: Number(prices.rows[0]?.price ?? 0) };
+  }));
+  return { ...options, lines, confirmedPrices, shippingMethodId, confirmedShippingCents: 0,
+    destination: { kind: 'taiwan_home' as const, countryCode: 'TW' as const, recipient: '測試收件人', phone: '0912345678',
+      postcode: '100', city: '台北市', district: '中正區', line1: '測試路 1 號', line2: null } };
+}
+
 export async function placeOrder(runtime: Runtime, productId: string, quantity = 1, actor?: Actor) {
   const buyer = actor ?? (await defaultCustomer(runtime));
   return runtime.commands.execute<{
@@ -246,7 +297,7 @@ export async function placeOrder(runtime: Runtime, productId: string, quantity =
     lines: { discountCents: number }[];
   }>(
     'commerce.order.placeOrder',
-    { lines: [{ productId, quantity }] },
+    await directOrderInput(runtime, [{ productId, quantity }]),
     { actor: buyer, idempotencyKey: randomUUID() },
   );
 }
