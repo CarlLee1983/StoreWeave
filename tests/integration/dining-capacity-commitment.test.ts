@@ -154,16 +154,15 @@ describe('Dining capacity commitment', () => {
       await releaseSignal;
     });
     await lockSignal;
-    const secondAcceptance = accept(runtime, second.id);
-    const reduction = command(runtime, 'dining.reservation.updateTableType', {
+    // 兩者在 venue lock 後的取得順序不固定，斷言要在放行前掛上，先 reject 的才不會成為 unhandled rejection
+    const secondRejected = expect(accept(runtime, second.id)).rejects.toMatchObject({ code: 'CONFLICT' });
+    const reductionRejected = expect(command(runtime, 'dining.reservation.updateTableType', {
       tableTypeId: type.id, capacity: 4, count: 0, active: false,
-    });
+    })).rejects.toMatchObject({ code: 'CONFLICT' });
     try {
       await waitForVenueLockWait(runtime, 2);
     } finally { release(); }
-    await firstAcceptance;
-    await expect(secondAcceptance).rejects.toMatchObject({ code: 'CONFLICT' });
-    await expect(reduction).rejects.toMatchObject({ code: 'CONFLICT' });
+    await Promise.all([firstAcceptance, secondRejected, reductionRejected]);
 
     let releaseCancellation!: () => void;
     let cancelled!: () => void;
