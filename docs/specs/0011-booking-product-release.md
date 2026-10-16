@@ -1,7 +1,7 @@
 # Spec 0011 — Booking Product Release 與跨產品組裝
 
 - 日期：2026-09-19；程式盤點基準：`866ceaf`。
-- 狀態：主要工程功能已實作；§9 完整驗收與外部 release gate 仍須分別核對。
+- 狀態：主要工程功能已實作（Story SW-119–SW-160 已合入 `main`，核對於 2026-10-16）；§9 的 repository 驗證紀錄見 `specs/stories/SW-146-booking-verification/verification.md`，外部 release gate（ECPay refund UAT、真實 SMTP、正式部署、營運驗收）仍須分別核對。
 - 決策來源：[ADR 0052](../adr/0052-booking-is-a-separate-product-release.md)。
 - 執行入口：[Booking 實作計畫](../booking-implementation-plan.md)。
 - 詞彙依根目錄 `CONTEXT.md`：Product Release、Base Module、Product Module、Property、Room Type、

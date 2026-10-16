@@ -1,7 +1,7 @@
 # 通用應用基底與產品分工
 
 - 日期：2026-09-10
-- 狀態：架構方向已確認；Base 工程實作已由 Spec 0009 B00–B17 完成。Booking 作為第二個產品已有獨立 Release、模組與 Theme；完整交付驗收與外部 release gate 依 Spec 0011 追蹤。
+- 狀態：架構方向已確認；Base 工程實作已由 Spec 0009 B00–B17 完成。Booking 作為第二個產品已有獨立 Release、模組與 Theme（Story SW-119–SW-160 已合入 `main`）；完整交付驗收與外部 release gate 依 Spec 0011 追蹤。第三個產品 Dining 依 [Spec 0012](specs/0012-dining-product-release.md) 實作中（`packages/dining`，SW-163–SW-166 已落地）。狀態核對於 2026-10-16。
 - 本次交付：記錄概念、責任與完成標準，未變更程式或部署。
 
 ## 目標
