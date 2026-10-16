@@ -93,3 +93,7 @@ Booking release 目前只選用 `mock-payment`；設定 schema 會拒絕其他�
 ECPay refund staging UAT 與外部真實金流驗收尚屬獨立 release gate。
 根目錄 `compose.yaml`、`Dockerfile` 和原生安裝媒體目前提供 Base／Commerce 部署範本，
 不提供 Booking 的一鍵部署路徑。正式部署前仍需完成該產品的環境設定、部署驗證與營運驗收。
+
+實作進度（核對於 2026-10-16）：Booking 的 Story SW-119–SW-160 已合入 `main`，repository 驗證紀錄見
+`specs/stories/SW-146-booking-verification/verification.md`。原生安裝媒體的 Booking 打包尚無計畫
+（見 `specs/stories/SW-158-native-release-layout/story.md`）。

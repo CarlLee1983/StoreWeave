@@ -1,7 +1,7 @@
 # Booking Product Release 實作計畫
 
 - 日期：2026-09-19
-- 狀態：K00–K19 對應的主要工程路徑已落地；K20 完整驗收及外部 release gate 尚須依 Spec 0011 §9 核對。
+- 狀態：K00–K19 對應的主要工程路徑已落地；後續 Story 已延伸到 SW-160，SW-119–SW-160 皆已合入 `main`（核對於 2026-10-16）。K20 的 repository 驗證紀錄在 `specs/stories/SW-146-booking-verification/`；外部 release gate 尚須另行核對。
 - 規格：[Spec 0011](specs/0011-booking-product-release.md)
 - 架構決策：[ADR 0052](adr/0052-booking-is-a-separate-product-release.md)
 - 訪談決策：[Booking decision log](booking-decision-log.md)

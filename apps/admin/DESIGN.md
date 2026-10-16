@@ -21,7 +21,7 @@ This document defines the official design system, architectural principles, typo
 
 ### 1.1 Implemented Admin Boundaries
 
-Server state uses one App-lifetime `QueryClient`; `query.ts` owns query keys, `api.ts` is the sole production HTTP transport, and `routes.tsx` owns the 16 route definitions, navigation, page metadata, and header actions. Queries and mutations set `retry: false`; cache and pending operation recovery are memory-only. Identity changes cancel and clear query cache plus pending operations before new data can render. Commands keep an immutable request and idempotency key while their result is unknown. Only a definite success or rejection ends that operation; only afterwards may a new user action receive a new key.
+Server state uses one App-lifetime `QueryClient`; `query.ts` owns query keys, `api.ts` is the sole production HTTP transport, and `routes.tsx` exposes the route table, navigation, page metadata, and header actions of the selected release's admin projection (`@storeweave/selected-admin`); Commerce's entries are defined in `packages/releases/commerce/src/admin.tsx`. Queries and mutations set `retry: false`; cache and pending operation recovery are memory-only. Identity changes cancel and clear query cache plus pending operations before new data can render. Commands keep an immutable request and idempotency key while their result is unknown. Only a definite success or rejection ends that operation; only afterwards may a new user action receive a new key.
 
 `Dialog`, `DropdownMenu`, and `Popover` are the shared Radix-backed primitives. React Hook Form and TanStack Table remain deferred until repeated validation or confirmed table sorting, visibility, or selection needs justify them.
 
@@ -193,7 +193,8 @@ Status indicators must never rely on plain dots or emojis. They incorporate expl
 ```
 
 這張圖只是**版型示意**，側欄舉的四頁不是完整清單。頁面的唯一權威是
-`apps/admin/src/routes.tsx` 的 `ENTRIES`——路由、側欄標籤、圖示、頁首標題與主要動作
+`packages/releases/commerce/src/admin.tsx` 的 `ENTRIES`（Commerce release；Booking 在自己的 `admin.tsx`），
+`apps/admin/src/routes.tsx` 只是讀取所選 release 的 projection——路由、側欄標籤、圖示、頁首標題與主要動作
 全部從那一份長出來。這裡不再抄一份會漂掉的頁面清單。
 
 ### 5.2 Component Guidelines

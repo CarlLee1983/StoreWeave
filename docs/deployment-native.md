@@ -111,12 +111,12 @@ sudo -u commerce commerce doctor                   # 逐項驗證安裝狀態
 | `/etc/commerce/commerce.yaml` | 設定 |
 | `/etc/commerce/commerce.env` | 機密（0640，root:commerce） |
 | `/var/lib/commerce/` | 持久資料、備份、pid file |
+| `/var/log/commerce/` | 檔案記錄（`logging.destination: file` 時） |
 
 **`theme-assets/` 的位置是有相依的**：它與 `app/` 同層放在 release 根目錄，因為
 `apps/api/src/theme-assets.ts` 就是往 `<release>/../theme-assets` 找。前台的
 `/storefront-assets/` 靠它服務品牌照片。改動 release 佈局時要一起改那支解析器，
 否則照片會靜默消失而不是報錯。要放到別處，用 `COMMERCE_THEME_ASSETS_DIR` 明確指定。
-| `/var/log/commerce/` | 檔案記錄（`logging.destination: file` 時） |
 
 預設記錄走 journald：`journalctl -u commerce-api -f`。
 

@@ -23,13 +23,13 @@
 | `commerce migrate --status --json` | 輸出 applied／pending／releaseCurrent；不執行 domain SQL、extension setup 或 release 啟用 |
 | `commerce backup [--out FILE]` | 私有暫存 dump 驗證後原子發布，權限 0600；拒絕覆寫既有檔案 |
 | `commerce backup --include-media --external-writers-stopped [--out DIR]` | 建立 DB dump 加上全部 ready storage 物件的私有、內容雜湊驗證 bundle |
-| `commerce restore FILE --yes` | `pg_restore --clean --if-exists`（只還原資料庫，會覆寫現有資料） |
+| `commerce restore FILE --yes` | `pg_restore --clean --if-exists --no-owner`（只還原資料庫，會覆寫現有資料） |
 | `commerce restore --bundle DIR --maintenance-database postgres --yes --external-writers-stopped` | 在 scratch DB 驗證完整 bundle 與物件後，以 journaled cutover 切換；保留舊 DB 作 quarantine |
 | `commerce restore --bundle DIR --resume JOURNAL --maintenance-database postgres --yes --external-writers-stopped` | 重新驗證同一 bundle 後，續跑 data-dir 私有的完整 recovery journal |
 | `commerce restore --list-recoveries --maintenance-database postgres` | 列出未完成的完整 recovery：phase、scratch 資料庫是否還在、該次已寫入的 storage 物件數 |
 | `commerce restore --discard JOURNAL --maintenance-database postgres --yes` | 回收一個未完成的 recovery：刪掉它寫入的 storage 物件、drop 其 scratch 資料庫、移除 journal（cutover 已生效者拒絕） |
-| `commerce upgrade --release TARBALL` | 解壓新版 → 用新版跑 migration → 切換 symlink → 重啟 |
-| `commerce rollback [--to VERSION]` | 切回上一版或指定版本並重啟 |
+| `commerce upgrade --release TARBALL --external-writers-stopped [--no-restart]` | 驗證候選 Release → 停止服務 → 保存配對快照與 upgrade journal → 用候選版本跑 migration → 原子切換 `current`；失敗可用 `--resume JOURNAL` 重試（見[原生部署](deployment-native.md#升級)） |
+| `commerce rollback --snapshot DIR --checksum DIGEST --yes --external-writers-stopped [--no-restart]` | 以 upgrade 保存的配對快照還原資料庫與來源版本；不再接受 `--to`（見[原生部署](deployment-native.md#回退)） |
 | `commerce user:create --email E --name N [--role admin]` | 建立後台操作者帳號；密碼由 `COMMERCE_USER_PASSWORD` 環境變數提供 |
 | `commerce extension:list [--json]` | 列出已啟用的 Extension、權限、事件、Command、Query、Provider、MCP 工具 |
 
@@ -291,5 +291,6 @@ Extension 自己的輸入（`ext.*`）同樣拒絕未知欄位。差別只在 `G
 的 query string：橋接會先把該支 Query 沒宣告的鍵挑掉，因此 `?_t=` 這類 cache-buster 不會變成 400。
 Extension Command 的 JSON body 不挑，多送的鍵一律 400。
 
-**升級後想回退** — `commerce rollback`。若該版本已經套用過 `contract` 階段的 migration，
+**升級後想回退** — `commerce rollback --snapshot <DIR> --checksum <DIGEST> --yes --external-writers-stopped`，
+快照路徑與 checksum 取自 `upgrade` 當時的輸出。若該版本已經套用過 `contract` 階段的 migration，
 舊版程式無法讀取新 schema，此時只能還原備份。

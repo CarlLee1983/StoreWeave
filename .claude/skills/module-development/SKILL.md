@@ -95,8 +95,8 @@ description: 寫或擴充 StoreWeave 的 PlatformModule。用於新增模組，�
 ### 10. 組進 Release
 
 - `createModules` 是純同步函式，模組圖不隨設定內容改變；平台模組由 runtime 自動加入，這裡只列產品模組。
-- 新 release id 要同時登記四處：`packages/platform/bundle/src/releases/<id>.ts`、`apps/api/src/releases/<id>.ts`（`releaseId` 相同）、`scripts/releases.mjs`、`scripts/build-release.sh` 的 `case`。
-- 後台頁面在 `apps/admin/src/routes.tsx` 的 `ENTRIES` 加一列，帶 `module` 與 `permissions`。
+- 新 release id 要同時登記三處：release package（`packages/releases/<id>/src/` 的 runtime、server、worker、cli 與各 target projection；範例 release 放 `packages/examples/<id>/src/`）、`apps/api/src/releases/<id>.ts`（`releaseId` 相同）、`scripts/releases.mjs`（各 target 入口、`admin`、`native`）加上 `scripts/seeds/<id>.ts`。要產生原生安裝媒體才提供 `native`，`scripts/build-release.sh` 從 `scripts/native-release-plan.mjs` 讀它。
+- 後台頁面不再是 `apps/admin` 的清單：由模組的 `admin` contribution（例如 `packages/booking/property/src/admin`）帶 `permissions`，release 的 `adminProjection`（`packages/releases/<id>/src/admin.tsx`）組裝；`apps/admin/src/routes.tsx` 只讀所選 release 的 projection。
 
 **完成：** `bootstrapRelease(release, ...)` 啟動成功，`runtime.modules` 含新模組。
 
@@ -115,9 +115,9 @@ description: 寫或擴充 StoreWeave 的 PlatformModule。用於新增模組，�
 
 ## 現況邊界
 
-以 main @ 86d87a8 為準；進度以 `docs/base-implementation-plan.md` 為準，這段隨之更新。
+以 main @ 31505f6 為準；進度以 `docs/base-implementation-plan.md` 為準，這段隨之更新。
 
-- 後台路由是 `apps/admin` 的編譯期清單，且只有 commerce release 打包後台（`scripts/releases.mjs` 的 `admin`）。非商務 release 需要後台時，先開邊界決策。
-- 使用者媒體屬 B10（進行中）。模組的圖片欄位等 media 能力落地後再設計；ADR 0034 的 Theme image key 即將被取代。
+- 後台路由在建置時依所選 release 的 admin projection 決定；`scripts/releases.mjs` 的 `admin: true` 只有 commerce 與 booking，base 與 file-requests 範例不打包後台。需要後台的 release 要先提供 admin projection。
+- 使用者媒體（B10，`packages/platform/media`）已交付；模組的圖片欄位用 media 能力，ADR 0034 的 Theme image key 已被 ADR 0049 取代（見 ADR 0048）。
 - Cache／Storage 以 runtime 的 `cacheBindings`／`storageBindings` 綁到模組 id。
 - 啟動時的組裝錯誤訊息與原因對照：[startup-errors.md](startup-errors.md)。

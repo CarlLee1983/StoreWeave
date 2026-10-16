@@ -2,7 +2,7 @@
 
 **狀態：** 這份文件原本是一次前台改版的規劃書，那次規劃已經走完；付款、物流與品牌內容也在後續幾輪補上。
 它現在的用途是**顧客前台的頁面地圖**——每一頁要完成什麼使用者任務、有哪些狀態、行動版的重點。
-路由的權威來源是 `apps/api/src/storefront/storefront.controller.ts`，這裡不重複列它沒有的東西。
+路由的權威來源是各模組的 `packages/commerce/*/src/pages.ts` 與 `packages/platform/content/src/pages.ts`（頁面宣告），加上 `apps/api/src/storefront/storefront.controller.ts`（`/storefront-assets/` 與 `/checkout/pickup/callback`），這裡不重複列它們沒有的東西。
 
 **設計基準：** [Default Theme 顧客前台設計規格](../packages/themes/default/DESIGN.md) 是字型、色彩、資料邊界與可下單行為的單一設計來源；本文件負責頁面範圍與每一頁的使用者任務。
 

@@ -2,7 +2,7 @@
 
 本文件描述目前架構。跨應用的共用目標與分工見
 [通用應用基底與產品分工](reusable-application-base.md)；該方向包含 HTTP、Admin、CLI 與建置部署工具，
-目前由 Base、Commerce 與 Booking 三個 Release 組裝，不限於 Commerce 產品或 kernel。
+目前由 Base、Commerce 與 Booking 三個可建置的 Release 組裝，Dining 的 Release 設定已建立但尚未可建置，不限於 Commerce 產品或 kernel。
 
 ## 平台與產品
 
@@ -48,11 +48,14 @@ packages/platform/
   media/                使用者媒體、preview、處理狀態與引用紀錄
   site/                 網站設定、導覽與首頁 page declaration
   content/              品牌內容與聯絡訊息；Base 與 Commerce release 都可選用
+  http-client/          對外 HTTP 呼叫：受信任目的地檢查與 client
+  i18n/                 訊息、金額與時間格式化，以及 HTML 跳脫
 
 packages/releases/
   base/                  Base runtime 與 server / worker / Admin / CLI / config projections
   commerce/              Commerce runtime、module / extension catalog 與 target projections
   booking/               Booking runtime、module / extension catalog 與 target projections
+  dining/                Dining release 設定（目前只有 config projection；尚未登記於 scripts/releases.mjs）
 
 packages/commerce/      第一個產品的 Product Modules：cart / catalog / coupon / customer /
                         inventory / invoice / loyalty / notification /
@@ -65,6 +68,9 @@ packages/extensions/    金流（mock-payment / ecpay）、物流（ecpay-logist
                         `@storeweave/notifications`（module `platform-notifications`），
                         見 `packages/platform/notifications`
 packages/booking/       第二個產品的 Product Modules：property / availability / reservation
+packages/dining/        第三個產品的 Product Modules：目前只有 reservation（Spec 0012 實作中）
+packages/examples/      獨立模組範例：file-requests（見 module-development.md）
+packages/themes/base    Base Storefront Theme
 packages/themes/default 預設 Storefront Theme（純 SSR 表單，不載入 JavaScript）
 packages/themes/booking-default Booking Storefront Theme
 tools/cli/              共用 CLI 流程；名稱與設定由所選 Release 提供
@@ -144,8 +150,9 @@ Core subscriber 預設只能執行自身 command，外部 command 必須精確�
 可執行範例是 `packages/examples/file-requests` 與 `file-requests` release，步驟在 [模組開發](module-development.md)。
 
 - 每個模組各自擁有自己的資料表與 migration。**Commerce 模組的前綴即模組名**——
-  `cart_*`、`catalog_*`、`content_*`、`coupon_*`、`customer_*`、`inventory_*`、`invoice_*`、
-  `loyalty_*`、`notification_*`、`order_*`、`promotion_*`、`refund_*`、`rma_*`、`shipping_*`。
+  `cart_*`、`catalog_*`、`coupon_*`、`customer_*`、`inventory_*`、`invoice_*`、
+  `loyalty_*`、`notification_*`、`order_*`、`promotion_*`、`refund_*`、`rma_*`、`shipping_*`；
+  Booking 是 `booking_*`，Dining 是 `dining_reservation_*`；品牌內容模組（`packages/platform/content`，ADR 0033、0049）是 `content_*`。
   **平台模組則一律用 `platform_`**，不用自己的名字：`identity` 建的是 `platform_users`、
   `platform_sessions`，不是 `identity_*`。理由是平台的表對領域中立（ADR 0010），
   它們屬於「這座平台」而不是某個模組的私有狀態。
