@@ -17,3 +17,6 @@ graft/
 # Claude Code 本地 worktree（非專案內容）
 .claude/worktrees/
 .forgepilot/
+
+# VitePress 文件站
+docs/.vitepress/cache
