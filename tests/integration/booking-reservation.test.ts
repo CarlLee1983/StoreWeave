@@ -653,15 +653,27 @@ async function enqueueAndRunRetentionJob(dedupeKey: string) {
 }
 
 async function drainRetentionJobs(worker: Worker) {
+  const startedAt = (await runtime.database.pool.query<{ now: Date }>('SELECT pg_catalog.clock_timestamp() AS now')).rows[0]!.now;
   let processed = 0;
   let failed = 0;
   for (let round = 0; round < 1_000; round += 1) {
     const result = await worker.runJobs();
     processed += result.processed;
     failed += result.failed;
-    if (result.failed > 0 || result.processed === 0) return { processed, failed };
+    if (result.failed > 0) throw new Error(await describeFailedRetentionJobs(startedAt, { processed, failed }));
+    if (result.processed === 0) return { processed, failed };
   }
   throw new Error('Reservation retention continuation did not drain within 1,000 bounded jobs');
+}
+
+// CI 偶發的續跑失敗只留下 failed 計數（#135），把失敗 job 的 last_error 帶進錯誤訊息才查得到原因
+async function describeFailedRetentionJobs(since: Date, counts: { processed: number; failed: number }) {
+  const jobs = await runtime.database.pool.query<{ dedupe_key: string | null; status: string; attempts: number; last_error: string | null }>(`
+    SELECT dedupe_key, status, attempts, last_error FROM platform_jobs
+    WHERE type = 'booking.reservation.anonymize-expired-pii' AND last_error IS NOT NULL AND updated_at >= $1
+    ORDER BY updated_at
+  `, [since]);
+  return `Reservation retention job failed (processed ${counts.processed}, failed ${counts.failed}): ${JSON.stringify(jobs.rows)}`;
 }
 
 async function makeRetentionEligible(reservationId: string) {
