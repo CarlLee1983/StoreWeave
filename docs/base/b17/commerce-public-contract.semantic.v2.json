@@ -38884,7 +38884,7 @@
   "source": {
     "assurance": "provenance-only",
     "dependencyLock": "pnpm-lock.yaml",
-    "dependencyLockSha256": "94cfd7c111675cca635f2f2376bfd854f2b80754eb4acd9fd36534d3b53965e2",
+    "dependencyLockSha256": "231d3067cf0b0aee8215e057909f6a98521d4d31d28b9ad9359a7716bdc9444c",
     "http": "docs/base/b17/commerce-http-contract.v1.json",
     "httpSha256": "c373e92a780083e710c18dc5c49dda6aa6dcd467250cc056d0e2d29477c51931",
     "limitations": [

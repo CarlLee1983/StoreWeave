@@ -652,12 +652,28 @@ async function enqueueAndRunRetentionJob(dedupeKey: string) {
   return drainRetentionJobs(await enqueueRetentionJob(dedupeKey));
 }
 
+async function runRetentionJobs(worker: Worker) {
+  // Other fixtures deliberately leave retryable notification jobs in this shared
+  // database. Keep this retention assertion independent of their backoff timing,
+  // while exercising the real queue, Worker, handler and continuation jobs.
+  const claim = runtime.jobs.claim.bind(runtime.jobs);
+  const scopedClaim = vi.spyOn(runtime.jobs, 'claim').mockImplementation((tx, workerId, limit, types, leaseSeconds, concurrency) =>
+    claim(tx, workerId, limit,
+      workerId === worker.id ? ['booking.reservation.anonymize-expired-pii'] : types,
+      leaseSeconds, concurrency));
+  try {
+    return await worker.runJobs();
+  } finally {
+    scopedClaim.mockRestore();
+  }
+}
+
 async function drainRetentionJobs(worker: Worker) {
   const startedAt = (await runtime.database.pool.query<{ now: Date }>('SELECT pg_catalog.clock_timestamp() AS now')).rows[0]!.now;
   let processed = 0;
   let failed = 0;
   for (let round = 0; round < 1_000; round += 1) {
-    const result = await worker.runJobs();
+    const result = await runRetentionJobs(worker);
     processed += result.processed;
     failed += result.failed;
     if (result.failed > 0) throw new Error(await describeFailedRetentionJobs(startedAt, { processed, failed }));
@@ -3289,6 +3305,44 @@ describe('Booking Reservation PostgreSQL integration', () => {
     }
   }, 120_000);
 
+  it('isolates retention work from an already-due failing job of another type', async () => {
+    const { reservation } = await createReservation('retention-queue-isolation');
+    await makeRetentionEligible(reservation.id);
+    const unrelated = await runtime.database.transaction(tx => runtime.jobs.enqueue(tx, {
+      type: 'booking.reservation.process-payment',
+      payload: {
+        attemptId: randomUUID(), reservationId: randomUUID(),
+        provider: 'unconfigured-retention-test-provider', reference: 'retention-queue-isolation',
+      },
+      dedupeKey: `retention-unrelated:${randomUUID()}`,
+      runAt: new Date(0),
+    }));
+    try {
+      await expect(enqueueAndRunRetentionJob(`retention-isolation:${randomUUID()}`))
+        .resolves.toMatchObject({ failed: 0 });
+      await expect(runtime.database.pool.query(`
+        SELECT pii_anonymized_at FROM booking_reservation_reservations WHERE id = $1
+      `, [reservation.id])).resolves.toMatchObject({ rows: [{ pii_anonymized_at: expect.any(Date) }] });
+      await expect(runtime.database.pool.query(`
+        SELECT status, attempts FROM platform_jobs WHERE id = $1
+      `, [unrelated.id])).resolves.toMatchObject({ rows: [{ status: 'pending', attempts: 0 }] });
+    } finally {
+      await runtime.database.pool.query('DELETE FROM platform_jobs WHERE id = $1', [unrelated.id]);
+    }
+  });
+
+  it('still reports a failed retention job with its diagnostic evidence', async () => {
+    const dedupeKey = `retention-invalid-payload:${randomUUID()}`;
+    const worker = await enqueueRetentionJob(dedupeKey);
+    await runtime.database.pool.query("UPDATE platform_jobs SET payload = '{}'::jsonb WHERE dedupe_key = $1", [dedupeKey]);
+    await expect(drainRetentionJobs(worker)).rejects.toThrow(dedupeKey);
+    await expect(runtime.database.pool.query(`
+      SELECT status, attempts, last_error FROM platform_jobs WHERE dedupe_key = $1
+    `, [dedupeKey])).resolves.toMatchObject({ rows: [{
+      status: 'quarantined', attempts: 1, last_error: expect.any(String),
+    }] });
+  });
+
   it('drains more than one retention batch, preserves Reservation facts, and revokes local access once', async () => {
     const { reservation: ownedReservation } = await createReservation('retention-owned');
     const { reservation: grantReservation } = await createReservation('retention-unredeemed-grant');
@@ -3336,7 +3390,7 @@ describe('Booking Reservation PostgreSQL integration', () => {
 
     const initialDedupeKey = `booking-retention-first:${randomUUID()}`;
     const retentionWorker = await enqueueRetentionJob(initialDedupeKey);
-    await expect(retentionWorker.runJobs()).resolves.toMatchObject({ processed: 1, failed: 0 });
+    await expect(runRetentionJobs(retentionWorker)).resolves.toMatchObject({ processed: 1, failed: 0 });
     const initialJob = await runtime.database.pool.query<{
       occurrence_id: string; payload: { bucket: number; scheduledFor: string };
     }>(

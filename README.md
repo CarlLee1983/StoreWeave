@@ -72,6 +72,8 @@ pnpm "dev:worker"    # 需要 API token 時：pnpm commerce token:create --name 
 
 ## 文件
 
+線上文件站：<https://carllee1983.github.io/StoreWeave/>
+
 | 文件 | 內容 |
 | --- | --- |
 | [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | Commerce Demo 演示指南（示範帳號、前台體驗、折扣碼測試與後台操作） |

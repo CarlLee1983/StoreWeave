@@ -25,7 +25,9 @@
     "seed": "tsx scripts/seed.ts",
     "seed:ops": "tsx scripts/seed-operations.ts",
     "typecheck:admin": "tsc -p apps/admin/tsconfig.json --noEmit && tsc -p packages/releases/commerce/tsconfig.admin.json --noEmit && tsc -p packages/releases/booking/tsconfig.admin.json --noEmit",
-    "test:admin": "vitest run --project admin"
+    "test:admin": "vitest run --project admin",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1128.0",
@@ -80,6 +82,7 @@
     "typescript": "^5.7.2",
     "vite": "^6.0.0",
     "vite-tsconfig-paths": "^5.1.4",
+    "vitepress": "1.6.4",
     "vitest": "^3.2.7"
   }
 }
