@@ -309,6 +309,8 @@ importers:
 
   packages/examples/file-requests: {}
 
+  packages/examples/notes: {}
+
   packages/extensions/demo-erp: {}
 
   packages/extensions/ecpay: {}

@@ -1,185 +1,89 @@
+---
+description: 循序理解 StoreWeave：從平台與產品分工，到請求、事件、模組邊界與介面資料流。
+pageClass: architecture-page
+---
+
 # 架構
 
-本文件描述目前架構。跨應用的共用目標與分工見
-[通用應用基底與產品分工](reusable-application-base.md)；該方向包含 HTTP、Admin、CLI 與建置部署工具，
-目前由 Base、Commerce 與 Booking 三個可建置的 Release 組裝，Dining 的 Release 設定已建立但尚未可建置，不限於 Commerce 產品或 kernel。
+StoreWeave 把共用平台與產品規則分開，再由 **Release 組裝成可部署的應用**。
+這份導讀帶你從整體分工開始，跟著一次付款請求理解交易，再看事件如何送到外部服務。
+
+想先把專案跑起來、做出自己的網站，請從[動手學：啟動網站與打造 Blog](learn/index.md)開始；那裡有操作步驟、預期結果與擴充練習。
+想先理解原理，可以依下列章節順序閱讀。每章先解釋問題與責任，再用例子展開運作方式，最後列出限制與來源。
+已經知道要找什麼時，可以從文件導覽直接選章，或使用[程式碼地圖](architecture/code-map.md)。
 
 ## 平台與產品
 
-`packages/platform` 是領域中立的應用平台。它只認得 Command、Query、Event、Job、Permission、Extension、Theme，不認識商品、庫存或訂單。
+**第一章：一份應用由哪些部分組成？**
 
-`packages/commerce` 是這個平台上的第一個產品。`packages/platform/release` 定義領域中立的 Release manifest、target projection、bootstrap 與 contract checks；Base、Commerce 等產品組裝由 `packages/releases/<release>` 擁有。換產品只換 ReleaseDefinition 選取與 target contributions，不重寫 kernel。
+平台提供授權、交易、事件與工作等機制；產品模組擁有商品、訂單或住宿預訂的規則；Release 選擇並組裝這些能力。
+先理解這三層，再看 Theme 與 Extension 如何容納品牌與整合差異。
 
-`commerce.order.placeOrder` 這類名稱屬於 commerce 模組的公開契約，不是 kernel 的限制。事件格式只要求 `<context>.<aggregate>.<action>.vN`，`cms.post.published.v1` 與 `booking.slot.reserved.v1` 都能掛上同一套 Bus。
+這章也說明模組化單體的取捨、各建置目標如何取得自己的組裝，以及目前各 Release 的工程狀態。
 
-設定檔、CLI、Admin 與 Storefront 以 Release target projections 在建置時選取產品 contributions；共用機制與產品組裝分開，且不全部放進 kernel。
-
-## 目錄結構
-
-```
-apps/
-  api/                  NestJS + Fastify：REST、Storefront SSR、Admin 靜態資源、MCP 端點
-  worker/               背景工作行程：Outbox 轉送 + 工作佇列
-  admin/                React 管理後台（Vite 建置成靜態資源，封裝進 Release）
-
-packages/platform/
-  contracts/            Actor、Command/Query descriptor、DomainEvent、錯誤型別（無相依）
-  config/               設定檔 schema、載入器、Secret Provider（第一版檔名仍是 commerce.yaml）
-  db/                   Database（Drizzle + pg）、migration runner、平台資料表
-  command-bus/          唯一寫入入口：授權 → 驗證 → Idempotency → 交易 → Audit → Outbox
-  query-bus/            唯一讀取入口
-  event-bus/            事件目錄與訂閱登記（不做即時派送）
-  release/              ReleaseDefinition、target projections、bootstrap 與組裝契約檢查
-  outbox/               Transactional Outbox
-  jobs/                 PostgreSQL 背景工作佇列（SKIP LOCKED、退避重試、dedupeKey）
-  authorization/        權限登記、Policy Registry、角色映射
-  audit/                Audit Log 寫入與機密遮蔽
-  extension-sdk/        Extension 的唯一公開介面（見 extension-development.md）
-  kernel/               組裝：Runtime、ExtensionHost、Worker、健康檢查、Theme 契約
-                        以及平台自身的維運模組（platform.jobs.* 死信佇列，見 ADR 0011）
-  identity/             帳號、session、簽發式身分連結（重設／驗證／換信箱）、API token
-                        與後台第二因素（見 ADR 0012、0014、0041–0044）
-  auth/                 Release 可選取的登入、註冊、登出與密碼重設頁面
-  crypto/               簽章、封裝與金鑰環：sw1. / swe1. 與依用途推導的子金鑰（ADR 0038）
-  cache/                PostgreSQL 快取與跨程序互斥鎖
-  storage/              物件儲存：本機與 S3 相容 adapter（見 docs/base/b09）
-  mail/                 SMTP 寄送、模板快照與佇列（見 docs/base/b06）
-  notifications/        領域中立的通知、投遞、重試與站內收件匣能力
-  media/                使用者媒體、preview、處理狀態與引用紀錄
-  site/                 網站設定、導覽與首頁 page declaration
-  content/              品牌內容與聯絡訊息；Base 與 Commerce release 都可選用
-  http-client/          對外 HTTP 呼叫：受信任目的地檢查與 client
-  i18n/                 訊息、金額與時間格式化，以及 HTML 跳脫
-
-packages/releases/
-  base/                  Base runtime 與 server / worker / Admin / CLI / config projections
-  commerce/              Commerce runtime、module / extension catalog 與 target projections
-  booking/               Booking runtime、module / extension catalog 與 target projections
-  dining/                Dining release 設定（目前只有 config projection；尚未登記於 scripts/releases.mjs）
-
-packages/commerce/      第一個產品的 Product Modules：cart / catalog / coupon / customer /
-                        inventory / invoice / loyalty / notification /
-                        order / promotion / refund / rma / shipping
-packages/extensions/    金流（mock-payment / ecpay）、物流（ecpay-logistics）、
-                        發票（mock-invoice / ecpay-invoice）、
-                        ERP（demo-erp）與 mcp。哪些真的編進這份 release，
-                        以 packages/releases/commerce/src/modules.ts 為準（ADR 0002）。
-                        通知不是 Extension——是 base capability
-                        `@storeweave/notifications`（module `platform-notifications`），
-                        見 `packages/platform/notifications`
-packages/booking/       第二個產品的 Product Modules：property / availability / reservation
-packages/dining/        第三個產品的 Product Modules：目前只有 reservation（Spec 0012 實作中）
-packages/examples/      獨立模組範例：file-requests（見 module-development.md）
-packages/themes/base    Base Storefront Theme
-packages/themes/default 預設 Storefront Theme（純 SSR 表單，不載入 JavaScript）
-packages/themes/booking-default Booking Storefront Theme
-tools/cli/              共用 CLI 流程；名稱與設定由所選 Release 提供
-deployments/            example-store、example-store-two、systemd unit、設定 JSON Schema
-```
+[閱讀第一章：平台、產品與 Release →](architecture/platform-and-products.md)
 
 ## 一次寫入的完整路徑
 
-以 `POST /api/v1/orders/:id/pay` 為例：
+**第二章：按下付款後，誰檢查權限、誰改資料？**
 
-1. **ApiTokenGuard** 以 Bearer token 查 `platform_api_tokens`（由 CLI 簽發、可到期可撤銷，
-   見 ADR 0043），解析出 Actor 與它的權限集合。
-2. **Controller** 只做一件事：把 HTTP 請求轉成 `commands.execute('commerce.order.payOrder', input, {...})`。
-   它沒有 repository，也沒有資料庫。
-3. **CommandBus**
-   - `authorization.assert()` 檢查 `order:write`，並讓已註冊的 Policy 有機會否決。
-   - 用 descriptor 的 Zod schema 驗證輸入（失敗 → `VALIDATION_ERROR`，不是 500）。
-   - `idempotency: 'required'` 的 Command 沒帶 key 直接拒絕。
-   - 宣告 `requiresBeforeIdempotency` 的 Command 若呼叫端未提供交易內的授權 guard，也直接拒絕；撤銷式憑證必須在讀取冪等快取前重新驗權。
-   - 開啟資料庫交易。
-4. **交易內**
-   - 宣告 `legacyIdempotencyGuard` 的 required actor-scoped Command 先在交易內檢查舊鍵，核對 Actor 後才比對 hash／狀態並拒絕歷史成功鍵（ADR 0055），避免切換範圍後重複建立。
-   - 依 Command 的冪等宣告取得範圍與重送內容，再以 `INSERT ... ON CONFLICT DO NOTHING` 宣告 Idempotency Key。併發的第二個請求會卡在
-     唯一索引上直到第一個 commit，然後讀到已完成的結果 —— 不會重複執行。
-   - Handler 鎖住訂單列、呼叫 Payment Provider、寫入付款紀錄、更新訂單狀態。
-   - `ctx.publish()` 把 `commerce.order.paid.v2` 寫進 `platform_outbox`（**同一個交易**）。
-   - `ctx.audit()` 寫入 Audit Log（同一個交易），機密欄位先經 `redact()`。
-   - 驗證輸出符合 descriptor 的 output schema，再把結果存回 Idempotency 紀錄。
-5. **commit**。到這裡「訂單已付款」與「事件已排入」要嘛都成立，要嘛都不成立。
+以一次付款請求串起 Actor、Controller、CommandBus 與 handler，區分「請求已接受」和「付款已確認」。
+接著說明資料庫交易的範圍、同一請求重送時的冪等保護，以及 QueryBus 的讀取流程。
 
-Checkout 的顧客範圍、確認值與有限交易重試見 [ADR 0054](adr/0054-checkout-confirmation-and-scoped-replay.md)；顧客直接下單的宅配確認、舊鍵拒絕及部署／回滾限制見 [ADR 0055](adr/0055-direct-order-confirmation-and-legacy-keys.md)。
+[閱讀第二章：一次請求如何讀寫資料 →](architecture/requests.md)
 
 ## 事件如何抵達 Extension
 
-```
-platform_outbox (pending)
-      │  Worker.relayOutbox()：claimBatch + FOR UPDATE SKIP LOCKED
-      │  同一交易內：對每個訂閱者排入一筆 job（dedupeKey = evt:<outboxId>:<subscriberId>）
-      │              並把該筆 outbox 標記為 relayed
-      ▼
-platform_jobs (platform.event.deliver)
-      │  Worker.runJobs()：claim → 在交易外執行 → complete / fail(退避重試)
-      ▼
-EventBus 訂閱者（Extension 的 event handler）
-      │  投遞前用 Zod 驗證 payload
-      ▼
-Extension 自己再排一筆工作（ext.demo-erp.push-order，dedupeKey = 訂單 id）
-      ▼
-ErpProvider.push(doc)   ← 遠端以 reference 去重
-```
+**第三章：請求結束後，工作如何繼續？**
 
-去重發生在三個地方，任何一層重複都不會產生第二張 ERP 單據：
+付款結果與事件一起落庫後，Outbox 先建立各訂閱者的投遞工作，Worker 才執行。
+以 ERP 推送為例，逐步理解重試、去重、失敗隔離，以及為什麼本機成功不能直接代表遠端成功。
 
-1. `platform_jobs.dedupe_key` 唯一索引：同一個事件對同一個訂閱者只會排入一次。
-2. Extension 的投遞紀錄：`status === 'sent'` 就直接略過。
-3. Provider Contract 要求以 `reference` 冪等：遠端自己認得重複的單號。
+[閱讀第三章：事件與背景工作 →](architecture/events-and-jobs.md)
 
-Extension 的錯誤只會讓那一筆工作失敗重試，核心訂單交易早已 commit，
-不可能因為 ERP 掛掉而處於不一致狀態。
+### 週期性工作
 
-## 週期性工作
+同一章後半段說明固定間隔、cron、時區、有限追補與重疊策略。排程負責決定何時排入，實際工作仍由 Worker 執行。
 
-`JobQueue` 只認得「在這個時間之後執行一次」。要固定週期重複執行，模組在 `PlatformModule.jobs`
-的項目上加一個 `schedule: { everyMs }`：時間被切成固定長度的切片，每個切片對應唯一一個去重鍵，
-Worker 每一輪確保「當下這個切片」已排入。沒有自我續排的鏈，因此工作進了死信也不會讓後續停擺。
-代價是停機期間跨過的切片不追補，且切片邊界對齊 UTC 而非本地時間。見 ADR 0016。
+[直接閱讀週期性工作](architecture/events-and-jobs.md#週期性工作-排程器只決定何時排入)。
 
 ## 模組邊界
 
-模組組裝在建立 Database 前驗證 `name`、package version、Base range、相依、能力 binding 與資料／migration ownership。
-靜態相依決定固定註冊順序；constructor 注入的操作與非同步 subscriber links 分別驗證，不混為初始化 cycle。
-Core subscriber 預設只能執行自身 command，外部 command 必須精確宣告 owner／name／version，且 owner 有已驗證的相依或 binding。
-契約與適用邊界見 [ADR 0036](adr/0036-validate-module-composition-before-runtime.md)；這些檢查不把 trusted Node 程式變成 SQL sandbox。
-模組要 Cache／Mutex／Storage 時以 `resources` 宣告、由 `bindResources` 一次取得固定在自己 namespace 的 scope；
-要收檔案時以 `uploads` 宣告，由通用的 `POST /api/v1/modules/:module/uploads/:upload` 先授權、串流進該 scope，再執行宣告的收件 Command。
-非商務模組的後台畫面是 `audience: 'operator'` 的模組頁面。見 [ADR 0050](adr/0050-modules-declare-resources-and-upload-intakes.md)，
-可執行範例是 `packages/examples/file-requests` 與 `file-requests` release，步驟在 [模組開發](module-development.md)。
+**第四章：資料和規則由誰負責？**
 
-- 每個模組各自擁有自己的資料表與 migration。**Commerce 模組的前綴即模組名**——
-  `cart_*`、`catalog_*`、`coupon_*`、`customer_*`、`inventory_*`、`invoice_*`、
-  `loyalty_*`、`notification_*`、`order_*`、`promotion_*`、`refund_*`、`rma_*`、`shipping_*`；
-  Booking 是 `booking_*`，Dining 是 `dining_reservation_*`；品牌內容模組（`packages/platform/content`，ADR 0033、0049）是 `content_*`。
-  **平台模組則一律用 `platform_`**，不用自己的名字：`identity` 建的是 `platform_users`、
-  `platform_sessions`，不是 `identity_*`。理由是平台的表對領域中立（ADR 0010），
-  它們屬於「這座平台」而不是某個模組的私有狀態。
-- 模組之間**只能**呼叫對方匯出的 service：`order` 扣庫存呼叫 `inventoryService.adjust(ctx, ...)`，
-  取得商品呼叫 `catalogService.requireActiveProduct(tx, id)`。這兩個函式接受呼叫端的交易，
-  因此跨模組操作仍在同一個交易內。
-- Booking Reservation 的匿名管理授權由 transaction-bound `BookingReservationAccess` 處理：Access Grant
-  只能兌換成管理憑證，管理憑證授權檢查只回傳 Reservation ID。兌換走直接 service seam，不能走
-  CommandBus，因為 CommandBus 會把帶 idempotency key 的回應存進 `platform_idempotency`；Reservation
-  僅保存 Grant generation／nonce／期限與 management credential hash。
-- Extension 只拿得到 `ExtensionContext`：Command API、Query API、Job API、
-  以 extension id 隔離的 Store、宣告過的 Provider 與 Secret。沒有 `tx`、沒有 `db`。
+一個模組宣告自己擁有的資料、相依與能力。組裝時先檢查是否接齊，執行時透過公開 service 協作。
+本章比較同交易的跨模組操作與非同步事件，再說明資源 scope、上傳入口，以及 Extension SDK 的能力範圍。
+
+[閱讀第四章：模組邊界與資料責任 →](architecture/modules-and-data.md)
 
 ## 介面共用同一組 handler
 
-| 介面 | 進入點 | 走的路 |
-| --- | --- | --- |
-| REST | `apps/api/src/controllers/*` | Command Bus / Query Bus |
-| Storefront SSR | `apps/api/src/storefront/*` | Command Bus / Query Bus（storefront 角色） |
-| Admin | 靜態 SPA → REST | 同上 |
-| MCP | `apps/api/src/mcp/mcp.controller.ts` | Command Bus / Query Bus（以呼叫端的 actor） |
-| CLI | `tools/cli/src/main.ts` | 同一個 `bootstrap()` 與 Runtime |
-| Worker | `apps/worker/src/main.ts` | 同一個 `bootstrap()` 與 Runtime |
+**第五章：網頁、API、後台與 CLI 如何使用同一套能力？**
 
-`/api/v1/meta/commands`、`/api/v1/meta/queries`、`/api/v1/meta/events`、`/api/v1/meta/permissions`
-會輸出目前這個 Release 的完整契約（含 JSON Schema），可直接當整合文件用。
+介面負責接收輸入與呈現結果，產品規則由共用 handler 擁有。
+本章從 REST、Storefront SSR、Admin、MCP、CLI 與 Worker 的角色開始，細看模組頁面、Theme renderer 與 Session outcome 的分工。
 
-## Admin 資料流
+[閱讀第五章：介面與後台資料流 →](architecture/interfaces-and-admin.md)
 
-Admin 在 `main.tsx` 建立唯一且存活於 App 的 `QueryClient`。`query.ts` 集中 query keys，頁面透過 `api.ts` 的唯一 HTTP transport 呼叫 REST；`routes.tsx` 讀取所選 Release 的 Admin projection，導覽、頁首 metadata 與 actions 隨產品組裝。Query 和 mutation 都不自動 retry，cache 與未知結果的 operation recovery 都只在記憶體；登入、登出或 token／帳號切換時，App 先取消並清除舊 query cache 與 operation recovery。未知 command 只能以原本不可變的 request 與 idempotency key 重試；只有明確成功或拒絕才結束該次操作，之後使用者另發起的合法新操作才取得新 key。
+### Admin 資料流
+
+後台還需要處理瀏覽器的查詢快取與「結果未知」的操作。這一節說明 QueryClient、HTTP transport，以及換帳號時為什麼要清除舊的狀態。
+
+[前往第五章的後台說明](architecture/interfaces-and-admin.md)。
+
+## 目錄結構
+
+**第六章：理解流程後，回到程式碼找實作。**
+
+程式碼地圖依應用入口、平台能力、產品組裝、產品模組與整合分類，保留各目錄的責任說明。
+它也提供從需求找擁有者的例子，讓你知道應從哪一層開始追查。
+
+[查閱第六章：程式碼地圖 →](architecture/code-map.md)
+
+## 延伸閱讀
+
+- [通用應用基底與產品分工](reusable-application-base.md)：跨產品共用的範圍與目標。
+- [架構決策紀錄](adr/README.md)：選擇的原因、代價與重新檢討條件。
+- [模組開發](module-development.md)：實際新增模組的步驟。
+- [Extension 開發](extension-development.md)：整合外部服務的契約與方式。
+- [Docker 部署](deployment-docker.md)與[原生部署](deployment-native.md)：把 Release 交付到執行環境。

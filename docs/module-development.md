@@ -1,5 +1,7 @@
 # 模組開發
 
+第一次開發自己的產品，先走[從零建立 Notes 應用](learn/from-zero/index.md)：從一張資料表與表單開始，再接權限與 Release。本頁是包含上傳、背景工作與通知的進階完整參考。
+
 模組是有自己資料表的功能：它擁有 migration、權限、Command／Query、事件、背景工作與頁面，
 經由 `defineModule({...})`（`packages/platform/kernel/src/module.ts`）接入 base。
 只接外部服務、資料由對方保管的需求寫 [Extension](extension-development.md)；只改長相的需求寫 Theme。

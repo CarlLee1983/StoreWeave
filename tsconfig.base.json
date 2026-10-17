@@ -111,6 +111,7 @@
       "@storeweave/theme-default": ["packages/themes/default/src/index.ts"],
       "@storeweave/theme-base": ["packages/themes/base/src/index.ts"],
       "@storeweave/theme-booking-default": ["packages/themes/booking-default/src/index.ts"],
+      "@storeweave/example-notes": ["packages/examples/notes/src/index.ts"],
       "@storeweave/example-file-requests": ["packages/examples/file-requests/src/index.ts"],
       "@storeweave/selected-runtime": ["packages/releases/commerce/src/runtime.ts"],
       "@storeweave/selected-cli": ["packages/releases/commerce/src/cli.ts"],

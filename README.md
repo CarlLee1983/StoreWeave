@@ -34,6 +34,9 @@ Infrastructure      PostgreSQL（唯一必要依賴；Redis 選配）
 
 ## 快速開始
 
+**想開發自己的產品，而不是套用購物功能？** 從[零開始的開發者教學](docs/learn/from-zero/index.md)使用獨立 Notes 範例，逐步建立自己的資料表、Command／Query、頁面與 Release。範例用 `compose.notes.yaml` 與專用 Dockerfile，本機入口為 `http://localhost:3001`。
+想先使用既有文章能力，則走[Blog 快速教學](docs/learn/build-a-blog.md)。以下保留 Commerce 的啟動方式。
+
 Commerce Docker（一條指令啟動 PostgreSQL + API + Worker）：
 
 ```bash
@@ -45,7 +48,7 @@ docker compose up -d
 
 Commerce 本機開發（需要 Node.js 22 以上、pnpm 12 以上，以及自備一個 PostgreSQL）。
 Booking 的獨立建置與設定見 [Booking 指南](docs/booking.md)；根目錄 Compose 與 Dockerfile
-目前只提供 Commerce／Base 路徑：
+的共用映像目前提供 Commerce／Base 路徑，Notes 教學使用獨立的 `docker/notes.Dockerfile`：
 
 pnpm 的版本釘在 `package.json` 的 `packageManager`（目前 `pnpm@12.0.0`），
 CI 與 Docker 建置都以它為準。用 Corepack（`corepack enable pnpm`）就不必自己裝：
