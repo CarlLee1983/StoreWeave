@@ -1,0 +1,61 @@
+# Notes: docker compose -f compose.notes.yaml up -d --build
+name: storeweave-notes
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: storeweave
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-notes-dev-password}
+      POSTGRES_DB: storeweave
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U storeweave -d storeweave"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  api:
+    build:
+      context: .
+      dockerfile: docker/notes.Dockerfile
+      args:
+        STOREWEAVE_RELEASE: notes
+        STOREWEAVE_SOURCE_REVISION: ${STOREWEAVE_SOURCE_REVISION:-}
+    image: ${STOREWEAVE_IMAGE:-storeweave/notes:local}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      STOREWEAVE_DATABASE_URL: postgres://storeweave:${POSTGRES_PASSWORD:-notes-dev-password}@postgres:5432/storeweave
+      STOREWEAVE_SIGNING_KEY_K1: ${STOREWEAVE_SIGNING_KEY_K1:-}
+      STOREWEAVE_AUTO_MIGRATE: "true"
+    volumes:
+      - ${STOREWEAVE_CONFIG_PATH:-./deployments/notes.example.yaml}:/etc/notes/notes.yaml:ro
+      - storeweave-data:/var/lib/notes
+    ports:
+      - "127.0.0.1:${STOREWEAVE_PORT:-3001}:3000"
+    command: ["api"]
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+  worker:
+    image: ${STOREWEAVE_IMAGE:-storeweave/notes:local}
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      STOREWEAVE_DATABASE_URL: postgres://storeweave:${POSTGRES_PASSWORD:-notes-dev-password}@postgres:5432/storeweave
+      STOREWEAVE_SIGNING_KEY_K1: ${STOREWEAVE_SIGNING_KEY_K1:-}
+    volumes:
+      - ${STOREWEAVE_CONFIG_PATH:-./deployments/notes.example.yaml}:/etc/notes/notes.yaml:ro
+      - storeweave-data:/var/lib/notes
+    command: ["worker"]
+    restart: unless-stopped
+volumes:
+  postgres-data:
+  storeweave-data:

@@ -74,6 +74,7 @@ COPY packages/themes/default/package.json packages/themes/default/
 COPY packages/themes/base/package.json packages/themes/base/
 COPY packages/themes/booking-default/package.json packages/themes/booking-default/
 COPY packages/examples/file-requests/package.json packages/examples/file-requests/
+COPY packages/examples/notes/package.json packages/examples/notes/
 COPY tools/cli/package.json tools/cli/
 
 RUN pnpm install --frozen-lockfile
