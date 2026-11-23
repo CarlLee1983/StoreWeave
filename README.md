@@ -7,11 +7,11 @@ Booking 的功能與操作入口見 [Booking 使用與開發指南](docs/booking
 Base B00–B17 已完成工程驗收。外部 staging、商家 UAT、正式部署設定與真實案場的驗證
 另行追蹤；工程功能完成不等於 production-ready。
 
-進度（核對於 2026-10-16）：Booking 的 Story SW-119–SW-160 已合入 `main`，外部 ECPay refund UAT、
+進度（核對於 2026-11-23）：Booking 的 Story SW-119–SW-160 已合入 `main`，外部 ECPay refund UAT、
 真實 SMTP 與正式部署仍是獨立的 release gate。Commerce 訂單一致性的 Story SW-177–SW-188
 （結帳單價與運費確認、行項拒絕、顧客冪等、直接下單確認）已於 2026-10-08 合入。
 Dining（餐廳訂位，[Spec 0012](docs/specs/0012-dining-product-release.md)）實作中：
-SW-163–SW-166 已落地於 `packages/dining`，其餘 Story 尚未實作，目前還不是可組裝的 Release。
+SW-163–SW-167 已實作設定、容量、公開申請與店員決策。前後台頁面與 Release 組裝仍待後續 Story。
 
 Commerce 是單站獨立部署的電商產品。每個客戶獨立建置、部署並使用獨立資料庫，
 但共用同一套 Commerce Core：**品牌差異用 Theme，特殊需求用 Extension，Core 永遠不改**。

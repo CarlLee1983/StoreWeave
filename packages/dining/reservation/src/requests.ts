@@ -3,8 +3,8 @@ import { and, eq, gt, lte, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { PlatformError, defineCommand, defineQuery, type CommandContext, type QueryContext } from '@storeweave/contracts';
 import type { NotificationsPort } from '@storeweave/notifications';
-import { DiningReservationRepository } from './repository';
-import { diningRequestRateEvents, diningRequests, diningRequestSnapshots } from './schema';
+import { DiningReservationRepository, diningRequestDecision } from './repository';
+import { diningCapacityCommitments, diningRequestRateEvents, diningRequests, diningRequestSnapshots } from './schema';
 import { resolveLocalStart } from './schedule';
 import { localDateSchema, localTimeSchema } from './types';
 
@@ -46,8 +46,10 @@ export const submitDiningRequestCommand = defineCommand({
 
 const readInput = z.object({ number: z.string().min(1) }).strict();
 const readOutput = z.object({
-  number: z.string(), status: z.literal('pending'), name: z.string(), phone: z.string(), email: z.string(),
-  note: z.string().nullable(), partySize: z.number().int(), startAt: z.date(), endAt: z.date(),
+  number: z.string(), status: z.enum(['pending', 'accepted', 'rejected', 'cancelled']),
+  name: z.string(), phone: z.string(), email: z.string(), note: z.string().nullable(),
+  partySize: z.number().int(), startAt: z.date(), endAt: z.date(),
+  customerReason: z.string().nullable(), decidedAt: z.date().nullable(),
 }).strict();
 export const getDiningRequestQuery = defineQuery({
   name: 'dining.reservation.getRequest', input: readInput, output: readOutput,
@@ -126,12 +128,16 @@ export function createSubmitDiningRequestHandler(policy: PublicRequestPolicy, no
 
 export async function getDiningRequestHandler(input: z.infer<typeof readInput>, context: QueryContext) {
   const [row] = await context.db.select({
-    number: diningRequests.number, status: diningRequests.status, name: diningRequests.name,
+    number: diningRequests.number, name: diningRequests.name,
     phone: diningRequests.phone, email: diningRequests.email, note: diningRequests.note,
+    customerReason: diningRequests.customerReason, rejectedAt: diningRequests.rejectedAt,
+    acceptedAt: diningCapacityCommitments.acceptedAt, cancelledAt: diningCapacityCommitments.cancelledAt,
     partySize: diningRequestSnapshots.partySize, startAt: diningRequestSnapshots.startAt,
     endAt: diningRequestSnapshots.endAt,
   }).from(diningRequests).innerJoin(diningRequestSnapshots, eq(diningRequests.id, diningRequestSnapshots.id))
+    .leftJoin(diningCapacityCommitments, eq(diningRequests.id, diningCapacityCommitments.requestId))
     .where(eq(diningRequests.number, input.number)).limit(1);
   if (!row) throw PlatformError.notFound('Dining request', input.number);
-  return readOutput.parse(row);
+  const { acceptedAt, cancelledAt, rejectedAt, ...request } = row;
+  return readOutput.parse({ ...request, ...diningRequestDecision({ acceptedAt, cancelledAt, rejectedAt }) });
 }

@@ -1,4 +1,5 @@
 export * from './commands';
+export * from './decisions';
 export * from './migrations';
 export * from './module';
 export * from './queries';

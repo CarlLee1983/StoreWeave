@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, isNull, lt } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, lt, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { PlatformError, type DrizzleDb, type Tx } from '@storeweave/contracts';
 import { diningCapacityCommitments, diningDateOverrides, diningRequestSnapshots, diningTableTypes, diningVenues, diningWeeklyStarts } from './schema';
@@ -17,6 +17,22 @@ export function toTableTypeDto(row: typeof diningTableTypes.$inferSelect): Table
 }
 
 type Occupancy = { startAt: Date; endAt: Date };
+type CapacityCommitment = typeof diningCapacityCommitments.$inferSelect;
+
+function capacityDecisionClock(earliestAt: Date) {
+  return sql`decision_clock AS MATERIALIZED (
+    SELECT greatest(${earliestAt.toISOString()}::timestamptz, pg_catalog.clock_timestamp()) AS decided_at
+  )`;
+}
+
+export function diningRequestDecision({ acceptedAt, cancelledAt, rejectedAt }: {
+  acceptedAt: Date | null; cancelledAt: Date | null; rejectedAt: Date | null;
+}) {
+  if (cancelledAt) return { status: 'cancelled' as const, decidedAt: cancelledAt };
+  if (acceptedAt) return { status: 'accepted' as const, decidedAt: acceptedAt };
+  if (rejectedAt) return { status: 'rejected' as const, decidedAt: rejectedAt };
+  return { status: 'pending' as const, decidedAt: null };
+}
 
 function peakConcurrent(intervals: Occupancy[]): number {
   const events = intervals.flatMap(interval => [
@@ -110,11 +126,11 @@ export class DiningReservationRepository {
   async commitCapacity(tx: Tx, requestId: string, now: Date) {
     const venue = await this.lockSettings(tx);
     if (!venue) throw PlatformError.notFound('Dining venue', 'singleton');
-    const effectiveNow = new Date(Math.max(now.getTime(), Date.now()));
     const [request] = await tx.select().from(diningRequestSnapshots)
-      .where(and(eq(diningRequestSnapshots.id, requestId), eq(diningRequestSnapshots.venueId, venue.id))).limit(1);
+      .where(and(eq(diningRequestSnapshots.id, requestId), eq(diningRequestSnapshots.venueId, venue.id)))
+      .limit(1).for('key share');
     if (!request) throw PlatformError.notFound('Dining request', requestId);
-    if (request.startAt <= effectiveNow) throw PlatformError.conflict('This Dining start has passed');
+    if (request.startAt <= now) throw PlatformError.conflict('This Dining start has passed');
     const [existing] = await tx.select({ requestId: diningCapacityCommitments.requestId })
       .from(diningCapacityCommitments).where(eq(diningCapacityCommitments.requestId, requestId)).limit(1);
     if (existing) throw PlatformError.conflict('This Dining request already has a capacity commitment');
@@ -123,32 +139,59 @@ export class DiningReservationRepository {
 
     const type = await this.availableTable(tx, request.partySize, request.startAt, request.endAt);
     if (!type) throw PlatformError.conflict('No Dining table type has capacity for this interval');
-    const [commitment] = await tx.insert(diningCapacityCommitments).values({
-      requestId, tableTypeId: type.id, tableTypeCapacity: type.capacity, acceptedAt: effectiveNow,
-    }).returning();
-    return commitment!;
+    // Lock both foreign-key rows before the INSERT takes its relation lock and samples the clock.
+    await tx.select({ id: diningTableTypes.id }).from(diningTableTypes)
+      .where(eq(diningTableTypes.id, type.id)).for('key share');
+    const { rows: [commitment] } = await tx.execute<Omit<CapacityCommitment, 'acceptedAt' | 'cancelledAt'> & { acceptedAt: string }>(sql`
+      WITH ${capacityDecisionClock(now)}
+      INSERT INTO ${diningCapacityCommitments} (request_id, table_type_id, table_type_capacity, accepted_at)
+      SELECT snapshot.id, ${type.id}, ${type.capacity}, decision_clock.decided_at
+      FROM ${diningRequestSnapshots} AS snapshot CROSS JOIN decision_clock
+      WHERE snapshot.id = ${requestId} AND decision_clock.decided_at < snapshot.start_at
+      RETURNING request_id AS "requestId", table_type_id AS "tableTypeId", table_type_capacity AS "tableTypeCapacity",
+        accepted_at AS "acceptedAt"
+    `);
+    if (!commitment) throw PlatformError.conflict('This Dining start has passed');
+    return { ...commitment, acceptedAt: new Date(commitment.acceptedAt), cancelledAt: null };
   }
 
   /** Cancellation releases capacity; the accepted fact and table snapshot remain. */
   async cancelCapacity(tx: Tx, requestId: string, now: Date) {
     const venue = await this.lockSettings(tx);
     if (!venue) throw PlatformError.notFound('Dining venue', 'singleton');
-    const effectiveNow = new Date(Math.max(now.getTime(), Date.now()));
     const [commitment] = await tx.select({
-      requestId: diningCapacityCommitments.requestId,
+      tableTypeId: diningCapacityCommitments.tableTypeId,
+      tableTypeCapacity: diningCapacityCommitments.tableTypeCapacity,
       cancelledAt: diningCapacityCommitments.cancelledAt,
       acceptedAt: diningCapacityCommitments.acceptedAt,
-      startAt: diningRequestSnapshots.startAt,
     }).from(diningCapacityCommitments)
       .innerJoin(diningRequestSnapshots, eq(diningCapacityCommitments.requestId, diningRequestSnapshots.id))
-      .where(and(eq(diningCapacityCommitments.requestId, requestId), eq(diningRequestSnapshots.venueId, venue.id))).limit(1);
+      .where(and(eq(diningCapacityCommitments.requestId, requestId), eq(diningRequestSnapshots.venueId, venue.id)))
+      .limit(1).for('update', { of: diningCapacityCommitments });
     if (!commitment) throw PlatformError.notFound('Dining capacity commitment', requestId);
     if (commitment.cancelledAt) throw PlatformError.conflict('This Dining commitment is already cancelled');
-    if (commitment.startAt <= effectiveNow) throw PlatformError.conflict('This Dining reservation has started');
-    if (effectiveNow < commitment.acceptedAt) throw PlatformError.validation('Cancellation cannot precede acceptance');
-    const [row] = await tx.update(diningCapacityCommitments).set({ cancelledAt: effectiveNow })
-      .where(eq(diningCapacityCommitments.requestId, requestId)).returning();
-    return row!;
+    const { rows: [result] } = await tx.execute<{ started: boolean; cancelledAt: string | null }>(sql`
+      WITH ${capacityDecisionClock(now)},
+      eligibility AS MATERIALIZED (
+        SELECT snapshot.start_at <= decision_clock.decided_at AS started, decision_clock.decided_at
+        FROM ${diningRequestSnapshots} AS snapshot CROSS JOIN decision_clock
+        WHERE snapshot.id = ${requestId}
+      ), cancellation AS (
+        UPDATE ${diningCapacityCommitments} AS commitment
+        SET cancelled_at = eligibility.decided_at
+        FROM eligibility
+        WHERE commitment.request_id = ${requestId} AND NOT eligibility.started
+          AND eligibility.decided_at >= commitment.accepted_at
+        RETURNING commitment.cancelled_at
+      )
+      SELECT eligibility.started, cancellation.cancelled_at AS "cancelledAt"
+      FROM eligibility LEFT JOIN cancellation ON true
+    `);
+    const { started, cancelledAt } = result!;
+    if (started) throw PlatformError.conflict('This Dining reservation has started');
+    if (!cancelledAt) throw PlatformError.validation('Cancellation cannot precede acceptance');
+    return { requestId, tableTypeId: commitment.tableTypeId, tableTypeCapacity: commitment.tableTypeCapacity,
+      acceptedAt: commitment.acceptedAt, cancelledAt: new Date(cancelledAt) };
   }
 
   /** Called after locking the venue and before changing a table type. */

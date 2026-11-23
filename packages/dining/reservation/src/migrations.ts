@@ -132,5 +132,9 @@ CREATE INDEX IF NOT EXISTS dining_reservation_rate_recipient_idx
   ON public.dining_reservation_request_rate_events (recipient_hash, created_at);
 CREATE INDEX IF NOT EXISTS dining_reservation_rate_expiry_idx
   ON public.dining_reservation_request_rate_events (expires_at);
+`), sqlMigration('0004_operator_decisions', 'expand', `
+ALTER TABLE public.dining_reservation_requests
+  ADD COLUMN customer_reason text,
+  ADD COLUMN rejected_at timestamptz;
 `)],
 };
