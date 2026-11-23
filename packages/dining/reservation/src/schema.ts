@@ -70,6 +70,8 @@ export const diningRequests = pgTable('dining_reservation_requests', {
   note: text('note'),
   status: text('status').notNull().default('pending'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  customerReason: text('customer_reason'),
+  rejectedAt: timestamp('rejected_at', { withTimezone: true }),
 });
 
 export const diningRequestRateEvents = pgTable('dining_reservation_request_rate_events', {

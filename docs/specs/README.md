@@ -2,10 +2,10 @@
 
 **完整基底目標（2026-09-06）**：[Spec 0009](0009-complete-modular-base.md) 與
 [Base 執行計畫](../base-implementation-plan.md)。B00–B17 已完成 Base 工程驗收；semantic contract coverage、external staging、商家 UAT、正式部署設定與首個真實專案驗證屬後續 quality、release 或產品工作，不阻擋 Base 工程結案。詳見 [B17 驗收矩陣](../base/b17/acceptance.md)。
-狀態核對（2026-10-16）：0001–0007 的 Commerce 功能已依工單落地，0008 的 Ticket 81–90
+狀態核對（2026-11-23）：0001–0007 的 Commerce 功能已依工單落地，0008 的 Ticket 81–90
 已完成並合入 `main`；0009、0010 的工程交付亦已結案。0011 的 Booking Story SW-119–SW-160
 已合入 `main`，外部 release gate 仍待另行驗收。0012 的 Dining 已拆成 SW-163–SW-176，其中
-SW-163–SW-166 已實作。Commerce 訂單一致性的 SW-177–SW-188 已於 2026-10-08 合入。舊規格內的派工語句保留作為歷史，
+SW-163–SW-167 已實作。Commerce 訂單一致性的 SW-177–SW-188 已於 2026-10-08 合入。舊規格內的派工語句保留作為歷史，
 目前進度以各 Story／工單、[Booking 指南](../booking.md)及本表為準。實作工作來自 `specs/stories/` 的已核准 Story；
 `docs/tickets/` 是歷史存檔，不再新增。
 
@@ -27,7 +27,7 @@ GitHub 派工入口：[Spec 0008 總單 #17](https://github.com/CarlLee1983/Stor
 | [0009](0009-complete-modular-base.md) | 完整應用基礎服務、模組契約與建站基底 | 既有 platform；Admin 部分銜接 0008 | done（Base 工程）；release readiness 與產品驗證另行追蹤 |
 | [0010](0010-auth-pages-as-declared-pages.md) | 認證頁面成為模組宣告的頁面 | 0009 的 B13；ADR 0047 | done（工單 92–98） |
 | [0011](0011-booking-product-release.md) | Booking Product Release 與跨產品組裝 | 0009；ADR 0052 | Story SW-119–SW-160 已合入 `main`；外部 release gate（ECPay refund UAT、真實 SMTP、正式部署與營運驗收）待核對 |
-| [0012](0012-dining-product-release.md) | Dining Product Release 與餐廳訂位 | 0009；ADR 0053 | 實作中：SW-163–SW-166 已落地；SW-167–SW-176 未實作 |
+| [0012](0012-dining-product-release.md) | Dining Product Release 與餐廳訂位 | 0009；ADR 0053 | 實作中：SW-163–SW-167 已落地；SW-168–SW-176 未實作 |
 
 0001 與 0002 沒有相依，可並行；兩條線在 0003 會合。加價購接在 0004 之後，
 是定價引擎輸出「可加購清單」的延伸，不獨立成規格。

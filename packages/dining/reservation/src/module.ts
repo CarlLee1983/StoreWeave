@@ -6,6 +6,10 @@ import {
   setDateOverrideCommand, setDateOverrideHandler, setWeeklyStartsCommand, setWeeklyStartsHandler,
   updateTableTypeCommand, updateTableTypeHandler, updateVenueCommand, updateVenueHandler,
 } from './commands';
+import {
+  acceptDiningRequestCommand, acceptDiningRequestHandler, cancelDiningReservationCommand, cancelDiningReservationHandler,
+  rejectDiningRequestCommand, rejectDiningRequestHandler,
+} from './decisions';
 import { diningReservationMigrations } from './migrations';
 import { createSubmitDiningRequestHandler, DINING_RATE_CLEANUP_MS, expireDiningRateEventsCommand, expireDiningRateEventsHandler,
   getDiningRequestHandler, getDiningRequestQuery, publicRequestPolicySchema,
@@ -37,7 +41,7 @@ export function createDiningReservationModule(publicRequestPolicy: PublicRequest
     migrations: diningReservationMigrations,
     permissions: [
       { key: 'dining-reservation:read', description: 'Read Dining settings and schedule', owner: 'dining-reservation' },
-      { key: 'dining-reservation:manage', description: 'Manage Dining settings and schedule', owner: 'dining-reservation' },
+      { key: 'dining-reservation:manage', description: 'Manage Dining settings, schedule, and reservation decisions', owner: 'dining-reservation' },
       { key: 'dining-reservation:request', description: 'Submit a public Dining request', owner: 'dining-reservation' },
       { key: 'dining-reservation:availability', description: 'Read public Dining available starts', owner: 'dining-reservation' },
       { key: 'dining-reservation:system-write', description: 'Expire Dining rate events', owner: 'dining-reservation' },
@@ -50,6 +54,9 @@ export function createDiningReservationModule(publicRequestPolicy: PublicRequest
       { descriptor: setWeeklyStartsCommand, handler: setWeeklyStartsHandler },
       { descriptor: setDateOverrideCommand, handler: setDateOverrideHandler },
       { descriptor: submitDiningRequestCommand, handler: createSubmitDiningRequestHandler(policy, notifications) },
+      { descriptor: acceptDiningRequestCommand, handler: acceptDiningRequestHandler },
+      { descriptor: rejectDiningRequestCommand, handler: rejectDiningRequestHandler },
+      { descriptor: cancelDiningReservationCommand, handler: cancelDiningReservationHandler },
       { descriptor: expireDiningRateEventsCommand, handler: expireDiningRateEventsHandler },
     ],
     queries: [
