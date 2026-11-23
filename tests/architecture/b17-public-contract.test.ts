@@ -43,7 +43,7 @@ describe('B17 Commerce public-contract structural catalog', () => {
       expect(categoryNames(artifact)[category].some(name => name.startsWith('ext.'))).toBe(false);
     }
     expect(Object.fromEntries(categories.map(category => [category, categoryNames(artifact)[category].length])))
-      .toEqual({ commands: 87, queries: 62, events: 19, jobs: 14 });
+      .toEqual({ commands: 88, queries: 62, events: 19, jobs: 15 });
   });
 
   it('maps every non-extension, non-legacy B00 baseline and current identifier', () => {

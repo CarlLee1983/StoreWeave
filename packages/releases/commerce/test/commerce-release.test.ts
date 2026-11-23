@@ -50,11 +50,11 @@ const LEGACY_ADMIN_ROUTES = [
 // digest excludes provenance-only source fingerprints, which change as code
 // moves while the contract surfaces and executable cases remain stable.
 const PUBLIC_CONTRACT_BASELINE_HASHES = {
-  'docs/base/b17/b00-catalog.json': '7a6c392a4ab3bf752b5bd764d2904ac06f35832342e9c095a6406b08950d3a5e',
+  'docs/base/b17/b00-catalog.json': 'c5c587878d9961c3091b076816f1384ce95db8d1b3981ba73df75bbf5366699b',
   'docs/base/b17/commerce-http-contract.v1.json': 'c373e92a780083e710c18dc5c49dda6aa6dcd467250cc056d0e2d29477c51931',
-  'docs/base/b17/commerce-public-contract.structural.v1.json': 'a18d20ecc53a498c708cedfeea96887adb00327b98ac91fa051a352672e6be61',
+  'docs/base/b17/commerce-public-contract.structural.v1.json': '8ecffcf71b4f65096fc9631345d1ec4d7044bd52ee14df7fbeff5988185c14ac',
 } as const;
-const SEMANTIC_CONTRACT_BASELINE_HASH = 'b7ed18c4091149f2b4095b401f5579f6de22765ebf78dab7da9e70501f0e7a86';
+const SEMANTIC_CONTRACT_BASELINE_HASH = '7082285e7af92fb8b416d26096f3e423c66ac7cfdccc799885264bb715468cc5';
 const SEMANTIC_CONTRACT_FIELDS = [
   'format', 'schemaVersion', 'scope', 'limitations', 'surfaces', 'runtimeFacets', 'cases', 'caseCount', 'caseDigest', 'remaining',
 ] as const;

@@ -27,7 +27,7 @@ const b00Catalog = JSON.parse(readFileSync(join(ROOT, 'docs/base/b17/b00-catalog
 // is captured separately. B07 moved the lifecycle delivery worker to the base
 // notification capability, leaving that job in the retained legacy baseline.
 const B00_COUNTS = { commands: 76, queries: 57, events: 19, jobs: 14 } as const;
-const CURRENT_COUNTS = { commands: 89, queries: 66, events: 19, jobs: 18 } as const;
+const CURRENT_COUNTS = { commands: 90, queries: 66, events: 19, jobs: 19 } as const;
 const LEGACY_ONLY_IDENTIFIERS: Record<'commands' | 'queries' | 'events' | 'jobs', ReadonlySet<string>> = {
   commands: new Set(), queries: new Set(), events: new Set(), jobs: new Set(['commerce.notification.deliver-lifecycle']),
 };

@@ -30,9 +30,11 @@ import { LocalObjectStore, S3ObjectStore, StorageManager, storageMigrations, typ
 import { MEDIA_NAMESPACE, MEDIA_ORPHAN_CLEANUP_JOB, MEDIA_PROCESS_JOB, MediaService, mediaMigrations, mediaOrphanCleanupPayload, mediaProcessPayload } from '@storeweave/media';
 import { MailService, createMailJob, MAIL_SEND_JOB, mailMigrations, mailSendJobPayload } from '@storeweave/mail';
 import {
-  NOTIFICATION_DELIVER_JOB, NotificationService, createListDeliveriesHandler, createListInboxHandler,
-  createMarkInboxReadHandler, createNotificationDeliverJob, createSendNotificationHandler, listDeliveriesQuery,
-  listInboxQuery, markInboxReadCommand, notificationDeliverJobPayload, notificationsMigrations, sendNotificationCommand,
+  NOTIFICATION_DELIVER_JOB, NOTIFICATION_RESEND_JOB, NOTIFICATION_RESEND_PERMISSION, NotificationService, createListDeliveriesHandler, createListInboxHandler,
+  createMarkInboxReadHandler, createNotificationDeliverJob, createNotificationResendJob, createResendEmailHandler,
+  createSendNotificationHandler, listDeliveriesQuery,
+  listInboxQuery, markInboxReadCommand, notificationDeliverJobPayload, notificationResendJobPayload,
+  notificationsMigrations, resendEmailCommand, resendEmailOperatorPolicy, sendNotificationCommand,
 } from '@storeweave/notifications';
 import packageJson from '../package.json';
 import { projectModulePins, projectExtensionPin } from './release-pins';
@@ -235,22 +237,31 @@ export function composeRuntimeModules({ modules, roles, logger, platformVersion,
   const notificationsModule: PlatformModule = {
     name: 'platform-notifications', version: packageJson.version, baseVersionRange: '^1.0.0',
     dependencies: { required: [{ name: 'platform', versionRange: '^0.1.0' }, { name: 'platform-mail', versionRange: '^0.1.0' }] },
-    migrations: notificationsMigrations, data: { owns: ['platform_notifications', 'platform_notification_deliveries'] },
+    migrations: notificationsMigrations, data: { owns: [
+      'platform_notifications', 'platform_notification_deliveries', 'platform_notification_email_resends',
+    ] },
     permissions: [
       { key: 'notifications:send', description: 'Create notifications through the base capability', owner: 'platform-notifications' },
       { key: 'notifications:inbox', description: 'Read and mark your own in-app notifications', owner: 'platform-notifications' },
       { key: 'notifications:read', description: 'Read masked notification delivery evidence', owner: 'platform-notifications' },
+      { key: NOTIFICATION_RESEND_PERMISSION, description: 'Retry failed or deliberately resend uncertain email', owner: 'platform-notifications' },
     ],
+    policies: [resendEmailOperatorPolicy],
     commands: [
       { descriptor: sendNotificationCommand, handler: createSendNotificationHandler(notificationsService) },
       { descriptor: markInboxReadCommand, handler: createMarkInboxReadHandler(notificationsService) },
+      { descriptor: resendEmailCommand, handler: createResendEmailHandler(notificationsService) },
     ],
     queries: [
       { descriptor: listInboxQuery, handler: createListInboxHandler(notificationsService) },
       { descriptor: listDeliveriesQuery, handler: createListDeliveriesHandler(notificationsService) },
     ],
-    jobs: [{ type: NOTIFICATION_DELIVER_JOB, handler: createNotificationDeliverJob(notificationsService),
-      jobContractV1: { currentVersion: 1, versions: { 1: notificationDeliverJobPayload }, execution: { timeoutMs: 60_000, concurrencyKey: 'platform-mail-smtp', concurrencyLimit: 4 } } }],
+    jobs: [
+      { type: NOTIFICATION_DELIVER_JOB, handler: createNotificationDeliverJob(notificationsService),
+        jobContractV1: { currentVersion: 1, versions: { 1: notificationDeliverJobPayload }, execution: { timeoutMs: 60_000, concurrencyKey: 'platform-mail-smtp', concurrencyLimit: 4 } } },
+      { type: NOTIFICATION_RESEND_JOB, handler: createNotificationResendJob(notificationsService),
+        jobContractV1: { currentVersion: 1, versions: { 1: notificationResendJobPayload }, execution: { timeoutMs: 60_000, concurrencyKey: 'platform-mail-smtp', concurrencyLimit: 4 } } },
+    ],
   };
   return validateModuleGraph(
     [platformModule, cacheModule, storageModule, mediaModule, mailModule, notificationsModule, createOpsModule(jobs, {
@@ -349,7 +360,9 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
   const storage = new StorageManager(database.pool, objectStore, config.storage.maxUploadBytes);
   media = new MediaService(database, storage.forNamespace(MEDIA_NAMESPACE), jobs);
   mail = new MailService(database, jobs, storage, config, secrets, logger);
-  notifications = new NotificationService(database, mail, logger, (tx, job) => jobs.enqueue(tx, job));
+  const authorization = new AuthorizationService();
+  const audit = new AuditWriter();
+  notifications = new NotificationService(database, mail, logger, (tx, job) => jobs.enqueue(tx, job), authorization, audit);
   const mutex = new PostgresMutexManager({
     url: config.database.url, ssl: config.database.ssl, poolSize: config.cache.mutexPoolSize,
     connectionTimeoutMs: Math.min(config.cache.mutexConnectionTimeoutMs, Math.max(1, Math.floor(config.shutdown.timeoutMs / 2))),
@@ -404,7 +417,6 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     for (const mod of allModules) {
       if (mod.resources?.length) mod.bindResources?.(Object.freeze({ ...declaredResources.get(mod.name) }));
     }
-    const authorization = new AuthorizationService();
     // 重設與驗證連結是 base 一定會用到的簽發值，所以簽章金鑰不是選配（ADR 0042）。
     const identityTokens = new IdentityTokenService(requireKeyring({ keyring }, 'identity'));
     const apiTokens = new ApiTokenService(options.roles);
@@ -442,7 +454,6 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
       });
     }
 
-    const audit = new AuditWriter();
     const jobRegistry = new JobRegistry();
     const recurring = new RecurringScheduler({ jobs, database, logger, pollIntervalMs: config.worker.pollIntervalMs });
     scheduler = recurring;

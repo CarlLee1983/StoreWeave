@@ -34057,11 +34057,11 @@
   ],
   "coverage": {
     "byCategory": {
-      "core-command-input": 87,
-      "core-command-output": 87,
+      "core-command-input": 88,
+      "core-command-output": 88,
       "core-event-payload": 19,
-      "core-job-payload": 14,
-      "core-job-schedule": 14,
+      "core-job-payload": 15,
+      "core-job-schedule": 15,
       "core-query-input": 62,
       "core-query-output": 62,
       "extension-command-input": 2,
@@ -34076,7 +34076,7 @@
       "extension-query-output": 4,
       "http-route": 202
     },
-    "surfaceCount": 586
+    "surfaceCount": 590
   },
   "format": "storeweave.commerce-public-contract.semantic.v2",
   "limitations": [
@@ -34234,6 +34234,8 @@
     "core:command:platform.jobs.retryJob:output:schema-runtime",
     "core:command:platform.notifications.markRead:input:schema-runtime",
     "core:command:platform.notifications.markRead:output:schema-runtime",
+    "core:command:platform.notifications.resendEmail:input:schema-runtime",
+    "core:command:platform.notifications.resendEmail:output:schema-runtime",
     "core:command:platform.notifications.send:input:schema-runtime",
     "core:command:platform.notifications.send:output:schema-runtime",
     "core:command:platform.outbox.redriveFailure:input:schema-runtime",
@@ -34289,6 +34291,8 @@
     "core:job:platform.media.process:v1:schema-runtime",
     "core:job:platform.notification.deliver:schedule:schedule-runtime",
     "core:job:platform.notification.deliver:v1:schema-runtime",
+    "core:job:platform.notification.resendEmail:schedule:schedule-runtime",
+    "core:job:platform.notification.resendEmail:v1:schema-runtime",
     "core:query:commerce.cart.getCart:input:schema-runtime",
     "core:query:commerce.cart.getCart:output:schema-runtime",
     "core:query:commerce.content.getArticle:input:schema-runtime",
@@ -35644,6 +35648,18 @@
       "surfaceId": "core:command:platform.notifications.markRead:output"
     },
     {
+      "id": "core:command:platform.notifications.resendEmail:input:schema-runtime",
+      "inputDomain": "not-input-domain-exhaustive",
+      "kind": "schema-runtime",
+      "surfaceId": "core:command:platform.notifications.resendEmail:input"
+    },
+    {
+      "id": "core:command:platform.notifications.resendEmail:output:schema-runtime",
+      "inputDomain": "not-input-domain-exhaustive",
+      "kind": "schema-runtime",
+      "surfaceId": "core:command:platform.notifications.resendEmail:output"
+    },
+    {
       "id": "core:command:platform.notifications.send:input:schema-runtime",
       "inputDomain": "not-input-domain-exhaustive",
       "kind": "schema-runtime",
@@ -35972,6 +35988,18 @@
       "inputDomain": "not-input-domain-exhaustive",
       "kind": "schema-runtime",
       "surfaceId": "core:job:platform.notification.deliver:v1"
+    },
+    {
+      "id": "core:job:platform.notification.resendEmail:schedule:schedule-runtime",
+      "inputDomain": "not-input-domain-exhaustive",
+      "kind": "schedule-runtime",
+      "surfaceId": "core:job:platform.notification.resendEmail:schedule"
+    },
+    {
+      "id": "core:job:platform.notification.resendEmail:v1:schema-runtime",
+      "inputDomain": "not-input-domain-exhaustive",
+      "kind": "schema-runtime",
+      "surfaceId": "core:job:platform.notification.resendEmail:v1"
     },
     {
       "id": "core:query:commerce.cart.getCart:input:schema-runtime",
@@ -38871,13 +38899,13 @@
     {
       "assurance": "provenance-only",
       "file": "apps/api/src + packages/commerce + packages/extensions + packages/platform + packages/releases/commerce/src + packages/themes/default/src",
-      "fingerprint": "75d9522ef81a310fdf34a2a72232816c27036614de81d87a4d3144c4a887ae54",
+      "fingerprint": "869ca5d368f183e23c5d15c1337dd84a6e3c5ee5d71bbb221fa9fd076f1ba57b",
       "id": "zod:commerce-production-source-inventory",
       "limitations": [
         "A source fingerprint detects drift but does not prove behavior.",
         "Called predicate bodies and the complete input domain are not inferred from this AST inventory."
       ],
-      "occurrences": 1110,
+      "occurrences": 1113,
       "operator": "zod-semantic-operations"
     }
   ],
@@ -38892,7 +38920,7 @@
       "Only executable cases may remove runtime obligations from remaining."
     ],
     "structural": "docs/base/b17/commerce-public-contract.structural.v1.json",
-    "structuralSha256": "a18d20ecc53a498c708cedfeea96887adb00327b98ac91fa051a352672e6be61"
+    "structuralSha256": "8ecffcf71b4f65096fc9631345d1ec4d7044bd52ee14df7fbeff5988185c14ac"
   },
   "sourceFiles": [
     {
@@ -40653,7 +40681,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/kernel/src/runtime.ts",
-      "fingerprint": "632c367389ace08a0b6f2ece4cb599c79eaf108dcab70bdad0cb206bfa867131"
+      "fingerprint": "afb3b4e2e3528dd2b0300964c2b19ee1338355bfe04e6d1c98e6177282c82d5f"
     },
     {
       "assurance": "provenance-only",
@@ -40678,7 +40706,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/mail/src/index.ts",
-      "fingerprint": "02d29bf1b319ede6041b06ddacf71f5c98c77cafd9a87f3b4925ec3b019d9b16"
+      "fingerprint": "e0453354eaea9d3446173af0e584d6595799f3669f12f4e33e7adc159b95bb4b"
     },
     {
       "assurance": "provenance-only",
@@ -40688,7 +40716,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/notifications/src/descriptors.ts",
-      "fingerprint": "5352a7d9c3e1bb927034d10fd2fd63852ca869230d90a79bcbd96d42f25e3a90"
+      "fingerprint": "94357e7836eae79ad5ecce24e4ee9c9ad3b0aa3415de442d1173efd6b134fb52"
     },
     {
       "assurance": "provenance-only",
@@ -40703,17 +40731,17 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/notifications/src/migrations.ts",
-      "fingerprint": "6f326304d96aed5ae582864ae3d1cd4501981ddd100a5d05a4eaf312901031c4"
+      "fingerprint": "255b55e54c4cb6440b3215f9eb689da6443e00099523e80ee232caf0685beef1"
     },
     {
       "assurance": "provenance-only",
       "file": "packages/platform/notifications/src/service.ts",
-      "fingerprint": "13af11d60e923181dcb6881ca8475c7529617d8f2081342c135407c668eba002"
+      "fingerprint": "5bd65eb606b6d045293e80616ce730055e1444ceb0105eed0116a65b63b79962"
     },
     {
       "assurance": "provenance-only",
       "file": "packages/platform/notifications/src/types.ts",
-      "fingerprint": "f7e5316d4ee847ecb92276ba2d23a9c8f09094f8b7123879422930db499457ae"
+      "fingerprint": "843a76df10b0e52984c2d8b86aef539c57133aceee47b0274ab8bae9835e7b31"
     },
     {
       "assurance": "provenance-only",
@@ -41916,6 +41944,18 @@
     {
       "assurance": "provenance-only",
       "category": "core-command-input",
+      "fingerprint": "5d618f3cc2099a719a1e93e7c7895e25a4bdb6d27c47eb1a5262a9be0d1d9f90",
+      "id": "core:command:platform.notifications.resendEmail:input"
+    },
+    {
+      "assurance": "provenance-only",
+      "category": "core-command-output",
+      "fingerprint": "0b2d431e3065186818916b705d24738b36729842d37d1bb283de4ae455000593",
+      "id": "core:command:platform.notifications.resendEmail:output"
+    },
+    {
+      "assurance": "provenance-only",
+      "category": "core-command-input",
       "fingerprint": "bd7dd18252ee01200604940121cd3fff5c4f475230abe84f8d08bdd623429b93",
       "id": "core:command:platform.notifications.send:input"
     },
@@ -42242,6 +42282,18 @@
       "category": "core-job-payload",
       "fingerprint": "46bc2c0d77d5682795b1b5df55a1a2bb65f923ae946923b74c1ab51a2ca6fe74",
       "id": "core:job:platform.notification.deliver:v1"
+    },
+    {
+      "assurance": "provenance-only",
+      "category": "core-job-schedule",
+      "fingerprint": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "id": "core:job:platform.notification.resendEmail:schedule"
+    },
+    {
+      "assurance": "provenance-only",
+      "category": "core-job-payload",
+      "fingerprint": "a091f97dbd2955f3628f14e59b32b31542e0b836d4f1d64ed5db29e4b411b2a6",
+      "id": "core:job:platform.notification.resendEmail:v1"
     },
     {
       "assurance": "provenance-only",

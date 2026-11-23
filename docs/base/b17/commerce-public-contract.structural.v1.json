@@ -19072,6 +19072,59 @@
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
+          "acknowledgeDuplicateRisk": {
+            "default": false,
+            "type": "boolean"
+          },
+          "deliveryId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "expectedAttempts": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operationId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deliveryId",
+          "operationId",
+          "expectedAttempts"
+        ],
+        "type": "object"
+      },
+      "name": "platform.notifications.resendEmail",
+      "output": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "deliveryId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "operationId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operationId",
+          "deliveryId"
+        ],
+        "type": "object"
+      },
+      "permission": "notifications:resend",
+      "version": 1
+    },
+    {
+      "idempotency": "required",
+      "input": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
           "channels": {
             "items": {
               "enum": [
@@ -22592,6 +22645,41 @@
             },
             "required": [
               "deliveryId"
+            ],
+            "type": "object"
+          },
+          "version": 1
+        }
+      ]
+    },
+    {
+      "currentVersion": 1,
+      "execution": {
+        "concurrencyKey": "platform-mail-smtp",
+        "concurrencyLimit": 4,
+        "timeoutMs": 60000
+      },
+      "schedule": {},
+      "type": "platform.notification.resendEmail",
+      "upgraderFromVersions": [],
+      "versions": [
+        {
+          "payload": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "additionalProperties": false,
+            "properties": {
+              "deliveryId": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "operationId": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "deliveryId",
+              "operationId"
             ],
             "type": "object"
           },
@@ -32504,7 +32592,7 @@
   "scope": "structural",
   "source": {
     "catalog": "docs/base/b17/b00-catalog.json",
-    "catalogDigest": "sha256:7e2afa5fd3e1e7b3ddfdfac24f804d21d5a1e33585b348b5aceef6b2a92e7459",
+    "catalogDigest": "sha256:43a5d8ac443876a395d6088acc303057483aa86d592754c29f92499c1f9d7bca",
     "httpCatalog": "docs/base/b17/commerce-http-contract.v1.json",
     "httpCatalogSha256": "c373e92a780083e710c18dc5c49dda6aa6dcd467250cc056d0e2d29477c51931"
   }

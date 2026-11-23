@@ -1,17 +1,38 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { PermanentJobError } from '@storeweave/jobs';
-import type { Logger, Tx } from '@storeweave/contracts';
+import type { AuditWriter } from '@storeweave/audit';
+import type { AuthorizationService } from '@storeweave/authorization';
+import { PlatformError, type CommandContext, type Logger, type Tx } from '@storeweave/contracts';
 import type { Database } from '@storeweave/db';
 import { formatMessage } from '@storeweave/i18n';
-import type { MailService } from '@storeweave/mail';
+import type { MailDiagnostic, MailService } from '@storeweave/mail';
 import { maskEmailsIn, maskRecipient } from './masking';
 import type {
   DeliveryEvidenceDto, InboxItemDto, NotificationChannel, NotificationDeliveryDto, NotificationDeliveryStatus,
-  NotificationDto, NotificationTemplate, SendNotificationInput,
+  NotificationDto, NotificationTemplate, ResendEmailInput, ResendEmailOutput, SendNotificationInput,
 } from './types';
 
 export const NOTIFICATION_DELIVER_JOB = 'platform.notification.deliver';
+
+export const NOTIFICATION_RESEND_JOB = 'platform.notification.resendEmail';
+export const NOTIFICATION_RESEND_PERMISSION = 'notifications:resend';
+
+type ResendContext = Pick<CommandContext, 'actor' | 'correlationId' | 'tx' | 'enqueue'>;
+
+interface EmailResendRow {
+  id: string;
+  delivery_id: string;
+  actor_id: string;
+  correlation_id: string;
+  previous_status: 'failed' | 'unknown';
+  expected_attempts: number;
+  mail_attempts: number;
+  acknowledge_duplicate_risk: boolean;
+  claimed_at: string | null;
+  completed_at: string | null;
+  [column: string]: unknown;
+}
 
 interface NotificationRow {
   id: string; reference: string; template_id: string; template_version: number; locale: string | null;
@@ -31,7 +52,8 @@ interface DeliveryRow {
 function toDeliveryDto(row: DeliveryRow): NotificationDeliveryDto {
   return {
     id: row.id, channel: row.channel, status: row.status, attempts: row.attempts,
-    externalRef: row.external_ref, lastError: row.last_error, sentAt: row.sent_at, readAt: row.read_at,
+    externalRef: row.external_ref, lastError: row.last_error,
+    sentAt: row.sent_at ? new Date(row.sent_at) : null, readAt: row.read_at ? new Date(row.read_at) : null,
   };
 }
 
@@ -68,11 +90,12 @@ export interface NotificationJobEnqueue {
 /**
  * What a module is handed when it declares that it notifies people. It is the
  * capability itself, not the manager: a module can create notifications and
- * read back their delivery evidence, and can do nothing else here.
+ * read back their delivery evidence or request an authorized email resend.
  */
 export interface NotificationsPort {
   send(tx: Tx, input: SendNotificationInput, enqueue: NotificationJobEnqueue, now: Date): Promise<NotificationDto>;
   dispatch(input: SendNotificationInput): Promise<NotificationDto>;
+  requestEmailResend(ctx: ResendContext, input: ResendEmailInput): Promise<ResendEmailOutput>;
   evidenceByReference(references: readonly string[]): Promise<Map<string, DeliveryEvidenceDto[]>>;
 }
 
@@ -87,6 +110,8 @@ export class NotificationService implements NotificationsPort {
     private readonly mail: MailService,
     private readonly logger: Logger,
     private readonly enqueueJob: (tx: Tx, job: { type: string; payload: unknown; dedupeKey?: string }) => Promise<unknown>,
+    private readonly authorization: Pick<AuthorizationService, 'assert'>,
+    private readonly audit: Pick<AuditWriter, 'write'>,
   ) {}
 
   /** For callers outside a command: opens the transaction the durable record needs. */
@@ -153,64 +178,138 @@ export class NotificationService implements NotificationsPort {
     return this.toDto(notification, deliveries);
   }
 
-  /**
-   * The email channel's job body. Mail owns the SMTP outcome; this records what
-   * that outcome means for the notification and decides whether to retry.
-   */
-  async deliver(deliveryId: string): Promise<NotificationDeliveryDto> {
-    const loaded = await this.database.pool.query<DeliveryRow & { notification: NotificationRow }>(
-      `SELECT d.*, to_jsonb(n.*) AS notification
-       FROM public.platform_notification_deliveries d
-       JOIN public.platform_notifications n ON n.id = d.notification_id
-       WHERE d.id = $1`, [deliveryId]);
-    const row = loaded.rows[0];
-    if (!row) throw new PermanentJobError('Notification delivery no longer exists');
-    if (row.channel !== 'email') throw new PermanentJobError(`Channel "${row.channel}" is delivered without a job`);
-    if (row.status === 'sent' || row.status === 'skipped') return toDeliveryDto(row);
-    const notification = row.notification;
-    const reference = `notification:${notification.reference}:email`;
-    const template = notification.template.email;
-    if (!template || !notification.recipient_email) throw new PermanentJobError('Notification has no email content or recipient');
+  /** Reserve an operator decision and its job together, without sending inside the caller's command. */
+  async requestEmailResend(ctx: ResendContext, input: ResendEmailInput): Promise<ResendEmailOutput> {
+    const { actor, tx } = ctx;
+    this.authorization.assert({ actor, permission: NOTIFICATION_RESEND_PERMISSION,
+      resource: { type: 'notifications', id: input.deliveryId } });
 
-    const claimed = await this.database.pool.query<DeliveryRow>(
-      `UPDATE public.platform_notification_deliveries SET attempts = attempts + 1, updated_at = pg_catalog.clock_timestamp()
-       WHERE id = $1 RETURNING *`, [deliveryId]);
-    try {
-      const prior = await this.mail.diagnosticByReference(reference);
-      // A rejected mail message keeps its durable render; re-delivering it is
-      // the documented retry, and re-queueing would only duplicate the record.
-      const diagnostic = !prior
-        ? await this.mail.sendNow({
-          reference,
-          to: [notification.recipient_name
-            ? { email: notification.recipient_email, name: notification.recipient_name }
-            : { email: notification.recipient_email }],
-          template: { id: notification.template_id, version: notification.template_version, ...template },
-          variables: notification.variables,
-          ...(notification.locale ? { locale: notification.locale } : {}),
-        })
-        : prior.status === 'rejected' || prior.status === 'pending'
-          ? await this.mail.deliver(prior.id)
-          : prior;
-
-      const status: NotificationDeliveryStatus = diagnostic.status === 'accepted' || diagnostic.status === 'partial'
-        ? 'sent' : diagnostic.status === 'rejected' ? 'failed' : 'unknown';
-      const error = status === 'sent' ? null
-        : diagnostic.diagnosticMessage ?? `Mail reported ${diagnostic.status} for ${diagnostic.rejected.length} recipient(s)`;
-      const saved = await this.record(deliveryId, status, diagnostic.messageId, error);
-      // The failure fact commits before the throw hands the job back to the
-      // queue, so a retry is observable. An `unknown` outcome deliberately
-      // returns instead: the message may already be in the recipient's mailbox.
-      if (status === 'failed') throw new Error(error ?? 'Mail rejected the notification recipient');
-      return saved;
-    } catch (failure) {
-      // Mail dead-letters an auth, configuration or envelope failure. Record
-      // why before it stops being retried, then let it dead-letter here too.
-      if (failure instanceof PermanentJobError) {
-        await this.record(deliveryId, 'failed', claimed.rows[0]?.external_ref ?? null, failure.message);
+    const delivery = await this.lockDelivery(tx, input.deliveryId);
+    if (!delivery) throw PlatformError.notFound('Notification delivery', input.deliveryId);
+    const existing = await this.resendOperation(tx, input.operationId);
+    const receipt = { operationId: input.operationId, deliveryId: input.deliveryId };
+    if (existing) {
+      if (existing.actor_id !== actor.id || existing.delivery_id !== input.deliveryId ||
+          existing.expected_attempts !== input.expectedAttempts ||
+          existing.acknowledge_duplicate_risk !== input.acknowledgeDuplicateRisk) {
+        throw PlatformError.conflict('This email resend operation has different immutable input');
       }
-      throw failure;
+      return receipt;
     }
+    if (delivery.channel !== 'email' || (delivery.status !== 'unknown' && delivery.status !== 'failed') ||
+        delivery.attempts !== input.expectedAttempts) {
+      throw PlatformError.conflict('Email resend requires current failed or unknown delivery evidence');
+    }
+    if (delivery.status === 'unknown' && input.acknowledgeDuplicateRisk !== true) {
+      throw PlatformError.validation('Resending unknown mail requires acknowledging possible duplicate delivery');
+    }
+    if (!this.mail.enabled) throw PlatformError.conflict('Email resend requires an enabled mail transport');
+
+    const mail = await this.mail.diagnosticByReference(this.mailReference(delivery), tx);
+    if (mail?.status !== (delivery.status === 'failed' ? 'rejected' : 'unknown')) {
+      throw PlatformError.conflict('Mail delivery no longer matches the reviewed notification outcome');
+    }
+    // Keep the caller's observed count for operation identity, and Mail's actual
+    // count for the claim. Older Notification rows may have counted job replays.
+    const inserted = await tx.execute(sql`INSERT INTO public.platform_notification_email_resends
+        (id, delivery_id, actor_id, correlation_id, previous_status, expected_attempts, mail_attempts, acknowledge_duplicate_risk)
+      VALUES (${input.operationId}, ${delivery.id}, ${actor.id}, ${ctx.correlationId}, ${delivery.status},
+        ${input.expectedAttempts}, ${mail.attempts}, ${input.acknowledgeDuplicateRisk})
+      ON CONFLICT DO NOTHING RETURNING id`);
+    if (!inserted.rows[0]) throw PlatformError.conflict('An email resend is already queued or this operation ID is in use');
+    await ctx.enqueue({ type: NOTIFICATION_RESEND_JOB, payload: receipt, dedupeKey: `notification-resend:${input.operationId}` });
+    return receipt;
+  }
+
+  async processEmailResend({ deliveryId, operationId }: ResendEmailOutput): Promise<void> {
+    // Commit the operation's claim together with Mail's SMTP attempt marker.
+    // A replay of this job can recover the outcome without claiming again.
+    const claim = await this.database.transaction(async tx => {
+      const delivery = await this.lockDelivery(tx, deliveryId);
+      const operation = await this.resendOperation(tx, operationId);
+      if (!delivery || !operation || operation.delivery_id !== deliveryId || operation.completed_at) return;
+      const reference = this.mailReference(delivery);
+      if (operation.claimed_at) {
+        const prior = await this.mail.diagnosticByReference(reference, tx);
+        if (prior) return { mail: prior, recover: true };
+        await this.skipResend(tx, delivery, operation, undefined, 'mail_unavailable');
+        return;
+      }
+      const mail = this.mail.enabled
+        ? await this.mail.claimResend(tx, reference, operation.previous_status === 'failed' ? 'rejected' : 'unknown', operation.mail_attempts)
+        : undefined;
+      if (!mail) {
+        const prior = await this.mail.diagnosticByReference(reference, tx);
+        await this.skipResend(tx, delivery, operation, prior, !this.mail.enabled ? 'mail_disabled' : 'mail_changed');
+        return;
+      }
+      await tx.execute(sql`UPDATE public.platform_notification_email_resends
+        SET claimed_at = pg_catalog.clock_timestamp() WHERE id = ${operationId}`);
+      return { mail, recover: false };
+    });
+    if (!claim) return;
+
+    await this.database.transaction(async tx => {
+      const delivery = await this.lockDelivery(tx, deliveryId);
+      const operation = await this.resendOperation(tx, operationId);
+      if (!delivery || !operation?.claimed_at || operation.completed_at) return;
+      const attempted = claim.recover
+        ? await this.mail.recoverClaimedDelivery(tx, claim.mail.id, operation.mail_attempts + 1)
+        : (await this.mail.deliverClaimed(tx, claim.mail)).result;
+      if (attempted.attempts !== operation.mail_attempts + 1 || attempted.status === 'erased') {
+        await this.skipResend(tx, delivery, operation, attempted, 'mail_changed');
+        return;
+      }
+      const saved = await this.record(tx, delivery, attempted);
+      await this.audit.write(tx, {
+        action: 'notification.email_resent', resourceType: 'notification_delivery', resourceId: deliveryId,
+        actor: { id: operation.actor_id, type: 'user', permissions: [] }, correlationId: operation.correlation_id,
+        payload: { operationId, previousStatus: operation.previous_status, status: saved.status, attempts: saved.attempts,
+          acknowledgeDuplicateRisk: operation.acknowledge_duplicate_risk, attemptedAt: new Date(operation.claimed_at).toISOString() },
+      });
+      await this.completeResend(tx, operation.id);
+    });
+  }
+
+  /** Mail owns the SMTP outcome. Automatic delivery stops once an operator has taken over. */
+  async deliver(deliveryId: string): Promise<NotificationDeliveryDto> {
+    const preparation = await this.database.transaction(async tx => {
+      const delivery = await this.lockDelivery(tx, deliveryId);
+      if (!delivery) throw new PermanentJobError('Notification delivery no longer exists');
+      if (delivery.channel !== 'email') throw new PermanentJobError(`Channel "${delivery.channel}" is delivered without a job`);
+      if (!await this.canDeliverAutomatically(tx, delivery)) return { delivery };
+      const notification = delivery.notification;
+      const template = notification.template.email;
+      if (!template || !notification.recipient_email) throw new PermanentJobError('Notification has no email content or recipient');
+      const mail = await this.mail.prepareImmediateDelivery(tx, {
+        reference: this.mailReference(delivery),
+        to: [notification.recipient_name
+          ? { email: notification.recipient_email, name: notification.recipient_name }
+          : { email: notification.recipient_email }],
+        template: { id: notification.template_id, version: notification.template_version, ...template },
+        variables: notification.variables,
+        ...(notification.locale ? { locale: notification.locale } : {}),
+      });
+      return { delivery, mail };
+    });
+    if (!preparation.mail) return toDeliveryDto(preparation.delivery);
+    const { claimed, diagnostic } = preparation.mail;
+    const outcome = await this.database.transaction(async tx => {
+      const delivery = await this.lockDelivery(tx, deliveryId);
+      if (!delivery) throw new PermanentJobError('Notification delivery no longer exists');
+      if (!await this.canDeliverAutomatically(tx, delivery)) return { saved: toDeliveryDto(delivery) };
+      const mail = claimed
+        ? await this.mail.deliverClaimed(tx, diagnostic)
+        : diagnostic.status === 'sending'
+          ? { result: await this.mail.recoverClaimedDelivery(tx, diagnostic.id, diagnostic.attempts) }
+          : { result: await this.mail.diagnosticByReference(diagnostic.reference, tx) ?? diagnostic };
+      // A replay of a completed or uncertain Mail outcome does not count as a delivery attempt.
+      const saved = await this.record(tx, delivery, mail.result);
+      return { saved, permanentError: 'permanentError' in mail ? mail.permanentError : undefined };
+    });
+    if (outcome.permanentError) throw new PermanentJobError(outcome.permanentError);
+    if (outcome.saved.status === 'failed') throw new Error(outcome.saved.lastError ?? 'Mail rejected the notification recipient');
+    return outcome.saved;
   }
 
   async inbox(userId: string, filter: { unreadOnly: boolean; limit: number; offset: number }): Promise<{ items: InboxItemDto[]; total: number; unread: number }> {
@@ -292,16 +391,73 @@ export class NotificationService implements NotificationsPort {
     return result;
   }
 
-  private async record(id: string, status: NotificationDeliveryStatus, externalRef: string | null, error: string | null): Promise<NotificationDeliveryDto> {
-    const saved = await this.database.pool.query<DeliveryRow>(
-      `UPDATE public.platform_notification_deliveries
-       SET status = $2, external_ref = $3, last_error = $4, sent_at = CASE WHEN $2 = 'sent' THEN pg_catalog.clock_timestamp() ELSE sent_at END,
-           updated_at = pg_catalog.clock_timestamp()
-       WHERE id = $1 RETURNING *`, [id, status, externalRef, error === null ? null : maskEmailsIn(error)]);
-    const row = saved.rows[0];
-    if (!row) throw new PermanentJobError('Notification delivery disappeared while recording its outcome');
-    if (status !== 'sent') this.logger.warn({ deliveryId: id, status }, 'notification channel did not confirm delivery');
-    return toDeliveryDto(row);
+  private async lockDelivery(tx: Tx, id: string): Promise<(DeliveryRow & { notification: NotificationRow }) | undefined> {
+    const loaded = await tx.execute<DeliveryRow & { notification: NotificationRow }>(sql`
+      SELECT d.*, to_jsonb(n.*) AS notification
+      FROM public.platform_notification_deliveries d
+      JOIN public.platform_notifications n ON n.id = d.notification_id
+      WHERE d.id = ${id} FOR UPDATE OF d`);
+    return loaded.rows[0];
+  }
+
+  private mailReference(delivery: { notification: NotificationRow }): string {
+    return `notification:${delivery.notification.reference}:email`;
+  }
+
+  private async resendOperation(tx: Tx, id: string): Promise<EmailResendRow | undefined> {
+    const operations = await tx.execute<EmailResendRow>(sql`
+      SELECT * FROM public.platform_notification_email_resends WHERE id = ${id}`);
+    return operations.rows[0];
+  }
+
+  private async canDeliverAutomatically(tx: Tx, delivery: DeliveryRow): Promise<boolean> {
+    // An unknown Notification remains fenced even if the Mail record is missing or changed.
+    if (delivery.status !== 'pending' && delivery.status !== 'failed') return false;
+    const operations = await tx.execute(sql`
+      SELECT 1 FROM public.platform_notification_email_resends WHERE delivery_id = ${delivery.id} LIMIT 1`);
+    return operations.rows.length === 0;
+  }
+
+  private async skipResend(tx: Tx, delivery: DeliveryRow, operation: EmailResendRow, mail: MailDiagnostic | undefined,
+    reason: 'mail_unavailable' | 'mail_disabled' | 'mail_changed'): Promise<void> {
+    const current = mail && mail.status !== 'sending' && mail.status !== 'pending'
+      ? await this.record(tx, delivery, mail)
+      : toDeliveryDto(delivery);
+    await this.audit.write(tx, {
+      action: 'notification.email_resend_skipped', resourceType: 'notification_delivery', resourceId: delivery.id,
+      actor: { id: operation.actor_id, type: 'user', permissions: [] }, correlationId: operation.correlation_id,
+      payload: { operationId: operation.id, previousStatus: operation.previous_status, status: current.status,
+        acknowledgeDuplicateRisk: operation.acknowledge_duplicate_risk, reason },
+    });
+    await this.completeResend(tx, operation.id);
+  }
+
+  private async completeResend(tx: Tx, id: string): Promise<void> {
+    await tx.execute(sql`UPDATE public.platform_notification_email_resends
+      SET completed_at = pg_catalog.clock_timestamp() WHERE id = ${id}`);
+  }
+
+  private async record(tx: Tx, delivery: DeliveryRow, mail: MailDiagnostic): Promise<NotificationDeliveryDto> {
+    const status: NotificationDeliveryStatus = mail.status === 'accepted' || mail.status === 'partial' ? 'sent'
+      : mail.status === 'rejected' ? 'failed'
+        : mail.status === 'unknown' ? 'unknown'
+          : mail.status === 'erased' ? 'skipped' : 'pending';
+    const error = status === 'failed' && mail.diagnosticKind ? 'Mail transport rejected delivery'
+      : status === 'failed' || status === 'unknown'
+        ? maskEmailsIn(mail.diagnosticMessage ?? `Mail reported ${mail.status} for ${mail.rejected.length} recipient(s)`)
+        : null;
+    const externalRef = mail.status === 'erased' ? null : mail.messageId;
+    if (delivery.status === status && delivery.attempts === mail.attempts && delivery.last_error === error &&
+        delivery.external_ref === externalRef) return toDeliveryDto(delivery);
+    const saved = await tx.execute<DeliveryRow>(sql`
+      UPDATE public.platform_notification_deliveries
+      SET status = ${status}, attempts = ${mail.attempts}, external_ref = ${externalRef}, last_error = ${error},
+          sent_at = CASE WHEN ${status} = 'sent' THEN coalesce(sent_at, pg_catalog.clock_timestamp()) ELSE sent_at END,
+          updated_at = pg_catalog.clock_timestamp()
+      WHERE id = ${delivery.id} RETURNING *`);
+    if (!saved.rows[0]) throw new PermanentJobError('Notification delivery disappeared while recording its outcome');
+    if (status !== 'sent') this.logger.warn({ deliveryId: delivery.id, status }, 'notification channel did not confirm delivery');
+    return toDeliveryDto(saved.rows[0]);
   }
 
   private toDto(notification: NotificationRow, deliveries: readonly DeliveryRow[]): NotificationDto {

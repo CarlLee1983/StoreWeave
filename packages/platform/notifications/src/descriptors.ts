@@ -1,10 +1,11 @@
 import { z } from 'zod';
+import type { PolicyDefinition } from '@storeweave/authorization';
 import { PlatformError, defineCommand, defineQuery, type CommandContext, type QueryContext } from '@storeweave/contracts';
 import { PermanentJobError, type JobHandler } from '@storeweave/jobs';
-import type { NotificationService } from './service';
+import { NOTIFICATION_RESEND_PERMISSION, type NotificationService } from './service';
 import {
   listDeliveriesInput, listDeliveriesOutput, listInboxInput, listInboxOutput, markInboxReadInput, markInboxReadOutput,
-  notificationDto, sendNotificationInput,
+  notificationDto, resendEmailInput, resendEmailOutput, sendNotificationInput,
 } from './types';
 
 /** Composition hands these a getter: the service exists only after the database does. */
@@ -30,6 +31,29 @@ export function createSendNotificationHandler(service: ServiceRef) {
   return async (input: z.infer<typeof sendNotificationInput>, ctx: CommandContext) => {
     return required(service).send(ctx.tx, input, job => ctx.enqueue(job), ctx.now);
   };
+}
+
+/** Use the same actor rule before a CommandBus replay and in downstream commands. */
+export const resendEmailOperatorPolicy: PolicyDefinition = {
+  id: 'notifications.resend.operator', owner: 'platform-notifications', appliesTo: [NOTIFICATION_RESEND_PERMISSION],
+  reason: 'Email resend requires an operator',
+  evaluate: ({ actor }) => actor.type === 'user' && actor.id ? 'abstain' : 'deny',
+};
+
+export const resendEmailCommand = defineCommand({
+  name: 'platform.notifications.resendEmail',
+  summary: '明確重送失敗或結果不明的通知郵件',
+  input: resendEmailInput,
+  output: resendEmailOutput,
+  permission: NOTIFICATION_RESEND_PERMISSION,
+  resource: input => ({ id: input.deliveryId }),
+  idempotency: 'required',
+  idempotencyScope: 'actor',
+});
+
+export function createResendEmailHandler(service: ServiceRef) {
+  return async (input: z.infer<typeof resendEmailInput>, ctx: CommandContext) =>
+    required(service).requestEmailResend(ctx, input);
 }
 
 export const listInboxQuery = defineQuery({
@@ -90,5 +114,16 @@ export function createNotificationDeliverJob(service: ServiceRef): JobHandler {
     const instance = service();
     if (!instance) throw new PermanentJobError('Notification service is not initialized');
     await instance.deliver(payload.deliveryId);
+  };
+}
+
+export const notificationResendJobPayload = z.object({ deliveryId: z.string().uuid(), operationId: z.string().uuid() }).strict();
+
+export function createNotificationResendJob(service: ServiceRef): JobHandler {
+  return async raw => {
+    const payload = notificationResendJobPayload.parse(raw);
+    const instance = service();
+    if (!instance) throw new PermanentJobError('Notification service is not initialized');
+    await instance.processEmailResend(payload);
   };
 }

@@ -50,8 +50,9 @@ it('migrate --status --json reports activation without applying SQL or mounting 
   const pending = runCli(databaseUrl, ['migrate', '--status', '--json']);
   expect(pending.status, pending.stderr).toBe(0);
   expect(JSON.parse(pending.stdout)).toMatchObject({ releaseCurrent: false, applied: [] });
-  expect(JSON.parse(pending.stdout).pending).toHaveLength(69);
+  expect(JSON.parse(pending.stdout).pending).toHaveLength(70);
   expect(JSON.parse(pending.stdout).pending).toContainEqual(expect.objectContaining({ id: 'platform-mail/0002_reference_erasure' }));
+  expect(JSON.parse(pending.stdout).pending).toContainEqual({ id: 'platform-notifications/0002_email_resends', phase: 'expand' });
   expect(pending.stderr).not.toContain('extension mounted');
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();

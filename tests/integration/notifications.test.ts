@@ -3,10 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SMTPServer } from 'smtp-server';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { defineCommand } from '@storeweave/contracts';
 import { csrfTokenFor } from '@storeweave/identity';
 import { Worker, type Runtime } from '@storeweave/kernel';
-import type { DeliveryEvidenceDto } from '@storeweave/notifications';
+import { resendEmailInput, resendEmailOutput, type DeliveryEvidenceDto, type NotificationsPort } from '@storeweave/notifications';
 import { createReleaseServer } from '../../apps/api/src/release-server';
 import { httpAdapter } from '../../apps/api/src/releases/base';
 import { SESSION_COOKIE } from '../../apps/api/src/http/cookie-names';
@@ -36,26 +37,28 @@ afterEach(async () => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-async function smtpSink(options: { rejectAll?: boolean } = {}) {
+async function smtpSink(options: { rejectAll?: boolean; withholdReceipt?: boolean } = {}) {
   const messages: string[] = [];
+  const recipients: string[] = [];
   const server = new SMTPServer({
     disabledCommands: ['STARTTLS', 'AUTH'],
-    onRcptTo(_address, _session, callback) {
+    onRcptTo(address, _session, callback) {
+      recipients.push(address.address);
       callback(options.rejectAll ? new Error('550 recipient rejected') : null);
     },
     onData(stream, _session, callback) {
       stream.on('data', chunk => { messages.push(chunk.toString('utf8')); });
-      stream.on('end', callback);
+      stream.on('end', () => { if (!options.withholdReceipt) callback(); });
     },
   });
   servers.push(server);
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.server.address();
   if (!address || typeof address === 'string') throw new Error('SMTP sink did not expose a TCP port');
-  return { port: address.port, messages };
+  return { port: address.port, messages, recipients };
 }
 
-async function baseRuntime(mail?: Record<string, unknown>) {
+async function baseRuntime(mail?: Record<string, unknown>, poolSize?: number) {
   const directory = mkdtempSync(join(tmpdir(), 'storeweave-notifications-'));
   directories.push(directory);
   const config = join(directory, 'config.yaml');
@@ -63,7 +66,7 @@ async function baseRuntime(mail?: Record<string, unknown>) {
   process.env.SW_SIGNING_KEY_TEST = Buffer.alloc(32, 3).toString('base64url');
   writeFileSync(config, JSON.stringify({
     version: 1, store: { id: 'notifications-test', name: 'Notifications Test' },
-    database: { url: await createTestDatabase() }, logging: { level: 'error' }, extensions: [],
+    database: { url: await createTestDatabase(), poolSize }, logging: { level: 'error' }, extensions: [],
     security: { signingKeys: [{ id: 'test', secretRef: 'SW_SIGNING_KEY_TEST' }] },
     storage: { localRoot: join(directory, 'storage') },
     ...(mail ? { mail } : {}),
@@ -88,6 +91,27 @@ const template = {
   inapp: { title: 'New sign-in', body: 'We saw a sign-in from {device}.',
     translations: { zh: { title: '有新的登入', body: '{device} 剛剛登入了你的帳號。' } } },
 };
+
+const resendOperator = { id: 'user:resend-operator', type: 'user' as const, permissions: ['notifications:resend'] };
+
+async function emailNotification(runtime: Runtime, reference: string) {
+  const notification = await runtime.notifications.dispatch({
+    reference, channels: ['email'], recipient: { email: 'private@example.test' },
+    template, variables: { device: 'Taipei laptop' },
+  });
+  const deliveryId = notification.deliveries[0].id;
+  const mailReference = `notification:${reference}:email`;
+  return {
+    deliveryId, mailReference,
+    mail: () => runtime.mail.diagnosticByReference(mailReference),
+    evidence: async () => (await runtime.notifications.evidenceByReference([reference])).get(reference)?.[0],
+    audit: () => runtime.audit.list(runtime.database.db, { resourceType: 'notification_delivery', resourceId: deliveryId }),
+    resend: (expectedAttempts: number, acknowledgeDuplicateRisk = false, operationId = randomUUID()) =>
+      runtime.commands.execute('platform.notifications.resendEmail', {
+        deliveryId, expectedAttempts, acknowledgeDuplicateRisk, operationId,
+      }, { actor: resendOperator, idempotencyKey: operationId }),
+  };
+}
 
 describe('base notification capability', () => {
   it('delivers one notification to both channels and keeps the in-app copy readable over HTTP', async () => {
@@ -170,6 +194,207 @@ describe('base notification capability', () => {
     const pending = await disabled.runtime.database.pool.query(
       "SELECT 1 FROM platform_jobs WHERE type = 'platform.notification.deliver'");
     expect(pending.rowCount).toBe(0);
+  });
+
+  it('requires an authorized, explicit acknowledgment before resending an unknown result', async () => {
+    const behavior = { withholdReceipt: true };
+    const sink = await smtpSink(behavior);
+    const { runtime } = await baseRuntime({ transport: 'smtp', from: 'sender@example.test',
+      smtp: { host: '127.0.0.1', port: sink.port, socketTimeoutMs: 250 } });
+    const reference = 'security-alert:manual-unknown';
+    const { deliveryId, evidence, mail: mailEvidence, audit } = await emailNotification(runtime, reference);
+    await settle(runtime);
+    expect(await evidence()).toMatchObject({ status: 'unknown', attempts: 1 });
+    expect(await mailEvidence()).toMatchObject({ status: 'unknown', attempts: 1 });
+    behavior.withholdReceipt = false;
+    await runtime.notifications.deliver(deliveryId);
+    expect(sink.messages.filter(message => message.includes('Message-ID'))).toHaveLength(1);
+
+    const operator = resendOperator;
+    const input = { deliveryId, expectedAttempts: 1 };
+    const resend = (actor: typeof ADMIN_ACTOR, acknowledgeDuplicateRisk?: boolean, idempotencyKey = randomUUID()) =>
+      runtime.commands.execute('platform.notifications.resendEmail', { ...input, operationId: idempotencyKey, acknowledgeDuplicateRisk }, { actor, idempotencyKey });
+    await expect(resend({ ...operator, permissions: ['mail:send'] }, true)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(resend(operator)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await settle(runtime);
+    expect(await evidence()).toMatchObject({ status: 'unknown', attempts: 1 });
+    expect(await mailEvidence()).toMatchObject({ status: 'unknown', attempts: 1 });
+    expect(await audit()).toEqual([]);
+    expect(sink.messages.filter(message => message.includes('Message-ID'))).toHaveLength(1);
+
+    const idempotencyKey = randomUUID();
+    const requested = await resend(operator, true, idempotencyKey);
+    await expect(resend({ ...operator, type: 'service' }, true, idempotencyKey)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(resend(operator, true, idempotencyKey)).resolves.toEqual(requested);
+    expect(await audit()).toEqual([]);
+    await settle(runtime);
+    await expect(resend(operator, true, idempotencyKey)).resolves.toEqual(requested);
+    expect(await evidence()).toMatchObject({ status: 'sent', attempts: 2 });
+    expect(await mailEvidence()).toMatchObject({ status: 'accepted', attempts: 2 });
+    expect(sink.messages.filter(message => message.includes('Message-ID'))).toHaveLength(2);
+    const rows = await audit();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorId: operator.id, actorType: 'user', occurredAt: expect.any(Date),
+      action: 'notification.email_resent',
+      payload: { previousStatus: 'unknown', status: 'sent', attempts: 2, acknowledgeDuplicateRisk: true },
+    });
+    expect(JSON.stringify(rows)).not.toContain('private@example.test');
+  });
+
+  it.each(['missing', 'rejected'])('does not automatically send unknown Notification mail when the Mail record is %s', async mailState => {
+    const behavior = { withholdReceipt: true };
+    const sink = await smtpSink(behavior);
+    const { runtime } = await baseRuntime({ transport: 'smtp', from: 'sender@example.test',
+      smtp: { host: '127.0.0.1', port: sink.port, socketTimeoutMs: 250 } });
+    const notification = await emailNotification(runtime, 'security-alert:stale-unknown');
+    await settle(runtime);
+    expect(await notification.evidence()).toMatchObject({ status: 'unknown', attempts: 1 });
+    expect(await notification.mail()).toMatchObject({ status: 'unknown', attempts: 1 });
+
+    // Model a historical or independently changed Mail record while Notification still says unknown.
+    if (mailState === 'missing') {
+      await runtime.database.pool.query('DELETE FROM public.platform_mail_messages WHERE reference = $1', [notification.mailReference]);
+    } else {
+      await runtime.database.pool.query("UPDATE public.platform_mail_messages SET status = 'rejected' WHERE reference = $1", [notification.mailReference]);
+    }
+    behavior.withholdReceipt = false;
+    const job = await runtime.database.pool.query<{ id: string }>(
+      "SELECT id FROM public.platform_jobs WHERE type = 'platform.notification.deliver' AND payload->>'deliveryId' = $1",
+      [notification.deliveryId],
+    );
+    await runtime.jobs.requeue(runtime.database.db, job.rows[0].id);
+    await settle(runtime);
+
+    expect(sink.recipients).toHaveLength(1);
+    expect(await notification.evidence()).toMatchObject({ status: 'unknown', attempts: 1 });
+    if (mailState === 'missing') expect(await notification.mail()).toBeUndefined();
+    else expect(await notification.mail()).toMatchObject({ status: 'rejected', attempts: 1 });
+  });
+
+  it('allows one operator decision per reviewed rejection, then allows a new retry after definite failure', async () => {
+    const behavior = { rejectAll: true };
+    const sink = await smtpSink(behavior);
+    const { runtime } = await baseRuntime({ transport: 'smtp', from: 'sender@example.test',
+      smtp: { host: '127.0.0.1', port: sink.port } }, 1);
+    const notification = await emailNotification(runtime, 'security-alert:manual-rejected');
+    await settle(runtime);
+    expect(await notification.evidence()).toMatchObject({ status: 'failed', attempts: 1 });
+    expect(await notification.mail()).toMatchObject({ status: 'rejected', attempts: 1 });
+
+    const decisions = await Promise.allSettled([notification.resend(1), notification.resend(1)]);
+    expect(decisions.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(decisions.filter(result => result.status === 'rejected')).toEqual([
+      { status: 'rejected', reason: expect.objectContaining({ code: 'CONFLICT' }) },
+    ]);
+    await Promise.all([settle(runtime), runtime.notifications.deliver(notification.deliveryId)]);
+    expect(sink.recipients).toHaveLength(2);
+    expect(await notification.evidence()).toMatchObject({ status: 'failed', attempts: 2 });
+    expect(await notification.mail()).toMatchObject({ status: 'rejected', attempts: 2 });
+    expect(await notification.audit()).toMatchObject([{
+      actorId: resendOperator.id, action: 'notification.email_resent',
+      payload: { previousStatus: 'failed', status: 'failed', attempts: 2, acknowledgeDuplicateRisk: false },
+    }]);
+    await expect(notification.resend(1)).rejects.toMatchObject({ code: 'CONFLICT' });
+
+    behavior.rejectAll = false;
+    await notification.resend(2);
+    await settle(runtime);
+    expect(sink.recipients).toHaveLength(3);
+    expect(await notification.evidence()).toMatchObject({ status: 'sent', attempts: 3 });
+    expect(await notification.mail()).toMatchObject({ status: 'accepted', attempts: 3 });
+  });
+
+  it('enforces Base resend permission in a product command and reconciles a legacy attempt count', async () => {
+    const behavior = { withholdReceipt: true };
+    const sink = await smtpSink(behavior);
+    const { runtime } = await baseRuntime({ transport: 'smtp', from: 'sender@example.test',
+      smtp: { host: '127.0.0.1', port: sink.port, socketTimeoutMs: 250 } });
+    const notification = await emailNotification(runtime, 'security-alert:legacy-unknown');
+    await settle(runtime);
+    // Before this migration, replays of unknown mail inflated the Notification counter.
+    await runtime.database.pool.query('UPDATE public.platform_notification_deliveries SET attempts = 5 WHERE id = $1', [notification.deliveryId]);
+    expect(await notification.evidence()).toMatchObject({ status: 'unknown', attempts: 5 });
+    expect(await notification.mail()).toMatchObject({ status: 'unknown', attempts: 1 });
+
+    const productCommand = defineCommand({ name: 'test.product.resend', permission: 'mail:send',
+      input: resendEmailInput, output: resendEmailOutput });
+    const port: NotificationsPort = runtime.notifications;
+    runtime.commands.register(productCommand, (input, ctx) => port.requestEmailResend(ctx, input), 'test');
+    const input = { deliveryId: notification.deliveryId, expectedAttempts: 5, operationId: randomUUID(), acknowledgeDuplicateRisk: true };
+    const mailActor = { ...resendOperator, permissions: ['mail:send'] };
+    await expect(runtime.commands.execute(productCommand.name, input, { actor: mailActor })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const productActor = { ...resendOperator, permissions: [...resendOperator.permissions, ...mailActor.permissions] };
+    await expect(runtime.commands.execute(productCommand.name, input, { actor: productActor }))
+      .resolves.toMatchObject({ operationId: input.operationId });
+    await expect(runtime.commands.execute(productCommand.name, { ...input, acknowledgeDuplicateRisk: false }, { actor: productActor }))
+      .rejects.toMatchObject({ code: 'CONFLICT' });
+
+    behavior.withholdReceipt = false;
+    await settle(runtime);
+    expect(sink.recipients).toHaveLength(2);
+    expect(await notification.evidence()).toMatchObject({ status: 'sent', attempts: 2 });
+    expect(await notification.mail()).toMatchObject({ status: 'accepted', attempts: 2 });
+    expect(await notification.audit()).toMatchObject([{ actorId: productActor.id, payload: { operationId: input.operationId } }]);
+  });
+
+  it('records an accepted operator request as skipped if Mail is erased before its worker claims it', async () => {
+    const sink = await smtpSink({ rejectAll: true });
+    const { runtime } = await baseRuntime({ transport: 'smtp', from: 'sender@example.test',
+      smtp: { host: '127.0.0.1', port: sink.port } });
+    const notification = await emailNotification(runtime, 'security-alert:manual-erased');
+    await settle(runtime);
+    await notification.resend(1);
+    await runtime.mail.erase(notification.mailReference);
+    await settle(runtime);
+    expect(sink.recipients).toHaveLength(1);
+    expect(await notification.evidence()).toMatchObject({ status: 'skipped', attempts: 1, externalRef: null, lastError: null });
+    expect(await notification.mail()).toMatchObject({ status: 'erased', attempts: 1 });
+    expect(await notification.audit()).toMatchObject([{
+      actorId: resendOperator.id, action: 'notification.email_resend_skipped',
+      payload: { previousStatus: 'failed', status: 'skipped', reason: 'mail_changed' },
+    }]);
+  });
+
+  it('reconciles a committed resend claim without repeating SMTP after an outcome transaction rolls back', async () => {
+    const behavior = { rejectAll: true };
+    const sink = await smtpSink(behavior);
+    const { runtime } = await baseRuntime({ transport: 'smtp', from: 'sender@example.test',
+      smtp: { host: '127.0.0.1', port: sink.port } });
+    const notification = await emailNotification(runtime, 'security-alert:manual-rollback');
+    await settle(runtime);
+
+    // SMTP succeeds, but PostgreSQL rejects the transaction that would write the outcome and audit.
+    await runtime.database.pool.query(`CREATE FUNCTION public.reject_resend_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'simulated outcome commit failure'; END; $$;
+      CREATE TRIGGER reject_resend_audit BEFORE INSERT ON public.platform_audit_log
+      FOR EACH ROW WHEN (NEW.action = 'notification.email_resent') EXECUTE FUNCTION public.reject_resend_audit();`);
+    behavior.rejectAll = false;
+    const operationId = randomUUID();
+    try {
+      await notification.resend(1, false, operationId);
+      await settle(runtime);
+      expect(sink.recipients).toHaveLength(2);
+      expect(await notification.evidence()).toMatchObject({ status: 'failed', attempts: 1 });
+      expect(await notification.mail()).toMatchObject({ status: 'sending', attempts: 2 });
+      expect(await notification.audit()).toEqual([]);
+    } finally {
+      await runtime.database.pool.query('DROP TRIGGER reject_resend_audit ON public.platform_audit_log');
+    }
+
+    await vi.waitFor(async () => {
+      await settle(runtime);
+      expect(await notification.evidence()).toMatchObject({ status: 'unknown', attempts: 2 });
+    }, { timeout: 6000, interval: 100 });
+    expect(await notification.mail()).toMatchObject({ status: 'unknown', attempts: 2 });
+    await notification.resend(1, false, operationId);
+    await runtime.notifications.deliver(notification.deliveryId);
+    await settle(runtime);
+    expect(sink.recipients).toHaveLength(2);
+    expect(await notification.audit()).toMatchObject([{
+      actorId: resendOperator.id, action: 'notification.email_resent',
+      payload: { operationId, previousStatus: 'failed', status: 'unknown', attempts: 2, attemptedAt: expect.any(String) },
+    }]);
   });
 
   it('treats one reference as one notification however many times it is sent', async () => {

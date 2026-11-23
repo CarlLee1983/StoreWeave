@@ -28,27 +28,27 @@ gates 為邊界；`make verify` 已在目前 source 通過，且本機 SMTP 設�
   commerce-free module manifest、缺少必需 renderer 時在 runtime 前拒絕，以及 B00 保留識別仍可在目前
   Commerce runtime／Extension registry 或明列的 legacy baseline 找到。
 - `docs/base/b17/b00-catalog.json` 分開保存 B00 基準與目前 composed registry：B00 的逗號縮寫展開為
-  76 Commands／57 Queries／19 Events／14 Jobs；目前完整 registry 為 89／66／19／18，包含 B10 的
+  76 Commands／57 Queries／19 Events／14 Jobs；目前完整 registry 為 90／66／19／19，包含 B10 的
   `setArticleMedia` 與後續 platform descriptors/jobs。B07 移到 base notification capability 的
   lifecycle job 則列在 `legacyOnly`。B17 先核對兩份清單的數量與唯一性，再逐一對照目前 registry，
   避免用後來新增的識別填補基準缺口；`recordLifecycleDelivery` 仍保留讓舊 worker／operations seed 可使用。
 - `commerce-public-contract.structural.v1.json` 以獨立、唯讀的 golden artifact 固定目前 composed Commerce
-  core 的 87 Commands／62 Queries／19 Events／14 versioned Jobs（含 recurring schedule 宣告），以及全部 7 個 available Extensions 的
+  core 的 88 Commands／62 Queries／19 Events／15 versioned Jobs（含 recurring schedule 宣告），以及全部 7 個 available Extensions 的
   manifest 與實際 setup registration；包含 permission、idempotency、provider、MCP tool 與
   input/output/payload JSON Schema。檔案 SHA-256 為
-  `9e871b7019dc44a9da0f81d6f7bd64ffa37b20eaec0edd87281461b4536b1fb8`。
+  `8ecffcf71b4f65096fc9631345d1ec4d7044bd52ee14df7fbeff5988185c14ac`。
   `pnpm exec tsx scripts/b17-public-contract.ts --check` 只做比較；`--output <new-path>` 只產生不覆寫的候選檔。
   它同時以 SHA-256 引用 `commerce-http-contract.v1.json`：後者由兩次獨立 real Commerce bootstrap
   固定 admin＋MCP compatibility profile 的 202 條 startup-validated routes，檔案 SHA-256 為
   `1f9c5563cd8cada3c51a797a121bd3a21c17ced22329eb9e6091da8f66c7066a`。
 - `commerce-public-contract.semantic.v2.json` 把 schema／route／source hash 明確降為 provenance，不再拿
-  digest 冒充行為覆蓋。它為 composed Commerce registry 與 HTTP catalog 的 586 個 surfaces 重算 703 個
+  digest 冒充行為覆蓋。它為 composed Commerce registry 與 HTTP catalog 的 590 個 surfaces 重算 707 個
   category-specific runtime facets，現有 145 個 executable
   cases 只綁到自己實際驗證的 facet：24 個 composed core schema cases、ECPay logistics 的 5 個
   `superRefine` branches、4 個 MCP input→mapper→target/idempotency flows，以及 107 個實際 bus/composed
-  HTTP input mappings。其餘 560 個 facet 逐一列在 `remaining`；這個範圍內任一新增 surface/facet 沒有 case
+  HTTP input mappings。其餘 564 個 facet 逐一列在 `remaining`；這個範圍內任一新增 surface/facet 沒有 case
   時會 fail-close 留在該清單。artifact SHA-256 為
-  `0ad7f15e3fd454f5b0bfda418615407f3fd6277a2ddd3ed9ab3491b1450ee22a`。這個 v2 ledger 讓 semantic 缺口可
+  `a27f410c56d5964041b89480894ee4febb59dae0503e605f0412c51a6c733ce8`。這個 v2 ledger 讓 semantic 缺口可
   機械追蹤，但仍不是完整 semantic catalog，也不涵蓋 SDK exports、runtime config keys 或 CLI commands，
   更不宣稱有限 probes 能枚舉任意 predicate 的所有 input domain，因此完整 public-contract gate 保持 pending。
 - [F01–F16 owner audit](f01-f16-owner-audit.md) 已把各能力的 implementation、文件、故障測試、caller

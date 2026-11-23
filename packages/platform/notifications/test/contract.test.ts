@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { maskEmailsIn, maskRecipient, sendNotificationInput } from '../src/index';
+import { maskEmailsIn, maskRecipient, resendEmailInput, sendNotificationInput } from '../src/index';
 
 const template = {
   id: 'account.welcome', version: 1,
@@ -50,5 +50,18 @@ describe('recipient masking', () => {
     expect(maskEmailsIn('550 5.1.1 <buyer@example.test>: recipient rejected'))
       .toBe('550 5.1.1 <b***@example.test>: recipient rejected');
     expect(maskEmailsIn(null)).toBeNull();
+  });
+});
+
+describe('operator email resend contract', () => {
+  it('requires a stable operation and reviewed attempt count, and keeps actor identity outside the payload', () => {
+    const input = { deliveryId: 'aaff9351-b4f5-4a22-8788-9740c1ac0137',
+      operationId: 'ff3895e9-6a13-4e47-a7ba-5af49b4c582a', expectedAttempts: 3 };
+    expect(resendEmailInput.parse(input)).toMatchObject({ acknowledgeDuplicateRisk: false });
+    expect(resendEmailInput.safeParse({ ...input, acknowledgeDuplicateRisk: true }).success).toBe(true);
+    expect(resendEmailInput.safeParse({ ...input, acknowledgeDuplicateRisk: 'true' }).success).toBe(false);
+    expect(resendEmailInput.safeParse({ ...input, actorId: 'spoofed' }).success).toBe(false);
+    expect(resendEmailInput.safeParse({ ...input, expectedAttempts: -1 }).success).toBe(false);
+    expect(resendEmailInput.safeParse({ ...input, operationId: undefined }).success).toBe(false);
   });
 });

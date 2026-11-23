@@ -38,5 +38,22 @@ CREATE TABLE IF NOT EXISTS public.platform_notification_deliveries (
 );
 CREATE INDEX IF NOT EXISTS platform_notification_deliveries_status_idx
   ON public.platform_notification_deliveries (status, updated_at DESC);
+`), sqlMigration('0002_email_resends', 'expand', `
+CREATE TABLE public.platform_notification_email_resends (
+  id uuid PRIMARY KEY,
+  delivery_id uuid NOT NULL REFERENCES public.platform_notification_deliveries (id) ON DELETE CASCADE,
+  actor_id text NOT NULL,
+  correlation_id text NOT NULL,
+  previous_status text NOT NULL CHECK (previous_status IN ('unknown', 'failed')),
+  expected_attempts integer NOT NULL CHECK (expected_attempts >= 0),
+  mail_attempts integer NOT NULL CHECK (mail_attempts >= 0),
+  acknowledge_duplicate_risk boolean NOT NULL,
+  claimed_at timestamptz,
+  completed_at timestamptz
+);
+CREATE UNIQUE INDEX platform_notification_email_resends_active_idx
+  ON public.platform_notification_email_resends (delivery_id) WHERE completed_at IS NULL;
+CREATE INDEX platform_notification_email_resends_delivery_idx
+  ON public.platform_notification_email_resends (delivery_id);
 `)],
 };
