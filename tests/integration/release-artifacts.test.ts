@@ -214,6 +214,7 @@ describe('release process artifacts', () => {
               'platform-mail/0002_reference_erasure',
               'platform-media/0001_init',
               'platform-notifications/0001_init',
+              'platform-notifications/0002_email_resends',
               'platform-site/0001_init',
               'platform-site/0002_contact_notification',
               'content/0002_media_expand',
@@ -225,6 +226,7 @@ describe('release process artifacts', () => {
             );
             DROP TABLE public.platform_site_navigation_items;
             DROP TABLE public.platform_site_settings;
+            DROP TABLE public.platform_notification_email_resends;
             DROP TABLE public.platform_notification_deliveries;
             DROP TABLE public.platform_notifications;
             DROP TABLE public.platform_storage_objects;
@@ -260,6 +262,7 @@ describe('release process artifacts', () => {
           expect(JSON.parse(adopted.stdout).historicalRuntimeVerified).toBe(false);
           expect(JSON.parse(adopted.stdout).adopted).toHaveLength(49);
           await exec(process.execPath, [cli, 'migrate'], { env, timeout: 15_000 });
+          expect((await client.query('SELECT count(*)::int AS count FROM public.platform_notification_email_resends')).rows).toEqual([{ count: 0 }]);
           const demoState = async () => (await client.query(`SELECT
             (SELECT count(*)::int FROM catalog_products) AS products,
             (SELECT count(*)::int FROM platform_users) AS users,

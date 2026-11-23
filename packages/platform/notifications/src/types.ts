@@ -94,6 +94,19 @@ export const notificationDto = z.object({
 });
 export type NotificationDto = z.infer<typeof notificationDto>;
 
+export const resendEmailInput = z.object({
+  deliveryId: z.string().uuid(),
+  /** Stable identity for this operator decision, including retries by a product command. */
+  operationId: z.string().uuid(),
+  /** Attempt count from the Notification evidence the operator reviewed. */
+  expectedAttempts: z.number().int().nonnegative(),
+  acknowledgeDuplicateRisk: z.boolean().default(false),
+}).strict();
+export type ResendEmailInput = z.infer<typeof resendEmailInput>;
+
+export const resendEmailOutput = z.object({ operationId: z.string().uuid(), deliveryId: z.string().uuid() });
+export type ResendEmailOutput = z.infer<typeof resendEmailOutput>;
+
 export const listInboxInput = z.object({
   unreadOnly: z.boolean().default(false),
   limit: z.number().int().min(1).max(100).default(50),

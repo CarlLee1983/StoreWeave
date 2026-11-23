@@ -212,8 +212,8 @@ export class MailService {
     if (created.status === 'accepted' || created.status === 'partial' || created.status === 'erased') return diagnostic(created);
     return this.deliver(created.id, created.template);
   }
-  async diagnosticByReference(reference: string): Promise<MailDiagnostic | undefined> {
-    const result = await this.database.pool.query('SELECT * FROM public.platform_mail_messages WHERE reference = $1', [reference]);
+  async diagnosticByReference(reference: string, db = this.database.db): Promise<MailDiagnostic | undefined> {
+    const result = await db.execute<any>(sql`SELECT * FROM public.platform_mail_messages WHERE reference = ${reference}`);
     return result.rows[0] ? diagnostic(values(result.rows[0])) : undefined;
   }
   /** The reference tombstone also fences a send that has not created its row yet. */
@@ -244,71 +244,99 @@ export class MailService {
   }
   /** Explicit operator action after reconciling an uncertain SMTP result. */
   async resendUnknown(reference: string): Promise<MailDiagnostic> {
-    const reset = await this.database.pool.query(`UPDATE public.platform_mail_messages
-      SET status = 'pending', diagnostic_kind = NULL, diagnostic_message = NULL, updated_at = pg_catalog.clock_timestamp()
-      WHERE reference = $1 AND status = 'unknown' RETURNING *`, [reference]);
-    if (!reset.rows[0]) throw new Error('Only an unknown mail outcome can be explicitly resent');
-    const message = values(reset.rows[0]);
-    return this.deliver(message.id, message.template);
+    const claimed = await this.database.transaction(tx => this.claimResend(tx, reference, 'unknown'));
+    if (!claimed) throw new Error('Only an unknown mail outcome can be explicitly resent');
+    return this.completeDelivery(claimed);
   }
+
+  /** Claim an explicit resend in the caller's transaction with no intervening replayable pending state. */
+  async claimResend(tx: Tx, reference: string, status: 'unknown' | 'rejected', expectedAttempts?: number): Promise<MailDiagnostic | undefined> {
+    return this.claimDelivery(tx, sql`reference = ${reference} AND status = ${status}
+      AND (${expectedAttempts ?? null}::integer IS NULL OR attempts = ${expectedAttempts ?? null})`);
+  }
+
+  /** Notification uses this to serialize automatic SMTP claims with operator requests. */
+  async prepareImmediateDelivery(tx: Tx, request: MailSendRequest): Promise<{ diagnostic: MailDiagnostic; claimed: boolean }> {
+    const prior = await this.diagnosticByReference(request.reference, tx) ?? diagnostic(await this.create(tx, request));
+    if (prior.status !== 'pending' && prior.status !== 'rejected') return { diagnostic: prior, claimed: false };
+    const claimed = await this.claimDelivery(tx, sql`id = ${prior.id} AND status = ${prior.status} AND attempts = ${prior.attempts}`);
+    return claimed ? { diagnostic: claimed, claimed: true } : { diagnostic: await this.deliveryById(tx, prior.id), claimed: false };
+  }
+
   async deliver(id: string, expected?: { id: string; version: number }): Promise<MailDiagnostic> {
-    const claimed = await this.database.pool.query(`UPDATE public.platform_mail_messages SET status = 'sending', attempts = attempts + 1, updated_at = pg_catalog.clock_timestamp()
-      WHERE id = $1 AND status IN ('pending', 'rejected') RETURNING *`, [id]);
-    if (!claimed.rows[0]) {
-      const previous = await this.database.pool.query('SELECT * FROM public.platform_mail_messages WHERE id = $1', [id]);
-      if (!previous.rows[0]) throw new PermanentJobError('Mail message no longer exists');
-      return diagnostic(values(previous.rows[0]));
-    }
-    // The committed sending claim survives a crash. The second transaction is
-    // the SMTP fence: erasure waits on this row until the transport settles.
-    const outcome = await this.database.transaction(async tx => {
-      const locked = await tx.execute<any>(sql`SELECT * FROM public.platform_mail_messages WHERE id = ${id} FOR UPDATE`);
-      if (!locked.rows[0]) throw new PermanentJobError('Mail message no longer exists');
-      const message = values(locked.rows[0]);
-      if (message.status !== 'sending') return { result: diagnostic(message), permanentError: undefined as string | undefined };
-      if (expected && (message.template.id !== expected.id || message.template.version !== expected.version)) {
-        throw new PermanentJobError('Mail job template trace does not match its durable message snapshot');
-      }
-      const streams: Readable[] = [];
-      try {
-        const attachments = await Promise.all(message.attachments.map(async attachment => {
-          try {
-            const opened = await this.storage.open(attachment.namespace, attachment.id);
-            streams.push(opened.content.stream);
-            return { filename: attachment.filename ?? opened.object.originalName, contentType: opened.object.contentType, content: opened.content.stream };
-          } catch {
-            throw new MailTransportFailure('permanent', 'Mail attachment is unavailable');
-          }
-        }));
-        const result = await this.transport.send({ from: message.sender, to: message.recipients, subject: message.subject, html: message.html, text: message.textBody,
-          messageId: message.messageId, attachments });
-        const accepted = [...result.accepted]; const rejected = [...result.rejected]; const unknown = [...result.pending ?? []];
-        const status = accepted.length > 0 ? rejected.length > 0 || unknown.length > 0 ? 'partial' : 'accepted'
-          : rejected.length > 0 ? 'rejected' : 'unknown';
-        const saved = await tx.execute<any>(sql`UPDATE public.platform_mail_messages SET status = ${status}, accepted = ${JSON.stringify(accepted)}::jsonb,
-          rejected = ${JSON.stringify(rejected)}::jsonb, unknown = ${JSON.stringify(unknown)}::jsonb,
-          diagnostic_kind = NULL, diagnostic_message = ${result.response ?? null}, updated_at = pg_catalog.clock_timestamp()
-          WHERE id = ${message.id} RETURNING *`);
-        return { result: diagnostic(values(saved.rows[0])), permanentError: undefined as string | undefined };
-      } catch (error) {
-        for (const stream of streams) stream.destroy();
-        const failure = error instanceof MailTransportFailure ? error : new MailTransportFailure('unknown', error instanceof Error ? error.message : String(error));
-        const status = failure.kind === 'permanent' || failure.kind === 'auth' || failure.kind === 'disabled' ? 'rejected' : 'unknown';
-        const saved = await tx.execute<any>(sql`UPDATE public.platform_mail_messages SET status = ${status}, diagnostic_kind = ${failure.kind},
-          diagnostic_message = ${failure.message},
-          unknown = CASE WHEN ${status} = 'unknown' THEN (SELECT jsonb_agg(value->>'email') FROM jsonb_array_elements(recipients)) ELSE '[]'::jsonb END,
-          updated_at = pg_catalog.clock_timestamp() WHERE id = ${message.id} RETURNING *`);
-        this.logger.warn({ reference: message.reference, kind: failure.kind }, 'mail transport did not confirm delivery');
-        // Job errors must not reintroduce SMTP PII after erasure clears its row.
-        const permanentError = status === 'rejected' ? failure.kind === 'permanent' && failure.message === 'Mail attachment is unavailable'
-          ? 'Mail attachment is unavailable' : 'Mail transport rejected delivery' : undefined;
-        return { result: diagnostic(values(saved.rows[0])), permanentError };
-      }
-    });
+    const claimed = await this.database.transaction(tx => this.claimDelivery(tx, sql`id = ${id} AND status IN ('pending', 'rejected')`));
+    if (!claimed) return this.deliveryById(this.database.db, id);
+    return this.completeDelivery(claimed, expected);
+  }
+
+  private async completeDelivery(claim: MailDiagnostic, expected?: { id: string; version: number }): Promise<MailDiagnostic> {
+    const outcome = await this.database.transaction(tx => this.deliverClaimed(tx, claim, expected));
     if (outcome.permanentError) throw new PermanentJobError(outcome.permanentError);
-    // SMTP may have received DATA before a timeout/socket failure. Unknown is
-    // retained and never automatically retried.
     return outcome.result;
+  }
+
+  /** The earlier claim survives a crash. This transaction fences SMTP against erasure. */
+  async deliverClaimed(tx: Tx, claim: MailDiagnostic, expected?: { id: string; version: number }): Promise<{ result: MailDiagnostic; permanentError?: string }> {
+    const locked = await tx.execute<any>(sql`SELECT * FROM public.platform_mail_messages WHERE id = ${claim.id} FOR UPDATE`);
+    if (!locked.rows[0]) throw new PermanentJobError('Mail message no longer exists');
+    const message = values(locked.rows[0]);
+    if (message.status !== 'sending' || message.attempts !== claim.attempts) return { result: diagnostic(message) };
+    if (expected && (message.template.id !== expected.id || message.template.version !== expected.version)) {
+      throw new PermanentJobError('Mail job template trace does not match its durable message snapshot');
+    }
+    const streams: Readable[] = [];
+    try {
+      const attachments = await Promise.all(message.attachments.map(async attachment => {
+        try {
+          const opened = await this.storage.open(attachment.namespace, attachment.id);
+          streams.push(opened.content.stream);
+          return { filename: attachment.filename ?? opened.object.originalName, contentType: opened.object.contentType, content: opened.content.stream };
+        } catch {
+          throw new MailTransportFailure('permanent', 'Mail attachment is unavailable');
+        }
+      }));
+      const result = await this.transport.send({ from: message.sender, to: message.recipients, subject: message.subject, html: message.html, text: message.textBody,
+        messageId: message.messageId, attachments });
+      const accepted = [...result.accepted]; const rejected = [...result.rejected]; const unknown = [...result.pending ?? []];
+      const status = accepted.length > 0 ? rejected.length > 0 || unknown.length > 0 ? 'partial' : 'accepted'
+        : rejected.length > 0 ? 'rejected' : 'unknown';
+      const saved = await tx.execute<any>(sql`UPDATE public.platform_mail_messages SET status = ${status}, accepted = ${JSON.stringify(accepted)}::jsonb,
+        rejected = ${JSON.stringify(rejected)}::jsonb, unknown = ${JSON.stringify(unknown)}::jsonb,
+        diagnostic_kind = NULL, diagnostic_message = ${result.response ?? null}, updated_at = pg_catalog.clock_timestamp()
+        WHERE id = ${message.id} RETURNING *`);
+      return { result: diagnostic(values(saved.rows[0])) };
+    } catch (error) {
+      for (const stream of streams) stream.destroy();
+      const failure = error instanceof MailTransportFailure ? error : new MailTransportFailure('unknown', error instanceof Error ? error.message : String(error));
+      const status = failure.kind === 'permanent' || failure.kind === 'auth' || failure.kind === 'disabled' ? 'rejected' : 'unknown';
+      const saved = await tx.execute<any>(sql`UPDATE public.platform_mail_messages SET status = ${status}, diagnostic_kind = ${failure.kind},
+        diagnostic_message = ${failure.message},
+        unknown = CASE WHEN ${status} = 'unknown' THEN (SELECT jsonb_agg(value->>'email') FROM jsonb_array_elements(recipients)) ELSE '[]'::jsonb END,
+        updated_at = pg_catalog.clock_timestamp() WHERE id = ${message.id} RETURNING *`);
+      this.logger.warn({ reference: message.reference, kind: failure.kind }, 'mail transport did not confirm delivery');
+      // Job errors must not reintroduce SMTP PII after erasure clears its row.
+      const permanentError = status === 'rejected' ? failure.kind === 'permanent' && failure.message === 'Mail attachment is unavailable'
+        ? 'Mail attachment is unavailable' : 'Mail transport rejected delivery' : undefined;
+      return { result: diagnostic(values(saved.rows[0])), permanentError };
+    }
+  }
+
+  private async claimDelivery(tx: Tx, where: ReturnType<typeof sql>): Promise<MailDiagnostic | undefined> {
+    const claimed = await tx.execute<any>(sql`UPDATE public.platform_mail_messages
+      SET status = 'sending', attempts = attempts + 1, updated_at = pg_catalog.clock_timestamp()
+      WHERE ${where} RETURNING *`);
+    return claimed.rows[0] ? diagnostic(values(claimed.rows[0])) : undefined;
+  }
+
+  private async deliveryById(db: Tx, id: string): Promise<MailDiagnostic> {
+    const result = await db.execute<any>(sql`SELECT * FROM public.platform_mail_messages WHERE id = ${id}`);
+    if (!result.rows[0]) throw new PermanentJobError('Mail message no longer exists');
+    return diagnostic(values(result.rows[0]));
+  }
+
+  /** A retry of a committed claim only reconciles its result. SMTP might have accepted it. */
+  async recoverClaimedDelivery(tx: Tx, id: string, attempts: number): Promise<MailDiagnostic> {
+    return await this.markSendingUnknown(id, tx, attempts) ?? this.deliveryById(tx, id);
   }
   /** A recovered queue job never reclaims an abandoned SMTP attempt. */
   async deliverQueued(id: string, expected: { id: string; version: number }): Promise<MailDiagnostic> {
@@ -341,11 +369,11 @@ export class MailService {
     if (existing.rows[0].request_hash !== hash) throw new Error('Mail reference already exists with different immutable content');
     return values(existing.rows[0]);
   }
-  private async markSendingUnknown(id: string): Promise<MailDiagnostic | undefined> {
-    const stranded = await this.database.pool.query(`UPDATE public.platform_mail_messages
+  private async markSendingUnknown(id: string, db = this.database.db, attempts?: number): Promise<MailDiagnostic | undefined> {
+    const stranded = await db.execute<any>(sql`UPDATE public.platform_mail_messages
       SET status = 'unknown', diagnostic_kind = 'unknown', diagnostic_message = 'Previous attempt stopped after claiming SMTP delivery',
           unknown = (SELECT jsonb_agg(value->>'email') FROM jsonb_array_elements(recipients)), updated_at = pg_catalog.clock_timestamp()
-      WHERE id = $1 AND status = 'sending' RETURNING *`, [id]);
+      WHERE id = ${id} AND status = 'sending' AND (${attempts ?? null}::integer IS NULL OR attempts = ${attempts ?? null}) RETURNING *`);
     return stranded.rows[0] ? diagnostic(values(stranded.rows[0])) : undefined;
   }
   private async inTransaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {

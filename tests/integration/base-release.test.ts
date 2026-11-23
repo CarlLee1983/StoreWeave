@@ -57,7 +57,7 @@ describe('selected release bootstrap', () => {
       'platform_api_tokens', 'platform_audit_log', 'platform_cache', 'platform_extension_registry', 'platform_extension_state',
       'platform_idempotency', 'platform_identity_tokens', 'platform_job_quarantine', 'platform_job_schedules', 'platform_jobs', 'platform_mail_messages',
       'platform_media_assets', 'platform_media_references', 'platform_mfa_recovery_codes', 'platform_migration_baselines', 'platform_migrations',
-      'platform_notification_deliveries', 'platform_notifications', 'platform_outbox',
+      'platform_notification_deliveries', 'platform_notification_email_resends', 'platform_notifications', 'platform_outbox',
       'platform_outbox_quarantine', 'platform_outbox_quarantine_audit',
       'platform_release_history', 'platform_sessions', 'platform_site_navigation_items', 'platform_site_settings',
       'platform_storage_objects', 'platform_user_mfa', 'platform_users', 'platform_worker_heartbeat',

@@ -15,7 +15,7 @@
       "identity": {
         "id": "base",
         "version": "0.1.0-sw102",
-        "manifestChecksum": "sha256:0a6b4494584bf9a920c4253edf11d9268f3967e36554f23988b26c73952b26bf"
+        "manifestChecksum": "sha256:b655e6682ec1bae3870a23539806c85f3ba6f5880f0143751d75122e84a7581b"
       },
       "selected": {
         "runtime": "packages/releases/base/src/runtime.ts",
@@ -122,7 +122,7 @@
       "identity": {
         "id": "commerce",
         "version": "0.1.0-sw102",
-        "manifestChecksum": "sha256:fad9cc2f341b25fe589cf1b99ccf31a276d3092088f96b448afe1ad4529d723b"
+        "manifestChecksum": "sha256:06fe496cd0efe8bc3550bb9a2a9046cd2fed06e23ef95f5780b1394afbb1b7ac"
       },
       "selected": {
         "runtime": "packages/releases/commerce/src/runtime.ts",
@@ -228,7 +228,7 @@
         "inputs": [
           {
             "path": "docs/base/b17/b00-catalog.json",
-            "sha256": "7a6c392a4ab3bf752b5bd764d2904ac06f35832342e9c095a6406b08950d3a5e"
+            "sha256": "c5c587878d9961c3091b076816f1384ce95db8d1b3981ba73df75bbf5366699b"
           },
           {
             "path": "docs/base/b17/commerce-http-contract.v1.json",
@@ -236,11 +236,11 @@
           },
           {
             "path": "docs/base/b17/commerce-public-contract.structural.v1.json",
-            "sha256": "a18d20ecc53a498c708cedfeea96887adb00327b98ac91fa051a352672e6be61"
+            "sha256": "8ecffcf71b4f65096fc9631345d1ec4d7044bd52ee14df7fbeff5988185c14ac"
           },
           {
             "path": "docs/base/b17/commerce-public-contract.semantic.v2.json",
-            "sha256": "d9ec50ae081bddcb0ed503f2c248301c231d00aafbd706d93c3e9106f28dc607"
+            "sha256": "a27f410c56d5964041b89480894ee4febb59dae0503e605f0412c51a6c733ce8"
           }
         ]
       }

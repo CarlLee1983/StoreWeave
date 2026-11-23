@@ -262,6 +262,7 @@
       "platform.jobs.resumeSchedule",
       "platform.jobs.retryJob",
       "platform.notifications.markRead",
+      "platform.notifications.resendEmail",
       "platform.notifications.send",
       "platform.outbox.redriveFailure",
       "platform.site.replaceNavigation",
@@ -374,7 +375,8 @@
       "platform.mail.send",
       "platform.media.cleanup-orphans",
       "platform.media.process",
-      "platform.notification.deliver"
+      "platform.notification.deliver",
+      "platform.notification.resendEmail"
     ]
   },
   "legacyOnly": {

@@ -166,6 +166,7 @@ describe('release transitions', () => {
       'platform-mail/0002_reference_erasure',
       'platform-media/0001_init',
       'platform-notifications/0001_init',
+      'platform-notifications/0002_email_resends',
       'platform-site/0001_init',
       'platform-site/0002_contact_notification',
       'content/0002_media_expand',
@@ -178,6 +179,45 @@ describe('release transitions', () => {
     expect((await pool.query('SELECT name, price_cents FROM catalog_products WHERE id=$1', [productId])).rows)
       .toEqual([{ name: 'Legacy product', price_cents: 123 }]);
     expect((await pool.query("SELECT nextval('order_number_seq')::int AS value")).rows).toEqual([{ value: 1000 }]);
+  });
+
+  it('adds the resend schema to an activated pre-SW-161 database and keeps its Notification and migration evidence', async () => {
+    const pool = await database();
+    const current = selection();
+    const migrationId = '0002_email_resends';
+    const fullMigrationId = `platform-notifications/${migrationId}`;
+    const resendTable = 'platform_notification_email_resends';
+    const previousSets = baseSets.map(set => set.module === 'platform-notifications'
+      ? { ...set, migrations: set.migrations.filter(migration => migration.id !== migrationId) } : set);
+    const previousOwners = current.activeOwners.map(owner => owner.kind === 'module' && owner.id === 'platform-notifications'
+      ? { ...owner, migrations: owner.migrations.filter(migration => migration.id !== migrationId),
+        dataRelations: owner.dataRelations.filter(relation => relation !== resendTable),
+        work: { ...owner.work, jobTypes: owner.work.jobTypes.filter(type => type !== 'platform.notification.resendEmail') } }
+      : owner);
+    const before = await prepareRelease(pool, { ...current, activeOwners: previousOwners,
+      buildManifestChecksum: catalogDigest(previousOwners) }, previousSets, 'apply');
+    await recordEffectiveRelease(pool, before, before.manifest);
+    const notificationId = randomUUID();
+    const deliveryId = randomUUID();
+    await pool.query(`INSERT INTO platform_notifications (id, reference, template_id, template_version, template, request_hash)
+      VALUES ($1, 'existing', 'existing', 1, '{}', $2)`, [notificationId, '0'.repeat(64)]);
+    await pool.query(`INSERT INTO platform_notification_deliveries (id, notification_id, channel, status, attempts)
+      VALUES ($1, $2, 'email', 'unknown', 1)`, [deliveryId, notificationId]);
+    const evidence = async () => (await pool.query("SELECT * FROM platform_notification_deliveries WHERE id = $1", [deliveryId])).rows;
+    const history = async () => (await pool.query('SELECT * FROM platform_migrations WHERE id <> $1 ORDER BY id', [fullMigrationId])).rows;
+    const beforeEvidence = await evidence();
+    const beforeHistory = await history();
+    const currentSelection = { ...current, releaseVersion: '1.1.0' };
+
+    await expect(releaseMigrationStatus(pool, currentSelection, baseSets)).resolves.toMatchObject({
+      releaseCurrent: false, pending: [{ id: fullMigrationId, phase: 'expand' }],
+    });
+    const after = await prepareRelease(pool, currentSelection, baseSets, 'apply');
+    expect(after.appliedMigrations).toEqual([fullMigrationId]);
+    await recordEffectiveRelease(pool, after, after.manifest);
+    expect((await pool.query('SELECT count(*)::int AS count FROM public.platform_notification_email_resends')).rows).toEqual([{ count: 0 }]);
+    expect(await history()).toEqual(beforeHistory);
+    expect(await evidence()).toEqual(beforeEvidence);
   });
 
   it.each(['pending', 'dead'])('requires draining %s legacy outbox subscriptions or explicitly adopting their configured extension', async status => {
