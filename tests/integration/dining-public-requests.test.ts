@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { BASE_ROLES } from '@storeweave/authorization';
 import { baseConfigSchema } from '@storeweave/config';
 import { noopLogger } from '@storeweave/contracts';
-import { createRuntime, type Runtime } from '@storeweave/kernel';
+import { createRuntime, Worker, type Runtime } from '@storeweave/kernel';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDiningReservationModule } from '../../packages/dining/reservation/src/module';
 import { DiningReservationRepository } from '../../packages/dining/reservation/src/repository';
@@ -55,10 +55,11 @@ async function submit(runtime: Runtime, request: unknown) {
 
 async function counts(runtime: Runtime) {
   const { rows: [row] } = await runtime.database.pool.query<{
-    requests: string; notifications: string; rates: string; platform_replays: string;
+    requests: string; receipts_scheduled: string; rates: string; platform_replays: string;
   }>(`SELECT
     (SELECT count(*) FROM dining_reservation_requests)::text AS requests,
-    (SELECT count(*) FROM platform_notifications WHERE template_id = 'dining.reservation.received')::text AS notifications,
+    (SELECT count(*) FROM platform_jobs
+      WHERE type = 'dining.reservation.materialize-notification' AND payload->>'event' = 'received')::text AS receipts_scheduled,
     (SELECT count(*) FROM dining_reservation_request_rate_events)::text AS rates,
     (SELECT count(*) FROM platform_idempotency WHERE command_name = 'dining.reservation.submitRequest')::text AS platform_replays`);
   return row!;
@@ -75,7 +76,14 @@ describe('Dining public requests', () => {
     const [first, replay] = await Promise.all([submit(runtime, request), submit(runtime, request)]);
     expect(replay).toEqual(first);
     expect(first.number).toMatch(/^DR-[0-9A-F]{20}$/);
-    expect(await counts(runtime)).toEqual({ requests: '1', notifications: '1', rates: '1', platform_replays: '0' });
+    expect(await counts(runtime)).toEqual({ requests: '1', receipts_scheduled: '1', rates: '1', platform_replays: '0' });
+    const worker = new Worker(runtime, { workerId: `dining-receipt-${randomUUID()}` });
+    expect((await worker.drain()).jobsFailed).toBe(0);
+    const receipt = await runtime.database.pool.query<{ reference: string }>(`
+      SELECT 'dining-reservation:received:' || id AS reference FROM dining_reservation_requests WHERE request_number = $1
+    `, [first.number]);
+    expect((await runtime.notifications.evidenceByReference([receipt.rows[0]!.reference]))
+      .get(receipt.rows[0]!.reference)).toMatchObject([{ templateId: 'dining.reservation.received', channel: 'email', status: 'skipped' }]);
     const details = await runtime.queries.execute<{ note: string; partySize: number; status: string }>(
       'dining.reservation.getRequest', { number: first.number }, { actor: manager });
     expect(details).toMatchObject({ note: request.note, partySize: 3, status: 'pending' });
@@ -103,7 +111,7 @@ describe('Dining public requests', () => {
       input(date, { phone: 'bad' }), input(date, { partySize: 0 }), input(date, { partySize: 5 }),
       input(date, { time: '14:00' }), input(date, { date: '2020-01-01' }),
     ]) await expect(submit(runtime, request)).rejects.toBeDefined();
-    expect(await counts(runtime)).toEqual({ requests: '0', notifications: '0', rates: '0', platform_replays: '0' });
+    expect(await counts(runtime)).toEqual({ requests: '0', receipts_scheduled: '0', rates: '0', platform_replays: '0' });
   });
 
   it('enforces source and recipient limits independently and expires hashed rate evidence', async () => {
@@ -114,7 +122,7 @@ describe('Dining public requests', () => {
     await submit(runtime, input(date, { sourceIdentity: 'trusted-source-identity-2' }));
     await expect(submit(runtime, input(date, { sourceIdentity: 'trusted-source-identity-3' })))
       .rejects.toMatchObject({ code: 'CONFLICT' });
-    expect(await counts(runtime)).toEqual({ requests: '2', notifications: '2', rates: '2', platform_replays: '0' });
+    expect(await counts(runtime)).toEqual({ requests: '2', receipts_scheduled: '2', rates: '2', platform_replays: '0' });
     const evidence = await runtime.database.pool.query('SELECT source_hash, recipient_hash FROM dining_reservation_request_rate_events');
     expect(JSON.stringify(evidence.rows)).not.toContain('ada@example.test');
     expect(JSON.stringify(evidence.rows)).not.toContain('trusted-source-identity');

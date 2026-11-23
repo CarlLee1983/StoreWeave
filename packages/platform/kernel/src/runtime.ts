@@ -312,6 +312,15 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
     notifications: () => notifications,
     identityCleanup: () => identityCleanupDeps,
   });
+  const notificationEmailResendPermissions = new Map<string, string>();
+  for (const mod of allModules) {
+    const permission = mod.notificationEmailResendPermission;
+    if (permission === undefined) continue;
+    if (!mod.permissions?.some(entry => entry.key === permission && entry.owner === mod.name)) {
+      throw PlatformError.validation(`Module "${mod.name}" must declare its Notification resend permission`);
+    }
+    notificationEmailResendPermissions.set(mod.name, permission);
+  }
   // Release modules are composed from non-secret config before bootstrap can
   // resolve secret references. Bind the resolved capability exactly once here,
   // before any database, transport, or handler becomes available.
@@ -362,7 +371,9 @@ export async function createRuntime<C extends BaseConfig>(options: RuntimeOption
   mail = new MailService(database, jobs, storage, config, secrets, logger);
   const authorization = new AuthorizationService();
   const audit = new AuditWriter();
-  notifications = new NotificationService(database, mail, logger, (tx, job) => jobs.enqueue(tx, job), authorization, audit);
+  notifications = new NotificationService(
+    database, mail, logger, (tx, job) => jobs.enqueue(tx, job), authorization, audit, notificationEmailResendPermissions,
+  );
   const mutex = new PostgresMutexManager({
     url: config.database.url, ssl: config.database.ssl, poolSize: config.cache.mutexPoolSize,
     connectionTimeoutMs: Math.min(config.cache.mutexConnectionTimeoutMs, Math.max(1, Math.floor(config.shutdown.timeoutMs / 2))),

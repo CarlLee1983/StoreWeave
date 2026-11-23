@@ -48,7 +48,7 @@ gates 為邊界；`make verify` 已在目前 source 通過，且本機 SMTP 設�
   `superRefine` branches、4 個 MCP input→mapper→target/idempotency flows，以及 107 個實際 bus/composed
   HTTP input mappings。其餘 564 個 facet 逐一列在 `remaining`；這個範圍內任一新增 surface/facet 沒有 case
   時會 fail-close 留在該清單。artifact SHA-256 為
-  `a27f410c56d5964041b89480894ee4febb59dae0503e605f0412c51a6c733ce8`。這個 v2 ledger 讓 semantic 缺口可
+  `a1e0d57006a73447210f2fcfdbafbe963f4e7716f2ef1418caeb72cc927647d4`。這個 v2 ledger 讓 semantic 缺口可
   機械追蹤，但仍不是完整 semantic catalog，也不涵蓋 SDK exports、runtime config keys 或 CLI commands，
   更不宣稱有限 probes 能枚舉任意 predicate 的所有 input domain，因此完整 public-contract gate 保持 pending。
 - [F01–F16 owner audit](f01-f16-owner-audit.md) 已把各能力的 implementation、文件、故障測試、caller

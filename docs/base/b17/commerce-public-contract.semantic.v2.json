@@ -40651,7 +40651,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/kernel/src/module.ts",
-      "fingerprint": "e43d285e4bad54c01c3b4531acf20a7f96c2b9a1d5468b71b7c39f858fb278bb"
+      "fingerprint": "613c0b6d615ddab7e5c13faa6061b5ecfc6abd3a9e159049e14ad305d1d75090"
     },
     {
       "assurance": "provenance-only",
@@ -40681,7 +40681,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/kernel/src/runtime.ts",
-      "fingerprint": "afb3b4e2e3528dd2b0300964c2b19ee1338355bfe04e6d1c98e6177282c82d5f"
+      "fingerprint": "d6425e848fababcfb52d4cecddaf4756742cca1d4d673669cca72413389bb231"
     },
     {
       "assurance": "provenance-only",
@@ -40736,7 +40736,7 @@
     {
       "assurance": "provenance-only",
       "file": "packages/platform/notifications/src/service.ts",
-      "fingerprint": "5bd65eb606b6d045293e80616ce730055e1444ceb0105eed0116a65b63b79962"
+      "fingerprint": "543b8cb9d66a2b1e5579dac8a7fe629e41edd0f393b1c2c940aca9bf4ed3ce99"
     },
     {
       "assurance": "provenance-only",

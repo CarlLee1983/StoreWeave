@@ -128,6 +128,8 @@ export interface PlatformModule {
   readonly data?: { readonly owns: readonly string[] };
   readonly migrations?: MigrationSet;
   readonly permissions?: readonly PermissionDefinition[];
+  /** Resend permission for Notifications with a reference beginning with this module's name and a colon. */
+  readonly notificationEmailResendPermission?: string;
   readonly events?: readonly DomainEventDescriptor[];
   readonly commands?: readonly { descriptor: CommandDescriptor; handler: CommandHandler }[];
   readonly queries?: readonly { descriptor: QueryDescriptor; handler: QueryHandler }[];
