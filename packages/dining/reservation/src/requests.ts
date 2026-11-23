@@ -2,7 +2,7 @@ import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { and, eq, gt, lte, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { PlatformError, defineCommand, defineQuery, type CommandContext, type QueryContext } from '@storeweave/contracts';
-import type { NotificationsPort } from '@storeweave/notifications';
+import { enqueueDiningNotification } from './notifications';
 import { DiningReservationRepository, diningRequestDecision } from './repository';
 import { diningCapacityCommitments, diningRequestRateEvents, diningRequests, diningRequestSnapshots } from './schema';
 import { resolveLocalStart } from './schedule';
@@ -69,7 +69,7 @@ export async function expireDiningRateEventsHandler(_input: unknown, context: Co
   return { deleted: rows.length };
 }
 
-export function createSubmitDiningRequestHandler(policy: PublicRequestPolicy, notifications: () => NotificationsPort) {
+export function createSubmitDiningRequestHandler(policy: PublicRequestPolicy) {
   const validated = publicRequestPolicySchema.parse(policy);
   const digest = (kind: string, value: string) => createHmac('sha256', validated.identityKey)
     .update(kind).update('\0').update(value).digest('hex');
@@ -113,15 +113,7 @@ export function createSubmitDiningRequestHandler(policy: PublicRequestPolicy, no
       id: randomUUID(), sourceHash, recipientHash, createdAt: now,
       expiresAt: new Date(now.getTime() + Math.max(validated.source.windowMinutes, validated.recipient.windowMinutes) * 60_000),
     });
-    await notifications().send(context.tx, {
-      reference: `dining-reservation:received:${snapshot.id}`, channels: ['email'],
-      recipient: { email: input.email, name: input.name },
-      template: { id: 'dining.reservation.received', version: 1, email: {
-        subject: 'We received your dining request',
-        text: 'We received your dining request {number}. This is not a confirmed reservation.',
-        html: '<p>We received your dining request {number}. This is not a confirmed reservation.</p>',
-      } }, variables: { number },
-    }, job => context.enqueue(job), now);
+    await enqueueDiningNotification(context, snapshot.id, 'received');
     return { number, status: 'pending' as const };
   };
 }

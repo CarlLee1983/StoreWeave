@@ -1,8 +1,8 @@
 # Spec 0012 — Dining Product Release
 
 - 日期：2026-09-26。
-- 狀態：實作中（核對於 2026-11-23）。已完成需求訪談並拆成 SW-160–SW-176：SW-160（Mail reference erasure）、SW-163（release 設定契約）、
-SW-164／SW-165（時段設定與容量承諾）、SW-166（公開預約請求）、SW-167（店員接受、拒絕與取消訂位）已實作；SW-161、SW-162（Base Notification）與 SW-168–SW-176 尚未實作。
+- 狀態：實作中（核對於 2026-11-23）。已完成需求訪談並拆成 SW-160–SW-176：SW-160（Mail reference erasure）、SW-161（通知人工重送）、SW-163（release 設定契約）、
+SW-164／SW-165（時段設定與容量承諾）、SW-166（公開預約請求）、SW-167（店員接受、拒絕與取消訂位）與 SW-168（訂位通知及人工重送）已實作；SW-162（通知個資清除）與 SW-169–SW-176 尚未實作。
 - 產品邊界：[ADR 0053](../adr/0053-dining-is-a-separate-product-release.md)。
 - 詞彙依根目錄 `CONTEXT.md`：Dining Release、餐廳訂位申請、餐廳訂位、桌型、占桌時長、用餐人數。
 

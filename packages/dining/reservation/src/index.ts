@@ -2,6 +2,8 @@ export * from './commands';
 export * from './decisions';
 export * from './migrations';
 export * from './module';
+export * from './notifications';
+export * from './operator-notifications';
 export * from './queries';
 export * from './repository';
 export * from './requests';

@@ -19,6 +19,7 @@ export const NOTIFICATION_RESEND_JOB = 'platform.notification.resendEmail';
 export const NOTIFICATION_RESEND_PERMISSION = 'notifications:resend';
 
 type ResendContext = Pick<CommandContext, 'actor' | 'correlationId' | 'tx' | 'enqueue'>;
+type ResendScope = { readonly reference: string };
 
 interface EmailResendRow {
   id: string;
@@ -95,7 +96,7 @@ export interface NotificationJobEnqueue {
 export interface NotificationsPort {
   send(tx: Tx, input: SendNotificationInput, enqueue: NotificationJobEnqueue, now: Date): Promise<NotificationDto>;
   dispatch(input: SendNotificationInput): Promise<NotificationDto>;
-  requestEmailResend(ctx: ResendContext, input: ResendEmailInput): Promise<ResendEmailOutput>;
+  requestEmailResend(ctx: ResendContext, input: ResendEmailInput, scope?: ResendScope): Promise<ResendEmailOutput>;
   evidenceByReference(references: readonly string[]): Promise<Map<string, DeliveryEvidenceDto[]>>;
 }
 
@@ -112,6 +113,7 @@ export class NotificationService implements NotificationsPort {
     private readonly enqueueJob: (tx: Tx, job: { type: string; payload: unknown; dedupeKey?: string }) => Promise<unknown>,
     private readonly authorization: Pick<AuthorizationService, 'assert'>,
     private readonly audit: Pick<AuditWriter, 'write'>,
+    private readonly resendPermissions: ReadonlyMap<string, string> = new Map(),
   ) {}
 
   /** For callers outside a command: opens the transaction the durable record needs. */
@@ -179,13 +181,24 @@ export class NotificationService implements NotificationsPort {
   }
 
   /** Reserve an operator decision and its job together, without sending inside the caller's command. */
-  async requestEmailResend(ctx: ResendContext, input: ResendEmailInput): Promise<ResendEmailOutput> {
+  async requestEmailResend(ctx: ResendContext, input: ResendEmailInput, scope?: ResendScope): Promise<ResendEmailOutput> {
     const { actor, tx } = ctx;
-    this.authorization.assert({ actor, permission: NOTIFICATION_RESEND_PERMISSION,
+    const permission = scope ? this.resendPermission(scope.reference) : NOTIFICATION_RESEND_PERMISSION;
+    if (!permission || actor.type !== 'user' || !actor.id) {
+      throw PlatformError.forbidden('Email resend requires an authorized operator');
+    }
+    this.authorization.assert({ actor, permission,
       resource: { type: 'notifications', id: input.deliveryId } });
 
     const delivery = await this.lockDelivery(tx, input.deliveryId);
-    if (!delivery) throw PlatformError.notFound('Notification delivery', input.deliveryId);
+    if (!delivery || (scope && delivery.notification.reference !== scope.reference)) {
+      throw PlatformError.notFound('Notification delivery', input.deliveryId);
+    }
+    // Product-owned deliveries must go through the product command that resolves
+    // the reference. The public Base command accepts an id and has no such scope.
+    if (!scope && this.resendPermission(delivery.notification.reference)) {
+      throw PlatformError.forbidden('Email resend requires the owning module');
+    }
     const existing = await this.resendOperation(tx, input.operationId);
     const receipt = { operationId: input.operationId, deliveryId: input.deliveryId };
     if (existing) {
@@ -219,6 +232,11 @@ export class NotificationService implements NotificationsPort {
     if (!inserted.rows[0]) throw PlatformError.conflict('An email resend is already queued or this operation ID is in use');
     await ctx.enqueue({ type: NOTIFICATION_RESEND_JOB, payload: receipt, dedupeKey: `notification-resend:${input.operationId}` });
     return receipt;
+  }
+
+  private resendPermission(reference: string): string | undefined {
+    const separator = reference.indexOf(':');
+    return separator === -1 ? undefined : this.resendPermissions.get(reference.slice(0, separator));
   }
 
   async processEmailResend({ deliveryId, operationId }: ResendEmailOutput): Promise<void> {

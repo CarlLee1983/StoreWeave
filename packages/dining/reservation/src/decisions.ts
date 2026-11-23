@@ -1,6 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { PlatformError, defineCommand, type CommandContext } from '@storeweave/contracts';
+import { enqueueDiningNotification } from './notifications';
 import { DiningReservationRepository, diningRequestDecision } from './repository';
 import { diningCapacityCommitments, diningRequests } from './schema';
 
@@ -58,6 +59,7 @@ async function auditDecision<Status extends 'accepted' | 'rejected' | 'cancelled
 export async function acceptDiningRequestHandler(input: z.infer<typeof decisionInput>, context: CommandContext) {
   const request = await requestAtStatus(input.number, 'pending', context);
   const commitment = await repository.commitCapacity(context.tx, request.id, context.now);
+  await enqueueDiningNotification(context, request.id, 'accepted');
   return auditDecision(request.number, 'accepted', commitment.acceptedAt, context);
 }
 
@@ -66,6 +68,7 @@ export async function rejectDiningRequestHandler(input: z.infer<typeof rejectInp
   const [decision] = await context.tx.update(diningRequests).set({
     rejectedAt: sql`pg_catalog.clock_timestamp()`, customerReason: input.reason || null,
   }).where(eq(diningRequests.id, request.id)).returning({ rejectedAt: diningRequests.rejectedAt });
+  await enqueueDiningNotification(context, request.id, 'rejected');
   return auditDecision(request.number, 'rejected', decision!.rejectedAt!, context);
 }
 
@@ -73,5 +76,6 @@ export async function cancelDiningReservationHandler(input: z.infer<typeof cance
   const request = await requestAtStatus(input.number, 'accepted', context);
   const commitment = await repository.cancelCapacity(context.tx, request.id, context.now);
   await context.tx.update(diningRequests).set({ customerReason: input.reason }).where(eq(diningRequests.id, request.id));
+  await enqueueDiningNotification(context, request.id, 'cancelled');
   return auditDecision(request.number, 'cancelled', commitment.cancelledAt, context);
 }
